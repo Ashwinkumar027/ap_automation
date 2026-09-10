@@ -4,6 +4,7 @@ Enforces:
 1. Atomic splitting of Petty Cash Entry when Accounts L1 disputes line items.
 2. Creates child disputed voucher for Admin while forwarding verified lines to L2.
 3. Dispatches automated dispute email alert to Admin with itemized rejection reasons.
+4. Total Dispute Handling: If ALL lines are disputed, the parent ticket transitions to Disputed without creating an empty 0-line parent.
 """
 from typing import Dict, Any, List, Optional
 import frappe
@@ -43,6 +44,44 @@ def dispute_and_fork_petty_cash_lines(
     if not disputed_lines:
         raise APValidationError("No disputed line items selected.")
 
+    # ----------------------------------------------------------------------------------
+    # CASE A: ALL LINES DISPUTED (Total Dispute - No Clean Lines to Forward)
+    # ----------------------------------------------------------------------------------
+    if not verified_lines:
+        parent.status = "Disputed"
+        for line in parent.expense_lines:
+            line.is_disputed = 1
+            line.dispute_reason = dispute_reasons.get(line.name) or line.dispute_reason or "Disputed by Accounts L1"
+        parent.calculate_totals()
+        parent.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Dispatch Automated Dispute Alert to Custodian/Admin
+        try:
+            disputed_items_data = [
+                {"merchant_name": d.merchant_name, "expense_category": d.expense_category, "amount": d.amount, "dispute_reason": d.dispute_reason}
+                for d in disputed_lines
+            ]
+            notification_service.notify_admin_on_dispute(
+                parent.doctype,
+                parent.name,
+                disputed_items_data,
+                parent.name
+            )
+        except Exception as e:
+            frappe.log_error(f"Failed to dispatch dispute notification for {parent.name}: {str(e)}")
+
+        return {
+            "status": "SUCCESS",
+            "parent_voucher": parent.name,
+            "verified_amount": 0.0,
+            "forked_voucher": parent.name,
+            "disputed_amount": parent.total_amount
+        }
+
+    # ----------------------------------------------------------------------------------
+    # CASE B: PARTIAL DISPUTE (Split into Clean Parent + Disputed Child)
+    # ----------------------------------------------------------------------------------
     # Create Child Disputed Voucher for Admin
     forked_voucher = frappe.get_doc({
         "doctype": "Petty Cash Entry",

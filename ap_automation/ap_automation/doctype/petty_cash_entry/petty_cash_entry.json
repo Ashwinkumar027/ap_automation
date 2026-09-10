@@ -76,7 +76,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nSubmitted\nQueued in Batch\nApproved for Payment\nPaid\nDisputed\nRejected\nCancelled"
+   "options": "Draft\nSubmitted\nL1 Verified\nQueued in Batch\nApproved for Payment\nPaid\nDisputed\nRejected\nCancelled"
   },
   {
    "fieldname": "total_amount",
