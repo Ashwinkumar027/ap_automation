@@ -72,12 +72,12 @@
    "label": "Release & Bank State"
   },
   {
-   "default": "Generated",
+   "default": "Draft",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Batch Status",
-   "options": "Generated\nPending 2FA Approval\nDispatched to Bank\nCompleted\nFailed"
+   "options": "Draft\nGenerated\nPending 2FA Approval\nDispatched to Bank\nCompleted\nFailed"
   },
   {
    "fieldname": "idfc_batch_ref",

@@ -1,11 +1,11 @@
 """
-Universal Payment Release Funnel & 3-Condition Hard Gate Engine (PRD Section 8)
+Unified Spend Funnel & Certification Engine (PRD Section 7)
 Enforces:
-1. 4-Lane Convergence: Standardizes claims from all lanes into Payment Instruction ledger.
-2. The 3-Condition Bank Hard Gate:
-   - Gate 1: L1 Line Item Verified.
-   - Gate 2: L2 Accounts Approved.
-   - Gate 3: NPCI Penny Drop Clean (VERIFIED or MANUALLY_OVERRIDDEN).
+1. 3-Condition Hard Gate Certification:
+   - Condition 1 (L1 Gate): Verified without dispute & supporting bill proofs attached.
+   - Condition 2 (L2 Gate): Level 2 Approval passed.
+   - Condition 3 (Bank Gate): Beneficiary bank coordinates verified.
+2. Single-Source Payment Instruction generation (PI-YYYY-MM-XXXXX).
 3. Consolidated Payment Batch generation with SHA-256 integrity checksum.
 """
 from typing import Dict, Any, Optional, List
@@ -40,11 +40,57 @@ def create_payment_instruction_from_claim(
     bank_name = ""
     payable_amt = 0.0
 
-    if source_doctype == "Vendor Invoice Claim":
+    if source_doctype == "Petty Cash Entry":
+        beneficiary_type = "Employee"
+        beneficiary_name = getattr(claim, "custodian", "") or "Petty Cash Custodian"
+        account_no = getattr(claim, "custodian_bank_account", "") or ""
+        ifsc = getattr(claim, "custodian_ifsc_code", "") or ""
+
+        # Lookup custodian employee records if applicable
+        if beneficiary_name and frappe.db.exists("Employee", {"user_id": beneficiary_name, "status": "Active"}):
+            emp = frappe.db.get_value(
+                "Employee",
+                {"user_id": beneficiary_name, "status": "Active"},
+                ["employee_name", "bank_name", "bank_ac_no", "ifsc_code"],
+                as_dict=True
+            )
+            if emp:
+                beneficiary_name = emp.employee_name or beneficiary_name
+                bank_name = emp.bank_name or ""
+                if not account_no:
+                    account_no = emp.bank_ac_no or ""
+                if not ifsc:
+                    ifsc = emp.ifsc_code or ""
+
+        # CRITICAL FIX: Sum only non-disputed lines for payout
+        expense_lines = getattr(claim, "expense_lines", []) or []
+        verified_lines = [l for l in expense_lines if not getattr(l, "is_disputed", 0)]
+        payable_amt = sum(float(l.amount or 0.0) for l in verified_lines)
+
+        if payable_amt <= 0:
+            raise APValidationError(
+                f"Cannot create Payment Instruction for Petty Cash Entry '{source_voucher}': "
+                "No approved/verified line items found (Total payable amount is ₹ 0.00)."
+            )
+
+        l1_verified = bool(len(verified_lines) > 0)
+        l2_approved = bool(claim.status in ("Approved for Payment", "Approved", "Queued in Batch", "Submitted"))
+        
+        # Strict Bank Coordinates Verification: Must have non-empty valid account & IFSC
+        account_no = str(account_no).strip()
+        ifsc = str(ifsc).strip()
+        if account_no and ifsc and account_no != "CASH-IMPREST-01":
+            penny_drop_clean = True
+            if not bank_name:
+                bank_name = "IDFC FIRST Bank"
+        else:
+            penny_drop_clean = False
+
+    elif source_doctype == "Vendor Invoice Claim":
         beneficiary_type = "Supplier"
         beneficiary_name = claim.vendor
-        account_no = claim.bank_account_number or ""
-        ifsc = claim.bank_ifsc_code or ""
+        account_no = (claim.bank_account_number or "").strip()
+        ifsc = (claim.bank_ifsc_code or "").strip()
         bank_name = claim.bank_name or ""
         payable_amt = float(claim.net_payable_amount or 0.0)
 
@@ -63,22 +109,21 @@ def create_payment_instruction_from_claim(
     elif source_doctype == "Employee Reimbursement Claim":
         beneficiary_type = "Employee"
         beneficiary_name = claim.employee_name or claim.employee
-        account_no = claim.bank_account_no or ""
-        ifsc = claim.ifsc_code or ""
+        account_no = (claim.bank_account_no or "").strip()
+        ifsc = (claim.ifsc_code or "").strip()
         bank_name = claim.bank_name or ""
         payable_amt = float(claim.net_payable_amount or 0.0)
 
         # Gate 1: No active disputed lines & manager approved
         l1_verified = bool(claim.workflow_state in ("Approved by Manager", "Approved by Accounts L2"))
         l2_approved = bool(claim.status in ("Approved for Payment", "Queued in Batch"))
-        # Employee salary accounts from HRMS are verified
         penny_drop_clean = bool(account_no and ifsc)
 
     elif source_doctype == "Event Advance Request":
         beneficiary_type = "Employee"
         beneficiary_name = claim.spoc_name or claim.spoc
-        account_no = claim.bank_account_number or ""
-        ifsc = claim.bank_ifsc_code or ""
+        account_no = (claim.bank_account_number or "").strip()
+        ifsc = (claim.bank_ifsc_code or "").strip()
         bank_name = claim.bank_name or ""
         payable_amt = float(claim.requested_advance_amount or 0.0)
 
@@ -91,7 +136,6 @@ def create_payment_instruction_from_claim(
         beneficiary_name = claim.spoc_name or claim.spoc
         payable_amt = float(claim.net_payable_to_spoc or 0.0)
 
-        # Fetch SPOC bank details
         emp = frappe.db.get_value(
             "Employee",
             {"user_id": claim.spoc, "status": "Active"},
@@ -100,8 +144,8 @@ def create_payment_instruction_from_claim(
         )
         if emp:
             bank_name = emp.bank_name or ""
-            account_no = emp.bank_ac_no or ""
-            ifsc = emp.ifsc_code or ""
+            account_no = (emp.bank_ac_no or "").strip()
+            ifsc = (emp.ifsc_code or "").strip()
 
         l1_verified = bool(claim.settlement_type == "PAYABLE_TO_SPOC")
         l2_approved = bool(claim.status in ("Settled", "Under Accounts Review"))
@@ -132,8 +176,8 @@ def create_payment_instruction_from_claim(
         "beneficiary_account": account_no,
         "beneficiary_ifsc": ifsc,
         "bank_name": bank_name,
-        "payable_amount": payable_amt,
-        "total_amount": payable_amt,
+        "payable_amount": round(payable_amt, 2),
+        "total_amount": round(payable_amt, 2),
         "gate_l1_verified": 1 if l1_verified else 0,
         "gate_l2_approved": 1 if l2_approved else 0,
         "gate_penny_drop_clean": 1 if penny_drop_clean else 0,

@@ -2,14 +2,26 @@
 Tally ERP XML/JSON Export Bridge (PRD Section 9)
 Enforces:
 1. Production schema-compliant Tally XML Payment Voucher generation.
-2. Party Debits (Vendor/Employee Ledgers) and Bank Credit (IDFC Bank Operating A/c).
-3. Transaction narration formatted with bank UTR.
-4. Unique UUID GUID generation for idempotent deduplication in Tally.
+2. XML entity escaping for special characters (&, <, >, ', ") to prevent Tally parser crashes.
+3. Party Debits (Vendor/Employee Ledgers) and Bank Credit (IDFC Bank Operating A/c).
+4. Transaction narration formatted with bank UTR.
+5. Unique UUID GUID generation for idempotent deduplication in Tally.
 """
 from typing import Dict, Any, Optional
 import uuid
+import xml.sax.saxutils as saxutils
 import frappe
 from ap_automation.exceptions import APValidationError
+
+
+def clean_xml_text(val: Optional[str]) -> str:
+    """Escapes XML entities to ensure well-formed XML for Tally import."""
+    if not val:
+        return ""
+    return saxutils.escape(str(val).strip(), entities={
+        '"': "&quot;",
+        "'": "&apos;"
+    })
 
 
 def generate_tally_voucher_for_batch(batch_id: str) -> str:
@@ -34,19 +46,18 @@ def generate_tally_voucher_for_batch(batch_id: str) -> str:
     posting_date = batch.posting_date.replace("-", "") if isinstance(batch.posting_date, str) else batch.posting_date.strftime("%Y%m%d")
     batch_utr = items[0].get("utr") or batch.idfc_batch_ref or "UTR-PENDING"
 
-    # Build Tally XML
+    # Build Tally XML with escaped entities
     ledger_entries = []
     for item in items:
         amt = float(item["amount"])
-        bene = item["beneficiary_name"] or "Sundry Creditor"
+        bene = clean_xml_text(item["beneficiary_name"] or "Sundry Creditor")
         ledger_entries.append(
             f"""
             <ALLLEDGERENTRIES.LIST>
               <LEDGERNAME>{bene}</LEDGERNAME>
               <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
               <AMOUNT>-{amt:.2f}</AMOUNT>
-            </ALLLEDGERENTRIES.LIST>
-            """
+            </ALLLEDGERENTRIES.LIST>"""
         )
 
     # Bank Credit entry
@@ -55,8 +66,10 @@ def generate_tally_voucher_for_batch(batch_id: str) -> str:
       <LEDGERNAME>IDFC FIRST Bank Operating A/c</LEDGERNAME>
       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
       <AMOUNT>{total_amount:.2f}</AMOUNT>
-    </ALLLEDGERENTRIES.LIST>
-    """
+    </ALLLEDGERENTRIES.LIST>"""
+
+    escaped_batch_id = clean_xml_text(batch_id)
+    escaped_batch_utr = clean_xml_text(batch_utr)
 
     xml_payload = f"""<ENVELOPE>
   <HEADER>
@@ -69,7 +82,7 @@ def generate_tally_voucher_for_batch(batch_id: str) -> str:
           <VOUCHER VCHTYPE="Payment" ACTION="Create">
             <DATE>{posting_date}</DATE>
             <GUID>{tally_guid}</GUID>
-            <NARRATION>Payment released via IDFC AP Automation. Batch: {batch_id}. Bank UTR: {batch_utr}</NARRATION>
+            <NARRATION>Payment released via IDFC AP Automation. Batch: {escaped_batch_id}. Bank UTR: {escaped_batch_utr}</NARRATION>
             <VOUCHERTYPENAME>Payment</VOUCHERTYPENAME>
             {''.join(ledger_entries)}
             {bank_entry}
