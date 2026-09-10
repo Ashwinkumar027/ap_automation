@@ -1,0 +1,23 @@
+{
+ "app": "ap_automation",
+ "bg_color": "gray",
+ "creation": "2026-09-03 12:55:37.204625",
+ "docstatus": 0,
+ "doctype": "Desktop Icon",
+ "hidden": 0,
+ "icon": "buying",
+ "icon_type": "Link",
+ "idx": 0,
+ "label": "Lane 3: Vendor Invoices",
+ "link_to": "Lane 3: Vendor Invoices",
+ "link_type": "Workspace Sidebar",
+ "modified": "2026-09-03 12:55:37.204625",
+ "modified_by": "Administrator",
+ "name": "Lane 3: Vendor Invoices",
+ "owner": "Administrator",
+ "parent_icon": "AP Automation",
+ "restrict_removal": 0,
+ "roles": [],
+ "sidebar": "AP Automation",
+ "standard": 1
+}

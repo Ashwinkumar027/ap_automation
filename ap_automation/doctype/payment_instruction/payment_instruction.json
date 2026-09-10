@@ -1,0 +1,239 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:PI-{YYYY}-{MM}-{#####}",
+ "creation": "2026-09-01 18:38:29.546502",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_origin",
+  "source_doctype",
+  "source_voucher",
+  "company",
+  "cb_bene",
+  "beneficiary_type",
+  "beneficiary_name",
+  "sb_bank",
+  "beneficiary_account",
+  "beneficiary_ifsc",
+  "bank_name",
+  "cb_amount",
+  "payable_amount",
+  "total_amount",
+  "sb_gates",
+  "gate_l1_verified",
+  "gate_l2_approved",
+  "gate_penny_drop_clean",
+  "cb_gate_status",
+  "hard_gate_status",
+  "status",
+  "sb_batch",
+  "batch_id",
+  "idfc_utr",
+  "approval_trail"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_origin",
+   "fieldtype": "Section Break",
+   "label": "Spend Origin & Voucher Reference"
+  },
+  {
+   "fieldname": "source_doctype",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Source Spend Lane",
+   "options": "Petty Cash Entry\nEmployee Reimbursement Claim\nVendor Invoice Claim\nEvent Advance Request\nEvent Settlement",
+   "reqd": 1
+  },
+  {
+   "fieldname": "source_voucher",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Source Voucher ID",
+   "options": "source_doctype",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company Entity",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cb_bene",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "beneficiary_type",
+   "fieldtype": "Select",
+   "label": "Beneficiary Type",
+   "options": "Employee\nSupplier",
+   "reqd": 1
+  },
+  {
+   "fieldname": "beneficiary_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Beneficiary Legal Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sb_bank",
+   "fieldtype": "Section Break",
+   "label": "Banking & Payment Coordinates"
+  },
+  {
+   "fieldname": "beneficiary_account",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Beneficiary Account Number",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "beneficiary_ifsc",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Bank IFSC Code",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_amount",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payable_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Net Payable Amount (INR)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Base Total Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_gates",
+   "fieldtype": "Section Break",
+   "label": "The 3-Condition Bank Hard Gate"
+  },
+  {
+   "default": "0",
+   "fieldname": "gate_l1_verified",
+   "fieldtype": "Check",
+   "label": "Gate 1: L1 Line Item Verified",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "gate_l2_approved",
+   "fieldtype": "Check",
+   "label": "Gate 2: L2 Accounts Approved",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "gate_penny_drop_clean",
+   "fieldtype": "Check",
+   "label": "Gate 3: NPCI Penny Drop Clean",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_gate_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "hard_gate_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Hard Gate Evaluation",
+   "options": "PASSED\nFAILED_L1\nFAILED_L2\nFAILED_PENNY_DROP",
+   "read_only": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Funnel Status",
+   "options": "Draft\nEligible for Batch\nQueued in Batch\nDisbursed via IDFC\nHeld"
+  },
+  {
+   "fieldname": "sb_batch",
+   "fieldtype": "Section Break",
+   "label": "Batching & Release Tracing"
+  },
+  {
+   "fieldname": "batch_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Assigned Payment Batch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "idfc_utr",
+   "fieldtype": "Data",
+   "label": "Bank UTR Reference",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_trail",
+   "fieldtype": "Table",
+   "label": "Approval Trail",
+   "options": "AP Approval Trail",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:37.549005",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Payment Instruction",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

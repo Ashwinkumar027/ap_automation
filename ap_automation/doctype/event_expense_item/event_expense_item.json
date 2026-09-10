@@ -1,0 +1,114 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-01 18:31:45.854690",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "spend_stream",
+  "expense_category",
+  "vendor_name",
+  "bill_number",
+  "bill_date",
+  "amount",
+  "tax_id",
+  "receipt_attachment",
+  "is_disputed",
+  "dispute_reason",
+  "line_status"
+ ],
+ "fields": [
+  {
+   "default": "SPOC On-Ground Cash Spend",
+   "fieldname": "spend_stream",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Spend Stream",
+   "options": "SPOC On-Ground Cash Spend\nFinance Direct Pay",
+   "reqd": 1
+  },
+  {
+   "fieldname": "expense_category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Expense Category",
+   "options": "Venue & Stage\nTravel & Flights\nLocal Conveyance\nFood & Catering\nMarketing & Collateral\nStationery & Props\nIncidentals",
+   "reqd": 1
+  },
+  {
+   "fieldname": "vendor_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vendor / Payee Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "bill_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Bill / Receipt Number",
+   "reqd": 1
+  },
+  {
+   "fieldname": "bill_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Bill Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount (INR)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "tax_id",
+   "fieldtype": "Data",
+   "label": "Vendor GSTIN"
+  },
+  {
+   "fieldname": "receipt_attachment",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "Receipt Attachment",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_disputed",
+   "fieldtype": "Check",
+   "label": "Is Disputed"
+  },
+  {
+   "fieldname": "dispute_reason",
+   "fieldtype": "Small Text",
+   "label": "Dispute Reason"
+  },
+  {
+   "default": "Verified",
+   "fieldname": "line_status",
+   "fieldtype": "Select",
+   "label": "Line Status",
+   "options": "Verified\nDisputed\nDuplicate Flagged",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:37.970343",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Event Expense Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

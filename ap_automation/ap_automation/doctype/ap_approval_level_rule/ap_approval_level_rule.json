@@ -1,0 +1,68 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-01 16:58:19.280209",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "level_number",
+  "level_name",
+  "designated_approver",
+  "allow_delegation",
+  "action_type"
+ ],
+ "fields": [
+  {
+   "fieldname": "level_number",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Level #",
+   "reqd": 1
+  },
+  {
+   "fieldname": "level_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Level Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "designated_approver",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Designated Approver (User)",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "allow_delegation",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Allow HRMS Leave Delegation"
+  },
+  {
+   "default": "Full Approval",
+   "fieldname": "action_type",
+   "fieldtype": "Select",
+   "label": "Action Scope",
+   "options": "Full Approval\nLine-Item Audit"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:39.227458",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "AP Approval Level Rule",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

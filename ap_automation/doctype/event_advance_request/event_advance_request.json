@@ -1,0 +1,214 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:EAR-{YYYY}-{MM}-{#####}",
+ "creation": "2026-09-01 18:28:48.561572",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_event",
+  "event",
+  "company",
+  "spoc",
+  "spoc_name",
+  "sb_bank",
+  "bank_name",
+  "bank_account_number",
+  "bank_ifsc_code",
+  "sb_advance",
+  "requested_advance_amount",
+  "approved_advance_amount",
+  "total_amount",
+  "purpose",
+  "sb_lifecycle",
+  "status",
+  "batch_id",
+  "disbursement_reference",
+  "approval_trail",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_event",
+   "fieldtype": "Section Break",
+   "label": "Event Information"
+  },
+  {
+   "fieldname": "event",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Linked Event",
+   "options": "Event Master",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "spoc",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Event SPOC",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "spoc_name",
+   "fieldtype": "Data",
+   "label": "SPOC Full Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_bank",
+   "fieldtype": "Section Break",
+   "label": "HRMS Locked Salary Bank Account (Zero-Typing)"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_account_number",
+   "fieldtype": "Data",
+   "label": "Salary Bank Account Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_ifsc_code",
+   "fieldtype": "Data",
+   "label": "Bank IFSC Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_advance",
+   "fieldtype": "Section Break",
+   "label": "Advance Request & Justification"
+  },
+  {
+   "fieldname": "requested_advance_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Requested Advance (INR)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "approved_advance_amount",
+   "fieldtype": "Currency",
+   "label": "Approved Advance (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Base Total Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "purpose",
+   "fieldtype": "Small Text",
+   "label": "Advance Purpose & Spend Breakdown",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sb_lifecycle",
+   "fieldtype": "Section Break",
+   "label": "Approval & IDFC Payout Status"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nSubmitted\nApproved for Advance\nQueued in Batch\nDisbursed via IDFC\nRejected"
+  },
+  {
+   "fieldname": "batch_id",
+   "fieldtype": "Data",
+   "label": "Payment Batch ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "disbursement_reference",
+   "fieldtype": "Data",
+   "label": "IDFC UTR / Reference",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_trail",
+   "fieldtype": "Table",
+   "label": "Approval Trail",
+   "options": "AP Approval Trail",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Event Advance Request",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:38.075331",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Event Advance Request",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

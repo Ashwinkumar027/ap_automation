@@ -1,0 +1,372 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:VINV-{YYYY}-{MM}-{#####}",
+ "creation": "2026-09-01 18:10:35.512661",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_route",
+  "invoice_type",
+  "company",
+  "vendor",
+  "vendor_name",
+  "vendor_gstin",
+  "cb_po_link",
+  "purchase_order",
+  "vendor_po_request",
+  "sb_bank",
+  "bank_name",
+  "bank_account_number",
+  "bank_ifsc_code",
+  "sb_invoice",
+  "tax_invoice_number",
+  "tax_invoice_date",
+  "base_amount",
+  "gst_rate",
+  "gst_amount",
+  "cb_total",
+  "total_invoice_amount",
+  "advance_deducted",
+  "net_payable_amount",
+  "total_amount",
+  "sb_attachments",
+  "tax_invoice_attachment",
+  "email_approval_attachment",
+  "sb_governance",
+  "status",
+  "workflow_state",
+  "current_approval_level",
+  "designated_approver",
+  "batch_id",
+  "approval_trail",
+  "amended_from",
+  "purchase_receipt",
+  "match_status",
+  "match_variance_details",
+  "tds_section",
+  "tds_rate",
+  "tds_amount"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_route",
+   "fieldtype": "Section Break",
+   "label": "Intake Route & Entity"
+  },
+  {
+   "fieldname": "invoice_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Intake Route",
+   "options": "With Purchase Order\nWithout PO (Direct Tax Invoice)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Billed Company Entity",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Vendor / Supplier",
+   "options": "Supplier",
+   "reqd": 1
+  },
+  {
+   "fieldname": "vendor_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vendor Legal Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "vendor_gstin",
+   "fieldtype": "Data",
+   "label": "Vendor GSTIN",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_po_link",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "purchase_order",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Linked Purchase Order",
+   "options": "Purchase Order"
+  },
+  {
+   "fieldname": "vendor_po_request",
+   "fieldtype": "Link",
+   "label": "Linked PO Advance Request",
+   "options": "Vendor PO Request"
+  },
+  {
+   "fieldname": "sb_bank",
+   "fieldtype": "Section Break",
+   "label": "Verified Vendor Bank Account (ERPNext Locked - Zero Typing)"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_account_number",
+   "fieldtype": "Data",
+   "label": "Bank Account Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_ifsc_code",
+   "fieldtype": "Data",
+   "label": "Bank IFSC Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_invoice",
+   "fieldtype": "Section Break",
+   "label": "Tax Invoice Details & Financials"
+  },
+  {
+   "fieldname": "tax_invoice_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vendor Tax Invoice #",
+   "reqd": 1
+  },
+  {
+   "fieldname": "tax_invoice_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Invoice Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "base_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Base Taxable Amount (INR)",
+   "reqd": 1
+  },
+  {
+   "default": "18%",
+   "fieldname": "gst_rate",
+   "fieldtype": "Select",
+   "label": "GST Rate",
+   "options": "0%\n5%\n12%\n18%\n28%",
+   "reqd": 1
+  },
+  {
+   "fieldname": "gst_amount",
+   "fieldtype": "Currency",
+   "label": "Calculated GST (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_total",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_invoice_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Invoice Amount (INR)",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "advance_deducted",
+   "fieldtype": "Currency",
+   "label": "Prior Advance Deducted (INR)"
+  },
+  {
+   "fieldname": "net_payable_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Net Payable to Vendor (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Base Spend Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_attachments",
+   "fieldtype": "Section Break",
+   "label": "Mandatory Audit Proof Attachments"
+  },
+  {
+   "fieldname": "tax_invoice_attachment",
+   "fieldtype": "Attach",
+   "label": "Vendor Tax Invoice PDF",
+   "reqd": 1
+  },
+  {
+   "fieldname": "email_approval_attachment",
+   "fieldtype": "Attach",
+   "label": "Internal Email Approval PDF / Screenshot"
+  },
+  {
+   "fieldname": "sb_governance",
+   "fieldtype": "Section Break",
+   "label": "Approval Workflow & Batching"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nSubmitted\nPending Accounts Review\nPending Director Signoff\nApproved for Payment\nQueued in Batch\nPaid\nDisputed\nRejected"
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Data",
+   "label": "Workflow State",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "current_approval_level",
+   "fieldtype": "Int",
+   "label": "Current Approval Level",
+   "read_only": 1
+  },
+  {
+   "fieldname": "designated_approver",
+   "fieldtype": "Link",
+   "label": "Designated Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "batch_id",
+   "fieldtype": "Data",
+   "label": "Payment Batch ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_trail",
+   "fieldtype": "Table",
+   "label": "Approval Audit Trail",
+   "options": "AP Approval Trail",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Vendor Invoice Claim",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "purchase_receipt",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Linked Goods Receipt Note (GRN)",
+   "options": "Purchase Receipt"
+  },
+  {
+   "default": "Not Applicable (Non-PO)",
+   "fieldname": "match_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "3-Way Match Status",
+   "options": "Not Applicable (Non-PO)\n3-Way Match Passed\nQuantity Mismatch Flagged\nPrice Mismatch Flagged\nMissing GRN Flagged",
+   "read_only": 1
+  },
+  {
+   "fieldname": "match_variance_details",
+   "fieldtype": "Small Text",
+   "label": "3-Way Match Audit Diagnostics",
+   "read_only": 1
+  },
+  {
+   "default": "None / Exempt",
+   "fieldname": "tds_section",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Statutory Indian TDS Section",
+   "options": "None / Exempt\n194C - Contractor (1%)\n194C - Contractor (2%)\n194J - Technical Fees (2%)\n194J - Professional Fees (10%)\n194Q - Purchase of Goods (0.1%)\n194I - Rent (10%)\n206AB - Higher Non-Filer (20%)"
+  },
+  {
+   "fieldname": "tds_rate",
+   "fieldtype": "Percent",
+   "label": "TDS Rate (%)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tds_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Deducted TDS Amount (INR)",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:38.337502",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Vendor Invoice Claim",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Purchase User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

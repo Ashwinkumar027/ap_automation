@@ -1,0 +1,219 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:EVT-{YYYY}-{MM}-{#####}",
+ "creation": "2026-09-01 18:28:47.624789",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_basic",
+  "event_name",
+  "company",
+  "event_spoc",
+  "spoc_name",
+  "cb_dates",
+  "start_date",
+  "end_date",
+  "event_location",
+  "sb_budget",
+  "allocated_budget",
+  "disbursed_advance",
+  "direct_finance_spends",
+  "cb_actuals",
+  "spoc_actual_spends",
+  "total_committed_spend",
+  "remaining_budget",
+  "budget_utilization_pct",
+  "budget_overrun_status",
+  "sb_status",
+  "status"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_basic",
+   "fieldtype": "Section Break",
+   "label": "Event Identification & Governance"
+  },
+  {
+   "fieldname": "event_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Event Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company Entity",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "event_spoc",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Designated Event SPOC",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "spoc_name",
+   "fieldtype": "Data",
+   "label": "SPOC Full Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_dates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Event Start Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Event End Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "event_location",
+   "fieldtype": "Data",
+   "label": "Event Venue / Location"
+  },
+  {
+   "fieldname": "sb_budget",
+   "fieldtype": "Section Break",
+   "label": "Live Budget-vs-Actual Ledger (Financial Dashboard)"
+  },
+  {
+   "fieldname": "allocated_budget",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Board Approved Budget (INR)",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "disbursed_advance",
+   "fieldtype": "Currency",
+   "label": "Disbursed SPOC Advances (INR)",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "direct_finance_spends",
+   "fieldtype": "Currency",
+   "label": "Finance Direct Vendor Spends (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_actuals",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "spoc_actual_spends",
+   "fieldtype": "Currency",
+   "label": "SPOC Actual Ground Spends (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_committed_spend",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Committed Spend (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remaining_budget",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Remaining Uncommitted Budget (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "budget_utilization_pct",
+   "fieldtype": "Percent",
+   "label": "Budget Utilization (%)",
+   "read_only": 1
+  },
+  {
+   "default": "WITHIN_BUDGET",
+   "fieldname": "budget_overrun_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Budget Overrun Status",
+   "options": "WITHIN_BUDGET\nAPPROACHING_LIMIT (80-100%)\nOVERRUN_ALERT (>100%)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_status",
+   "fieldtype": "Section Break",
+   "label": "Lifecycle State"
+  },
+  {
+   "default": "Budget Approved",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Planning\nBudget Approved\nAdvance Disbursed\nIn Progress\nSettlement Pending\nClosed\nCancelled"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:38.204122",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Event Master",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

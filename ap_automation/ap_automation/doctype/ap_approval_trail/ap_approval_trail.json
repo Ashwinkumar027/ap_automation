@@ -1,0 +1,78 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-01 16:58:21.269346",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "level_number",
+  "level_name",
+  "designated_approver",
+  "action_taken_by",
+  "action",
+  "action_timestamp",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "level_number",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Level"
+  },
+  {
+   "fieldname": "level_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Level Title"
+  },
+  {
+   "fieldname": "designated_approver",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Designated User",
+   "options": "User"
+  },
+  {
+   "fieldname": "action_taken_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Action Taken By",
+   "options": "User"
+  },
+  {
+   "fieldname": "action",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Action",
+   "options": "APPROVED\nDISPUTED\nREJECTED"
+  },
+  {
+   "fieldname": "action_timestamp",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Timestamp"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks / Audit Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:38.992829",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "AP Approval Trail",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

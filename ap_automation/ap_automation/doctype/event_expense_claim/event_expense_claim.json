@@ -1,0 +1,179 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:EEC-{YYYY}-{MM}-{#####}",
+ "creation": "2026-09-01 18:31:46.027677",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_header",
+  "event",
+  "company",
+  "spoc",
+  "spoc_name",
+  "cb_claim",
+  "posting_date",
+  "total_claim_amount",
+  "total_amount",
+  "status",
+  "sb_items",
+  "expense_items",
+  "sb_audit",
+  "approval_trail",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_header",
+   "fieldtype": "Section Break",
+   "label": "Event Spend Identification"
+  },
+  {
+   "fieldname": "event",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Linked Event Master",
+   "options": "Event Master",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company Entity",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "spoc",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Event SPOC",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "spoc_name",
+   "fieldtype": "Data",
+   "label": "SPOC Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_claim",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Claim Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "total_claim_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Claim Amount (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Base Total Amount",
+   "read_only": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nSubmitted\nAccounts Verified\nSettled\nRejected"
+  },
+  {
+   "fieldname": "sb_items",
+   "fieldtype": "Section Break",
+   "label": "Itemized On-Ground Bills (Stream B)"
+  },
+  {
+   "fieldname": "expense_items",
+   "fieldtype": "Table",
+   "label": "Expense Items",
+   "options": "Event Expense Item"
+  },
+  {
+   "fieldname": "sb_audit",
+   "fieldtype": "Section Break",
+   "label": "Audit Trail & Approvals"
+  },
+  {
+   "fieldname": "approval_trail",
+   "fieldtype": "Table",
+   "label": "Approval Trail",
+   "options": "AP Approval Trail",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Event Expense Claim",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:37.829269",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Event Expense Claim",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

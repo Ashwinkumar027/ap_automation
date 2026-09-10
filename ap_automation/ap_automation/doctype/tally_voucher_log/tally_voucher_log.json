@@ -1,0 +1,148 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:TALLY-{YYYY}-{MM}-{#####}",
+ "creation": "2026-09-01 18:45:57.796918",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_header",
+  "company",
+  "batch_id",
+  "voucher_type",
+  "cb_meta",
+  "voucher_date",
+  "total_debit_amount",
+  "tally_guid",
+  "sb_status",
+  "status",
+  "export_timestamp",
+  "sb_payload",
+  "tally_xml_payload"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_header",
+   "fieldtype": "Section Break",
+   "label": "Tally Export Header"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company Entity",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "batch_id",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Associated Payment Batch",
+   "options": "Payment Batch",
+   "reqd": 1
+  },
+  {
+   "default": "Payment",
+   "fieldname": "voucher_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Tally Voucher Type",
+   "options": "Payment\nJournal Entry"
+  },
+  {
+   "fieldname": "cb_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "voucher_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "total_debit_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Disbursed Amount (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tally_guid",
+   "fieldtype": "Data",
+   "label": "Tally Unique GUID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_status",
+   "fieldtype": "Section Break",
+   "label": "Export Synchronization State"
+  },
+  {
+   "default": "Pending Export",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Sync Status",
+   "options": "Pending Export\nExported to Tally\nSync Failed"
+  },
+  {
+   "fieldname": "export_timestamp",
+   "fieldtype": "Datetime",
+   "label": "Export Timestamp",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_payload",
+   "fieldtype": "Section Break",
+   "label": "Tally XML Payload"
+  },
+  {
+   "fieldname": "tally_xml_payload",
+   "fieldtype": "Code",
+   "label": "Tally XML Payload",
+   "options": "XML",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:36.603372",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Tally Voucher Log",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

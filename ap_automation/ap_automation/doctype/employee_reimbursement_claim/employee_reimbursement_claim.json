@@ -1,0 +1,309 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:EXP-{YYYY}-{MM}-{#####}",
+ "creation": "2026-09-01 17:48:37.045057",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_emp",
+  "employee",
+  "employee_name",
+  "company",
+  "department",
+  "cb_claim",
+  "posting_date",
+  "status",
+  "workflow_state",
+  "current_approval_level",
+  "designated_approver",
+  "batch_id",
+  "sb_bank",
+  "bank_name",
+  "bank_account_number",
+  "bank_ifsc_code",
+  "sb_amounts",
+  "total_claim_amount",
+  "advance_amount",
+  "cb_net",
+  "net_payable_amount",
+  "total_amount",
+  "sb_lines",
+  "expense_lines",
+  "sb_fork",
+  "is_forked_voucher",
+  "parent_voucher",
+  "forked_voucher",
+  "approval_trail",
+  "pre_travel_request",
+  "budget_variance_status",
+  "budget_variance_percent",
+  "overrun_justification"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_emp",
+   "fieldtype": "Section Break",
+   "label": "Employee Profile (HRMS Locked)"
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Employee ID",
+   "options": "Employee",
+   "reqd": 1
+  },
+  {
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Employee Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "HRMS Legal Entity",
+   "options": "Company",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_claim",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Claim Date",
+   "reqd": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nSubmitted\nPending Manager Approval\nApproved by Manager\nApproved for Payment\nQueued in Batch\nPaid\nDisputed\nRejected\nCancelled"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "workflow_state",
+   "fieldtype": "Data",
+   "label": "Workflow State",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "current_approval_level",
+   "fieldtype": "Int",
+   "label": "Current Approval Level",
+   "read_only": 1
+  },
+  {
+   "fieldname": "designated_approver",
+   "fieldtype": "Link",
+   "label": "Current Designated Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "batch_id",
+   "fieldtype": "Data",
+   "label": "Payment Batch ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_bank",
+   "fieldtype": "Section Break",
+   "label": "Verified Salary Bank Account (HRMS Read-Only)"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_account_number",
+   "fieldtype": "Data",
+   "label": "Salary Bank Account Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_ifsc_code",
+   "fieldtype": "Data",
+   "label": "Bank IFSC Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_amounts",
+   "fieldtype": "Section Break",
+   "label": "Claim Settlement Summary"
+  },
+  {
+   "fieldname": "total_claim_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Spend (INR)",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "advance_amount",
+   "fieldtype": "Currency",
+   "label": "Advance Offset (INR)"
+  },
+  {
+   "fieldname": "cb_net",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "net_payable_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Net Payable to Employee (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Total Base Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_lines",
+   "fieldtype": "Section Break",
+   "label": "Expense Lines (Mandatory Bill Proofs)"
+  },
+  {
+   "fieldname": "expense_lines",
+   "fieldtype": "Table",
+   "label": "Expense Items",
+   "options": "Employee Reimbursement Line",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sb_fork",
+   "fieldtype": "Section Break",
+   "label": "Voucher Relationships"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_forked_voucher",
+   "fieldtype": "Check",
+   "label": "Is Forked Disputed Claim",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parent_voucher",
+   "fieldtype": "Link",
+   "label": "Parent Claim",
+   "options": "Employee Reimbursement Claim",
+   "read_only": 1
+  },
+  {
+   "fieldname": "forked_voucher",
+   "fieldtype": "Link",
+   "label": "Disputed Fork Voucher",
+   "options": "Employee Reimbursement Claim",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_trail",
+   "fieldtype": "Table",
+   "label": "Approval Audit Trail",
+   "options": "AP Approval Trail",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pre_travel_request",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Approved Pre-Travel Authorization",
+   "options": "Pre Travel Request"
+  },
+  {
+   "default": "Within Budget",
+   "fieldname": "budget_variance_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Budget Variance Status",
+   "options": "Within Budget\nBudget Overrun Flagged\nNo Pre-Travel Required",
+   "read_only": 1
+  },
+  {
+   "fieldname": "budget_variance_percent",
+   "fieldtype": "Percent",
+   "label": "Budget Variance %",
+   "read_only": 1
+  },
+  {
+   "fieldname": "overrun_justification",
+   "fieldtype": "Small Text",
+   "label": "Budget Overrun Justification"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:38.753368",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Employee Reimbursement Claim",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

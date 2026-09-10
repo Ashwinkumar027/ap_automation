@@ -1,0 +1,232 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:EST-{YYYY}-{MM}-{#####}",
+ "creation": "2026-09-01 18:35:33.208031",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_event",
+  "event",
+  "company",
+  "spoc",
+  "spoc_name",
+  "cb_dates",
+  "event_end_date",
+  "settlement_date",
+  "sb_delta",
+  "disbursed_advance",
+  "spoc_actual_spends",
+  "cb_delta",
+  "settlement_delta",
+  "settlement_type",
+  "net_payable_to_spoc",
+  "refund_receivable_from_spoc",
+  "sb_refund",
+  "refund_received_reference",
+  "refund_date",
+  "sb_status",
+  "status",
+  "approval_trail",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_event",
+   "fieldtype": "Section Break",
+   "label": "Event Reconciliation Context"
+  },
+  {
+   "fieldname": "event",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Linked Event Master",
+   "options": "Event Master",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company Entity",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "spoc",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Event SPOC",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "spoc_name",
+   "fieldtype": "Data",
+   "label": "SPOC Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_dates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "event_end_date",
+   "fieldtype": "Date",
+   "label": "Event Concluded Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "settlement_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Settlement Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sb_delta",
+   "fieldtype": "Section Break",
+   "label": "Post-Event Delta Financial Math"
+  },
+  {
+   "fieldname": "disbursed_advance",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Advance Disbursed (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "spoc_actual_spends",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total SPOC Actual Spends (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_delta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "settlement_delta",
+   "fieldtype": "Currency",
+   "label": "Settlement Delta (Actual - Advance)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "settlement_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Settlement Classification",
+   "options": "PAYABLE_TO_SPOC\nREFUND_FROM_SPOC\nZERO_BALANCE_BALANCED",
+   "read_only": 1
+  },
+  {
+   "fieldname": "net_payable_to_spoc",
+   "fieldtype": "Currency",
+   "label": "Net Balance Payable to SPOC (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "refund_receivable_from_spoc",
+   "fieldtype": "Currency",
+   "label": "Refund Receivable from SPOC (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_refund",
+   "fieldtype": "Section Break",
+   "label": "Refund Confirmation (Mandatory if Refund Receivable)"
+  },
+  {
+   "fieldname": "refund_received_reference",
+   "fieldtype": "Data",
+   "label": "Corporate Bank Refund UTR / Ref"
+  },
+  {
+   "fieldname": "refund_date",
+   "fieldtype": "Date",
+   "label": "Refund Received Date"
+  },
+  {
+   "fieldname": "sb_status",
+   "fieldtype": "Section Break",
+   "label": "Settlement Lifecycle State"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nUnder Accounts Review\nSettled\nRejected"
+  },
+  {
+   "fieldname": "approval_trail",
+   "fieldtype": "Table",
+   "label": "Approval Trail",
+   "options": "AP Approval Trail",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Event Settlement",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:37.694758",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Event Settlement",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

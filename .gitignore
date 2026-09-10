@@ -53,3 +53,11 @@ jspm_packages/
 
 # Aider AI Chat
 .aider*
+
+# Security - Keys and Certificates
+*.pem
+*.key
+*.cert
+keys/
+idfc_private_key.pem
+

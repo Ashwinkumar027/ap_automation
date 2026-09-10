@@ -1,0 +1,222 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:PC-{YYYY}-{MM}-{#####}",
+ "creation": "2026-09-01 16:50:05.787308",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_header",
+  "posting_date",
+  "claim_title",
+  "company",
+  "custodian",
+  "cb_status",
+  "status",
+  "total_amount",
+  "batch_id",
+  "sb_bank",
+  "custodian_bank_account",
+  "custodian_ifsc_code",
+  "sb_lines",
+  "expense_lines",
+  "current_approval_level",
+  "designated_approver",
+  "approval_trail",
+  "workflow_state",
+  "is_forked_voucher",
+  "parent_voucher",
+  "forked_voucher"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_header",
+   "fieldtype": "Section Break",
+   "label": "Petty Cash Claim Header"
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "claim_title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Claim Title / Envelope Name (Optional)",
+   "description": "Enter a custom name e.g. 'July 4th Week 2026 - ACM' or leave blank for auto-numbering"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "custodian",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Custodian / Admin Staff",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cb_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nSubmitted\nQueued in Batch\nApproved for Payment\nPaid\nDisputed\nRejected\nCancelled"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Amount (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "batch_id",
+   "fieldtype": "Data",
+   "label": "Batch ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_bank",
+   "fieldtype": "Section Break",
+   "label": "Disbursement Bank Account"
+  },
+  {
+   "fieldname": "custodian_bank_account",
+   "fieldtype": "Data",
+   "label": "Bank Account Number"
+  },
+  {
+   "fieldname": "custodian_ifsc_code",
+   "fieldtype": "Data",
+   "label": "Bank IFSC Code"
+  },
+  {
+   "fieldname": "sb_lines",
+   "fieldtype": "Section Break",
+   "label": "Expense Lines (Excel-Style Smart Grid)"
+  },
+  {
+   "fieldname": "expense_lines",
+   "fieldtype": "Table",
+   "label": "Expense Line Items",
+   "options": "Petty Cash Line Item",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "current_approval_level",
+   "fieldtype": "Int",
+   "label": "Current Approval Level",
+   "read_only": 1
+  },
+  {
+   "fieldname": "designated_approver",
+   "fieldtype": "Link",
+   "label": "Current Designated Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_trail",
+   "fieldtype": "Table",
+   "label": "Approval Audit Trail",
+   "options": "AP Approval Trail",
+   "read_only": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "workflow_state",
+   "fieldtype": "Data",
+   "label": "Workflow State",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_forked_voucher",
+   "fieldtype": "Check",
+   "label": "Is Forked Disputed Voucher",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parent_voucher",
+   "fieldtype": "Link",
+   "label": "Parent Claim Voucher",
+   "options": "Petty Cash Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "forked_voucher",
+   "fieldtype": "Link",
+   "label": "Disputed Fork Voucher",
+   "options": "Petty Cash Entry",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:39.330399",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Petty Cash Entry",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "claim_title"
+}

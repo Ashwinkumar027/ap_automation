@@ -1,0 +1,116 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:POL-{company}-{document_lane}-{#####}",
+ "creation": "2026-09-01 16:58:20.891075",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_main",
+  "company",
+  "document_lane",
+  "cb_policy",
+  "min_amount",
+  "max_amount",
+  "is_active",
+  "sb_levels",
+  "approval_levels"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_main",
+   "fieldtype": "Section Break",
+   "label": "Policy Scope"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "document_lane",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Document Lane",
+   "options": "Petty Cash Entry\nEmployee Reimbursement Claim\nAP Vendor Invoice\nEvent Advance Request",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cb_policy",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "min_amount",
+   "fieldtype": "Currency",
+   "label": "Min Amount (INR)"
+  },
+  {
+   "default": "0",
+   "fieldname": "max_amount",
+   "fieldtype": "Currency",
+   "label": "Max Amount (INR, 0 = No Limit)"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "sb_levels",
+   "fieldtype": "Section Break",
+   "label": "Approval Hierarchy (Ordered Progression)"
+  },
+  {
+   "fieldname": "approval_levels",
+   "fieldtype": "Table",
+   "label": "Approval Levels",
+   "options": "AP Approval Level Rule",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 14:05:39.098523",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "AP Approval Matrix",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
