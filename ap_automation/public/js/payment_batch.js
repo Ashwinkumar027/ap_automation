@@ -3,10 +3,93 @@
 
 frappe.ui.form.on("Payment Batch", {
     refresh(frm) {
+        setup_fetch_claims_button(frm);
         render_executive_dashboard(frm);
         setup_2fa_release_buttons(frm);
+    },
+
+    company(frm) {
+        if (frm.doc.company && (!frm.doc.instructions || frm.doc.instructions.length === 0) && frm.doc.status === "Draft" && !frm.doc.idfc_batch_ref) {
+            fetch_claims(frm, false);
+        }
     }
 });
+
+function setup_fetch_claims_button(frm) {
+    // Only show Fetch Approved Claims if batch is in Draft state, has no IDFC host ref, and is not submitted
+    const is_dispatched = frm.doc.status === "Dispatched to Bank" || frm.doc.status === "Completed" || frm.doc.status === "Released" || frm.doc.idfc_batch_ref;
+    const is_locked = frm.doc.status === "Pending 2FA Approval" || frm.doc.docstatus !== 0;
+
+    if (frm.doc.status === "Draft" && !is_dispatched && !is_locked) {
+        let btn = frm.add_custom_button(__("⚡ Fetch Approved Claims"), function () {
+            if (!frm.doc.company) {
+                frappe.msgprint({
+                    title: __("Company Required"),
+                    message: __("Please select a <b>Company Entity</b> first before fetching approved claims."),
+                    indicator: "orange"
+                });
+                return;
+            }
+
+            if (frm.doc.instructions && frm.doc.instructions.length > 0) {
+                frappe.confirm(
+                    __("This batch already has payment instructions. Do you want to scan and refresh pending approved claims?"),
+                    () => {
+                        fetch_claims(frm, true);
+                    }
+                );
+            } else {
+                if (frm.is_new()) {
+                    frm.save().then(() => {
+                        fetch_claims(frm, true);
+                    });
+                } else {
+                    fetch_claims(frm, true);
+                }
+            }
+        });
+
+        btn.addClass("btn-warning").css({
+            "background": "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+            "color": "#ffffff",
+            "font-weight": "700",
+            "border": "none",
+            "box-shadow": "0 2px 6px rgba(245, 158, 11, 0.4)"
+        });
+    }
+}
+
+function fetch_claims(frm, user_initiated = true) {
+    frappe.call({
+        method: "ap_automation.ap_automation.doctype.payment_batch.payment_batch.fetch_approved_claims_for_batch",
+        args: {
+            batch_name: frm.doc.name,
+            company: frm.doc.company
+        },
+        freeze: true,
+        freeze_message: __("Scanning & Fetching Approved Claims Across 4 Lanes..."),
+        callback: function (r) {
+            if (r.message && r.message.status === "SUCCESS") {
+                const count = r.message.count || 0;
+                const tot = r.message.total_amount || 0;
+
+                if (count === 0 && user_initiated) {
+                    frappe.msgprint({
+                        title: __("No Pending Claims"),
+                        message: __("There are currently no unbatched claims in <b>'Approved for Payment'</b> status for this company."),
+                        indicator: "blue"
+                    });
+                } else if (user_initiated) {
+                    frappe.show_alert({
+                        message: __(`✅ Successfully linked ${count} claim(s) totaling ₹ ${tot.toLocaleString('en-IN')}`),
+                        indicator: "green"
+                    }, 5);
+                }
+                frm.reload_doc();
+            }
+        }
+    });
+}
 
 function render_executive_dashboard(frm) {
     if (frm.is_new()) return;
@@ -64,21 +147,12 @@ function render_executive_dashboard(frm) {
                         </div>
                     </div>
 
-                    <!-- 4 Spend Lanes KPI Grid -->
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                        <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #cbd5e1;">
-                            📊 Multi-Stream Spend Lane Separation
-                        </span>
-                        <span style="font-size: 11px; color: #94a3b8;">
-                            Click a lane card to filter instruction rows below
-                        </span>
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px;">
+                    <!-- Stream Lanes Metric Cards -->
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px;">
                         <!-- Lane 3: Vendor Invoices -->
                         <div class="ap-lane-btn" data-doctype="Vendor Invoice Claim" style="background: rgba(59, 130, 246, 0.14); border: 1px solid rgba(59, 130, 246, 0.4); border-radius: 10px; padding: 14px; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                <span style="font-size: 12px; font-weight: 600; color: #60a5fa;">🛒 Lane 3: Vendors</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #60a5fa;">🏢 Lane 3: Vendors</span>
                                 <span style="background: #3b82f6; color: white; border-radius: 12px; padding: 2px 8px; font-size: 11px; font-weight: 700;">${lanes.vendor.count}</span>
                             </div>
                             <div style="font-size: 18px; font-weight: 700; color: #ffffff;">${format_inr(lanes.vendor.amount)}</div>
@@ -88,7 +162,7 @@ function render_executive_dashboard(frm) {
                         <!-- Lane 2: Employee Reimbursements -->
                         <div class="ap-lane-btn" data-doctype="Employee Reimbursement Claim" style="background: rgba(245, 158, 11, 0.14); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 10px; padding: 14px; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                <span style="font-size: 12px; font-weight: 600; color: #fbbf24;">👤 Lane 2: Claims</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #fbbf24;">🏃 Lane 2: Claims</span>
                                 <span style="background: #f59e0b; color: white; border-radius: 12px; padding: 2px 8px; font-size: 11px; font-weight: 700;">${lanes.reimbursement.count}</span>
                             </div>
                             <div style="font-size: 18px; font-weight: 700; color: #ffffff;">${format_inr(lanes.reimbursement.amount)}</div>
@@ -137,6 +211,7 @@ function render_executive_dashboard(frm) {
                 </div>
             `;
 
+            frm.dashboard.clear_headline();
             frm.dashboard.set_headline(dashboard_html);
         }
     });
@@ -146,7 +221,7 @@ function setup_2fa_release_buttons(frm) {
     if (frm.is_new()) return;
 
     // Button 1: Request 2FA OTP
-    if (frm.doc.status === "Generated" || frm.doc.status === "Draft") {
+    if ((frm.doc.status === "Draft" || frm.doc.status === "Generated") && frm.doc.instructions && frm.doc.instructions.length > 0 && !frm.doc.idfc_batch_ref) {
         frm.add_custom_button(__("🔐 Request 2FA OTP for Release"), function () {
             frappe.call({
                 method: "ap_automation.ap_automation.doctype.payment_batch.payment_batch.request_batch_otp",
@@ -172,7 +247,7 @@ function setup_2fa_release_buttons(frm) {
     }
 
     // Button 2: Enter OTP and Release to IDFC
-    if (frm.doc.status === "Pending 2FA Approval" || frm.doc.status === "Generated") {
+    if (frm.doc.status === "Pending 2FA Approval") {
         frm.add_custom_button(__("🚀 Verify 2FA & Dispatch Payout"), function () {
             let d = new frappe.ui.Dialog({
                 title: __("🔐 Authorize IDFC Bank Payout Release"),

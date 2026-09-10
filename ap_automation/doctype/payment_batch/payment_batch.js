@@ -9,14 +9,18 @@ frappe.ui.form.on("Payment Batch", {
     },
 
     company(frm) {
-        if (frm.doc.company && (!frm.doc.instructions || frm.doc.instructions.length === 0)) {
+        if (frm.doc.company && (!frm.doc.instructions || frm.doc.instructions.length === 0) && frm.doc.status === "Draft" && !frm.doc.idfc_batch_ref) {
             fetch_claims(frm, false);
         }
     }
 });
 
 function setup_fetch_claims_button(frm) {
-    if (frm.doc.docstatus === 0) {
+    // Only show Fetch Approved Claims if batch is in Draft state, has no IDFC host ref, and is not submitted
+    const is_dispatched = frm.doc.status === "Dispatched to Bank" || frm.doc.status === "Completed" || frm.doc.status === "Released" || frm.doc.idfc_batch_ref;
+    const is_locked = frm.doc.status === "Pending 2FA Approval" || frm.doc.docstatus !== 0;
+
+    if (frm.doc.status === "Draft" && !is_dispatched && !is_locked) {
         let btn = frm.add_custom_button(__("⚡ Fetch Approved Claims"), function () {
             if (!frm.doc.company) {
                 frappe.msgprint({
@@ -27,12 +31,21 @@ function setup_fetch_claims_button(frm) {
                 return;
             }
 
-            if (frm.is_new()) {
-                frm.save().then(() => {
-                    fetch_claims(frm, true);
-                });
+            if (frm.doc.instructions && frm.doc.instructions.length > 0) {
+                frappe.confirm(
+                    __("This batch already has payment instructions. Do you want to scan and refresh pending approved claims?"),
+                    () => {
+                        fetch_claims(frm, true);
+                    }
+                );
             } else {
-                fetch_claims(frm, true);
+                if (frm.is_new()) {
+                    frm.save().then(() => {
+                        fetch_claims(frm, true);
+                    });
+                } else {
+                    fetch_claims(frm, true);
+                }
             }
         });
 
@@ -63,12 +76,12 @@ function fetch_claims(frm, user_initiated = true) {
                 if (count === 0 && user_initiated) {
                     frappe.msgprint({
                         title: __("No Pending Claims"),
-                        message: __(`No approved claims currently pending for payment under <b>${frm.doc.company}</b>.`),
+                        message: __("There are currently no unbatched claims in <b>'Approved for Payment'</b> status for this company."),
                         indicator: "blue"
                     });
-                } else {
+                } else if (user_initiated) {
                     frappe.show_alert({
-                        message: __(`⚡ Successfully loaded <b>${count}</b> approved claims totaling <b>₹ ${tot.toLocaleString('en-IN')}</b>!`),
+                        message: __(`✅ Successfully linked ${count} claim(s) totaling ₹ ${tot.toLocaleString('en-IN')}`),
                         indicator: "green"
                     }, 5);
                 }
@@ -113,47 +126,33 @@ function render_executive_dashboard(frm) {
                     background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
                     border-radius: 12px;
                     padding: 24px;
-                    color: white;
-                    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
-                    margin-bottom: 20px;
+                    margin-bottom: 24px;
+                    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.35);
+                    color: #ffffff;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
                 ">
-                    <!-- Top Metric Bar -->
-                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 16px; margin-bottom: 20px;">
+                    <!-- Top Summary Row -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.12); padding-bottom: 16px; margin-bottom: 20px;">
                         <div>
-                            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; font-weight: 600;">Corporate Payout Run</span>
-                            <h2 style="margin: 4px 0 0 0; font-size: 22px; font-weight: 700; color: #ffffff;">${data.company || 'Enterprise Payout'}</h2>
-                            <div style="font-size: 12px; color: #cbd5e1; margin-top: 4px;">
-                                <span>Posting Date: <b>${data.posting_date}</b></span>
-                                <span style="margin: 0 8px;">|</span>
-                                <span>Total Instructions: <b>${data.total_instructions}</b></span>
-                            </div>
+                            <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; font-weight: 700;">Corporate Payout Run</div>
+                            <div style="font-size: 22px; font-weight: 700; color: #f8fafc; margin-top: 2px;">${data.company || "Consolidated Entity"}</div>
+                            <div style="font-size: 12px; color: #cbd5e1; margin-top: 4px;">📅 Posting Date: <b>${data.posting_date}</b> &nbsp;|&nbsp; 📑 Total Instructions: <b>${data.total_instructions}</b></div>
                         </div>
                         <div style="text-align: right;">
-                            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; font-weight: 600;">Total Payout Value</div>
-                            <div style="font-size: 32px; font-weight: 800; color: #38bdf8; text-shadow: 0 2px 10px rgba(56, 189, 248, 0.3);">${format_inr(data.total_batch_amount)}</div>
-                            <span style="
-                                display: inline-block;
-                                background: ${current_color};
-                                color: white;
-                                padding: 3px 10px;
-                                border-radius: 20px;
-                                font-size: 11px;
-                                font-weight: 600;
-                                text-transform: uppercase;
-                                margin-top: 4px;
-                            ">${data.status}</span>
+                            <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; font-weight: 700;">Total Payout Value</div>
+                            <div style="font-size: 32px; font-weight: 800; color: #34d399; letter-spacing: -0.02em;">${format_inr(data.total_batch_amount)}</div>
+                            <div style="display: inline-block; margin-top: 4px; padding: 4px 14px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; background: ${current_color}25; color: ${current_color}; border: 1px solid ${current_color}77;">
+                                ● ${data.status}
+                            </div>
                         </div>
                     </div>
 
-                    <!-- 4 Spend Stream Lanes Grid -->
-                    <div style="font-size: 12px; font-weight: 600; color: #cbd5e1; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
-                        Multi Stream Spend Lane Separation
-                    </div>
-                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px;">
+                    <!-- Stream Lanes Metric Cards -->
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px;">
                         <!-- Lane 3: Vendor Invoices -->
                         <div class="ap-lane-btn" data-doctype="Vendor Invoice Claim" style="background: rgba(59, 130, 246, 0.14); border: 1px solid rgba(59, 130, 246, 0.4); border-radius: 10px; padding: 14px; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                <span style="font-size: 12px; font-weight: 600; color: #60a5fa;">🚚 Lane 3: Vendors</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #60a5fa;">🏢 Lane 3: Vendors</span>
                                 <span style="background: #3b82f6; color: white; border-radius: 12px; padding: 2px 8px; font-size: 11px; font-weight: 700;">${lanes.vendor.count}</span>
                             </div>
                             <div style="font-size: 18px; font-weight: 700; color: #ffffff;">${format_inr(lanes.vendor.amount)}</div>
@@ -163,7 +162,7 @@ function render_executive_dashboard(frm) {
                         <!-- Lane 2: Employee Reimbursements -->
                         <div class="ap-lane-btn" data-doctype="Employee Reimbursement Claim" style="background: rgba(245, 158, 11, 0.14); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 10px; padding: 14px; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                <span style="font-size: 12px; font-weight: 600; color: #fbbf24;">👤 Lane 2: Claims</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #fbbf24;">🏃 Lane 2: Claims</span>
                                 <span style="background: #f59e0b; color: white; border-radius: 12px; padding: 2px 8px; font-size: 11px; font-weight: 700;">${lanes.reimbursement.count}</span>
                             </div>
                             <div style="font-size: 18px; font-weight: 700; color: #ffffff;">${format_inr(lanes.reimbursement.amount)}</div>
@@ -212,6 +211,7 @@ function render_executive_dashboard(frm) {
                 </div>
             `;
 
+            frm.dashboard.clear_headline();
             frm.dashboard.set_headline(dashboard_html);
         }
     });
@@ -221,7 +221,7 @@ function setup_2fa_release_buttons(frm) {
     if (frm.is_new()) return;
 
     // Button 1: Request 2FA OTP
-    if (frm.doc.status === "Generated" || frm.doc.status === "Draft") {
+    if ((frm.doc.status === "Draft" || frm.doc.status === "Generated") && frm.doc.instructions && frm.doc.instructions.length > 0 && !frm.doc.idfc_batch_ref) {
         frm.add_custom_button(__("🔐 Request 2FA OTP for Release"), function () {
             frappe.call({
                 method: "ap_automation.ap_automation.doctype.payment_batch.payment_batch.request_batch_otp",
@@ -247,7 +247,7 @@ function setup_2fa_release_buttons(frm) {
     }
 
     // Button 2: Enter OTP and Release to IDFC
-    if (frm.doc.status === "Pending 2FA Approval" || frm.doc.status === "Generated") {
+    if (frm.doc.status === "Pending 2FA Approval") {
         frm.add_custom_button(__("🚀 Verify 2FA & Dispatch Payout"), function () {
             let d = new frappe.ui.Dialog({
                 title: __("🔐 Authorize IDFC Bank Payout Release"),

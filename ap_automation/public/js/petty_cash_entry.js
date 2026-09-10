@@ -4,10 +4,10 @@
  * Workflow Capabilities:
  * 1. [ 📤 Submit Envelope ]: Direct one-click submission from Draft to Submitted / L1 Review.
  * 2. [ ✅ Approve Claim ]: Direct approval button for L1 / L2 approvers.
- * 3. [ ❌ Reject / Send Back ]: Prompts for audit reason and logs to Approval Trail.
- * 4. [ ↩️ Reopen to Draft ]: Allows custodian / accounts to reopen submitted drafts.
- * 5. Interactive Proof Badges & In-Tab Lightbox Gallery.
- * 6. Non-Intrusive File Uploader (keeps form in 'Not Saved' until manual save).
+ * 3. [ ⚠️ Dispute / Split Lines ]: Line-item dispute check (forks disputed lines back to Admin, moves approved lines to L2).
+ * 4. [ ❌ Reject / Send Back ]: Prompts for audit reason and logs to Approval Trail.
+ * 5. [ ↩️ Reopen to Draft ]: Allows custodian / accounts to reopen submitted drafts.
+ * 6. Interactive Proof Badges & In-Tab Lightbox Gallery.
  */
 
 // Override Frappe ControlAttach to bypass auto-save on unsaved Petty Cash Entry
@@ -116,11 +116,11 @@ function recalculate_petty_cash_total(frm) {
 }
 
 /**
- * Enterprise Workflow Action Buttons (Submit Envelope, Approve, Reject, Reopen)
+ * Enterprise Workflow Action Buttons (Submit Envelope, Approve, Dispute Split, Reject, Reopen)
  */
 function setup_workflow_action_buttons(frm) {
     // Clear prior workflow buttons
-    frm.page.wrapper.find('.ap-btn-submit-envelope, .ap-btn-approve-claim, .ap-btn-reject-claim, .ap-btn-reopen-draft').remove();
+    frm.page.wrapper.find('.ap-btn-submit-envelope, .ap-btn-approve-claim, .ap-btn-dispute-lines, .ap-btn-reject-claim, .ap-btn-reopen-draft').remove();
 
     if (frm.is_new()) return;
 
@@ -129,7 +129,6 @@ function setup_workflow_action_buttons(frm) {
     // 1. DRAFT STATE: Show [ 📤 Submit Envelope ] Button
     if (status === 'Draft') {
         const $btn_submit = frm.add_custom_button(__('📤 Submit Envelope'), function () {
-            // Validation
             const lines = frm.doc.expense_lines || [];
             if (lines.length === 0) {
                 frappe.msgprint({
@@ -174,7 +173,7 @@ function setup_workflow_action_buttons(frm) {
         });
     }
 
-    // 2. SUBMITTED STATE: Show [ ✅ Approve ] and [ ❌ Reject ] Buttons
+    // 2. SUBMITTED STATE: Show [ ✅ Approve ], [ ⚠️ Dispute Line ], [ ❌ Reject ] Buttons
     if (status === 'Submitted') {
         // Approve Button
         frm.add_custom_button(__('✅ Approve Claim'), function () {
@@ -198,7 +197,22 @@ function setup_workflow_action_buttons(frm) {
             'margin-right': '6px'
         });
 
-        // Reject / Dispute Button
+        // Line-Item Dispute / Split Button (If multiple lines exist)
+        const lines = frm.doc.expense_lines || [];
+        if (lines.length > 1) {
+            frm.add_custom_button(__('⚠️ Dispute Lines'), function () {
+                open_dispute_split_dialog(frm);
+            }).addClass('ap-btn-dispute-lines btn-secondary').css({
+                'background-color': '#f59e0b',
+                'border-color': '#d97706',
+                'color': '#ffffff',
+                'font-weight': '700',
+                'border-radius': '6px',
+                'margin-right': '6px'
+            });
+        }
+
+        // Reject / Send Back Button
         frm.add_custom_button(__('❌ Reject / Send Back'), function () {
             frappe.prompt(
                 [
@@ -219,78 +233,134 @@ function setup_workflow_action_buttons(frm) {
                         }, 6);
                     });
                 },
-                __('Reject Petty Cash Claim'),
-                __('Reject & Reopen')
+                __('Reject or Return to Admin'),
+                __('Return to Draft')
             );
-        }).addClass('ap-btn-reject-claim btn-default').css({
-            'background-color': '#ffffff',
-            'border-color': '#ef4444',
-            'color': '#dc2626',
-            'font-weight': '600',
+        }).addClass('ap-btn-reject-claim btn-danger').css({
+            'background-color': '#dc2626',
+            'border-color': '#b91c1c',
+            'color': '#ffffff',
+            'font-weight': '700',
             'border-radius': '6px',
             'margin-right': '6px'
         });
     }
 
-    // 3. APPROVED STATE: Show Payout Ready Status Indicator
-    if (status === 'Approved for Payment') {
+    // 3. REJECTED OR DISPUTED STATE: Show [ ↩️ Reopen to Draft ]
+    if (status === 'Rejected' || status === 'Disputed') {
         frm.add_custom_button(__('↩️ Reopen to Draft'), function () {
-            frappe.confirm(__('Reopen this approved claim back to Draft mode for adjustments?'), function () {
-                frm.set_value('status', 'Draft');
-                frm.set_value('workflow_state', 'Draft');
-                frm.save().then(() => {
-                    frappe.show_alert({ message: __('Claim reopened to Draft.'), indicator: 'blue' });
-                });
+            frm.set_value('status', 'Draft');
+            frm.set_value('workflow_state', 'Draft');
+            frm.save().then(() => {
+                frappe.show_alert({
+                    message: __('Voucher reopened to Draft. You can now edit and resubmit.'),
+                    indicator: 'blue'
+                }, 5);
             });
-        }).addClass('ap-btn-reopen-draft btn-default').css({
-            'font-size': '12px',
-            'color': '#64748b'
+        }).addClass('ap-btn-reopen-draft btn-secondary').css({
+            'background-color': '#475569',
+            'color': '#ffffff',
+            'font-weight': '700',
+            'border-radius': '6px'
         });
     }
 }
 
+/**
+ * Line-Item Dispute Dialog (PRD Section 4 Step 5: Line-Item Dispute Check)
+ */
+function open_dispute_split_dialog(frm) {
+    const lines = frm.doc.expense_lines || [];
+    let fields = [
+        {
+            fieldtype: 'HTML',
+            fieldname: 'info_html',
+            options: `<p style="font-size: 13px; color: #64748b;">
+                Select the specific row(s) you wish to dispute. Disputed rows will be forked back to Admin, while approved rows will proceed to L2.
+            </p>`
+        }
+    ];
+
+    lines.forEach((line, idx) => {
+        fields.push({
+            fieldtype: 'Section Break',
+            label: `Row #${idx + 1}: ${line.merchant_name || 'Item'} - ₹${format_inr_clean(line.amount)}`
+        });
+        fields.push({
+            fieldtype: 'Check',
+            fieldname: `dispute_row_${idx}`,
+            label: `Dispute Row #${idx + 1}`
+        });
+        fields.push({
+            fieldtype: 'Small Text',
+            fieldname: `reason_row_${idx}`,
+            label: `Dispute Reason for Row #${idx + 1}`,
+            depends_on: `eval:doc.dispute_row_${idx}==1`
+        });
+    });
+
+    const d = new frappe.ui.Dialog({
+        title: __('Line-Item Dispute Check & Split'),
+        fields: fields,
+        primary_action_label: __('Split & Move Approved to L2'),
+        primary_action: function (values) {
+            let disputed_indices = [];
+            let dispute_reasons = {};
+
+            lines.forEach((line, idx) => {
+                if (values[`dispute_row_${idx}`]) {
+                    disputed_indices.push(idx);
+                    dispute_reasons[idx] = values[`reason_row_${idx}`] || 'Disputed during L1 review';
+                }
+            });
+
+            if (disputed_indices.length === 0) {
+                frappe.msgprint(__('Please select at least one row to dispute, or click Approve Claim if all rows are valid.'));
+                return;
+            }
+
+            d.hide();
+            frappe.call({
+                method: 'ap_automation.services.dispute_service.api_dispute_split',
+                args: {
+                    parent_docname: frm.doc.name,
+                    disputed_indices: JSON.stringify(disputed_indices),
+                    dispute_reasons: JSON.stringify(dispute_reasons)
+                },
+                freeze: true,
+                freeze_message: __('Splitting disputed line items...'),
+                callback: function (r) {
+                    if (r.message && r.message.status === 'split_success') {
+                        frappe.msgprint({
+                            title: __('Dispute Split Completed'),
+                            indicator: 'green',
+                            message: `
+                                <b>✅ ${r.message.approved_line_count} Approved Rows</b> (₹${format_inr_clean(r.message.approved_amount)}) moved to L2.<br>
+                                <b>⚠️ ${r.message.disputed_line_count} Disputed Rows</b> (₹${format_inr_clean(r.message.disputed_amount)}) forked into linked voucher <b>${r.message.forked_voucher}</b>.
+                            `
+                        });
+                        frm.reload_doc();
+                    }
+                }
+            });
+        }
+    });
+
+    d.show();
+}
+
 function format_inr_clean(val) {
-    return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(val || 0);
+    return parseFloat(val || 0).toLocaleString('en-IN', {
+        maximumFractionDigits: 2,
+        minimumFractionDigits: 2
+    });
 }
 
 function bind_grid_interactive_events(frm) {
     if (!frm.page || !frm.page.wrapper) return;
 
-    // Direct Click on '🧾 Proof' Badge opens In-Tab Lightbox at that specific row
-    frm.page.wrapper.off('click.ap_proof_badge', '.ap-grid-receipt-badge');
-    frm.page.wrapper.on('click.ap_proof_badge', '.ap-grid-receipt-badge', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const row_elem = $(this).closest('.grid-row');
-        const row_idx = row_elem.attr('data-idx') ? parseInt(row_elem.attr('data-idx')) : 1;
-
-        const local_atts = (window.APReceiptGallery) ? window.APReceiptGallery.extractLocalAttachments(frm) : [];
-        
-        if (!frm.is_new()) {
-            frappe.call({
-                method: 'ap_automation.services.attachment_service.get_all_claim_attachments',
-                args: {
-                    doctype: frm.doc.doctype,
-                    docname: frm.doc.name
-                },
-                callback: function (r) {
-                    const atts = (r.message && r.message.length > 0) ? r.message : local_atts;
-                    if (window.APReceiptGallery) {
-                        window.APReceiptGallery.openModal(frm, atts, row_idx);
-                    }
-                }
-            });
-        } else {
-            if (window.APReceiptGallery) {
-                window.APReceiptGallery.openModal(frm, local_atts, row_idx);
-            }
-        }
-    });
-
-    // Click on empty Attach button triggers clean non-saving FileUploader
-    frm.page.wrapper.off('click.ap_attach_btn', '.grid-row [data-fieldname="receipt_attachment"] button, .grid-row [data-fieldname="receipt_attachment"] .btn-attach, .grid-row [data-fieldname="attach_receipt"] button');
-    frm.page.wrapper.on('click.ap_attach_btn', '.grid-row [data-fieldname="receipt_attachment"] button, .grid-row [data-fieldname="receipt_attachment"] .btn-attach, .grid-row [data-fieldname="attach_receipt"] button', function (e) {
+    // Attach Receipt in-grid handler
+    frm.page.wrapper.off('click', '.ap-btn-grid-attach').on('click', '.ap-btn-grid-attach', function (e) {
         e.preventDefault();
         e.stopPropagation();
 
@@ -323,7 +393,6 @@ function format_smart_grid_cells(frm) {
     if (!frm.page || !frm.page.wrapper) return;
 
     setTimeout(() => {
-        // 1. Transform raw file links into compact clickable badge
         frm.page.wrapper.find('.grid-row [data-fieldname="receipt_attachment"], .grid-row [data-fieldname="attach_receipt"]').each(function () {
             const $cell = $(this);
             const $link = $cell.find('a');
@@ -352,23 +421,6 @@ function format_smart_grid_cells(frm) {
                 `);
             }
         });
-
-        // 2. Format Staff Name badges
-        (frm.doc.expense_lines || []).forEach((row, idx) => {
-            if (row.staff_name) {
-                const $cell = frm.page.wrapper.find(`.grid-row[data-idx="${idx + 1}"] [data-fieldname="employee"]`);
-                if ($cell.length > 0) {
-                    const current_text = $cell.text();
-                    if (!current_text.includes('👤')) {
-                        $cell.html(`
-                            <span style="font-weight: 600; color: #312e81; background: #e0e7ff; padding: 2px 7px; border-radius: 4px; font-size: 12px; display: inline-block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px;" title="${row.staff_name} (${row.employee})">
-                                👤 ${row.staff_name}
-                            </span>
-                        `);
-                    }
-                }
-            }
-        });
     }, 60);
 }
 
@@ -377,7 +429,6 @@ function apply_seamless_grid_css() {
         const style = document.createElement('style');
         style.id = 'ap-seamless-grid-style';
         style.innerHTML = `
-            /* Seamless Single Outer Card */
             .frappe-control[data-fieldname="expense_lines"] .form-grid {
                 border: 1px solid #e2e8f0 !important;
                 border-radius: 8px !important;
@@ -387,15 +438,12 @@ function apply_seamless_grid_css() {
                 margin: 0 !important;
                 width: 100% !important;
             }
-
-            /* Flush Top Header */
             .frappe-control[data-fieldname="expense_lines"] .form-grid .grid-heading-row {
                 background: #f8fafc !important;
                 border-bottom: 1.5px solid #e2e8f0 !important;
                 margin: 0 !important;
                 padding: 0 !important;
             }
-
             .frappe-control[data-fieldname="expense_lines"] .form-grid .grid-heading-row .grid-static-col,
             .frappe-control[data-fieldname="expense_lines"] .form-grid .grid-heading-row th {
                 white-space: nowrap !important;
@@ -408,22 +456,17 @@ function apply_seamless_grid_css() {
                 vertical-align: middle !important;
                 border: none !important;
             }
-
-            /* Smooth Data Rows */
             .frappe-control[data-fieldname="expense_lines"] .form-grid .grid-body .grid-row {
                 transition: background-color 0.12s ease-in-out !important;
                 border-bottom: 1px solid #f1f5f9 !important;
                 margin: 0 !important;
             }
-
             .frappe-control[data-fieldname="expense_lines"] .form-grid .grid-body .grid-row:last-child {
                 border-bottom: none !important;
             }
-
             .frappe-control[data-fieldname="expense_lines"] .form-grid .grid-body .grid-row:hover {
                 background-color: #faf5ff !important;
             }
-
             .frappe-control[data-fieldname="expense_lines"] .form-grid .grid-body .grid-row .grid-static-col {
                 padding: 8px 8px !important;
                 font-size: 13px !important;
@@ -431,7 +474,6 @@ function apply_seamless_grid_css() {
                 vertical-align: middle !important;
                 border: none !important;
             }
-
             .frappe-control[data-fieldname="expense_lines"] .form-grid .grid-row .form-control {
                 height: 28px !important;
                 padding: 2px 6px !important;
@@ -440,40 +482,11 @@ function apply_seamless_grid_css() {
                 border-radius: 4px !important;
                 background-color: #ffffff !important;
             }
-
             .frappe-control[data-fieldname="expense_lines"] .form-grid [data-fieldname="amount"] {
                 font-weight: 700 !important;
                 color: #059669 !important;
                 font-size: 13.5px !important;
                 text-align: right !important;
-            }
-
-            .frappe-control[data-fieldname="expense_lines"] .form-grid .grid-heading-row [data-fieldname="amount"] {
-                text-align: right !important;
-            }
-
-            .frappe-control[data-fieldname="expense_lines"] .form-grid [data-fieldname="expense_date"] {
-                font-weight: 600 !important;
-                color: #475569 !important;
-            }
-
-            .frappe-control[data-fieldname="expense_lines"] .grid-footer {
-                padding: 8px 0 0 0 !important;
-            }
-
-            .frappe-control[data-fieldname="expense_lines"] .grid-footer .btn-default {
-                background: #4f46e5 !important;
-                color: #ffffff !important;
-                border: 1px solid #4338ca !important;
-                font-weight: 600 !important;
-                font-size: 12px !important;
-                border-radius: 6px !important;
-                padding: 6px 14px !important;
-                box-shadow: 0 1px 2px rgba(79, 70, 229, 0.2) !important;
-                transition: all 0.15s ease !important;
-            }
-            .frappe-control[data-fieldname="expense_lines"] .grid-footer .btn-default:hover {
-                background: #4338ca !important;
             }
         `;
         document.head.appendChild(style);

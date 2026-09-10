@@ -36,6 +36,14 @@ def fetch_approved_claims_for_batch(batch_name=None, company=None):
         doc = frappe.get_doc("Payment Batch", batch_name)
         if not company:
             company = getattr(doc, "company", None) or getattr(doc, "company_entity", None)
+            
+        # Security & State Validation
+        if doc.status in ["Dispatched to Bank", "Completed", "Released"] or getattr(doc, "idfc_batch_ref", None):
+            frappe.throw(
+                f"Cannot re-fetch claims for Payment Batch {doc.name} because it has already been processed/dispatched to IDFC Bank (Ref: {doc.idfc_batch_ref or doc.status})."
+            )
+        if doc.docstatus != 0:
+            frappe.throw(f"Cannot modify submitted Payment Batch {doc.name}.")
     else:
         doc = None
 
@@ -133,41 +141,64 @@ def fetch_approved_claims_for_batch(batch_name=None, company=None):
     tot_amt = 0.0
 
     if doc and doc.docstatus == 0:
-        doc.set("instructions", [])
-        for pi in found_instructions:
-            doc.append("instructions", {
-                "payment_instruction": pi.name,
-                "source_doctype": pi.source_doctype,
-                "source_voucher": pi.source_voucher,
-                "beneficiary_name": pi.beneficiary_name,
-                "account_number": pi.beneficiary_account,
-                "ifsc_code": pi.beneficiary_ifsc,
-                "amount": float(pi.payable_amount or 0.0)
-            })
-            tot_amt += float(pi.payable_amount or 0.0)
+        # If no new claims found but the batch ALREADY has instructions, do NOT erase them!
+        if not found_instructions and len(doc.instructions) > 0:
+            items_to_return = [
+                {
+                    "payment_instruction": i.payment_instruction,
+                    "source_doctype": getattr(i, "source_doctype", "") or getattr(i, "lane_doctype", ""),
+                    "source_voucher": getattr(i, "source_voucher", "") or getattr(i, "voucher_id", ""),
+                    "beneficiary_name": i.beneficiary_name,
+                    "amount": float(i.amount or 0.0),
+                    "account_number": getattr(i, "account_number", ""),
+                    "ifsc_code": getattr(i, "ifsc_code", "")
+                }
+                for i in doc.instructions
+            ]
+            return {
+                "status": "SUCCESS",
+                "count": len(items_to_return),
+                "total_amount": sum(i["amount"] for i in items_to_return),
+                "items": items_to_return,
+                "message": "No new pending claims found. Existing batch instructions retained."
+            }
 
-        doc.total_batch_amount = tot_amt
-        doc.total_instructions = len(found_instructions)
+        if found_instructions:
+            doc.set("instructions", [])
+            for pi in found_instructions:
+                doc.append("instructions", {
+                    "payment_instruction": pi.name,
+                    "source_doctype": pi.source_doctype,
+                    "source_voucher": pi.source_voucher,
+                    "beneficiary_name": pi.beneficiary_name,
+                    "account_number": pi.beneficiary_account,
+                    "ifsc_code": pi.beneficiary_ifsc,
+                    "amount": float(pi.payable_amount or 0.0)
+                })
+                tot_amt += float(pi.payable_amount or 0.0)
 
-        # Generate Checksum
-        checksum_payload = [
-            {"pi": i.payment_instruction, "ac": i.account_number, "amt": str(i.amount)}
-            for i in doc.instructions
-        ]
-        doc.batch_checksum = hashlib.sha256(json.dumps(checksum_payload, sort_keys=True).encode("utf-8")).hexdigest()
+            doc.total_batch_amount = tot_amt
+            doc.total_instructions = len(found_instructions)
 
-        doc.save(ignore_permissions=True)
-        frappe.db.commit()
+            # Generate Checksum
+            checksum_payload = [
+                {"pi": i.payment_instruction, "ac": i.account_number, "amt": str(i.amount)}
+                for i in doc.instructions
+            ]
+            doc.batch_checksum = hashlib.sha256(json.dumps(checksum_payload, sort_keys=True).encode("utf-8")).hexdigest()
 
-        # Update batch_id on Payment Instructions and source vouchers
-        for pi in found_instructions:
-            frappe.db.set_value("Payment Instruction", pi.name, {"batch_id": doc.name, "status": "Queued in Batch"})
-            if pi.source_doctype and pi.source_voucher and frappe.db.exists(pi.source_doctype, pi.source_voucher):
-                try:
-                    frappe.db.set_value(pi.source_doctype, pi.source_voucher, {"batch_id": doc.name, "status": "Queued in Batch"})
-                except Exception:
-                    pass
-        frappe.db.commit()
+            doc.save(ignore_permissions=True)
+            frappe.db.commit()
+
+            # Update batch_id on Payment Instructions and source vouchers
+            for pi in found_instructions:
+                frappe.db.set_value("Payment Instruction", pi.name, {"batch_id": doc.name, "status": "Queued in Batch"})
+                if pi.source_doctype and pi.source_voucher and frappe.db.exists(pi.source_doctype, pi.source_voucher):
+                    try:
+                        frappe.db.set_value(pi.source_doctype, pi.source_voucher, {"batch_id": doc.name, "status": "Queued in Batch"})
+                    except Exception:
+                        pass
+            frappe.db.commit()
 
     for pi in found_instructions:
         items_to_return.append({

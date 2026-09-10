@@ -26,6 +26,5 @@ doctype_js = {
     "Petty Cash Entry": "public/js/petty_cash_entry.js",
     "Employee Reimbursement Claim": "public/js/employee_reimbursement_claim.js",
     "Vendor Invoice Claim": "public/js/vendor_invoice_claim.js",
-    "Payment Batch": "public/js/payment_batch.js",
     "Payment Instruction": "public/js/payment_instruction.js"
 }
