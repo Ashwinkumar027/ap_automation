@@ -120,7 +120,8 @@ def verify_otp_and_authorize_release(
 
     frappe.db.set_value("Payment Batch", batch_id, {
         "status": "Dispatched to Bank",
-        "idfc_batch_ref": host_ref
+        "idfc_batch_ref": host_ref,
+        "docstatus": 1
     })
 
     # Transition all associated Payment Instructions to 'Disbursed via IDFC'

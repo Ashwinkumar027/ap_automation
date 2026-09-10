@@ -302,3 +302,21 @@ function setup_2fa_release_buttons(frm) {
         });
     }
 }
+
+
+frappe.listview_settings['Payment Batch'] = {
+    add_fields: ["status", "total_batch_amount", "idfc_batch_ref", "docstatus"],
+    get_indicator(doc) {
+        if (doc.status === "Dispatched to Bank" || doc.docstatus === 1) {
+            return [__("Dispatched to Bank"), "green", "status,=,Dispatched to Bank"];
+        } else if (doc.status === "Completed") {
+            return [__("Completed"), "green", "status,=,Completed"];
+        } else if (doc.status === "Pending 2FA Approval") {
+            return [__("Pending 2FA Approval"), "orange", "status,=,Pending 2FA Approval"];
+        } else if (doc.status === "Generated") {
+            return [__("Generated"), "blue", "status,=,Generated"];
+        } else {
+            return [__("Draft"), "grey", "status,=,Draft"];
+        }
+    }
+};
