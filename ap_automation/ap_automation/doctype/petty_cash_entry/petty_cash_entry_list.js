@@ -15,8 +15,8 @@ frappe.listview_settings["Petty Cash Entry"] = {
             return [__("L1 Verified"), "purple", "status,=,L1 Verified"];
         } else if (status === "Approved for Payment" || status === "Queued in Batch") {
             return [__("Approved for Payment"), "green", "status,=,Approved for Payment"];
-        } else if (status === "Dispatched to Bank" || status === "Paid") {
-            return [__("Dispatched to Bank"), "darkgreen", "status,=,Dispatched to Bank"];
+        } else if (status === "Paid" || status === "Dispatched to Bank") {
+            return [__("Paid (IDFC Bank)"), "darkgreen", "status,=,Paid"];
         } else if (status === "Disputed") {
             return [__("Disputed"), "orange", "status,=,Disputed"];
         } else if (status === "Rejected") {
