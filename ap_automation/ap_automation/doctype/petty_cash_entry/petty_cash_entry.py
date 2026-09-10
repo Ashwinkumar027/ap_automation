@@ -5,10 +5,12 @@ Enforces:
 2. Mandatory non-empty expense lines validation.
 3. Automatic calculation of total_amount and verified_amount.
 4. Immutability when batch_id is linked or status is Disbursed/Queued in Batch.
+5. Automated Notification Hook on submission to notify L1 Accounts Verifier.
 """
 import frappe
 from frappe.model.document import Document
 from ap_automation.exceptions import APValidationError
+from ap_automation.services import notification_service
 
 
 class PettyCashEntry(Document):
@@ -46,12 +48,17 @@ class PettyCashEntry(Document):
 
         self.total_amount = round(total, 2)
 
+    def on_submit(self):
+        """Dispatches automated notification to L1 Accounts Verifier."""
+        try:
+            notification_service.notify_l1_on_voucher_submitted(self.doctype, self.name)
+        except Exception as e:
+            frappe.log_error(f"Notification error on submit for {self.name}: {str(e)}")
+
     def validate_immutability(self):
         if self.is_new():
             return
         old_status = frappe.db.get_value("Petty Cash Entry", self.name, "status")
-        old_batch = frappe.db.get_value("Petty Cash Entry", self.name, "batch_id")
-
         if old_status in ("Disbursed via IDFC", "Settled") and self.has_value_changed("expense_lines"):
             frappe.throw(
                 f"Petty Cash Entry '{self.name}' is already disbursed/settled and cannot be modified.",

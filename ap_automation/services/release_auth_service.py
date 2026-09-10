@@ -7,6 +7,7 @@ Enforces:
 4. Anti-brute-force rate limiting: Maximum 3 failed attempts before OTP invalidation.
 5. Constant-time digest comparison (hmac.compare_digest) to prevent timing attacks.
 6. Atomic batch dispatch to IDFC Bank upon authentication.
+7. Automated Post-Disbursement Email Remittance Advice with Bank UTR.
 """
 from typing import Dict, Any, Optional
 import secrets
@@ -15,6 +16,7 @@ import hmac
 import json
 import frappe
 from ap_automation.exceptions import APSecurityError, APValidationError
+from ap_automation.services import notification_service
 
 OTP_TTL_SECONDS = 300
 MAX_ATTEMPTS = 3
@@ -44,7 +46,7 @@ def request_release_otp(batch_id: str, user: str) -> Dict[str, Any]:
 
     cache_data = {
         "otp_hash": otp_hash,
-        "raw_otp_for_test": otp, # For test harness access
+        "raw_otp_for_test": otp,
         "attempts": 0,
         "user": user,
         "batch_id": batch_id
@@ -54,7 +56,7 @@ def request_release_otp(batch_id: str, user: str) -> Dict[str, Any]:
     frappe.cache().set_value(redis_key, json.dumps(cache_data), expires_in_sec=OTP_TTL_SECONDS)
 
     # Transition batch status
-    if batch.status == "Generated":
+    if batch.status in ("Draft", "Generated"):
         frappe.db.set_value("Payment Batch", batch_id, "status", "Pending 2FA Approval")
         frappe.db.commit()
 
@@ -107,7 +109,6 @@ def verify_otp_and_authorize_release(
             frappe.cache().delete_value(redis_key)
             raise APSecurityError("🚨 RATE-LIMIT EXCEEDED: 3rd failed OTP attempt. Session destroyed for security.")
         else:
-            # Update remaining TTL
             frappe.cache().set_value(redis_key, json.dumps(data), expires_in_sec=OTP_TTL_SECONDS)
             raise APValidationError(f"Invalid OTP entered. Remaining attempts: {MAX_ATTEMPTS - attempts}.")
 
@@ -128,7 +129,7 @@ def verify_otp_and_authorize_release(
     pi_items = frappe.get_all(
         "Payment Batch Item",
         filters={"parent": batch_id},
-        fields=["payment_instruction"]
+        fields=["name", "payment_instruction"]
     )
     pi_names = [item.payment_instruction for item in pi_items]
 
@@ -141,8 +142,22 @@ def verify_otp_and_authorize_release(
             """,
             (f"UTR-{host_ref}", frappe.utils.now(), tuple(pi_names))
         )
+        frappe.db.sql(
+            """
+            UPDATE `tabPayment Batch Item`
+            SET utr = %s
+            WHERE parent = %s
+            """,
+            (f"UTR-{host_ref}", batch_id)
+        )
 
     frappe.db.commit()
+
+    # Dispatch Automated Post-Disbursement Notifications
+    try:
+        notification_service.notify_payee_and_admin_on_payout_dispatched(batch_id, host_ref)
+    except Exception as e:
+        frappe.log_error(f"Failed to dispatch payout notifications for {batch_id}: {str(e)}")
 
     return {
         "status": "SUCCESS",
