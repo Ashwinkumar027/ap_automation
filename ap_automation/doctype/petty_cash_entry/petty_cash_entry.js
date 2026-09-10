@@ -14,10 +14,13 @@ frappe.ui.form.on("Petty Cash Entry", {
     refresh(frm) {
         recalculate_petty_cash_total(frm);
         render_user_friendly_progress_stepper(frm);
+        render_forked_ticket_relationship_banner(frm);
         render_dynamic_next_step_banner(frm);
+        render_banking_verification_shield(frm);
         setup_friendly_action_buttons(frm);
         setup_receipt_gallery_actions(frm);
         format_smart_grid_cells(frm);
+        setup_quick_row_uploader(frm);
         apply_friendly_ui_css();
     },
 
@@ -40,6 +43,9 @@ frappe.ui.form.on("Petty Cash Line Item", {
             frappe.model.set_value(cdt, cdn, "expense_date", frm.doc.posting_date || frappe.datetime.get_today());
         }
         recalculate_petty_cash_total(frm);
+        setTimeout(() => format_smart_grid_cells(frm), 50);
+    },
+    receipt_attachment(frm, cdt, cdn) {
         setTimeout(() => format_smart_grid_cells(frm), 50);
     }
 });
@@ -67,7 +73,7 @@ function render_user_friendly_progress_stepper(frm) {
     else if (status === "L1 Verified") active_step = 3;
     else if (status === "Approved for Payment" || status === "Queued in Batch") active_step = 4;
     else if (status === "Dispatched to Bank" || status === "Paid") active_step = 5;
-    else if (status === "Disputed") active_step = 2; // Flagged in step 2
+    else if (status === "Disputed") active_step = 2;
     else if (status === "Rejected") active_step = 3;
 
     const steps = [
@@ -78,7 +84,7 @@ function render_user_friendly_progress_stepper(frm) {
         { num: 5, title: "Money Received", icon: "💰", desc: "Bank Account" }
     ];
 
-    let steps_html = steps.map((s, idx) => {
+    let steps_html = steps.map((s) => {
         let is_completed = s.num < active_step || (active_step === 5 && s.num === 5);
         let is_current = s.num === active_step && active_step !== 5;
         let is_disputed = status === "Disputed" && s.num === 2;
@@ -146,7 +152,61 @@ function render_user_friendly_progress_stepper(frm) {
 }
 
 // --------------------------------------------------------------------------------------
-// 2. DYNAMIC "WHAT TO DO NEXT?" GUIDANCE CARD
+// 2. TWO-WAY TICKET LINKAGE BANNER (For Forked Disputed Claims)
+// --------------------------------------------------------------------------------------
+function render_forked_ticket_relationship_banner(frm) {
+    const parent_v = frm.doc.parent_voucher;
+    const forked_v = frm.doc.forked_voucher;
+
+    let banner_html = "";
+
+    if (parent_v) {
+        // This is a child disputed ticket
+        banner_html = `
+            <div style="background: #fffbeb; border: 1.5px solid #fde68a; border-left: 5px solid #f59e0b; padding: 10px 14px; border-radius: 6px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 20px;">⚠️</span>
+                    <div>
+                        <b style="color: #92400e; font-size: 12.5px;">Disputed Child Voucher</b>
+                        <div style="color: #b45309; font-size: 11.5px;">This ticket contains disputed bills split from original claim <b>${parent_v}</b>.</div>
+                    </div>
+                </div>
+                <a href="/desk/petty-cash-entry/${parent_v}" class="btn btn-xs btn-default" style="font-weight: 700; color: #92400e; border-color: #fcd34d;">
+                    🔗 Open Parent Claim (${parent_v})
+                </a>
+            </div>
+        `;
+    } else if (forked_v) {
+        // This is the clean parent ticket that split off a dispute
+        banner_html = `
+            <div style="background: #eff6ff; border: 1.5px solid #bfdbfe; border-left: 5px solid #3b82f6; padding: 10px 14px; border-radius: 6px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 20px;">ℹ️</span>
+                    <div>
+                        <b style="color: #1e40af; font-size: 12.5px;">Disputed Items Forked</b>
+                        <div style="color: #2563eb; font-size: 11.5px;">1 or more problem bills were moved to child ticket <b>${forked_v}</b> so clean bills can be paid without delay.</div>
+                    </div>
+                </div>
+                <a href="/desk/petty-cash-entry/${forked_v}" class="btn btn-xs btn-default" style="font-weight: 700; color: #1e40af; border-color: #93c5fd;">
+                    🔗 Open Disputed Ticket (${forked_v})
+                </a>
+            </div>
+        `;
+    }
+
+    if (banner_html) {
+        if (!frm.page.wrapper.find("#ap-fork-link-banner").length) {
+            frm.page.wrapper.find(".form-layout").before(`<div id="ap-fork-link-banner">${banner_html}</div>`);
+        } else {
+            frm.page.wrapper.find("#ap-fork-link-banner").html(banner_html);
+        }
+    } else {
+        frm.page.wrapper.find("#ap-fork-link-banner").remove();
+    }
+}
+
+// --------------------------------------------------------------------------------------
+// 3. DYNAMIC "WHAT TO DO NEXT?" GUIDANCE CARD
 // --------------------------------------------------------------------------------------
 function render_dynamic_next_step_banner(frm) {
     if (frm.is_new()) {
@@ -231,7 +291,7 @@ function render_dynamic_next_step_banner(frm) {
                 border-left: 5px solid ${banner_config.color};
                 padding: 10px 14px;
                 border-radius: 6px;
-                margin-top: 10px;
+                margin-top: 5px;
                 margin-bottom: 12px;
                 display: flex;
                 align-items: center;
@@ -258,7 +318,25 @@ function render_dynamic_next_step_banner(frm) {
 }
 
 // --------------------------------------------------------------------------------------
-// 3. ROLE-BASED FRIENDLY ACTION BUTTONS
+// 4. BANKING NPCI VERIFICATION SHIELD
+// --------------------------------------------------------------------------------------
+function render_banking_verification_shield(frm) {
+    const ac_no = frm.doc.custodian_bank_account;
+    const ifsc = frm.doc.custodian_ifsc_code;
+
+    if (ac_no) {
+        const masked_ac = ac_no.length > 4 ? `•••• ${ac_no.slice(-4)}` : ac_no;
+        const shield_html = `
+            <div style="margin-top: 4px; display: inline-flex; align-items: center; gap: 5px; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 3px 8px; border-radius: 5px; color: #047857; font-size: 11.5px; font-weight: 600;">
+                <span>🛡️ Verified Bank Account (${masked_ac} | IFSC: ${ifsc || 'Auto'})</span>
+            </div>
+        `;
+        frm.get_field("custodian_bank_account").set_description(shield_html);
+    }
+}
+
+// --------------------------------------------------------------------------------------
+// 5. ROLE-BASED FRIENDLY ACTION BUTTONS
 // --------------------------------------------------------------------------------------
 function setup_friendly_action_buttons(frm) {
     if (frm.is_new()) return;
@@ -329,7 +407,7 @@ function setup_friendly_action_buttons(frm) {
 }
 
 // --------------------------------------------------------------------------------------
-// 4. FRIENDLY DISPUTE MODAL (Zero Technical Jargon)
+// 6. FRIENDLY DISPUTE MODAL (Zero Technical Jargon)
 // --------------------------------------------------------------------------------------
 function open_friendly_dispute_modal(frm) {
     const lines = frm.doc.expense_lines || [];
@@ -401,8 +479,104 @@ function open_friendly_dispute_modal(frm) {
 }
 
 // --------------------------------------------------------------------------------------
-// 5. RECEIPT PREVIEW & SMART GRID FORMATTER
+// 7. IN-GRID RECEIPT THUMBNAIL & SMART CELL FORMATTER
 // --------------------------------------------------------------------------------------
+function format_smart_grid_cells(frm) {
+    if (!frm.page || !frm.page.wrapper) return;
+
+    setTimeout(() => {
+        frm.page.wrapper.find('.grid-row [data-fieldname="receipt_attachment"]').each(function () {
+            const $cell = $(this);
+            const $link = $cell.find('a');
+            const href = $link.attr('href') || $cell.text().trim();
+
+            if (href && (href.startsWith('/files/') || href.startsWith('/private/files/'))) {
+                const is_pdf = href.toLowerCase().endsWith('.pdf');
+                
+                if (is_pdf) {
+                    $cell.html(`
+                        <span class="ap-grid-receipt-badge" style="
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 5px;
+                            background: #ede9fe;
+                            color: #5b21b6;
+                            border: 1px solid #ddd6fe;
+                            padding: 3px 8px;
+                            border-radius: 6px;
+                            font-size: 11.5px;
+                            font-weight: 700;
+                            cursor: pointer;
+                        ">
+                            📄 PDF Bill
+                        </span>
+                    `);
+                } else {
+                    $cell.html(`
+                        <div class="ap-grid-receipt-thumb" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                            <img src="${href}" style="width: 32px; height: 32px; object-fit: cover; border-radius: 5px; border: 1.5px solid #cbd5e1; box-shadow: 0 1px 2px rgba(0,0,0,0.08);" />
+                            <span style="font-size: 11.5px; font-weight: 700; color: #047857;">🧾 View Bill</span>
+                        </div>
+                    `);
+                }
+            } else if (!href) {
+                $cell.html(`
+                    <span class="ap-upload-trigger" style="
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 4px;
+                        background: #fff1f2;
+                        color: #e11d48;
+                        border: 1px dashed #fecdd3;
+                        padding: 3px 8px;
+                        border-radius: 6px;
+                        font-size: 11.5px;
+                        font-weight: 600;
+                        cursor: pointer;
+                    ">
+                        📷 Add Bill Photo
+                    </span>
+                `);
+            }
+        });
+    }, 60);
+}
+
+// --------------------------------------------------------------------------------------
+// 8. 1-CLICK ROW UPLOADER & LIGHTBOX GALLERY
+// --------------------------------------------------------------------------------------
+function setup_quick_row_uploader(frm) {
+    $(frm.wrapper).off("click.ap_upload").on("click.ap_upload", ".ap-upload-trigger", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const row_elem = $(this).closest(".grid-row");
+        const row_idx = row_elem.attr("data-idx") ? parseInt(row_elem.attr("data-idx")) : 1;
+        const row = (frm.doc.expense_lines || [])[row_idx - 1];
+
+        if (!row) return;
+
+        new frappe.ui.FileUploader({
+            folder: "Home/Attachments",
+            allow_multiple: false,
+            restrictions: { allowed_file_types: ["image/*", ".pdf"] },
+            on_success: (file_doc) => {
+                frappe.model.set_value(row.doctype, row.name, "receipt_attachment", file_doc.file_url);
+                frm.refresh_field("expense_lines");
+                frm.dirty();
+                format_smart_grid_cells(frm);
+            }
+        });
+    });
+
+    $(frm.wrapper).off("click.ap_thumb").on("click.ap_thumb", ".ap-grid-receipt-thumb, .ap-grid-receipt-badge", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        setup_receipt_gallery_actions(frm);
+        frm.page.wrapper.find(".btn-primary:contains('View All Receipts')").click();
+    });
+}
+
 function setup_receipt_gallery_actions(frm) {
     if (frm.is_new()) return;
 
@@ -477,56 +651,6 @@ function open_receipt_gallery_dialog(frm, attachments, start_idx) {
     d.show();
 }
 
-function format_smart_grid_cells(frm) {
-    if (!frm.page || !frm.page.wrapper) return;
-
-    setTimeout(() => {
-        frm.page.wrapper.find('.grid-row [data-fieldname="receipt_attachment"]').each(function () {
-            const $cell = $(this);
-            const $link = $cell.find('a');
-            const href = $link.attr('href') || $cell.text().trim();
-
-            if (href && (href.startsWith('/files/') || href.startsWith('/private/files/'))) {
-                const is_pdf = href.toLowerCase().endsWith('.pdf');
-                $cell.html(`
-                    <span class="ap-grid-receipt-badge" style="
-                        display: inline-flex;
-                        align-items: center;
-                        gap: 4px;
-                        background: #ecfdf5;
-                        color: #047857;
-                        border: 1px solid #a7f3d0;
-                        padding: 3px 8px;
-                        border-radius: 6px;
-                        font-size: 11.5px;
-                        font-weight: 700;
-                        cursor: pointer;
-                    ">
-                        ${is_pdf ? '📄 PDF Bill' : '🧾 Photo Bill'}
-                    </span>
-                `);
-            } else if (!href) {
-                $cell.html(`
-                    <span style="
-                        display: inline-flex;
-                        align-items: center;
-                        gap: 4px;
-                        background: #fff1f2;
-                        color: #e11d48;
-                        border: 1px dashed #fecdd3;
-                        padding: 3px 8px;
-                        border-radius: 6px;
-                        font-size: 11.5px;
-                        font-weight: 600;
-                    ">
-                        📷 Missing Bill
-                    </span>
-                `);
-            }
-        });
-    }, 60);
-}
-
 function apply_friendly_ui_css() {
     if (!document.getElementById('ap-friendly-ui-style')) {
         const style = document.createElement('style');
@@ -539,6 +663,10 @@ function apply_friendly_ui_css() {
             }
             .ap-stepper-pulse {
                 animation: pulse-border 2s infinite ease-in-out;
+            }
+            .ap-grid-receipt-thumb:hover img {
+                transform: scale(1.1);
+                transition: transform 0.15s ease;
             }
         `;
         document.head.appendChild(style);
