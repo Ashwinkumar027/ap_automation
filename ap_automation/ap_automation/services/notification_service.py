@@ -1,16 +1,30 @@
 """
 Enterprise Multi-Tier Notification Service (PRD Section 10)
-Enforces:
+Handles:
 1. Automated Role-based Email & Frappe Desk Realtime Notifications.
 2. Professional Responsive HTML Email Templates with Enterprise Styling.
 3. Itemized Dispute Alerts with Rejection Reasons.
 4. Executive L2 Approval & 2FA Batch Release Alerts.
 5. Post-Disbursement Bank Remittance Advice with Bank UTR.
-6. Non-blocking asynchronous queue execution (frappe.enqueue).
+6. Immediate synchronous/queue dispatch with resilient user resolution.
 """
 from typing import Dict, Any, List, Optional
 import frappe
 from frappe.utils import get_url_to_form, fmt_money
+
+
+def _resolve_email(user_or_email: Optional[str]) -> Optional[str]:
+    """Helper to resolve a Frappe user ID or email to a valid email address."""
+    if not user_or_email:
+        return None
+    val = str(user_or_email).strip()
+    if "@" in val and "." in val:
+        return val
+    # Look up in User table
+    email = frappe.db.get_value("User", val, "email")
+    if email and "@" in str(email):
+        return str(email).strip()
+    return None
 
 
 def _send_email_and_desk_alert(
@@ -25,26 +39,35 @@ def _send_email_and_desk_alert(
     if not recipients:
         return
 
-    # Clean and filter recipients
-    valid_recipients = [r.strip() for r in recipients if r and "@" in r]
-    if not valid_recipients:
-        return
+    valid_recipients = []
+    desk_users = []
+    for r in recipients:
+        if not r:
+            continue
+        desk_users.append(str(r).strip())
+        resolved = _resolve_email(r)
+        if resolved:
+            valid_recipients.append(resolved)
 
-    # 1. Send Email (via queue if not testing)
-    try:
-        frappe.sendmail(
-            recipients=valid_recipients,
-            subject=subject,
-            message=message_html,
-            reference_doctype=reference_doctype,
-            reference_name=reference_name,
-            now=frappe.flags.in_test or False
-        )
-    except Exception as e:
-        frappe.log_error(f"Failed to send email for {reference_name}: {str(e)}", "AP Notification Error")
+    valid_recipients = list(dict.fromkeys(valid_recipients))
+    desk_users = list(dict.fromkeys(desk_users))
+
+    # 1. Send Email (now=True for immediate SMTP dispatch)
+    if valid_recipients:
+        try:
+            frappe.sendmail(
+                recipients=valid_recipients,
+                subject=subject,
+                message=message_html,
+                reference_doctype=reference_doctype,
+                reference_name=reference_name,
+                now=True
+            )
+        except Exception as e:
+            frappe.log_error(f"Failed to send email for {reference_name}: {str(e)}", "AP Notification Error")
 
     # 2. Desk Real-time Notification
-    for user in valid_recipients:
+    for user in desk_users:
         try:
             frappe.publish_realtime(
                 event="msgprint",
@@ -80,7 +103,7 @@ def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> N
         pluck="parent"
     )
     if not l1_users:
-        l1_users = ["administrator@example.com"]
+        l1_users = ["Administrator"]
 
     subject = f"📑 [AP Audit Required] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)})"
     html = f"""
@@ -121,8 +144,8 @@ def notify_admin_on_dispute(
         return
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
-    custodian_email = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
-    if not custodian_email:
+    custodian = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
+    if not custodian:
         return
 
     total_disputed = sum(float(i.get("amount", 0.0)) for i in disputed_items)
@@ -149,9 +172,9 @@ def notify_admin_on_dispute(
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
             Accounts L1 Verifier has audited your voucher <b>#{voucher_name}</b> and flagged the following line item(s) as disputed:
         </p>
-        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; background: #fff5f5; border-radius: 8px; overflow: hidden;">
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
             <thead>
-                <tr style="background: #fee2e2; text-align: left; font-size: 12px; color: #991b1b;">
+                <tr style="background: #fef2f2; text-align: left; font-size: 12px; color: #991b1b;\">
                     <th style="padding: 8px 10px;">Item / Merchant</th>
                     <th style="padding: 8px 10px;">Amount</th>
                     <th style="padding: 8px 10px;">Dispute Reason</th>
@@ -161,60 +184,59 @@ def notify_admin_on_dispute(
                 {items_html}
             </tbody>
         </table>
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 12px; color: #64748b;">
-            💡 <b>Next Steps:</b> The valid approved portion of your claim has been forwarded for Level 2 payment. Please review the disputed lines in ticket <b>#{forked_voucher_name or voucher_name}</b>, attach corrected tax receipts, and resubmit.
-        </div>
-        <div style="text-align: center; margin-top: 24px;">
-            <a href="{doc_url}" style="background: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
-                View Disputed Voucher & Resubmit &rarr;
+        <p style="font-size: 13px; color: #64748b;">
+            Disputed lines have been separated into new draft <b>#{forked_voucher_name or voucher_name}</b>. Please attach rectified proof and resubmit.
+        </p>
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="{doc_url}" style="background: #dc2626; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 13px; display: inline-block;">
+                Review & Upload Corrected Proof &rarr;
             </a>
         </div>
     </div>
     """
-    _send_email_and_desk_alert([custodian_email], subject, html, voucher_doctype, forked_voucher_name or voucher_name, "red")
+    _send_email_and_desk_alert([custodian], subject, html, voucher_doctype, forked_voucher_name or voucher_name, "red")
 
 
 # --------------------------------------------------------------------------------------
-# 3. NOTIFY L2: L1 Verification Passed -> Anshul Sir Approval
+# 3. NOTIFY L2: Clean Voucher Audited & Ready for Director Approval
 # --------------------------------------------------------------------------------------
 def notify_l2_on_l1_verified(voucher_doctype: str, voucher_name: str) -> None:
-    """Triggered when L1 completes verification and moves voucher to L2."""
+    """Triggered when L1 audit passes and voucher moves to Director Tier."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
     company = getattr(doc, "company", "Company")
     custodian = getattr(doc, "custodian", "Branch Admin")
-    verified_amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
     doc_url = get_url_to_form(voucher_doctype, voucher_name)
 
-    # L2 Approvers (Anshul Sir / Matrix Level 2)
+    # Find L2 Director Approvers
     l2_users = frappe.get_all(
         "Has Role",
-        filters={"role": ["in", ["Accounts Manager", "Director", "System Manager"]], "parenttype": "User"},
+        filters={"role": ["in", ["Director Tier", "Dileep Director", "System Manager"]], "parenttype": "User"},
         pluck="parent"
     )
     if not l2_users:
-        l2_users = ["administrator@example.com"]
+        l2_users = ["dileep@quanticus.com", "Administrator"]
 
-    subject = f"👔 [L2 Approval Request] {voucher_doctype} #{voucher_name} (₹ {fmt_money(verified_amount)})"
+    subject = f"⭐ [Approval Required: L2 Director] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)})"
     html = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 10px; padding: 24px; background: #ffffff;">
-        <div style="border-bottom: 2px solid #f59e0b; padding-bottom: 12px; margin-bottom: 16px;">
-            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #d97706; font-weight: 700;">Director Approval &bull; Matrix Level 2</span>
-            <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 20px;">Petty Cash Payout Approval</h2>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fed7aa; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #f97316; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #ea580c; font-weight: 700;">Executive Director Approval Gate</span>
+            <h2 style="margin: 4px 0 0 0; color: #7c2d12; font-size: 20px;">Voucher Audited & Verified by L1</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            Accounts L1 line audit has passed for <b>#{voucher_name}</b> ({custodian}, {company}). The verified payout amount is ready for your Level 2 final sign-off.
+            Accounts L1 has verified all supporting bills for <b>{voucher_name}</b> ({custodian} &bull; {company}) with zero audit discrepancies. Your final Level 2 approval is required.
         </p>
-        <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 8px; padding: 16px; margin: 20px 0;">
-            <div style="font-size: 13px; color: #92400e;">Verified Payout Amount:</div>
-            <div style="font-size: 22px; font-weight: 800; color: #b45309; margin-top: 4px;">₹ {fmt_money(verified_amount)}</div>
-            <div style="font-size: 12px; color: #78350f; margin-top: 6px;">✔ 100% Tax Receipts Verified &bull; Zero Pending Disputes</div>
+        <div style="background: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #9a3412;">Approved Value for Payment:</div>
+            <div style="font-size: 22px; font-weight: 800; color: #ea580c;">₹ {fmt_money(amount)}</div>
         </div>
         <div style="text-align: center; margin-top: 24px;">
-            <a href="{doc_url}" style="background: #f59e0b; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
-                Review & Authorize Payment &rarr;
+            <a href="{doc_url}" style="background: #ea580c; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Sanction & Approve Voucher &rarr;
             </a>
         </div>
     </div>
@@ -223,16 +245,16 @@ def notify_l2_on_l1_verified(voucher_doctype: str, voucher_name: str) -> None:
 
 
 # --------------------------------------------------------------------------------------
-# 4. NOTIFY ADMIN: L2 Approved & Queued in Payment Funnel
+# 4. NOTIFY CUSTODIAN: Voucher Approved by Director
 # --------------------------------------------------------------------------------------
 def notify_admin_on_l2_approved(voucher_doctype: str, voucher_name: str) -> None:
-    """Triggered when L2 Director approves voucher for bank release."""
+    """Triggered when Director approves the claim for payment batching."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
-    custodian_email = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
-    if not custodian_email:
+    custodian = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
+    if not custodian:
         return
 
     amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
@@ -248,7 +270,7 @@ def notify_admin_on_l2_approved(voucher_doctype: str, voucher_name: str) -> None
         </p>
     </div>
     """
-    _send_email_and_desk_alert([custodian_email], subject, html, voucher_doctype, voucher_name, "green")
+    _send_email_and_desk_alert([custodian], subject, html, voucher_doctype, voucher_name, "green")
 
 
 # --------------------------------------------------------------------------------------
@@ -271,7 +293,7 @@ def notify_releaser_on_batch_ready(batch_name: str) -> None:
         pluck="parent"
     )
     if not releasers:
-        releasers = ["administrator@example.com"]
+        releasers = ["Administrator"]
 
     subject = f"🔐 [Action: 2FA Release] Payment Batch #{batch_name} (₹ {fmt_money(total_amt)})"
     html = f"""
@@ -328,15 +350,15 @@ def notify_payee_and_admin_on_payout_dispatched(
         src_dt = item.source_doctype
         src_vch = item.source_voucher
 
-        # Get recipient email (from source voucher custodian/vendor)
-        recipient_email = None
+        # Get recipient user/email (from source voucher custodian/vendor)
+        recipient = None
         if src_dt and src_vch and frappe.db.exists(src_dt, src_vch):
-            recipient_email = frappe.db.get_value(src_dt, src_vch, "custodian") or frappe.db.get_value(src_dt, src_vch, "owner")
+            recipient = frappe.db.get_value(src_dt, src_vch, "custodian") or frappe.db.get_value(src_dt, src_vch, "owner")
 
-        if not recipient_email and "@" in bene_name:
-            recipient_email = bene_name
+        if not recipient:
+            recipient = bene_name
 
-        if recipient_email:
+        if recipient:
             subject = f"🎉 [Payment Disbursed] ₹ {fmt_money(amt)} Credited (Bank UTR: {utr})"
             html = f"""
             <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #d1fae5; border-radius: 10px; padding: 24px; background: #ffffff;">
@@ -360,4 +382,4 @@ def notify_payee_and_admin_on_payout_dispatched(
                 </p>
             </div>
             """
-            _send_email_and_desk_alert([recipient_email], subject, html, src_dt or "Payment Batch", src_vch or batch_name, "green")
+            _send_email_and_desk_alert([recipient], subject, html, src_dt or "Payment Batch", src_vch or batch_name, "green")
