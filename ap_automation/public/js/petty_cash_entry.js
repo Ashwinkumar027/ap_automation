@@ -5,7 +5,7 @@
  * Features:
  * 1. 5-Step Visual Progress Stepper & Dynamic Guidance Banner
  * 2. Clean, Non-Duplicated Action Buttons with Smart Dropdowns
- * 3. Robust 1-Click In-Grid Photo & PDF Receipt Uploader
+ * 3. Robust 1-Click In-Grid Photo & PDF Receipt Uploader with Instant Thumbnail Badge
  * 4. In-App Lightbox Multi-Receipt Gallery & 1-Click ZIP Downloader
  * 5. Partial Row Dispute Splitting (Disputed lines fork; approved lines move to L2)
  * 6. NPCI Verified Custodian Bank Summary Card
@@ -397,36 +397,49 @@ function render_stepper_and_guidance(frm) {
 }
 
 // --------------------------------------------------------------------------------------
-// 4. SMART GRID IN-GRID FORMATTING & THUMBNAILS
+// 4. SMART GRID IN-GRID FORMATTING & THUMBNAILS (DIRECT DATA MODEL BINDING)
 // --------------------------------------------------------------------------------------
 function format_smart_grid_cells(frm) {
     if (!frm.page || !frm.page.wrapper) return;
 
     setTimeout(() => {
-        frm.page.wrapper.find('.grid-row [data-fieldname="receipt_attachment"]').each(function () {
-            const $cell = $(this);
-            const $link = $cell.find('a');
-            const href = $link.attr('href') || $cell.text().trim();
+        const lines = frm.doc.expense_lines || [];
+        frm.page.wrapper.find('.frappe-control[data-fieldname="expense_lines"] .grid-row').each(function () {
+            const $row_elem = $(this);
+            const row_name = $row_elem.attr('data-name');
+            let row = lines.find(r => r.name === row_name);
 
-            if (href && (href.startsWith('/files/') || href.startsWith('/private/files/') || href.startsWith('http'))) {
-                const is_pdf = href.toLowerCase().endsWith('.pdf');
+            if (!row) {
+                const row_idx = $row_elem.attr('data-idx') ? parseInt($row_elem.attr('data-idx')) : 1;
+                row = lines[row_idx - 1];
+            }
+
+            if (!row) return;
+
+            const $cell = $row_elem.find('[data-fieldname="receipt_attachment"]');
+            if (!$cell.length) return;
+
+            const file_url = row.receipt_attachment || row.attach_receipt;
+
+            if (file_url && (file_url.startsWith('/files/') || file_url.startsWith('/private/files/') || file_url.startsWith('http'))) {
+                const is_pdf = file_url.toLowerCase().endsWith('.pdf');
                 if (is_pdf) {
                     $cell.html(`
-                        <span class="ap-grid-receipt-badge" data-url="${href}" style="
+                        <span class="ap-grid-receipt-badge" data-url="${file_url}" style="
                             display: inline-flex; align-items: center; gap: 4px;
                             background: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe;
-                            padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: pointer;
+                            padding: 3px 8px; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: pointer;
                         ">📄 PDF Bill</span>
                     `);
                 } else {
                     $cell.html(`
-                        <div class="ap-grid-receipt-thumb" data-url="${href}" style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
-                            <img src="${href}" style="width: 28px; height: 28px; object-fit: cover; border-radius: 4px; border: 1px solid #cbd5e1; box-shadow: 0 1px 2px rgba(0,0,0,0.1);" />
-                            <span style="font-size: 11px; font-weight: 700; color: #047857;">🧾 View</span>
+                        <div class="ap-grid-receipt-thumb" data-url="${file_url}" style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer;" title="Click to view full photo">
+                            <img src="${file_url}" style="width: 28px; height: 28px; object-fit: cover; border-radius: 4px; border: 1.5px solid #10b981; box-shadow: 0 1px 3px rgba(16, 185, 129, 0.2);" />
+                            <span style="font-size: 11px; font-weight: 700; color: #047857;">🧾 Attached</span>
                         </div>
                     `);
                 }
-            } else if (!href) {
+            } else {
                 $cell.html(`
                     <span class="ap-upload-trigger" style="
                         display: inline-flex; align-items: center; gap: 4px;
@@ -436,13 +449,13 @@ function format_smart_grid_cells(frm) {
                 `);
             }
         });
-    }, 60);
+    }, 80);
 }
 
 function setup_quick_row_uploader(frm) {
     if (!frm.page || !frm.page.wrapper) return;
 
-    // 1-Click Upload Trigger (Delegated to handle all dynamically added rows)
+    // 1-Click Upload Trigger
     frm.page.wrapper.off('click.ap_upload').on('click.ap_upload', '.ap-upload-trigger', function (e) {
         e.preventDefault();
         e.stopPropagation();
@@ -471,7 +484,9 @@ function setup_quick_row_uploader(frm) {
                 frappe.model.set_value(row.doctype, row.name, 'receipt_attachment', file_doc.file_url);
                 frm.refresh_field('expense_lines');
                 frm.dirty();
-                format_smart_grid_cells(frm);
+                setTimeout(() => {
+                    format_smart_grid_cells(frm);
+                }, 100);
                 frappe.show_alert({
                     message: __('🧾 Photo receipt attached successfully!'),
                     indicator: 'green'
