@@ -5,7 +5,7 @@
  * Features:
  * 1. 5-Step Visual Progress Stepper & Dynamic Guidance Banner
  * 2. Clean, Non-Duplicated Action Buttons with Smart Dropdowns
- * 3. Excel-Style Smart Grid with In-Grid 32px Bill Thumbnails & 1-Click Upload
+ * 3. Robust 1-Click In-Grid Photo & PDF Receipt Uploader
  * 4. In-App Lightbox Multi-Receipt Gallery & 1-Click ZIP Downloader
  * 5. Partial Row Dispute Splitting (Disputed lines fork; approved lines move to L2)
  * 6. NPCI Verified Custodian Bank Summary Card
@@ -116,7 +116,6 @@ function format_inr_clean(val) {
 // 2. UNIFIED ACTION BUTTONS (NO DUPLICATES)
 // --------------------------------------------------------------------------------------
 function setup_unified_workflow_buttons(frm) {
-    // Clear all custom buttons cleanly
     frm.clear_custom_buttons();
 
     if (frm.is_new()) return;
@@ -124,14 +123,14 @@ function setup_unified_workflow_buttons(frm) {
     const status = frm.doc.status || 'Draft';
     const lines = frm.doc.expense_lines || [];
 
-    // Helper: Collect all valid receipt file URLs
+    // Collect all valid receipt file URLs
     const receipt_urls = [];
     lines.forEach(line => {
         const url = line.receipt_attachment || line.attach_receipt;
         if (url && (url.startsWith('/files/') || url.startsWith('/private/files/') || url.startsWith('http'))) {
             receipt_urls.push({
                 file_url: url,
-                file_name: line.description || line.expense_category || 'Receipt Proof',
+                file_name: line.description || line.merchant_name || line.expense_category || 'Receipt Proof',
                 amount: line.amount
             });
         }
@@ -404,7 +403,7 @@ function format_smart_grid_cells(frm) {
     if (!frm.page || !frm.page.wrapper) return;
 
     setTimeout(() => {
-        frm.page.wrapper.find('.grid-row [data-fieldname="receipt_attachment"], .grid-row [data-fieldname="attach_receipt"]').each(function () {
+        frm.page.wrapper.find('.grid-row [data-fieldname="receipt_attachment"]').each(function () {
             const $cell = $(this);
             const $link = $cell.find('a');
             const href = $link.attr('href') || $cell.text().trim();
@@ -427,12 +426,12 @@ function format_smart_grid_cells(frm) {
                         </div>
                     `);
                 }
-            } else if (!href && frm.doc.status === 'Draft') {
+            } else if (!href) {
                 $cell.html(`
                     <span class="ap-upload-trigger" style="
                         display: inline-flex; align-items: center; gap: 4px;
                         background: #fdf2f8; color: #db2777; border: 1px dashed #fbcfe8;
-                        padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;
+                        padding: 3px 8px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;
                     ">📷 Add Photo</span>
                 `);
             }
@@ -443,26 +442,40 @@ function format_smart_grid_cells(frm) {
 function setup_quick_row_uploader(frm) {
     if (!frm.page || !frm.page.wrapper) return;
 
-    // 1-Click Upload Trigger
+    // 1-Click Upload Trigger (Delegated to handle all dynamically added rows)
     frm.page.wrapper.off('click.ap_upload').on('click.ap_upload', '.ap-upload-trigger', function (e) {
         e.preventDefault();
         e.stopPropagation();
 
-        const row_elem = $(this).closest('.grid-row');
-        const row_idx = row_elem.attr('data-idx') ? parseInt(row_elem.attr('data-idx')) : 1;
-        const row = (frm.doc.expense_lines || [])[row_idx - 1];
+        const $row_elem = $(this).closest('.grid-row');
+        const row_name = $row_elem.attr('data-name');
+        let row = (frm.doc.expense_lines || []).find(r => r.name === row_name);
+
+        if (!row) {
+            const row_idx = $row_elem.attr('data-idx') ? parseInt($row_elem.attr('data-idx')) : 1;
+            row = (frm.doc.expense_lines || [])[row_idx - 1];
+        }
 
         if (!row) return;
 
         new frappe.ui.FileUploader({
+            doctype: frm.doctype,
+            docname: frm.is_new() ? undefined : frm.docname,
             folder: 'Home/Attachments',
             allow_multiple: false,
-            restrictions: { allowed_file_types: ['image/*', '.pdf'] },
+            make_attachments_public: 1,
+            restrictions: {
+                allowed_file_types: ['image/*', '.pdf', '.png', '.jpg', '.jpeg', '.webp']
+            },
             on_success: (file_doc) => {
                 frappe.model.set_value(row.doctype, row.name, 'receipt_attachment', file_doc.file_url);
                 frm.refresh_field('expense_lines');
                 frm.dirty();
                 format_smart_grid_cells(frm);
+                frappe.show_alert({
+                    message: __('🧾 Photo receipt attached successfully!'),
+                    indicator: 'green'
+                }, 4);
             }
         });
     });
@@ -485,7 +498,7 @@ function setup_quick_row_uploader(frm) {
                 }
                 receipt_urls.push({
                     file_url: url,
-                    file_name: line.description || line.expense_category || 'Receipt Proof',
+                    file_name: line.description || line.merchant_name || line.expense_category || 'Receipt Proof',
                     amount: line.amount
                 });
             }
@@ -577,7 +590,7 @@ function open_dispute_split_dialog(frm) {
         fields.push({
             fieldtype: 'Check',
             fieldname: `dispute_row_${idx}`,
-            label: `Row #${idx + 1}: ${line.expense_category || 'Expense'} - ${line.description || line.merchant || 'Item'} (₹${format_inr_clean(line.amount)})`
+            label: `Row #${idx + 1}: ${line.expense_category || 'Expense'} - ${line.description || line.merchant_name || 'Item'} (₹${format_inr_clean(line.amount)})`
         });
         fields.push({
             fieldtype: 'Data',
