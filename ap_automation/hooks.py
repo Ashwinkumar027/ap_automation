@@ -17,6 +17,7 @@ add_to_apps_screen = [
 ]
 
 app_include_js = [
+    "/assets/ap_automation/js/ap_receipt_gallery.js",
     "/assets/ap_automation/js/ap_workspace_dashboard.js"
 ]
 

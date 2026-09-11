@@ -5,8 +5,8 @@
  * Features:
  * 1. 5-Step Visual Progress Stepper & Dynamic Guidance Banner
  * 2. Clean, Non-Duplicated Action Buttons with Smart Dropdowns
- * 3. Robust 1-Click In-Grid Photo & PDF Receipt Uploader (Header & Duplicate Protected)
- * 4. In-App Lightbox Multi-Receipt Gallery & 1-Click ZIP Downloader
+ * 3. Robust 1-Click In-Grid Photo & PDF Receipt Uploader
+ * 4. Original Multi-Receipt Split-Pane Gallery (APReceiptGallery) & ZIP Downloader
  * 5. Partial Row Dispute Splitting (Disputed lines fork; approved lines move to L2)
  * 6. NPCI Verified Custodian Bank Summary Card
  */
@@ -123,23 +123,15 @@ function setup_unified_workflow_buttons(frm) {
     const status = frm.doc.status || 'Draft';
     const lines = frm.doc.expense_lines || [];
 
-    // Collect all valid receipt file URLs
-    const receipt_urls = [];
-    lines.forEach(line => {
-        const url = line.receipt_attachment || line.attach_receipt;
-        if (url && (url.startsWith('/files/') || url.startsWith('/private/files/') || url.startsWith('http'))) {
-            receipt_urls.push({
-                file_url: url,
-                file_name: line.description || line.merchant_name || line.expense_category || 'Receipt Proof',
-                amount: line.amount
-            });
-        }
-    });
+    // Extract all attached receipts across all rows
+    const attachments = window.APReceiptGallery ? window.APReceiptGallery.extractLocalAttachments(frm) : [];
 
-    // --- RECEIPT UTILITY BUTTONS ---
-    if (receipt_urls.length > 0) {
-        frm.add_custom_button(__(`👁️ View Receipts (${receipt_urls.length})`), () => {
-            open_receipt_gallery_dialog(frm, receipt_urls, 0);
+    // --- RECEIPT UTILITY BUTTONS (Original 2-Column Gallery) ---
+    if (attachments.length > 0) {
+        frm.add_custom_button(__(`👁️ View Receipts (${attachments.length})`), () => {
+            if (window.APReceiptGallery) {
+                window.APReceiptGallery.openModal(frm, attachments, 0);
+            }
         }).addClass('btn-secondary').css({
             'background': '#e0e7ff',
             'color': '#4338ca',
@@ -405,11 +397,9 @@ function format_smart_grid_cells(frm) {
     setTimeout(() => {
         const lines = frm.doc.expense_lines || [];
         
-        // STRICT: Select ONLY data rows inside grid-body (NEVER touch grid-heading-row)
         frm.page.wrapper.find('.frappe-control[data-fieldname="expense_lines"] .grid-body .grid-row').each(function () {
             const $row_elem = $(this);
             
-            // Extra safety guard: skip if heading row or open form edit layer
             if ($row_elem.hasClass('grid-heading-row') || $row_elem.closest('.grid-heading-row').length) {
                 return;
             }
@@ -424,14 +414,12 @@ function format_smart_grid_cells(frm) {
 
             if (!row) return;
 
-            // Target ONLY the static column container (not the header, not the subform)
             const $cell = $row_elem.find('.grid-static-col[data-fieldname="receipt_attachment"]');
             if (!$cell.length) return;
 
             const file_url = row.receipt_attachment || row.attach_receipt || '';
             const current_rendered = $cell.attr('data-rendered-url');
 
-            // Prevent repeated re-injection if already rendered for this exact URL
             if (current_rendered === file_url && $cell.find('.ap-grid-receipt-thumb, .ap-grid-receipt-badge, .ap-upload-trigger').length > 0) {
                 return;
             }
@@ -450,7 +438,7 @@ function format_smart_grid_cells(frm) {
                     `);
                 } else {
                     $cell.html(`
-                        <div class="ap-grid-receipt-thumb" data-url="${file_url}" style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer;" title="Click to view full photo">
+                        <div class="ap-grid-receipt-thumb" data-url="${file_url}" style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer;" title="Click to view in receipt gallery">
                             <img src="${file_url}" style="width: 24px; height: 24px; object-fit: cover; border-radius: 4px; border: 1.5px solid #10b981; box-shadow: 0 1px 2px rgba(16, 185, 129, 0.2);" />
                             <span style="font-size: 11px; font-weight: 700; color: #047857;">🧾 Attached</span>
                         </div>
@@ -514,87 +502,24 @@ function setup_quick_row_uploader(frm) {
         });
     });
 
-    // In-Grid Thumbnail Lightbox Click
+    // In-Grid Thumbnail Lightbox Click -> Opens the Original 2-Column Split-Pane Gallery
     frm.page.wrapper.off('click.ap_thumb').on('click.ap_thumb', '.ap-grid-receipt-thumb, .ap-grid-receipt-badge', function (e) {
         e.preventDefault();
         e.stopPropagation();
         const clicked_url = $(this).attr('data-url');
         
-        const lines = frm.doc.expense_lines || [];
-        const receipt_urls = [];
+        const attachments = window.APReceiptGallery ? window.APReceiptGallery.extractLocalAttachments(frm) : [];
         let start_idx = 0;
 
-        lines.forEach(line => {
-            const url = line.receipt_attachment || line.attach_receipt;
-            if (url && (url.startsWith('/files/') || url.startsWith('/private/files/') || url.startsWith('http'))) {
-                if (url === clicked_url) {
-                    start_idx = receipt_urls.length;
+        if (attachments && attachments.length > 0) {
+            attachments.forEach((att, idx) => {
+                if (att.file_url === clicked_url) {
+                    start_idx = idx;
                 }
-                receipt_urls.push({
-                    file_url: url,
-                    file_name: line.description || line.merchant_name || line.expense_category || 'Receipt Proof',
-                    amount: line.amount
-                });
-            }
-        });
-
-        if (receipt_urls.length > 0) {
-            open_receipt_gallery_dialog(frm, receipt_urls, start_idx);
+            });
+            window.APReceiptGallery.openModal(frm, attachments, start_idx);
         }
     });
-}
-
-// --------------------------------------------------------------------------------------
-// 5. LIGHTBOX MULTI-RECEIPT GALLERY DIALOG
-// --------------------------------------------------------------------------------------
-function open_receipt_gallery_dialog(frm, attachments, start_idx) {
-    let current_idx = start_idx || 0;
-    const total = attachments.length;
-
-    function build_gallery_html(idx) {
-        const item = attachments[idx];
-        const is_pdf = item.file_url.toLowerCase().endsWith('.pdf');
-        const file_src = item.file_url;
-        const amount_tag = item.amount ? ` • ₹${format_inr_clean(item.amount)}` : '';
-
-        return `
-            <div style="text-align: center; background: #0f172a; border-radius: 8px; padding: 14px; min-height: 480px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; color: #fff; margin-bottom: 12px; font-weight: 600; font-size: 13px;">
-                    <span>🧾 Receipt <b>${idx + 1} of ${total}</b> — ${item.file_name}${amount_tag}</span>
-                    <a href="${file_src}" target="_blank" style="color: #60a5fa; text-decoration: underline; font-size: 12px;">🔗 Open Original</a>
-                </div>
-                <div style="height: 420px; display: flex; align-items: center; justify-content: center; background: #020617; border-radius: 6px; overflow: hidden;">
-                    ${is_pdf 
-                        ? `<iframe src="${file_src}" style="width: 100%; height: 100%; border: none; background: #fff;"></iframe>`
-                        : `<img src="${file_src}" style="max-height: 100%; max-width: 100%; object-fit: contain; box-shadow: 0 4px 6px rgba(0,0,0,0.3);" />`
-                    }
-                </div>
-            </div>
-        `;
-    }
-
-    const d = new frappe.ui.Dialog({
-        title: `Receipt Gallery — ${frm.doc.name}`,
-        size: 'large',
-        fields: [{ fieldtype: 'HTML', fieldname: 'gallery_html' }]
-    });
-
-    d.set_value('gallery_html', build_gallery_html(current_idx));
-
-    if (total > 1) {
-        d.set_secondary_action_label('⬅️ Previous');
-        d.set_secondary_action(() => {
-            current_idx = (current_idx - 1 + total) % total;
-            d.set_value('gallery_html', build_gallery_html(current_idx));
-        });
-        d.set_primary_action_label('Next ➡️');
-        d.set_primary_action(() => {
-            current_idx = (current_idx + 1) % total;
-            d.set_value('gallery_html', build_gallery_html(current_idx));
-        });
-    }
-
-    d.show();
 }
 
 // --------------------------------------------------------------------------------------
