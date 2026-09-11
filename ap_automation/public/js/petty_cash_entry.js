@@ -5,7 +5,7 @@
  * Features:
  * 1. 5-Step Visual Progress Stepper & Dynamic Guidance Banner
  * 2. Clean, Non-Duplicated Action Buttons with Smart Dropdowns
- * 3. Robust 1-Click In-Grid Photo & PDF Receipt Uploader with Instant Thumbnail Badge
+ * 3. Robust 1-Click In-Grid Photo & PDF Receipt Uploader (Header & Duplicate Protected)
  * 4. In-App Lightbox Multi-Receipt Gallery & 1-Click ZIP Downloader
  * 5. Partial Row Dispute Splitting (Disputed lines fork; approved lines move to L2)
  * 6. NPCI Verified Custodian Bank Summary Card
@@ -397,15 +397,23 @@ function render_stepper_and_guidance(frm) {
 }
 
 // --------------------------------------------------------------------------------------
-// 4. SMART GRID IN-GRID FORMATTING & THUMBNAILS (DIRECT DATA MODEL BINDING)
+// 4. SMART GRID FORMATTING (HEADER-PROTECTED & ANTI-DUPLICATION)
 // --------------------------------------------------------------------------------------
 function format_smart_grid_cells(frm) {
     if (!frm.page || !frm.page.wrapper) return;
 
     setTimeout(() => {
         const lines = frm.doc.expense_lines || [];
-        frm.page.wrapper.find('.frappe-control[data-fieldname="expense_lines"] .grid-row').each(function () {
+        
+        // STRICT: Select ONLY data rows inside grid-body (NEVER touch grid-heading-row)
+        frm.page.wrapper.find('.frappe-control[data-fieldname="expense_lines"] .grid-body .grid-row').each(function () {
             const $row_elem = $(this);
+            
+            // Extra safety guard: skip if heading row or open form edit layer
+            if ($row_elem.hasClass('grid-heading-row') || $row_elem.closest('.grid-heading-row').length) {
+                return;
+            }
+
             const row_name = $row_elem.attr('data-name');
             let row = lines.find(r => r.name === row_name);
 
@@ -416,10 +424,19 @@ function format_smart_grid_cells(frm) {
 
             if (!row) return;
 
-            const $cell = $row_elem.find('[data-fieldname="receipt_attachment"]');
+            // Target ONLY the static column container (not the header, not the subform)
+            const $cell = $row_elem.find('.grid-static-col[data-fieldname="receipt_attachment"]');
             if (!$cell.length) return;
 
-            const file_url = row.receipt_attachment || row.attach_receipt;
+            const file_url = row.receipt_attachment || row.attach_receipt || '';
+            const current_rendered = $cell.attr('data-rendered-url');
+
+            // Prevent repeated re-injection if already rendered for this exact URL
+            if (current_rendered === file_url && $cell.find('.ap-grid-receipt-thumb, .ap-grid-receipt-badge, .ap-upload-trigger').length > 0) {
+                return;
+            }
+
+            $cell.attr('data-rendered-url', file_url);
 
             if (file_url && (file_url.startsWith('/files/') || file_url.startsWith('/private/files/') || file_url.startsWith('http'))) {
                 const is_pdf = file_url.toLowerCase().endsWith('.pdf');
@@ -428,13 +445,13 @@ function format_smart_grid_cells(frm) {
                         <span class="ap-grid-receipt-badge" data-url="${file_url}" style="
                             display: inline-flex; align-items: center; gap: 4px;
                             background: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe;
-                            padding: 3px 8px; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: pointer;
+                            padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: pointer;
                         ">📄 PDF Bill</span>
                     `);
                 } else {
                     $cell.html(`
                         <div class="ap-grid-receipt-thumb" data-url="${file_url}" style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer;" title="Click to view full photo">
-                            <img src="${file_url}" style="width: 28px; height: 28px; object-fit: cover; border-radius: 4px; border: 1.5px solid #10b981; box-shadow: 0 1px 3px rgba(16, 185, 129, 0.2);" />
+                            <img src="${file_url}" style="width: 24px; height: 24px; object-fit: cover; border-radius: 4px; border: 1.5px solid #10b981; box-shadow: 0 1px 2px rgba(16, 185, 129, 0.2);" />
                             <span style="font-size: 11px; font-weight: 700; color: #047857;">🧾 Attached</span>
                         </div>
                     `);
@@ -444,12 +461,12 @@ function format_smart_grid_cells(frm) {
                     <span class="ap-upload-trigger" style="
                         display: inline-flex; align-items: center; gap: 4px;
                         background: #fdf2f8; color: #db2777; border: 1px dashed #fbcfe8;
-                        padding: 3px 8px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;
+                        padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;
                     ">📷 Add Photo</span>
                 `);
             }
         });
-    }, 80);
+    }, 60);
 }
 
 function setup_quick_row_uploader(frm) {
@@ -461,6 +478,8 @@ function setup_quick_row_uploader(frm) {
         e.stopPropagation();
 
         const $row_elem = $(this).closest('.grid-row');
+        if ($row_elem.hasClass('grid-heading-row')) return;
+
         const row_name = $row_elem.attr('data-name');
         let row = (frm.doc.expense_lines || []).find(r => r.name === row_name);
 
@@ -486,7 +505,7 @@ function setup_quick_row_uploader(frm) {
                 frm.dirty();
                 setTimeout(() => {
                     format_smart_grid_cells(frm);
-                }, 100);
+                }, 80);
                 frappe.show_alert({
                     message: __('🧾 Photo receipt attached successfully!'),
                     indicator: 'green'
@@ -825,9 +844,21 @@ function apply_petty_cash_styles() {
                 background: #f8fafc !important;
                 border-bottom: 1.5px solid #e2e8f0 !important;
             }
+            .frappe-control[data-fieldname="expense_lines"] .form-grid .grid-heading-row .grid-static-col {
+                font-weight: 700 !important;
+                font-size: 12px !important;
+                color: #475569 !important;
+                text-transform: uppercase !important;
+            }
             .frappe-control[data-fieldname="expense_lines"] .form-grid [data-fieldname="amount"] {
                 font-weight: 700 !important;
                 color: #059669 !important;
+            }
+            .frappe-control[data-fieldname="expense_lines"] .grid-body .grid-static-col[data-fieldname="receipt_attachment"] {
+                display: flex !important;
+                align-items: center !important;
+                min-height: 28px !important;
+                padding: 2px 4px !important;
             }
         `;
         document.head.appendChild(style);
