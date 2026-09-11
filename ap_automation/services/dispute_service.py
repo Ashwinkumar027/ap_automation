@@ -6,10 +6,53 @@ Enforces:
 3. Dispatches automated dispute email alert to Admin with itemized rejection reasons.
 4. Total Dispute Handling: If ALL lines are disputed, the parent ticket transitions to Disputed without creating an empty 0-line parent.
 """
+import json
 from typing import Dict, Any, List, Optional
 import frappe
 from ap_automation.exceptions import APValidationError
 from ap_automation.services import notification_service
+
+
+@frappe.whitelist()
+def api_dispute_split(parent_docname: str, disputed_indices: Any, dispute_reasons: Any = "{}") -> Dict[str, Any]:
+    """
+    Whitelisted API endpoint for atomic dispute splitting directly from Petty Cash UI.
+    """
+    if isinstance(disputed_indices, str):
+        disputed_indices = json.loads(disputed_indices)
+    if isinstance(dispute_reasons, str):
+        dispute_reasons = json.loads(dispute_reasons)
+
+    parent = frappe.get_doc("Petty Cash Entry", parent_docname)
+    all_lines = parent.expense_lines
+    disputed_row_names = []
+    formatted_reasons = {}
+
+    for idx in disputed_indices:
+        idx_int = int(idx)
+        if idx_int < len(all_lines):
+            row = all_lines[idx_int]
+            disputed_row_names.append(row.name)
+            reason = dispute_reasons.get(str(idx)) or dispute_reasons.get(idx) or "Disputed during L1 review"
+            formatted_reasons[row.name] = reason
+
+    res = dispute_and_fork_petty_cash_lines(
+        parent_docname=parent_docname,
+        disputed_row_names=disputed_row_names,
+        dispute_reasons=formatted_reasons,
+        disputed_by=frappe.session.user
+    )
+
+    parent.reload()
+    return {
+        "status": "split_success",
+        "parent_voucher": res["parent_voucher"],
+        "approved_line_count": len(parent.expense_lines),
+        "approved_amount": parent.total_amount,
+        "forked_voucher": res["forked_voucher"],
+        "disputed_line_count": len(disputed_row_names),
+        "disputed_amount": res["disputed_amount"]
+    }
 
 
 def dispute_and_fork_petty_cash_lines(
@@ -85,7 +128,7 @@ def dispute_and_fork_petty_cash_lines(
     # Create Child Disputed Voucher for Admin
     forked_voucher = frappe.get_doc({
         "doctype": "Petty Cash Entry",
-        "claim_title": f"{parent.claim_title} (Disputed Items)",
+        "claim_title": f"{parent.claim_title or parent.name} (Disputed Items)",
         "company": parent.company,
         "posting_date": frappe.utils.today(),
         "custodian": parent.custodian,
