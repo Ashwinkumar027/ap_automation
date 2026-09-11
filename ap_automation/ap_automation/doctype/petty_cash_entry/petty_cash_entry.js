@@ -1,472 +1,631 @@
-// Copyright (c) 2026, Quanti and contributors
-// Petty Cash Entry Client Script — Ultra User-Friendly Enterprise UI & Process Flow Suite
+/**
+ * AP Automation - Petty Cash Entry Master Controller
+ * Enterprise Edition (Consolidated Single Source of Truth)
+ * 
+ * Features:
+ * 1. 5-Step Visual Progress Stepper & Dynamic Guidance Banner
+ * 2. Clean, Non-Duplicated Action Buttons with Smart Dropdowns
+ * 3. Excel-Style Smart Grid with In-Grid 32px Bill Thumbnails & 1-Click Upload
+ * 4. In-App Lightbox Multi-Receipt Gallery & 1-Click ZIP Downloader
+ * 5. Partial Row Dispute Splitting (Disputed lines fork; approved lines move to L2)
+ * 6. NPCI Verified Custodian Bank Summary Card
+ */
 
-frappe.ui.form.on("Petty Cash Entry", {
-    setup(frm) {
+frappe.ui.form.on('Petty Cash Entry', {
+    setup: function (frm) {
         if (frm.is_new() && !frm.doc.custodian) {
-            frm.set_value("custodian", frappe.session.user);
+            frm.set_value('custodian', frappe.session.user);
         }
         if (frm.is_new() && !frm.doc.posting_date) {
-            frm.set_value("posting_date", frappe.datetime.get_today());
+            frm.set_value('posting_date', frappe.datetime.get_today());
         }
     },
 
-    refresh(frm) {
-        recalculate_petty_cash_total(frm);
-        render_user_friendly_progress_stepper(frm);
-        render_forked_ticket_relationship_banner(frm);
-        render_dynamic_next_step_banner(frm);
-        render_banking_verification_shield(frm);
-        setup_friendly_action_buttons(frm);
-        setup_receipt_gallery_actions(frm);
+    onload: function (frm) {
+        apply_petty_cash_styles();
+    },
+
+    onload_post_render: function (frm) {
+        apply_petty_cash_styles();
+        render_stepper_and_guidance(frm);
         format_smart_grid_cells(frm);
         setup_quick_row_uploader(frm);
-        apply_friendly_ui_css();
     },
 
-    validate(frm) {
+    refresh: function (frm) {
+        apply_petty_cash_styles();
         recalculate_petty_cash_total(frm);
+        render_stepper_and_guidance(frm);
+        format_smart_grid_cells(frm);
+        setup_quick_row_uploader(frm);
+        setup_unified_workflow_buttons(frm);
+    },
+
+    validate: function (frm) {
+        recalculate_petty_cash_total(frm);
+    },
+
+    company: function (frm) {
+        render_stepper_and_guidance(frm);
+    },
+
+    status: function (frm) {
+        render_stepper_and_guidance(frm);
+        setup_unified_workflow_buttons(frm);
     }
 });
 
-frappe.ui.form.on("Petty Cash Line Item", {
-    amount(frm, cdt, cdn) {
-        recalculate_petty_cash_total(frm);
-    },
-    expense_lines_remove(frm, cdt, cdn) {
+frappe.ui.form.on('Petty Cash Line Item', {
+    amount: function (frm) {
         recalculate_petty_cash_total(frm);
         format_smart_grid_cells(frm);
     },
-    expense_lines_add(frm, cdt, cdn) {
+    employee: function (frm, cdt, cdn) {
+        let row = locals[cdt][cdn];
+        if (row.employee) {
+            frappe.db.get_value('Employee', row.employee, ['employee_name'])
+                .then(r => {
+                    if (r && r.message) {
+                        frappe.model.set_value(cdt, cdn, 'staff_name', r.message.employee_name || '');
+                        format_smart_grid_cells(frm);
+                    }
+                });
+        } else {
+            frappe.model.set_value(cdt, cdn, 'staff_name', '');
+            format_smart_grid_cells(frm);
+        }
+    },
+    attach_receipt: function (frm) {
+        format_smart_grid_cells(frm);
+    },
+    receipt_attachment: function (frm) {
+        format_smart_grid_cells(frm);
+    },
+    expense_lines_add: function (frm, cdt, cdn) {
         let row = locals[cdt][cdn];
         if (!row.expense_date) {
-            frappe.model.set_value(cdt, cdn, "expense_date", frm.doc.posting_date || frappe.datetime.get_today());
+            frappe.model.set_value(cdt, cdn, 'expense_date', frm.doc.posting_date || frappe.datetime.get_today());
         }
-        recalculate_petty_cash_total(frm);
-        setTimeout(() => format_smart_grid_cells(frm), 50);
+        format_smart_grid_cells(frm);
     },
-    receipt_attachment(frm, cdt, cdn) {
-        setTimeout(() => format_smart_grid_cells(frm), 50);
+    expense_lines_remove: function (frm) {
+        recalculate_petty_cash_total(frm);
+        format_smart_grid_cells(frm);
     }
 });
 
+// --------------------------------------------------------------------------------------
+// 1. RE-CALCULATION & AUTO-SUMMATION
+// --------------------------------------------------------------------------------------
 function recalculate_petty_cash_total(frm) {
     let total = 0.0;
     (frm.doc.expense_lines || []).forEach(row => {
         total += flt(row.amount);
     });
-    frm.set_value("total_amount", Math.round(total * 100) / 100);
-    frm.refresh_field("total_amount");
+    frm.set_value('total_amount', Math.round(total * 100) / 100);
+}
+
+function format_inr_clean(val) {
+    return parseFloat(val || 0).toLocaleString('en-IN', {
+        maximumFractionDigits: 2,
+        minimumFractionDigits: 2
+    });
 }
 
 // --------------------------------------------------------------------------------------
-// 1. VISUAL 5-STEP PIPELINE TRACKER (Progress Stepper)
+// 2. UNIFIED ACTION BUTTONS (NO DUPLICATES)
 // --------------------------------------------------------------------------------------
-function render_user_friendly_progress_stepper(frm) {
+function setup_unified_workflow_buttons(frm) {
+    // Clear all custom buttons cleanly
+    frm.clear_custom_buttons();
+
     if (frm.is_new()) return;
 
-    const status = frm.doc.status || "Draft";
-    let active_step = 1;
+    const status = frm.doc.status || 'Draft';
+    const lines = frm.doc.expense_lines || [];
 
-    if (status === "Draft") active_step = 1;
-    else if (status === "Submitted") active_step = 2;
-    else if (status === "L1 Verified") active_step = 3;
-    else if (status === "Approved for Payment" || status === "Queued in Batch") active_step = 4;
-    else if (status === "Dispatched to Bank" || status === "Paid") active_step = 5;
-    else if (status === "Disputed") active_step = 2;
-    else if (status === "Rejected") active_step = 3;
-
-    const steps = [
-        { num: 1, title: "Bill Entry", icon: "📝", desc: "Admin Upload" },
-        { num: 2, title: "Accounts Audit", icon: "🔍", desc: "L1 Verification" },
-        { num: 3, title: "Director Approval", icon: "✍️", desc: "Anshul Sir" },
-        { num: 4, title: "Bank Release", icon: "🏦", desc: "IDFC 2FA (Anish Sir)" },
-        { num: 5, title: "Money Received", icon: "💰", desc: "Bank Account" }
-    ];
-
-    let steps_html = steps.map((s) => {
-        let is_completed = s.num < active_step || (active_step === 5 && s.num === 5);
-        let is_current = s.num === active_step && active_step !== 5;
-        let is_disputed = status === "Disputed" && s.num === 2;
-        let is_rejected = status === "Rejected" && s.num === 3;
-
-        let bg_color = "#f1f5f9";
-        let text_color = "#64748b";
-        let border_color = "#e2e8f0";
-        let badge = s.icon;
-
-        if (is_completed) {
-            bg_color = "#ecfdf5";
-            text_color = "#047857";
-            border_color = "#a7f3d0";
-            badge = "✅";
-        } else if (is_current) {
-            bg_color = "#eff6ff";
-            text_color = "#1d4ed8";
-            border_color = "#93c5fd";
+    // Helper: Collect all valid receipt file URLs
+    const receipt_urls = [];
+    lines.forEach(line => {
+        const url = line.receipt_attachment || line.attach_receipt;
+        if (url && (url.startsWith('/files/') || url.startsWith('/private/files/') || url.startsWith('http'))) {
+            receipt_urls.push({
+                file_url: url,
+                file_name: line.description || line.expense_category || 'Receipt Proof',
+                amount: line.amount
+            });
         }
+    });
 
-        if (is_disputed) {
-            bg_color = "#fffbeb";
-            text_color = "#b45309";
-            border_color = "#fcd34d";
-            badge = "⚠️";
-        } else if (is_rejected) {
-            bg_color = "#fef2f2";
-            text_color = "#b91c1c";
-            border_color = "#fca5a5";
-            badge = "❌";
-        }
+    // --- RECEIPT UTILITY BUTTONS ---
+    if (receipt_urls.length > 0) {
+        frm.add_custom_button(__(`👁️ View Receipts (${receipt_urls.length})`), () => {
+            open_receipt_gallery_dialog(frm, receipt_urls, 0);
+        }).addClass('btn-secondary').css({
+            'background': '#e0e7ff',
+            'color': '#4338ca',
+            'border-color': '#c7d2fe',
+            'font-weight': '600'
+        });
 
-        return `
-            <div class="ap-stepper-item ${is_current ? 'ap-stepper-pulse' : ''}" style="
-                flex: 1;
-                background: ${bg_color};
-                border: 1.5px solid ${border_color};
-                border-radius: 8px;
-                padding: 8px 10px;
-                margin: 0 4px;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.03);
-            ">
-                <div style="font-size: 18px; line-height: 1;">${badge}</div>
-                <div>
-                    <div style="font-size: 12px; font-weight: 700; color: ${text_color};">${s.title}</div>
-                    <div style="font-size: 10.5px; color: ${text_color}; opacity: 0.85;">${s.desc}</div>
-                </div>
-            </div>
-        `;
-    }).join("");
-
-    const stepper_wrapper = `
-        <div id="ap-workflow-stepper-box" style="margin-bottom: 15px; margin-top: 5px;">
-            <div style="display: flex; align-items: stretch; justify-content: space-between;">
-                ${steps_html}
-            </div>
-        </div>
-    `;
-
-    frm.dashboard.set_headline_alert(stepper_wrapper);
-}
-
-// --------------------------------------------------------------------------------------
-// 2. TWO-WAY TICKET LINKAGE BANNER (For Forked Disputed Claims)
-// --------------------------------------------------------------------------------------
-function render_forked_ticket_relationship_banner(frm) {
-    const parent_v = frm.doc.parent_voucher;
-    const forked_v = frm.doc.forked_voucher;
-
-    let banner_html = "";
-
-    if (parent_v) {
-        // This is a child disputed ticket
-        banner_html = `
-            <div style="background: #fffbeb; border: 1.5px solid #fde68a; border-left: 5px solid #f59e0b; padding: 10px 14px; border-radius: 6px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 20px;">⚠️</span>
-                    <div>
-                        <b style="color: #92400e; font-size: 12.5px;">Disputed Child Voucher</b>
-                        <div style="color: #b45309; font-size: 11.5px;">This ticket contains disputed bills split from original claim <b>${parent_v}</b>.</div>
-                    </div>
-                </div>
-                <a href="/desk/petty-cash-entry/${parent_v}" class="btn btn-xs btn-default" style="font-weight: 700; color: #92400e; border-color: #fcd34d;">
-                    🔗 Open Parent Claim (${parent_v})
-                </a>
-            </div>
-        `;
-    } else if (forked_v) {
-        // This is the clean parent ticket that split off a dispute
-        banner_html = `
-            <div style="background: #eff6ff; border: 1.5px solid #bfdbfe; border-left: 5px solid #3b82f6; padding: 10px 14px; border-radius: 6px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 20px;">ℹ️</span>
-                    <div>
-                        <b style="color: #1e40af; font-size: 12.5px;">Disputed Items Forked</b>
-                        <div style="color: #2563eb; font-size: 11.5px;">1 or more problem bills were moved to child ticket <b>${forked_v}</b> so clean bills can be paid without delay.</div>
-                    </div>
-                </div>
-                <a href="/desk/petty-cash-entry/${forked_v}" class="btn btn-xs btn-default" style="font-weight: 700; color: #1e40af; border-color: #93c5fd;">
-                    🔗 Open Disputed Ticket (${forked_v})
-                </a>
-            </div>
-        `;
+        frm.add_custom_button(__('📦 Download ZIP'), () => {
+            window.location.href = `/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
+        });
     }
 
-    if (banner_html) {
-        if (!frm.page.wrapper.find("#ap-fork-link-banner").length) {
-            frm.page.wrapper.find(".form-layout").before(`<div id="ap-fork-link-banner">${banner_html}</div>`);
-        } else {
-            frm.page.wrapper.find("#ap-fork-link-banner").html(banner_html);
-        }
-    } else {
-        frm.page.wrapper.find("#ap-fork-link-banner").remove();
-    }
-}
+    // --- WORKFLOW STATE BUTTONS ---
+    if (status === 'Draft') {
+        frm.add_custom_button(__('📤 Submit Envelope'), function () {
+            if (lines.length === 0) {
+                frappe.msgprint({
+                    title: __('Cannot Submit Empty Envelope'),
+                    indicator: 'red',
+                    message: __('Please add at least one expense line item before submitting.')
+                });
+                return;
+            }
 
-// --------------------------------------------------------------------------------------
-// 3. DYNAMIC "WHAT TO DO NEXT?" GUIDANCE CARD
-// --------------------------------------------------------------------------------------
-function render_dynamic_next_step_banner(frm) {
-    if (frm.is_new()) {
-        frm.dashboard.clear_headline();
-        return;
-    }
+            if (flt(frm.doc.total_amount) <= 0) {
+                frappe.msgprint({
+                    title: __('Invalid Total Amount'),
+                    indicator: 'red',
+                    message: __('Total amount must be greater than zero.')
+                });
+                return;
+            }
 
-    const status = frm.doc.status || "Draft";
-    const amount_formatted = format_currency(frm.doc.total_amount || 0, "INR");
-    let banner_config = null;
-
-    if (status === "Draft") {
-        banner_config = {
-            icon: "💡",
-            title: "Next Step: Submit your bills",
-            message: `You have drafted a claim for <b>${amount_formatted}</b>. Please check your bill photos below and click the blue <b>'Submit'</b> button on top right so Accounts can verify.`,
-            bg: "#eff6ff",
-            border: "#bfdbfe",
-            color: "#1e40af"
-        };
-    } else if (status === "Submitted") {
-        banner_config = {
-            icon: "⏳",
-            title: "Waiting for Accounts Team (L1) Check",
-            message: `Your claim of <b>${amount_formatted}</b> has been sent to the Accounts team. They are verifying your receipts. You do not need to take any action right now.`,
-            bg: "#f8fafc",
-            border: "#cbd5e1",
-            color: "#334155"
-        };
-    } else if (status === "L1 Verified") {
-        banner_config = {
-            icon: "🔍",
-            title: "Accounts Verified — Awaiting Anshul Sir's Approval",
-            message: `Accounts team verified all receipts for <b>${amount_formatted}</b>. It is currently in Director's queue for final executive sign-off.`,
-            bg: "#f0fdf4",
-            border: "#bbf7d0",
-            color: "#166534"
-        };
-    } else if (status === "Approved for Payment" || status === "Queued in Batch") {
-        banner_config = {
-            icon: "🎉",
-            title: "Approved! Money is being batched for Bank Transfer",
-            message: `Director approved <b>${amount_formatted}</b> for payment. It is scheduled for release directly to Custodian Bank Account (<b>${frm.doc.custodian_bank_account || 'Registered Account'}</b>).`,
-            bg: "#ecfdf5",
-            border: "#a7f3d0",
-            color: "#065f46"
-        };
-    } else if (status === "Dispatched to Bank" || status === "Paid") {
-        banner_config = {
-            icon: "💰",
-            title: "Payment Successfully Released via IDFC Bank!",
-            message: `Payout of <b>${amount_formatted}</b> was transferred directly to your bank account. Bank UTR / Reference: <b style="color:#059669;">${frm.doc.bank_utr || frm.doc.idfc_batch_ref || 'Bank Confirmed'}</b>.`,
-            bg: "#f0fdf4",
-            border: "#86efac",
-            color: "#14532d"
-        };
-    } else if (status === "Disputed") {
-        banner_config = {
-            icon: "⚠️",
-            title: "Action Needed: Accounts Flagged a Receipt",
-            message: `Accounts team returned this ticket for bill correction. Please check the orange line items below, upload clear tax invoices, and click <b>'Resubmit Claim'</b>.`,
-            bg: "#fffbeb",
-            border: "#fde68a",
-            color: "#92400e"
-        };
-    } else if (status === "Rejected") {
-        banner_config = {
-            icon: "❌",
-            title: "Claim Rejected",
-            message: `This claim was rejected during review. Please contact Accounts for further guidance.`,
-            bg: "#fef2f2",
-            border: "#fecaca",
-            color: "#991b1b"
-        };
-    }
-
-    if (banner_config) {
-        let banner_html = `
-            <div style="
-                background: ${banner_config.bg};
-                border: 1px solid ${banner_config.border};
-                border-left: 5px solid ${banner_config.color};
-                padding: 10px 14px;
-                border-radius: 6px;
-                margin-top: 5px;
-                margin-bottom: 12px;
-                display: flex;
-                align-items: center;
-                gap: 12px;
-            ">
-                <div style="font-size: 24px;">${banner_config.icon}</div>
-                <div style="flex: 1;">
-                    <div style="font-weight: 700; font-size: 13px; color: ${banner_config.color}; margin-bottom: 2px;">
-                        ${banner_config.title}
-                    </div>
-                    <div style="font-size: 12px; color: ${banner_config.color}; line-height: 1.4;">
-                        ${banner_config.message}
-                    </div>
-                </div>
-            </div>
-        `;
-
-        if (!frm.page.wrapper.find("#ap-dynamic-guidance-card").length) {
-            frm.page.wrapper.find(".form-layout").before(`<div id="ap-dynamic-guidance-card">${banner_html}</div>`);
-        } else {
-            frm.page.wrapper.find("#ap-dynamic-guidance-card").html(banner_html);
-        }
-    }
-}
-
-// --------------------------------------------------------------------------------------
-// 4. BANKING NPCI VERIFICATION SHIELD
-// --------------------------------------------------------------------------------------
-function render_banking_verification_shield(frm) {
-    const ac_no = frm.doc.custodian_bank_account;
-    const ifsc = frm.doc.custodian_ifsc_code;
-
-    if (ac_no) {
-        const masked_ac = ac_no.length > 4 ? `•••• ${ac_no.slice(-4)}` : ac_no;
-        const shield_html = `
-            <div style="margin-top: 4px; display: inline-flex; align-items: center; gap: 5px; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 3px 8px; border-radius: 5px; color: #047857; font-size: 11.5px; font-weight: 600;">
-                <span>🛡️ Verified Bank Account (${masked_ac} | IFSC: ${ifsc || 'Auto'})</span>
-            </div>
-        `;
-        frm.get_field("custodian_bank_account").set_description(shield_html);
-    }
-}
-
-// --------------------------------------------------------------------------------------
-// 5. ROLE-BASED FRIENDLY ACTION BUTTONS
-// --------------------------------------------------------------------------------------
-function setup_friendly_action_buttons(frm) {
-    if (frm.is_new()) return;
-
-    const status = frm.doc.status;
-
-    // L1 Verifier Actions (Status = Submitted)
-    if (status === "Submitted") {
-        frm.add_custom_button(__("✅ Verify All Lines"), () => {
             frappe.confirm(
-                __("Are you sure all receipts and amounts are audited and 100% correct?"),
-                () => {
-                    frm.set_value("status", "L1 Verified");
+                __(`Submit this Petty Cash Envelope (<b>${lines.length} lines</b> totaling <b>₹${format_inr_clean(frm.doc.total_amount)}</b>) for L1 Review?`),
+                function () {
+                    frm.set_value('status', 'Submitted');
+                    frm.set_value('workflow_state', 'Pending L1 Review');
+                    frm.set_value('current_approval_level', 1);
                     frm.save().then(() => {
-                        frappe.show_alert({ message: __("Claim verified & forwarded to Anshul Sir!"), indicator: "green" });
-                        frm.reload_doc();
+                        frappe.show_alert({
+                            message: __('🎉 Petty Cash Envelope submitted for L1 Review!'),
+                            indicator: 'green'
+                        }, 5);
                     });
                 }
             );
-        }).addClass("btn-success").css({ "font-weight": "700", "background-color": "#10b981", "color": "#fff" });
+        }).addClass('btn-primary').css({
+            'background-color': '#16a34a',
+            'border-color': '#15803d',
+            'color': '#ffffff',
+            'font-weight': '700',
+            'box-shadow': '0 2px 4px rgba(22, 163, 74, 0.3)'
+        });
+    } else if (status === 'Submitted') {
+        // 1. APPROVE CLAIM
+        frm.add_custom_button(__('✅ Approve Claim'), function () {
+            frappe.confirm(__('Approve this Petty Cash Claim and queue for payment disbursement?'), function () {
+                frm.set_value('status', 'Approved for Payment');
+                frm.set_value('workflow_state', 'Approved for Payment');
+                frm.set_value('current_approval_level', 2);
+                frm.save().then(() => {
+                    frappe.show_alert({
+                        message: __('✅ Claim Approved and Queued for Payment!'),
+                        indicator: 'green'
+                    }, 5);
+                });
+            });
+        }).addClass('btn-primary').css({
+            'background-color': '#16a34a',
+            'border-color': '#15803d',
+            'color': '#ffffff',
+            'font-weight': '700'
+        });
 
-        frm.add_custom_button(__("⚠️ Dispute A Line"), () => {
-            open_friendly_dispute_modal(frm);
-        }).addClass("btn-warning").css({ "font-weight": "700" });
-    }
+        // 2. DISPUTE LINES / SPLIT (if multiple lines exist)
+        if (lines.length > 1) {
+            frm.add_custom_button(__('⚠️ Dispute Lines'), function () {
+                open_dispute_split_dialog(frm);
+            }).addClass('btn-secondary').css({
+                'background-color': '#f59e0b',
+                'border-color': '#d97706',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
+        }
 
-    // L2 Executive Actions (Status = L1 Verified)
-    if (status === "L1 Verified") {
-        frm.add_custom_button(__(`✍️ Approve Payout (${format_currency(frm.doc.total_amount, 'INR')})`), () => {
-            frappe.confirm(
-                __(`Sanction payout of <b>${format_currency(frm.doc.total_amount, 'INR')}</b> to Custodian <b>${frm.doc.custodian}</b>?`),
-                () => {
-                    frm.set_value("status", "Approved for Payment");
-                    frm.save().then(() => {
-                        frappe.show_alert({ message: __("Payout Approved! Payment Instruction generated."), indicator: "green" });
-                        frm.reload_doc();
-                    });
-                }
-            );
-        }).addClass("btn-primary").css({ "font-weight": "700", "background-color": "#4f46e5", "color": "#fff" });
-
-        frm.add_custom_button(__("❌ Reject Claim"), () => {
+        // 3. REJECT / SEND BACK
+        frm.add_custom_button(__('❌ Reject / Return'), function () {
             frappe.prompt(
-                { label: "Reason for Rejection", fieldtype: "Small Text", reqd: 1 },
-                (values) => {
-                    frm.set_value("status", "Rejected");
+                [
+                    {
+                        fieldname: 'reason',
+                        fieldtype: 'Small Text',
+                        label: __('Reason for Rejection / Return Notes'),
+                        reqd: 1
+                    }
+                ],
+                function (values) {
+                    frm.set_value('status', 'Draft');
+                    frm.set_value('workflow_state', 'Draft (Reopened)');
                     frm.save().then(() => {
-                        frappe.msgprint(__("Claim has been marked as Rejected."));
-                        frm.reload_doc();
+                        frappe.show_alert({
+                            message: __('Claim returned to Draft with notes: ' + values.reason),
+                            indicator: 'orange'
+                        }, 6);
                     });
                 },
-                __("Executive Rejection"),
-                __("Reject")
+                __('Reject or Return to Admin'),
+                __('Return to Draft')
             );
-        }).addClass("btn-danger");
-    }
-
-    // Disputed Resubmit Action (Status = Disputed)
-    if (status === "Disputed") {
-        frm.add_custom_button(__("🚀 Resubmit Claim"), () => {
-            frm.set_value("status", "Submitted");
+        }).addClass('btn-danger').css({
+            'background-color': '#dc2626',
+            'border-color': '#b91c1c',
+            'color': '#ffffff',
+            'font-weight': '700'
+        });
+    } else if (status === 'Rejected' || status === 'Disputed') {
+        frm.add_custom_button(__('↩️ Reopen to Draft'), function () {
+            frm.set_value('status', 'Draft');
+            frm.set_value('workflow_state', 'Draft');
             frm.save().then(() => {
-                frappe.show_alert({ message: __("Claim resubmitted to Accounts!"), indicator: "green" });
-                frm.reload_doc();
+                frappe.show_alert({
+                    message: __('Voucher reopened to Draft. You can now edit and resubmit.'),
+                    indicator: 'blue'
+                }, 5);
             });
-        }).addClass("btn-primary").css({ "font-weight": "700" });
+        }).addClass('btn-secondary');
     }
 }
 
 // --------------------------------------------------------------------------------------
-// 6. FRIENDLY DISPUTE MODAL (Zero Technical Jargon)
+// 3. 5-STEP VISUAL STEPPER & GUIDANCE BANNER
 // --------------------------------------------------------------------------------------
-function open_friendly_dispute_modal(frm) {
+function render_stepper_and_guidance(frm) {
+    if (!frm.fields_dict.guidance_banner_html || !frm.fields_dict.stepper_html) return;
+
+    const status = frm.doc.status || 'Draft';
+    const amount_str = `₹ ${format_inr_clean(frm.doc.total_amount)}`;
+
+    let banner_html = '';
+    let step_states = ['pending', 'pending', 'pending', 'pending', 'pending'];
+
+    if (status === 'Draft') {
+        step_states = ['active', 'pending', 'pending', 'pending', 'pending'];
+        banner_html = `
+            <div class="ap-status-banner banner-draft">
+                <div class="banner-icon">📝</div>
+                <div class="banner-content">
+                    <div class="banner-title">Draft Mode — Add & Save Bills</div>
+                    <div class="banner-sub">Add all your expense receipts in the table below. When ready, click <b>Submit Envelope</b> to send to the Accounts team for verification.</div>
+                </div>
+                <div class="banner-stat">
+                    <div class="stat-label">Envelope Total</div>
+                    <div class="stat-val">${amount_str}</div>
+                </div>
+            </div>
+        `;
+    } else if (status === 'Submitted') {
+        step_states = ['completed', 'active', 'pending', 'pending', 'pending'];
+        banner_html = `
+            <div class="ap-status-banner banner-submitted">
+                <div class="banner-icon">⏳</div>
+                <div class="banner-content">
+                    <div class="banner-title">Waiting for Accounts Team (L1) Check</div>
+                    <div class="banner-sub">Your claim of <b>${amount_str}</b> is under verification by the Accounts team. Once verified, it will be queued for payment.</div>
+                </div>
+                <div class="banner-stat">
+                    <div class="stat-label">Pending Liability</div>
+                    <div class="stat-val" style="color: #2563eb;">${amount_str}</div>
+                </div>
+            </div>
+        `;
+    } else if (status === 'Approved for Payment') {
+        step_states = ['completed', 'completed', 'completed', 'active', 'pending'];
+        banner_html = `
+            <div class="ap-status-banner banner-approved">
+                <div class="banner-icon">✅</div>
+                <div class="banner-content">
+                    <div class="banner-title">Claim Approved — Queued for Bank Payout</div>
+                    <div class="banner-sub">Claim verified and approved for <b>${amount_str}</b>. Payout will be dispatched in the next IDFC 2FA release batch.</div>
+                </div>
+                <div class="banner-stat">
+                    <div class="stat-label">Approved Payout</div>
+                    <div class="stat-val" style="color: #059669;">${amount_str}</div>
+                </div>
+            </div>
+        `;
+    } else if (status === 'Paid') {
+        step_states = ['completed', 'completed', 'completed', 'completed', 'completed'];
+        banner_html = `
+            <div class="ap-status-banner banner-paid">
+                <div class="banner-icon">💰</div>
+                <div class="banner-content">
+                    <div class="banner-title">Payment Successfully Released via IDFC Bank!</div>
+                    <div class="banner-sub">Payout of <b>${amount_str}</b> was transferred directly to the custodian's bank account. Bank Reference: <b>${frm.doc.bank_reference || frm.doc.batch_id || 'Bank Confirmed'}</b>.</div>
+                </div>
+                <div class="banner-stat">
+                    <div class="stat-label">Disbursed</div>
+                    <div class="stat-val" style="color: #059669;">${amount_str}</div>
+                </div>
+            </div>
+        `;
+    } else if (status === 'Disputed' || status === 'Rejected') {
+        step_states = ['completed', 'error', 'pending', 'pending', 'pending'];
+        banner_html = `
+            <div class="ap-status-banner banner-rejected">
+                <div class="banner-icon">⚠️</div>
+                <div class="banner-content">
+                    <div class="banner-title">Line Items Disputed / Returned</div>
+                    <div class="banner-sub">Accounts flagged discrepancies in this claim. Click <b>Reopen to Draft</b> to correct line items and re-submit.</div>
+                </div>
+                <div class="banner-stat">
+                    <div class="stat-label">Disputed Amount</div>
+                    <div class="stat-val" style="color: #dc2626;">${amount_str}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    frm.fields_dict.guidance_banner_html.$wrapper.html(banner_html);
+
+    // 5-Step Stepper HTML
+    const steps = [
+        { num: 1, title: 'Bill Entry', sub: 'Admin Upload', icon: '📝' },
+        { num: 2, title: 'Accounts Audit', sub: 'L1 Verification', icon: '🔍' },
+        { num: 3, title: 'Director Approval', sub: 'Anshul Sir', icon: '✍️' },
+        { num: 4, title: 'Bank Release', sub: 'IDFC 2FA (Anish Sir)', icon: '🏛️' },
+        { num: 5, title: 'Money Received', sub: 'Bank Account', icon: '💰' }
+    ];
+
+    let stepper_html = '<div class="ap-stepper-container">';
+    steps.forEach((step, idx) => {
+        const state = step_states[idx];
+        let state_class = `step-${state}`;
+        let badge_content = state === 'completed' ? '✓' : step.num;
+
+        stepper_html += `
+            <div class="ap-step-card ${state_class}">
+                <div class="step-badge">${badge_content}</div>
+                <div class="step-info">
+                    <div class="step-title">${step.title}</div>
+                    <div class="step-sub">${step.sub}</div>
+                </div>
+            </div>
+        `;
+        if (idx < steps.length - 1) {
+            const line_class = (step_states[idx] === 'completed' && (step_states[idx + 1] === 'completed' || step_states[idx + 1] === 'active')) ? 'line-completed' : '';
+            stepper_html += `<div class="ap-step-connector ${line_class}"></div>`;
+        }
+    });
+    stepper_html += '</div>';
+
+    frm.fields_dict.stepper_html.$wrapper.html(stepper_html);
+}
+
+// --------------------------------------------------------------------------------------
+// 4. SMART GRID IN-GRID FORMATTING & THUMBNAILS
+// --------------------------------------------------------------------------------------
+function format_smart_grid_cells(frm) {
+    if (!frm.page || !frm.page.wrapper) return;
+
+    setTimeout(() => {
+        frm.page.wrapper.find('.grid-row [data-fieldname="receipt_attachment"], .grid-row [data-fieldname="attach_receipt"]').each(function () {
+            const $cell = $(this);
+            const $link = $cell.find('a');
+            const href = $link.attr('href') || $cell.text().trim();
+
+            if (href && (href.startsWith('/files/') || href.startsWith('/private/files/') || href.startsWith('http'))) {
+                const is_pdf = href.toLowerCase().endsWith('.pdf');
+                if (is_pdf) {
+                    $cell.html(`
+                        <span class="ap-grid-receipt-badge" data-url="${href}" style="
+                            display: inline-flex; align-items: center; gap: 4px;
+                            background: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe;
+                            padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: pointer;
+                        ">📄 PDF Bill</span>
+                    `);
+                } else {
+                    $cell.html(`
+                        <div class="ap-grid-receipt-thumb" data-url="${href}" style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
+                            <img src="${href}" style="width: 28px; height: 28px; object-fit: cover; border-radius: 4px; border: 1px solid #cbd5e1; box-shadow: 0 1px 2px rgba(0,0,0,0.1);" />
+                            <span style="font-size: 11px; font-weight: 700; color: #047857;">🧾 View</span>
+                        </div>
+                    `);
+                }
+            } else if (!href && frm.doc.status === 'Draft') {
+                $cell.html(`
+                    <span class="ap-upload-trigger" style="
+                        display: inline-flex; align-items: center; gap: 4px;
+                        background: #fdf2f8; color: #db2777; border: 1px dashed #fbcfe8;
+                        padding: 2px 7px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;
+                    ">📷 Add Photo</span>
+                `);
+            }
+        });
+    }, 60);
+}
+
+function setup_quick_row_uploader(frm) {
+    if (!frm.page || !frm.page.wrapper) return;
+
+    // 1-Click Upload Trigger
+    frm.page.wrapper.off('click.ap_upload').on('click.ap_upload', '.ap-upload-trigger', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const row_elem = $(this).closest('.grid-row');
+        const row_idx = row_elem.attr('data-idx') ? parseInt(row_elem.attr('data-idx')) : 1;
+        const row = (frm.doc.expense_lines || [])[row_idx - 1];
+
+        if (!row) return;
+
+        new frappe.ui.FileUploader({
+            folder: 'Home/Attachments',
+            allow_multiple: false,
+            restrictions: { allowed_file_types: ['image/*', '.pdf'] },
+            on_success: (file_doc) => {
+                frappe.model.set_value(row.doctype, row.name, 'receipt_attachment', file_doc.file_url);
+                frm.refresh_field('expense_lines');
+                frm.dirty();
+                format_smart_grid_cells(frm);
+            }
+        });
+    });
+
+    // In-Grid Thumbnail Lightbox Click
+    frm.page.wrapper.off('click.ap_thumb').on('click.ap_thumb', '.ap-grid-receipt-thumb, .ap-grid-receipt-badge', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const clicked_url = $(this).attr('data-url');
+        
+        const lines = frm.doc.expense_lines || [];
+        const receipt_urls = [];
+        let start_idx = 0;
+
+        lines.forEach(line => {
+            const url = line.receipt_attachment || line.attach_receipt;
+            if (url && (url.startsWith('/files/') || url.startsWith('/private/files/') || url.startsWith('http'))) {
+                if (url === clicked_url) {
+                    start_idx = receipt_urls.length;
+                }
+                receipt_urls.push({
+                    file_url: url,
+                    file_name: line.description || line.expense_category || 'Receipt Proof',
+                    amount: line.amount
+                });
+            }
+        });
+
+        if (receipt_urls.length > 0) {
+            open_receipt_gallery_dialog(frm, receipt_urls, start_idx);
+        }
+    });
+}
+
+// --------------------------------------------------------------------------------------
+// 5. LIGHTBOX MULTI-RECEIPT GALLERY DIALOG
+// --------------------------------------------------------------------------------------
+function open_receipt_gallery_dialog(frm, attachments, start_idx) {
+    let current_idx = start_idx || 0;
+    const total = attachments.length;
+
+    function build_gallery_html(idx) {
+        const item = attachments[idx];
+        const is_pdf = item.file_url.toLowerCase().endsWith('.pdf');
+        const file_src = item.file_url;
+        const amount_tag = item.amount ? ` • ₹${format_inr_clean(item.amount)}` : '';
+
+        return `
+            <div style="text-align: center; background: #0f172a; border-radius: 8px; padding: 14px; min-height: 480px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; color: #fff; margin-bottom: 12px; font-weight: 600; font-size: 13px;">
+                    <span>🧾 Receipt <b>${idx + 1} of ${total}</b> — ${item.file_name}${amount_tag}</span>
+                    <a href="${file_src}" target="_blank" style="color: #60a5fa; text-decoration: underline; font-size: 12px;">🔗 Open Original</a>
+                </div>
+                <div style="height: 420px; display: flex; align-items: center; justify-content: center; background: #020617; border-radius: 6px; overflow: hidden;">
+                    ${is_pdf 
+                        ? `<iframe src="${file_src}" style="width: 100%; height: 100%; border: none; background: #fff;"></iframe>`
+                        : `<img src="${file_src}" style="max-height: 100%; max-width: 100%; object-fit: contain; box-shadow: 0 4px 6px rgba(0,0,0,0.3);" />`
+                    }
+                </div>
+            </div>
+        `;
+    }
+
+    const d = new frappe.ui.Dialog({
+        title: `Receipt Gallery — ${frm.doc.name}`,
+        size: 'large',
+        fields: [{ fieldtype: 'HTML', fieldname: 'gallery_html' }]
+    });
+
+    d.set_value('gallery_html', build_gallery_html(current_idx));
+
+    if (total > 1) {
+        d.set_secondary_action_label('⬅️ Previous');
+        d.set_secondary_action(() => {
+            current_idx = (current_idx - 1 + total) % total;
+            d.set_value('gallery_html', build_gallery_html(current_idx));
+        });
+        d.set_primary_action_label('Next ➡️');
+        d.set_primary_action(() => {
+            current_idx = (current_idx + 1) % total;
+            d.set_value('gallery_html', build_gallery_html(current_idx));
+        });
+    }
+
+    d.show();
+}
+
+// --------------------------------------------------------------------------------------
+// 6. DISPUTE FORKING & SPLIT DIALOG
+// --------------------------------------------------------------------------------------
+function open_dispute_split_dialog(frm) {
     const lines = frm.doc.expense_lines || [];
-    if (!lines.length) {
-        frappe.msgprint(__("No expense lines found to dispute."));
+    if (lines.length < 2) {
+        frappe.msgprint(__('Dispute split requires at least 2 line items in the claim.'));
         return;
     }
 
-    let fields = lines.map((row, idx) => ({
-        label: `Row #${idx + 1}: ${row.merchant_name || 'Vendor'} — ${format_currency(row.amount, 'INR')} (${row.expense_category})`,
-        fieldname: `dispute_${row.name}`,
-        fieldtype: "Check"
-    }));
+    let fields = [
+        {
+            fieldtype: 'HTML',
+            fieldname: 'dispute_instructions',
+            options: `
+                <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; font-size: 12.5px; color: #92400e;">
+                    <b>Dispute Splitting Engine</b>: Select the line item(s) you wish to dispute.
+                    Clean approved lines will automatically proceed to L2, while disputed lines will fork into a child ticket returned to the admin custodian.
+                </div>
+            `
+        }
+    ];
 
-    fields.push({
-        label: "Dispute Reason / Guidance for Admin",
-        fieldname: "common_reason",
-        fieldtype: "Small Text",
-        reqd: 1,
-        default: "Receipt blurred / missing original GST invoice. Please replace with clear bill."
+    lines.forEach((line, idx) => {
+        fields.push({
+            fieldtype: 'Check',
+            fieldname: `dispute_row_${idx}`,
+            label: `Row #${idx + 1}: ${line.expense_category || 'Expense'} - ${line.description || line.merchant || 'Item'} (₹${format_inr_clean(line.amount)})`
+        });
+        fields.push({
+            fieldtype: 'Data',
+            fieldname: `reason_row_${idx}`,
+            label: `Reason for Row #${idx + 1} Dispute`,
+            depends_on: `eval:doc.dispute_row_${idx}==1`
+        });
     });
 
     const d = new frappe.ui.Dialog({
-        title: "⚠️ Flag a Problem Bill (Dispute Line)",
+        title: __('Dispute & Split Line Items'),
         fields: fields,
-        primary_action_label: "Dispute & Split Ticket",
-        primary_action(values) {
-            let disputed_row_names = [];
+        primary_action_label: __('Split & Move Approved to L2'),
+        primary_action: function (values) {
+            let disputed_indices = [];
             let dispute_reasons = {};
 
-            lines.forEach(row => {
-                if (values[`dispute_${row.name}`]) {
-                    disputed_row_names.push(row.name);
-                    dispute_reasons[row.name] = values.common_reason;
+            lines.forEach((line, idx) => {
+                if (values[`dispute_row_${idx}`]) {
+                    disputed_indices.push(idx);
+                    dispute_reasons[idx] = values[`reason_row_${idx}`] || 'Disputed during L1 audit';
                 }
             });
 
-            if (!disputed_row_names.length) {
-                frappe.msgprint(__("Please check at least one line item to dispute."));
+            if (disputed_indices.length === 0) {
+                frappe.msgprint(__('Please select at least one row to dispute, or click Approve Claim if all rows are valid.'));
                 return;
             }
 
             d.hide();
             frappe.call({
-                method: "ap_automation.services.dispute_service.dispute_and_fork_petty_cash_lines",
+                method: 'ap_automation.services.dispute_service.api_dispute_split',
                 args: {
                     parent_docname: frm.doc.name,
-                    disputed_row_names: disputed_row_names,
-                    dispute_reasons: dispute_reasons,
-                    disputed_by: frappe.session.user
+                    disputed_indices: JSON.stringify(disputed_indices),
+                    dispute_reasons: JSON.stringify(dispute_reasons)
                 },
                 freeze: true,
-                freeze_message: __("Splitting ticket and notifying Branch Admin..."),
-                callback(r) {
-                    if (r.message && r.message.status === "SUCCESS") {
+                freeze_message: __('Splitting disputed line items...'),
+                callback: function (r) {
+                    if (r.message && r.message.status === 'split_success') {
                         frappe.msgprint({
-                            title: __("Dispute Split Complete"),
-                            message: `<b>Parent Ticket:</b> ${r.message.parent_voucher} (Verified: ₹${r.message.verified_amount})<br><b>Disputed Ticket:</b> ${r.message.forked_voucher} (Disputed: ₹${r.message.disputed_amount})`,
-                            indicator: "green"
+                            title: __('Dispute Split Completed'),
+                            indicator: 'green',
+                            message: `
+                                <b>✅ ${r.message.approved_line_count} Approved Rows</b> (₹${format_inr_clean(r.message.approved_amount)}) moved to L2.<br>
+                                <b>⚠️ ${r.message.disputed_line_count} Disputed Rows</b> (₹${format_inr_clean(r.message.disputed_amount)}) forked into linked voucher <b>${r.message.forked_voucher}</b>.
+                            `
                         });
                         frm.reload_doc();
                     }
@@ -479,194 +638,168 @@ function open_friendly_dispute_modal(frm) {
 }
 
 // --------------------------------------------------------------------------------------
-// 7. IN-GRID RECEIPT THUMBNAIL & SMART CELL FORMATTER
+// 7. RESPONSIVE CSS & VISUAL DESIGN SYSTEM
 // --------------------------------------------------------------------------------------
-function format_smart_grid_cells(frm) {
-    if (!frm.page || !frm.page.wrapper) return;
-
-    setTimeout(() => {
-        frm.page.wrapper.find('.grid-row [data-fieldname="receipt_attachment"]').each(function () {
-            const $cell = $(this);
-            const $link = $cell.find('a');
-            const href = $link.attr('href') || $cell.text().trim();
-
-            if (href && (href.startsWith('/files/') || href.startsWith('/private/files/'))) {
-                const is_pdf = href.toLowerCase().endsWith('.pdf');
-                
-                if (is_pdf) {
-                    $cell.html(`
-                        <span class="ap-grid-receipt-badge" style="
-                            display: inline-flex;
-                            align-items: center;
-                            gap: 5px;
-                            background: #ede9fe;
-                            color: #5b21b6;
-                            border: 1px solid #ddd6fe;
-                            padding: 3px 8px;
-                            border-radius: 6px;
-                            font-size: 11.5px;
-                            font-weight: 700;
-                            cursor: pointer;
-                        ">
-                            📄 PDF Bill
-                        </span>
-                    `);
-                } else {
-                    $cell.html(`
-                        <div class="ap-grid-receipt-thumb" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
-                            <img src="${href}" style="width: 32px; height: 32px; object-fit: cover; border-radius: 5px; border: 1.5px solid #cbd5e1; box-shadow: 0 1px 2px rgba(0,0,0,0.08);" />
-                            <span style="font-size: 11.5px; font-weight: 700; color: #047857;">🧾 View Bill</span>
-                        </div>
-                    `);
-                }
-            } else if (!href) {
-                $cell.html(`
-                    <span class="ap-upload-trigger" style="
-                        display: inline-flex;
-                        align-items: center;
-                        gap: 4px;
-                        background: #fff1f2;
-                        color: #e11d48;
-                        border: 1px dashed #fecdd3;
-                        padding: 3px 8px;
-                        border-radius: 6px;
-                        font-size: 11.5px;
-                        font-weight: 600;
-                        cursor: pointer;
-                    ">
-                        📷 Add Bill Photo
-                    </span>
-                `);
-            }
-        });
-    }, 60);
-}
-
-// --------------------------------------------------------------------------------------
-// 8. 1-CLICK ROW UPLOADER & LIGHTBOX GALLERY
-// --------------------------------------------------------------------------------------
-function setup_quick_row_uploader(frm) {
-    $(frm.wrapper).off("click.ap_upload").on("click.ap_upload", ".ap-upload-trigger", function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const row_elem = $(this).closest(".grid-row");
-        const row_idx = row_elem.attr("data-idx") ? parseInt(row_elem.attr("data-idx")) : 1;
-        const row = (frm.doc.expense_lines || [])[row_idx - 1];
-
-        if (!row) return;
-
-        new frappe.ui.FileUploader({
-            folder: "Home/Attachments",
-            allow_multiple: false,
-            restrictions: { allowed_file_types: ["image/*", ".pdf"] },
-            on_success: (file_doc) => {
-                frappe.model.set_value(row.doctype, row.name, "receipt_attachment", file_doc.file_url);
-                frm.refresh_field("expense_lines");
-                frm.dirty();
-                format_smart_grid_cells(frm);
-            }
-        });
-    });
-
-    $(frm.wrapper).off("click.ap_thumb").on("click.ap_thumb", ".ap-grid-receipt-thumb, .ap-grid-receipt-badge", function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        setup_receipt_gallery_actions(frm);
-        frm.page.wrapper.find(".btn-primary:contains('View All Receipts')").click();
-    });
-}
-
-function setup_receipt_gallery_actions(frm) {
-    if (frm.is_new()) return;
-
-    frappe.call({
-        method: "ap_automation.services.attachment_service.get_all_claim_attachments",
-        args: { doctype: frm.doc.doctype, docname: frm.doc.name },
-        callback: (r) => {
-            const attachments = r.message || [];
-            if (attachments.length > 0) {
-                frm.add_custom_button(__(`👁️ View All Receipts (${attachments.length})`), () => {
-                    open_receipt_gallery_dialog(frm, attachments, 0);
-                }).addClass("btn-primary").css({
-                    "background-color": "#4f46e5",
-                    "color": "#ffffff",
-                    "font-weight": "600"
-                });
-
-                frm.add_custom_button(__(`📦 Download All (.ZIP)`), () => {
-                    window.location.href = `/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
-                });
-            }
-        }
-    });
-}
-
-function open_receipt_gallery_dialog(frm, attachments, start_idx) {
-    let current_idx = start_idx || 0;
-    const total = attachments.length;
-
-    function build_gallery_html(idx) {
-        const item = attachments[idx];
-        const is_pdf = item.file_url.toLowerCase().endsWith(".pdf");
-        const file_src = item.file_url;
-
-        return `
-            <div style="text-align: center; background: #0f172a; border-radius: 8px; padding: 15px; min-height: 480px;">
-                <div style="display: flex; justify-content: space-between; color: #fff; margin-bottom: 12px; font-weight: 600;">
-                    <span>🧾 Receipt ${idx + 1} of ${total} — ${item.file_name}</span>
-                    <a href="${file_src}" target="_blank" style="color: #60a5fa; text-decoration: underline;">🔗 Open Full Size</a>
-                </div>
-                <div style="height: 420px; display: flex; align-items: center; justify-content: center;">
-                    ${is_pdf 
-                        ? `<iframe src="${file_src}" style="width: 100%; height: 100%; border: none; border-radius: 6px; background: #fff;"></iframe>`
-                        : `<img src="${file_src}" style="max-height: 100%; max-width: 100%; object-fit: contain; border-radius: 6px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);" />`
-                    }
-                </div>
-            </div>
-        `;
-    }
-
-    const d = new frappe.ui.Dialog({
-        title: `Receipts for ${frm.doc.name}`,
-        size: "large",
-        fields: [{ fieldtype: "HTML", fieldname: "gallery_html" }]
-    });
-
-    d.set_value("gallery_html", build_gallery_html(current_idx));
-
-    if (total > 1) {
-        d.set_secondary_action_label("⬅️ Previous");
-        d.set_secondary_action(() => {
-            current_idx = (current_idx - 1 + total) % total;
-            d.set_value("gallery_html", build_gallery_html(current_idx));
-        });
-        d.set_primary_action_label("Next ➡️");
-        d.set_primary_action(() => {
-            current_idx = (current_idx + 1) % total;
-            d.set_value("gallery_html", build_gallery_html(current_idx));
-        });
-    }
-
-    d.show();
-}
-
-function apply_friendly_ui_css() {
-    if (!document.getElementById('ap-friendly-ui-style')) {
+function apply_petty_cash_styles() {
+    if (!document.getElementById('ap-petty-cash-unified-styles')) {
         const style = document.createElement('style');
-        style.id = 'ap-friendly-ui-style';
+        style.id = 'ap-petty-cash-unified-styles';
         style.innerHTML = `
-            @keyframes pulse-border {
-                0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); }
-                70% { box-shadow: 0 0 0 6px rgba(79, 70, 229, 0); }
-                100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+            /* Stepper Container */
+            .ap-stepper-container {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                background: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+                padding: 12px 16px;
+                margin-bottom: 14px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+                overflow-x: auto;
             }
-            .ap-stepper-pulse {
-                animation: pulse-border 2s infinite ease-in-out;
+            .ap-step-card {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 8px 12px;
+                border-radius: 8px;
+                border: 1.5px solid #e2e8f0;
+                background: #f8fafc;
+                min-width: 140px;
+                flex: 1;
+                transition: all 0.15s ease;
             }
-            .ap-grid-receipt-thumb:hover img {
-                transform: scale(1.1);
-                transition: transform 0.15s ease;
+            .ap-step-card.step-completed {
+                background: #f0fdf4;
+                border-color: #86efac;
+            }
+            .ap-step-card.step-completed .step-badge {
+                background: #16a34a;
+                color: #ffffff;
+            }
+            .ap-step-card.step-completed .step-title {
+                color: #15803d;
+            }
+            .ap-step-card.step-active {
+                background: #eff6ff;
+                border-color: #93c5fd;
+                box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+            }
+            .ap-step-card.step-active .step-badge {
+                background: #2563eb;
+                color: #ffffff;
+            }
+            .ap-step-card.step-active .step-title {
+                color: #1d4ed8;
+            }
+            .ap-step-card.step-error {
+                background: #fef2f2;
+                border-color: #fca5a5;
+            }
+            .ap-step-card.step-error .step-badge {
+                background: #dc2626;
+                color: #ffffff;
+            }
+            .ap-step-card.step-pending {
+                opacity: 0.65;
+            }
+            .step-badge {
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                background: #cbd5e1;
+                color: #475569;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 11.5px;
+                font-weight: 700;
+                flex-shrink: 0;
+            }
+            .step-title {
+                font-size: 12.5px;
+                font-weight: 700;
+                color: #334155;
+                line-height: 1.2;
+            }
+            .step-sub {
+                font-size: 11px;
+                color: #64748b;
+                line-height: 1.2;
+            }
+            .ap-step-connector {
+                width: 18px;
+                height: 2px;
+                background: #e2e8f0;
+                flex-shrink: 0;
+            }
+            .ap-step-connector.line-completed {
+                background: #86efac;
+            }
+
+            /* Guidance Banners */
+            .ap-status-banner {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                padding: 12px 18px;
+                border-radius: 9px;
+                margin-bottom: 14px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            }
+            .banner-icon {
+                font-size: 24px;
+                flex-shrink: 0;
+            }
+            .banner-content {
+                flex: 1;
+            }
+            .banner-title {
+                font-size: 13.5px;
+                font-weight: 700;
+                margin-bottom: 2px;
+            }
+            .banner-sub {
+                font-size: 12px;
+                opacity: 0.9;
+            }
+            .banner-stat {
+                text-align: right;
+                flex-shrink: 0;
+            }
+            .stat-label {
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                font-weight: 600;
+                opacity: 0.75;
+            }
+            .stat-val {
+                font-size: 17px;
+                font-weight: 800;
+                font-family: inherit;
+            }
+            .banner-draft { background: #f8fafc; border: 1.5px solid #e2e8f0; color: #334155; }
+            .banner-submitted { background: #eff6ff; border: 1.5px solid #bfdbfe; color: #1e40af; }
+            .banner-approved { background: #f0fdf4; border: 1.5px solid #bbf7d0; color: #166534; }
+            .banner-paid { background: #f0fdf4; border: 1.5px solid #86efac; color: #14532d; }
+            .banner-rejected { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
+
+            /* Seamless Table Styling */
+            .frappe-control[data-fieldname="expense_lines"] .form-grid {
+                border: 1px solid #e2e8f0 !important;
+                border-radius: 8px !important;
+                background: #ffffff !important;
+                overflow: hidden !important;
+            }
+            .frappe-control[data-fieldname="expense_lines"] .form-grid .grid-heading-row {
+                background: #f8fafc !important;
+                border-bottom: 1.5px solid #e2e8f0 !important;
+            }
+            .frappe-control[data-fieldname="expense_lines"] .form-grid [data-fieldname="amount"] {
+                font-weight: 700 !important;
+                color: #059669 !important;
             }
         `;
         document.head.appendChild(style);

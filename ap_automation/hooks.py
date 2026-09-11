@@ -17,14 +17,9 @@ add_to_apps_screen = [
 ]
 
 app_include_js = [
-    "/assets/ap_automation/js/ap_receipt_gallery.js",
     "/assets/ap_automation/js/ap_workspace_dashboard.js"
 ]
 
 doctype_js = {
-    "AP IDFC Settings": "public/js/ap_idfc_settings.js",
-    "Petty Cash Entry": "public/js/petty_cash_entry.js",
-    "Employee Reimbursement Claim": "public/js/employee_reimbursement_claim.js",
-    "Vendor Invoice Claim": "public/js/vendor_invoice_claim.js",
-    "Payment Instruction": "public/js/payment_instruction.js"
+    "AP IDFC Settings": "public/js/ap_idfc_settings.js"
 }
