@@ -1,0 +1,21 @@
+{
+ "app": "ap_automation",
+ "bg_color": "gray",
+ "creation": "2026-09-11 12:17:48.353537",
+ "docstatus": 0,
+ "doctype": "Desktop Icon",
+ "hidden": 0,
+ "icon_type": "App",
+ "idx": 15,
+ "label": "AP Automation",
+ "link": "/desk/ap-automation",
+ "link_type": "External",
+ "logo_url": "/assets/ap_automation/images/ap-logo.svg",
+ "modified": "2026-09-11 12:17:48.353537",
+ "modified_by": "Administrator",
+ "name": "AP Automation",
+ "owner": "Administrator",
+ "restrict_removal": 1,
+ "roles": [],
+ "standard": 1
+}
