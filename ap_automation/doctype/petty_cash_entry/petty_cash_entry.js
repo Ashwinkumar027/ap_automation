@@ -219,20 +219,12 @@ function render_role_based_action_buttons(frm) {
     // Common Proof Viewers
     if (attachments.length > 0) {
         frm.add_custom_button(__(`👁️ View Receipts (${attachments.length})`), () => {
-            if (typeof APReceiptGallery !== 'undefined') {
-                APReceiptGallery.show(frm, {
-                    title: `Receipts - Voucher #${frm.doc.name}`,
-                    allow_download: true
-                });
-            } else {
-                window.open(attachments[0].receipt_attachment, '_blank');
-            }
+            open_unified_receipt_gallery(frm, 0);
         });
 
         frm.add_custom_button(__('📦 Download ZIP'), () => {
-            if (typeof APReceiptGallery !== 'undefined') {
-                APReceiptGallery.download_all_zip(frm);
-            }
+            const url = `/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
+            window.open(url, '_blank');
         });
     }
 
@@ -475,11 +467,7 @@ function bind_custom_grid_uploaders(frm) {
             `);
             badge.on('click', function (e) {
                 e.stopPropagation();
-                if (typeof APReceiptGallery !== 'undefined') {
-                    APReceiptGallery.show(frm, { active_index: idx });
-                } else {
-                    window.open(current_val, '_blank');
-                }
+                open_unified_receipt_gallery(frm, idx);
             });
             cell.append(badge);
         } else {
@@ -505,7 +493,155 @@ function bind_custom_grid_uploaders(frm) {
 }
 
 // --------------------------------------------------------------------------------------
-// 6. ATOMIC DISPUTE SPLITTING DIALOG
+// 6. UNIVERSAL 2-COLUMN SPLIT-PANE RECEIPT GALLERY (MODAL LIGHTBOX)
+// --------------------------------------------------------------------------------------
+function open_unified_receipt_gallery(frm, start_idx) {
+    if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.show === 'function') {
+        window.APReceiptGallery.show(frm, { active_index: start_idx });
+        return;
+    }
+
+    // Fallback direct 2-column split-pane modal renderer
+    const atts = [];
+    (frm.doc.expense_lines || []).forEach((row, idx) => {
+        if (row.receipt_attachment) {
+            const clean_url = row.receipt_attachment.trim();
+            const file_name = clean_url.split('/').pop();
+            const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
+            atts.push({
+                row_idx: row.idx || (idx + 1),
+                merchant: row.merchant_name || 'Expense Line',
+                category: row.expense_category || 'General',
+                amount: parseFloat(row.amount || 0.0),
+                date: row.expense_date || frm.doc.posting_date || '',
+                file_url: clean_url,
+                file_name: file_name,
+                is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext),
+                is_pdf: ext === '.pdf',
+                extension: ext
+            });
+        }
+    });
+
+    if (atts.length === 0) {
+        frappe.msgprint(__('No receipts attached to this voucher. Use 📷 Add Photo to attach receipts.'));
+        return;
+    }
+
+    let current_index = start_idx >= 0 && start_idx < atts.length ? start_idx : 0;
+
+    const d = new frappe.ui.Dialog({
+        title: __('Proof & Receipt Gallery — ') + frm.doc.name,
+        size: 'extra-large',
+        fields: [{ fieldtype: 'HTML', fieldname: 'gallery_area' }]
+    });
+
+    const render_modal_view = () => {
+        const active = atts[current_index];
+        let preview_content = '';
+
+        if (active.is_image) {
+            preview_content = `
+                <div style="height: 520px; display: flex; align-items: center; justify-content: center; background: #0f172a; border-radius: 8px; overflow: hidden;">
+                    <img src="${active.file_url}" style="max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 4px 20px rgba(0,0,0,0.4);" alt="Receipt" />
+                </div>
+            `;
+        } else if (active.is_pdf) {
+            preview_content = `
+                <div style="height: 520px; background: #f8fafc; border-radius: 8px; overflow: hidden; border: 1px solid #cbd5e1;">
+                    <iframe src="${active.file_url}" style="width: 100%; height: 100%; border: none;" title="PDF Preview"></iframe>
+                </div>
+            `;
+        } else {
+            preview_content = `
+                <div style="text-align: center; padding: 80px 20px; background: #f8fafc; border-radius: 8px; border: 2px dashed #cbd5e1;">
+                    <div style="font-size: 48px; margin-bottom: 12px;">📁</div>
+                    <div style="font-size: 16px; font-weight: 600; color: #1e293b;">${active.file_name}</div>
+                    <a href="${active.file_url}" download class="btn btn-primary btn-sm" style="margin-top: 16px;">
+                        ⬇️ Download File
+                    </a>
+                </div>
+            `;
+        }
+
+        let list_html = '';
+        atts.forEach((att, idx) => {
+            const is_selected = idx === current_index;
+            list_html += `
+                <div class="ap-receipt-thumb-item" data-idx="${idx}" style="
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 10px 12px;
+                    margin-bottom: 8px;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    background: ${is_selected ? '#ede9fe' : '#ffffff'};
+                    border: ${is_selected ? '2px solid #8b5cf6' : '1px solid #e2e8f0'};
+                    box-shadow: ${is_selected ? '0 2px 8px rgba(139, 92, 246, 0.25)' : 'none'};
+                ">
+                    <div style="font-size: 22px;">${att.is_pdf ? '📄' : '🧾'}</div>
+                    <div style="flex: 1; overflow: hidden;">
+                        <div style="font-size: 13px; font-weight: 700; color: #1e293b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">
+                            Row #${att.row_idx}: ${att.merchant}
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                            <span style="font-size: 12px; font-weight: 700; color: #059669;">₹ ${format_inr_clean(att.amount)}</span>
+                            <span style="font-size: 11px; color: #64748b;">${att.category}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        const full_html = `
+            <div style="display: flex; gap: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                <!-- Left Sidebar -->
+                <div style="width: 350px; max-height: 540px; overflow-y: auto; padding-right: 8px; border-right: 1px solid #e2e8f0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #64748b;">
+                            Attached Proofs (${atts.length})
+                        </span>
+                        <a href="/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}" class="btn btn-xs btn-default" style="font-size: 11px; font-weight: 600; color: #4f46e5;">
+                            📦 ZIP All
+                        </a>
+                    </div>
+                    <div class="ap-receipts-list">${list_html}</div>
+                </div>
+
+                <!-- Right Viewer -->
+                <div style="flex: 1; display: flex; flex-direction: column;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 16px; margin-bottom: 14px;">
+                        <div>
+                            <span style="font-size: 14px; font-weight: 700; color: #0f172a;">Row #${active.row_idx}: ${active.merchant}</span>
+                            <span style="font-size: 12px; color: #64748b; margin-left: 10px;">
+                                Amount: <b style="color: #059669;">₹ ${format_inr_clean(active.amount)}</b> | Category: <b>${active.category}</b>
+                            </span>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <a href="${active.file_url}" download="${active.file_name}" class="btn btn-sm btn-primary">⬇️ Download</a>
+                            <a href="${active.file_url}" target="_blank" class="btn btn-sm btn-default" title="Open New Tab">↗️</a>
+                        </div>
+                    </div>
+                    <div style="flex: 1;">${preview_content}</div>
+                </div>
+            </div>
+        `;
+
+        d.fields_dict.gallery_area.$wrapper.html(full_html);
+    };
+
+    d.show();
+    render_modal_view();
+
+    d.$wrapper.off('click', '.ap-receipt-thumb-item').on('click', '.ap-receipt-thumb-item', function () {
+        current_index = parseInt($(this).attr('data-idx'));
+        render_modal_view();
+    });
+}
+
+// --------------------------------------------------------------------------------------
+// 7. ATOMIC DISPUTE SPLITTING DIALOG
 // --------------------------------------------------------------------------------------
 function open_dispute_split_dialog(frm) {
     const lines = frm.doc.expense_lines || [];
@@ -596,7 +732,7 @@ function format_inr_clean(val) {
 }
 
 // --------------------------------------------------------------------------------------
-// 7. RESPONSIVE CSS & VISUAL DESIGN SYSTEM
+// 8. RESPONSIVE CSS & VISUAL DESIGN SYSTEM
 // --------------------------------------------------------------------------------------
 function apply_petty_cash_styles() {
     if (!document.getElementById('ap-petty-cash-unified-styles')) {

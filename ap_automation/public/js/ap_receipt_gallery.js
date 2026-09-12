@@ -1,7 +1,7 @@
 /**
  * AP Automation - Universal Receipt & Audit Gallery Manager
- * Provides bank-grade In-Tab Modal Lightbox, Date Badges, and ZIP Packaging
- * Active for ALL records (Existing, New, and Upcoming) across all AP Claim DocTypes.
+ * Provides bank-grade 2-Column In-Tab Modal Lightbox, Date Badges, and ZIP Packaging
+ * Active for ALL records across all AP Claim DocTypes.
  */
 
 window.APReceiptGallery = {
@@ -94,148 +94,60 @@ window.APReceiptGallery = {
         return atts;
     },
 
-    setup: function (frm) {
-        // Remove prior custom buttons to avoid stacking duplicates
-        frm.page.remove_inner_button(__('View All Receipts'), 'Actions');
-        frm.page.remove_inner_button(__('Download All Receipts (.ZIP)'), 'Actions');
-        frm.page.wrapper.find('.ap-receipt-gallery-btn, .ap-receipt-zip-btn').remove();
-
-        // 1. Compute initial count from local memory (immediate render for new & existing docs)
-        const local_atts = this.extractLocalAttachments(frm);
-        let current_count = local_atts.length;
-
-        const update_button_ui = (count, attachments) => {
-            frm.page.wrapper.find('.ap-receipt-gallery-btn, .ap-receipt-zip-btn').remove();
-
-            // Button 1: 👁️ View All Receipts (N)
-            const $btn_view = frm.add_custom_button(__(`👁️ View All Receipts (${count})`), () => {
-                if (attachments && attachments.length > 0) {
-                    window.APReceiptGallery.openModal(frm, attachments, 0);
-                } else {
-                    window.APReceiptGallery.openEmptyModal(frm);
-                }
-            }).addClass('ap-receipt-gallery-btn btn-primary').css({
-                'background-color': '#4f46e5',
-                'border-color': '#4338ca',
-                'color': '#ffffff',
-                'font-weight': '600',
-                'border-radius': '6px',
-                'box-shadow': '0 2px 4px rgba(79, 70, 229, 0.25)'
-            });
-
-            // Button 2: 📦 Download All Receipts (.ZIP)
-            const $btn_zip = frm.add_custom_button(__('📦 Download All Receipts (.ZIP)'), () => {
-                if (!attachments || attachments.length === 0) {
-                    frappe.msgprint({
-                        title: __('No Receipts Found'),
-                        indicator: 'orange',
-                        message: __('Please attach at least one receipt to this document before downloading the ZIP package.')
-                    });
-                    return;
-                }
-                const url = `/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
-                window.open(url, '_blank');
-            }).addClass('ap-receipt-zip-btn btn-default').css({
-                'background-color': '#ffffff',
-                'border-color': '#cbd5e1',
-                'color': '#334155',
-                'font-weight': '600',
-                'border-radius': '6px',
-                'margin-left': '6px'
-            });
-        };
-
-        // Render initial state immediately
-        update_button_ui(current_count, local_atts);
-
-        // 2. If saved document, query backend service for full sync (including tabFile attachments)
-        if (!frm.is_new()) {
-            frappe.call({
-                method: 'ap_automation.services.attachment_service.get_all_claim_attachments',
-                args: {
-                    doctype: frm.doc.doctype,
-                    docname: frm.doc.name
-                },
-                callback: (r) => {
-                    const server_atts = r.message || [];
-                    const final_atts = server_atts.length > 0 ? server_atts : local_atts;
-                    update_button_ui(final_atts.length, final_atts);
-                }
-            });
+    show: function (frm, opts) {
+        opts = opts || {};
+        const attachments = this.extractLocalAttachments(frm);
+        const start_idx = opts.active_index || opts.index || 0;
+        if (attachments && attachments.length > 0) {
+            this.openModal(frm, attachments, start_idx);
+        } else {
+            this.openEmptyModal(frm);
         }
+    },
 
-        // 3. Bind Grid Attachment Link Clicks to Open In-Tab Modal
-        frm.page.wrapper.off('click', '.grid-row [data-fieldname="attach_receipt"] a, .grid-row [data-fieldname="receipt_attachment"] a, .grid-row [data-fieldname="tax_invoice_attachment"] a');
-        frm.page.wrapper.on('click', '.grid-row [data-fieldname="attach_receipt"] a, .grid-row [data-fieldname="receipt_attachment"] a, .grid-row [data-fieldname="tax_invoice_attachment"] a', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            const row_elem = $(this).closest('.grid-row');
-            const row_idx = row_elem.attr('data-idx') ? parseInt(row_elem.attr('data-idx')) : 1;
-            
-            // Re-fetch and open
-            const live_atts = window.APReceiptGallery.extractLocalAttachments(frm);
-            if (!frm.is_new()) {
-                frappe.call({
-                    method: 'ap_automation.services.attachment_service.get_all_claim_attachments',
-                    args: { doctype: frm.doc.doctype, docname: frm.doc.name },
-                    callback: (r) => {
-                        const atts = (r.message && r.message.length > 0) ? r.message : live_atts;
-                        window.APReceiptGallery.openModal(frm, atts, row_idx);
-                    }
-                });
-            } else {
-                window.APReceiptGallery.openModal(frm, live_atts, row_idx);
-            }
-        });
+    download_all_zip: function (frm) {
+        const url = `/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
+        window.open(url, '_blank');
     },
 
     openEmptyModal: function (frm) {
         const d = new frappe.ui.Dialog({
-            title: `🧾 <b>Receipt Proofs & Audit Gallery</b> — <span style="color: #4f46e5;">${frm.doc.name || 'New Claim'}</span>`,
+            title: __('Proof & Receipt Gallery - ') + frm.doc.name,
             size: 'large',
             fields: [
                 {
-                    fieldname: 'empty_html',
                     fieldtype: 'HTML',
+                    fieldname: 'empty_html',
                     options: `
-                        <div style="text-align: center; padding: 48px 24px; background: #f8fafc; border-radius: 10px; border: 2px dashed #cbd5e1; margin: 10px 0;">
-                            <div style="font-size: 56px; margin-bottom: 16px;">🧾</div>
-                            <h4 style="font-size: 18px; font-weight: 700; color: #1e293b; margin-bottom: 8px;">No Receipts Attached Yet</h4>
-                            <p style="font-size: 13px; color: #64748b; max-width: 480px; margin: 0 auto 20px auto; line-height: 1.5;">
-                                Attach receipt images (PNG, JPG, WEBP) or PDFs to any expense line item in the table below, then click <b>Save</b> to view them here in the audit lightbox.
+                        <div style="text-align: center; padding: 60px 20px; color: #64748b;">
+                            <div style="font-size: 48px; margin-bottom: 12px;">🧾</div>
+                            <h4 style="color: #1e293b; font-weight: 700;">No Receipts Attached Yet</h4>
+                            <p style="font-size: 13px; max-width: 400px; margin: 8px auto;">
+                                Use the <b>📷 Add Photo</b> button on each row in the expense grid to upload bill receipts.
                             </p>
-                            <div style="display: inline-flex; align-items: center; gap: 8px; background: #e0e7ff; color: #3730a3; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 600;">
-                                💡 Tip: You can click directly on any attachment link inside the grid to preview it instantly!
-                            </div>
                         </div>
                     `
                 }
-            ],
-            primary_action_label: __('Close'),
-            primary_action: () => d.hide()
+            ]
         });
         d.show();
     },
 
-    openModal: function (frm, attachments, preferred_row_idx = null) {
+    openModal: function (frm, attachments, initial_index) {
         if (!attachments || attachments.length === 0) {
             this.openEmptyModal(frm);
             return;
         }
 
-        let current_index = 0;
-        if (preferred_row_idx) {
-            const found_idx = attachments.findIndex(a => a.row_idx === preferred_row_idx);
-            if (found_idx !== -1) current_index = found_idx;
-        }
+        let current_index = initial_index >= 0 && initial_index < attachments.length ? initial_index : 0;
 
         const d = new frappe.ui.Dialog({
-            title: `🧾 <b>Receipt Proofs & Audit Gallery</b> — <span style="color: #4f46e5;">${frm.doc.name || 'Claim Document'}</span>`,
+            title: __('Proof & Receipt Gallery — ') + frm.doc.name,
             size: 'extra-large',
             fields: [
                 {
-                    fieldname: 'gallery_html_area',
-                    fieldtype: 'HTML'
+                    fieldtype: 'HTML',
+                    fieldname: 'gallery_html_area'
                 }
             ]
         });
@@ -247,13 +159,13 @@ window.APReceiptGallery = {
             let preview_content = '';
             if (active_att.is_image) {
                 preview_content = `
-                    <div style="display: flex; justify-content: center; align-items: center; min-height: 480px; max-height: 520px; background: #0f172a; border-radius: 8px; overflow: hidden; padding: 16px;">
-                        <img src="${active_att.file_url}" alt="Receipt Preview" style="max-height: 490px; max-width: 100%; object-fit: contain; border-radius: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);" />
+                    <div style="height: 520px; display: flex; align-items: center; justify-content: center; background: #0f172a; border-radius: 8px; overflow: hidden; position: relative;">
+                        <img src="${active_att.file_url}" style="max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 4px 20px rgba(0,0,0,0.4);" alt="Receipt Preview" />
                     </div>
                 `;
             } else if (active_att.is_pdf) {
                 preview_content = `
-                    <div style="height: 520px; width: 100%; background: #f8fafc; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0;">
+                    <div style="height: 520px; background: #f8fafc; border-radius: 8px; overflow: hidden; border: 1px solid #cbd5e1;">
                         <iframe src="${active_att.file_url}" style="width: 100%; height: 100%; border: none;" title="PDF Preview"></iframe>
                     </div>
                 `;
