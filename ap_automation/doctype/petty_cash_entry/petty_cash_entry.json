@@ -16,6 +16,13 @@
   "status",
   "total_amount",
   "batch_id",
+  "sb_admin_audit",
+  "admin_l1_approver",
+  "admin_l1_approval_date",
+  "cb_admin_audit",
+  "admin_l2_approver",
+  "admin_l2_approval_date",
+  "admin_rejection_reason",
   "sb_bank",
   "custodian_bank_account",
   "custodian_ifsc_code",
@@ -76,7 +83,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nSubmitted\nL1 Verified\nQueued in Batch\nApproved for Payment\nPaid\nDisputed\nRejected\nCancelled"
+   "options": "Draft\nPending Admin L1\nPending Admin L2\nSubmitted\nL1 Verified\nQueued in Batch\nApproved for Payment\nPaid\nDisputed\nRejected\nCancelled"
   },
   {
    "fieldname": "total_amount",
@@ -89,6 +96,48 @@
    "fieldname": "batch_id",
    "fieldtype": "Data",
    "label": "Batch ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_admin_audit",
+   "fieldtype": "Section Break",
+   "label": "Admin Department Approval Details",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "admin_l1_approver",
+   "fieldtype": "Link",
+   "label": "Admin L1 Approver (Lead)",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "admin_l1_approval_date",
+   "fieldtype": "Datetime",
+   "label": "Admin L1 Approval Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_admin_audit",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "admin_l2_approver",
+   "fieldtype": "Link",
+   "label": "Admin L2 Approver (Head)",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "admin_l2_approval_date",
+   "fieldtype": "Datetime",
+   "label": "Admin L2 Approval Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "admin_rejection_reason",
+   "fieldtype": "Small Text",
+   "label": "Admin Return / Rejection Remarks",
    "read_only": 1
   },
   {
@@ -171,7 +220,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-03 14:05:39.330399",
+ "modified": "2026-09-12 15:18:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Petty Cash Entry",
@@ -187,6 +236,30 @@
    "read": 1,
    "report": 1,
    "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Admin L1 Approver",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Admin L2 Approver",
    "share": 1,
    "write": 1
   },

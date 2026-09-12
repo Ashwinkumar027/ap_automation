@@ -6,7 +6,8 @@ Handles:
 3. Itemized Dispute Alerts with Rejection Reasons.
 4. Executive L2 Approval & 2FA Batch Release Alerts.
 5. Post-Disbursement Bank Remittance Advice with Bank UTR.
-6. Immediate synchronous/queue dispatch with resilient user resolution.
+6. Admin Pre-Approval Lifecycle Notifications (Reception -> Admin L1 -> Admin L2).
+7. Immediate synchronous/queue dispatch with resilient user resolution.
 """
 from typing import Dict, Any, List, Optional
 import frappe
@@ -83,10 +84,137 @@ def _send_email_and_desk_alert(
 
 
 # --------------------------------------------------------------------------------------
-# 1. NOTIFY L1: Voucher Submitted by Admin
+# A. ADMIN PRE-APPROVAL NOTIFICATIONS
+# --------------------------------------------------------------------------------------
+def notify_admin_l1_on_reception_submit(voucher_doctype: str, voucher_name: str) -> None:
+    """Triggered when Receptionist submits envelope to Admin Supervisor."""
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        return
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    company = getattr(doc, "company", "Company")
+    custodian = getattr(doc, "custodian", "Reception Staff")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+
+    # Find Admin L1 Approvers
+    l1_users = frappe.get_all(
+        "Has Role",
+        filters={"role": ["in", ["Admin L1 Approver", "Admin Manager", "System Manager"]], "parenttype": "User"},
+        pluck="parent"
+    )
+    if not l1_users:
+        l1_users = ["Administrator"]
+
+    subject = f"📋 [Admin L1 Review] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)})"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fed7aa; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #ea580c; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #c2410c; font-weight: 700;">Admin Department Gate • Level 1 Review</span>
+            <h2 style="margin: 4px 0 0 0; color: #7c2d12; font-size: 20px;">New Petty Cash Voucher Submitted</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Front Desk / Receptionist <b>{custodian}</b> has entered a new petty cash envelope for <b>{company}</b> and requires your Admin Level 1 operational review.
+        </p>
+        <div style="background: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #9a3412; margin-bottom: 4px;">Voucher Reference: <b style="color: #0f172a;">{voucher_name}</b></div>
+            <div style="font-size: 18px; font-weight: 800; color: #ea580c;">Total Claim Value: ₹ {fmt_money(amount)}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #ea580c; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Review Voucher & Approve &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(l1_users, subject, html, voucher_doctype, voucher_name, "orange")
+
+
+def notify_admin_l2_on_l1_approved(voucher_doctype: str, voucher_name: str) -> None:
+    """Triggered when Admin L1 Supervisor approves and forwards to Admin Department Head."""
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        return
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    company = getattr(doc, "company", "Company")
+    l1_approver = getattr(doc, "admin_l1_approver", "Admin Lead")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+
+    # Find Admin L2 Approvers
+    l2_users = frappe.get_all(
+        "Has Role",
+        filters={"role": ["in", ["Admin L2 Approver", "Admin Manager", "System Manager"]], "parenttype": "User"},
+        pluck="parent"
+    )
+    if not l2_users:
+        l2_users = ["Administrator"]
+
+    subject = f"🏢 [Admin Head Sign-Off] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)})"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd6fe; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #7c3aed; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #6d28d9; font-weight: 700;">Admin Department Gate • Head Sign-off</span>
+            <h2 style="margin: 4px 0 0 0; color: #4c1d95; font-size: 20px;">Voucher Approved by Admin Lead</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Admin Supervisor <b>{l1_approver}</b> has approved voucher <b>#{voucher_name}</b> for <b>{company}</b>. Your final departmental sign-off is required to dispatch this claim to Accounts.
+        </p>
+        <div style="background: #f5f3ff; border: 1px solid #ede9fe; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #5b21b6; margin-bottom: 4px;">Voucher Reference: <b style="color: #0f172a;">{voucher_name}</b></div>
+            <div style="font-size: 18px; font-weight: 800; color: #7c3aed;">Total Value: ₹ {fmt_money(amount)}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #7c3aed; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Approve & Dispatch to Accounts &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(l2_users, subject, html, voucher_doctype, voucher_name, "purple")
+
+
+def notify_reception_on_admin_return(voucher_doctype: str, voucher_name: str, reason: str, returned_by: str) -> None:
+    """Triggered when Admin L1 or L2 returns claim to Reception with remarks."""
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        return
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    custodian = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
+    if not custodian:
+        return
+
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+
+    subject = f"↩️ [Action Required] Voucher #{voucher_name} Returned by {returned_by}"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fecaca; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #dc2626; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700;">Petty Cash Return Notice</span>
+            <h2 style="margin: 4px 0 0 0; color: #991b1b; font-size: 20px;">Voucher Returned for Rectification</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Your petty cash voucher <b>#{voucher_name}</b> (₹ {fmt_money(amount)}) has been returned by <b>{returned_by}</b> with the following remarks:
+        </p>
+        <div style="background: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px; padding: 14px; margin: 16px 0; color: #991b1b; font-weight: 600;">
+            "{reason}"
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Open Voucher & Correct Details &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert([custodian], subject, html, voucher_doctype, voucher_name, "red")
+
+
+# --------------------------------------------------------------------------------------
+# 1. NOTIFY L1: Voucher Submitted by Admin to Accounts
 # --------------------------------------------------------------------------------------
 def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> None:
-    """Triggered when Admin/Custodian submits a new voucher for audit."""
+    """Triggered when Admin Head approves and submits voucher for Accounts audit."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
@@ -113,7 +241,7 @@ def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> N
             <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 20px;">New Expense Voucher Submitted</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            A new petty cash voucher has been submitted by <b>{custodian}</b> for <b>{company}</b> and requires your Level 1 Accounts line-item audit.
+            A new petty cash voucher has passed internal Admin approvals and has been submitted by <b>{custodian}</b> for <b>{company}</b>. It is ready for Accounts Level 1 line-item audit.
         </p>
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <div style="font-size: 13px; color: #64748b; margin-bottom: 4px;">Voucher Reference: <b style="color: #0f172a;">{voucher_name}</b></div>
@@ -174,7 +302,7 @@ def notify_admin_on_dispute(
         </p>
         <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
             <thead>
-                <tr style="background: #fef2f2; text-align: left; font-size: 12px; color: #991b1b;\">
+                <tr style="background: #fef2f2; text-align: left; font-size: 12px; color: #991b1b;">
                     <th style="padding: 8px 10px;">Item / Merchant</th>
                     <th style="padding: 8px 10px;">Amount</th>
                     <th style="padding: 8px 10px;">Dispute Reason</th>
