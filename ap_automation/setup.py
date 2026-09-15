@@ -56,9 +56,20 @@ def setup_reports():
         print(f"[AP Automation] Auto-registered report: {report_name}")
 
 
+def reload_doctype_permissions():
+    """Force reloads doctypes to ensure latest permissions from JSON are active."""
+    for dt in ["petty_cash_entry", "petty_cash_line_item", "payment_batch", "payment_instruction"]:
+        if frappe.db.exists("DocType", dt.replace("_", " ").title()):
+            try:
+                frappe.reload_doc("ap_automation", "doctype", dt, force=True)
+            except Exception:
+                pass
+
+
 def after_install():
     """Hook executed after app is installed on a site."""
     setup_roles()
+    reload_doctype_permissions()
     setup_reports()
     frappe.db.commit()
 
@@ -66,5 +77,6 @@ def after_install():
 def after_migrate():
     """Hook executed after bench migrate runs on a site."""
     setup_roles()
+    reload_doctype_permissions()
     setup_reports()
     frappe.db.commit()
