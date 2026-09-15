@@ -5,10 +5,11 @@ Enforces:
 2. Mandatory non-empty expense lines validation.
 3. Automatic calculation of total_amount and verified_amount.
 4. Auto-population of Beneficiary Bank Details from HRMS Employee Master.
-5. Duplicate bill validation within and across vouchers.
-6. Immutability when batch_id is linked or status is Disbursed/Queued in Batch.
-7. Automated Notification Hook on submission to notify L1 Accounts Verifier.
-8. Automated Notification Hook on L2 Approval to notify Custodian.
+5. Mandatory Remarks validation for Miscellaneous expenses.
+6. Duplicate bill validation within and across vouchers.
+7. Immutability when batch_id is linked or status is Disbursed/Queued in Batch.
+8. Automated Notification Hook on submission to notify L1 Accounts Verifier.
+9. Automated Notification Hook on L2 Approval to notify Custodian.
 """
 import frappe
 from frappe.model.document import Document
@@ -60,6 +61,11 @@ class PettyCashEntry(Document):
                 frappe.throw(f"Row #{idx}: Expense Category is required.", exc=APValidationError)
             if not row.merchant_name:
                 frappe.throw(f"Row #{idx}: Merchant / Payee Name is required.", exc=APValidationError)
+            if row.expense_category == "Miscellaneous" and not (getattr(row, "remarks", None) or getattr(row, "description", None) or "").strip():
+                frappe.throw(
+                    f"Row #{idx} (Miscellaneous): Please specify the purpose/details in the Remarks field.",
+                    exc=APValidationError
+                )
 
     def validate_duplicate_lines(self):
         """Prevents duplicate bills (same date, merchant, amount, bill number) within this voucher."""

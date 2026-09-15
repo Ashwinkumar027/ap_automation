@@ -244,6 +244,12 @@ function render_role_based_action_buttons(frm) {
     const lines = frm.doc.expense_lines || [];
     const attachments = lines.filter(r => r.receipt_attachment);
 
+    // 1-Click Excel Statement Export
+    frm.add_custom_button(__('📊 Export Excel'), function () {
+        const url = `/api/method/ap_automation.services.export_service.export_petty_cash_excel?voucher_name=${encodeURIComponent(frm.doc.name)}`;
+        window.open(url, '_blank');
+    });
+
     // Common Proof Viewers
     if (attachments.length > 0) {
         frm.add_custom_button(__(`👁️ View Receipts (${attachments.length})`), () => {

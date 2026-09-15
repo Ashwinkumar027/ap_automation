@@ -13,6 +13,7 @@
   "amount",
   "employee",
   "staff_name",
+  "remarks",
   "receipt_attachment",
   "description",
   "is_disputed",
@@ -52,7 +53,7 @@
    "label": "Bill #"
   },
   {
-   "columns": 2,
+   "columns": 1,
    "fieldname": "amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
@@ -75,6 +76,13 @@
    "read_only": 1,
    "hidden": 1,
    "in_list_view": 0
+  },
+  {
+   "columns": 2,
+   "fieldname": "remarks",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Remarks"
   },
   {
    "columns": 1,
