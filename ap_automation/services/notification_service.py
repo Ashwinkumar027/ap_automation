@@ -28,6 +28,11 @@ def _resolve_email(user_or_email: Optional[str]) -> Optional[str]:
     email = frappe.db.get_value("User", val, "email")
     if email and "@" in str(email) and not str(email).endswith("@example.com"):
         return str(email).strip()
+    # Look up in Employee table
+    if frappe.db.exists("Employee", val):
+        emp_email = frappe.db.get_value("Employee", val, "company_email") or frappe.db.get_value("Employee", val, "personal_email") or frappe.db.get_value("Employee", val, "user_id")
+        if emp_email:
+            return _resolve_email(emp_email)
     return None
 
 
@@ -218,19 +223,32 @@ def notify_reception_on_admin_return(
     voucher_doctype: str,
     voucher_name: str,
     returned_by_role: str,
-    return_reason: str
+    return_reason: str,
+    return_to: str = "Reception"
 ) -> None:
-    """Triggered when Admin L1/L2 rejects/returns voucher back to Receptionist."""
+    """Triggered when Admin L1/L2 rejects/returns voucher back to Receptionist or Admin L1."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
-    custodian = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
-    if not custodian:
+    recipients = []
+    
+    # Creator / Front Desk
+    if getattr(doc, "owner", None):
+        recipients.append(doc.owner)
+    if getattr(doc, "custodian", None):
+        recipients.append(doc.custodian)
+        
+    # If returned to Admin L1, also include Admin L1 approver
+    if return_to == "Admin L1" and getattr(doc, "admin_l1_approver", None):
+        recipients.append(doc.admin_l1_approver)
+
+    if not recipients:
         return
 
     doc_url = get_url_to_form(voucher_doctype, voucher_name)
-    subject = f"⚠️ [Admin Returned] {voucher_doctype} #{voucher_name} Returned for Corrections"
+    target_label = "Admin L1 Lead" if return_to == "Admin L1" else "Front Desk Reception"
+    subject = f"⚠️ [Admin Returned to {target_label}] {voucher_doctype} #{voucher_name} Returned for Corrections"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fed7aa; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #f97316; padding-bottom: 12px; margin-bottom: 16px;">
@@ -253,7 +271,7 @@ def notify_reception_on_admin_return(
         </div>
     </div>
     """
-    _send_email_and_desk_alert([custodian], subject, html, voucher_doctype, voucher_name, "orange")
+    _send_email_and_desk_alert(recipients, subject, html, voucher_doctype, voucher_name, "orange")
 
 
 # --------------------------------------------------------------------------------------

@@ -280,7 +280,7 @@ def return_admin_l2(voucher_name: str, reason: str, return_to: str = "Reception"
 
     # Notify Target
     try:
-        notification_service.notify_reception_on_admin_return(doc.doctype, doc.name, reason.strip(), "Admin Department Head")
+        notification_service.notify_reception_on_admin_return(doc.doctype, doc.name, reason.strip(), "Admin Department Head", return_to=return_to)
     except Exception as e:
         frappe.log_error(f"Failed to send return notification for {voucher_name}: {str(e)}")
 
