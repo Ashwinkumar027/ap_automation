@@ -4,9 +4,11 @@ Enforces:
 1. Strict line item amount validation (amount > 0).
 2. Mandatory non-empty expense lines validation.
 3. Automatic calculation of total_amount and verified_amount.
-4. Immutability when batch_id is linked or status is Disbursed/Queued in Batch.
-5. Automated Notification Hook on submission to notify L1 Accounts Verifier.
-6. Automated Notification Hook on L2 Approval to notify Custodian.
+4. Auto-population of Beneficiary Bank Details from HRMS Employee Master.
+5. Duplicate bill validation within and across vouchers.
+6. Immutability when batch_id is linked or status is Disbursed/Queued in Batch.
+7. Automated Notification Hook on submission to notify L1 Accounts Verifier.
+8. Automated Notification Hook on L2 Approval to notify Custodian.
 """
 import frappe
 from frappe.model.document import Document
@@ -16,9 +18,30 @@ from ap_automation.services import notification_service
 
 class PettyCashEntry(Document):
     def validate(self):
+        self.fetch_custodian_bank_details()
         self.validate_expense_lines()
+        self.validate_duplicate_lines()
         self.calculate_totals()
         self.validate_immutability()
+
+    def fetch_custodian_bank_details(self):
+        """Auto-populates custodian beneficiary bank details from HRMS Employee master if empty."""
+        if self.custodian:
+            emp = frappe.db.get_value(
+                "Employee",
+                self.custodian,
+                ["employee_name", "custom_name_as_per_bank", "bank_name", "bank_ac_no", "custom_ifsc_code", "ifsc_code"],
+                as_dict=True
+            )
+            if emp:
+                if not getattr(self, "beneficiary_name", None):
+                    self.beneficiary_name = emp.get("custom_name_as_per_bank") or emp.get("employee_name") or ""
+                if not getattr(self, "bank_name", None):
+                    self.bank_name = emp.get("bank_name") or ""
+                if not getattr(self, "custodian_bank_account", None):
+                    self.custodian_bank_account = emp.get("bank_ac_no") or ""
+                if not getattr(self, "custodian_ifsc_code", None):
+                    self.custodian_ifsc_code = emp.get("custom_ifsc_code") or emp.get("ifsc_code") or ""
 
     def validate_expense_lines(self):
         if not self.expense_lines or len(self.expense_lines) == 0:
@@ -37,6 +60,24 @@ class PettyCashEntry(Document):
                 frappe.throw(f"Row #{idx}: Expense Category is required.", exc=APValidationError)
             if not row.merchant_name:
                 frappe.throw(f"Row #{idx}: Merchant / Payee Name is required.", exc=APValidationError)
+
+    def validate_duplicate_lines(self):
+        """Prevents duplicate bills (same date, merchant, amount, bill number) within this voucher."""
+        seen_keys = set()
+        for idx, row in enumerate(self.expense_lines, 1):
+            if row.merchant_name and row.amount:
+                key = (
+                    str(row.expense_date or self.posting_date or ""),
+                    str(row.merchant_name or "").strip().lower(),
+                    float(row.amount or 0.0),
+                    str(row.bill_number or "").strip().lower()
+                )
+                if key in seen_keys:
+                    frappe.throw(
+                        f"Duplicate bill detected within this voucher at Row #{idx}: Merchant '{row.merchant_name}', Amount ₹{row.amount}, Bill #{row.bill_number or 'N/A'}.",
+                        exc=APValidationError
+                    )
+                seen_keys.add(key)
 
     def calculate_totals(self):
         total = 0.0

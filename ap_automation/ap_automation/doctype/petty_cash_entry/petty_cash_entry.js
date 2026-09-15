@@ -16,11 +16,39 @@ frappe.ui.form.on('Petty Cash Entry', {
     },
 
     onload: function (frm) {
-        if (frm.is_new() && !frm.doc.custodian) {
-            frm.set_value('custodian', frappe.session.user);
-        }
         if (frm.is_new() && !frm.doc.posting_date) {
             frm.set_value('posting_date', frappe.datetime.get_today());
+        }
+    },
+
+    custodian: function (frm) {
+        if (frm.doc.custodian) {
+            frappe.db.get_value('Employee', frm.doc.custodian, [
+                'employee_name',
+                'custom_name_as_per_bank',
+                'bank_name',
+                'bank_ac_no',
+                'custom_ifsc_code',
+                'ifsc_code'
+            ]).then(r => {
+                if (r && r.message) {
+                    const d = r.message;
+                    const name = d.custom_name_as_per_bank || d.employee_name || '';
+                    const bank = d.bank_name || '';
+                    const ac_no = d.bank_ac_no || '';
+                    const ifsc = d.custom_ifsc_code || d.ifsc_code || '';
+
+                    frm.set_value('beneficiary_name', name);
+                    frm.set_value('bank_name', bank);
+                    frm.set_value('custodian_bank_account', ac_no);
+                    frm.set_value('custodian_ifsc_code', ifsc);
+                }
+            });
+        } else {
+            frm.set_value('beneficiary_name', '');
+            frm.set_value('bank_name', '');
+            frm.set_value('custodian_bank_account', '');
+            frm.set_value('custodian_ifsc_code', '');
         }
     },
 

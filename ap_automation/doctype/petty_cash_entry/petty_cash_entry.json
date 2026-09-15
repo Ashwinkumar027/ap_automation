@@ -24,6 +24,9 @@
   "admin_l2_approval_date",
   "admin_rejection_reason",
   "sb_bank",
+  "beneficiary_name",
+  "bank_name",
+  "cb_bank",
   "custodian_bank_account",
   "custodian_ifsc_code",
   "sb_lines",
@@ -69,9 +72,10 @@
    "fieldname": "custodian",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Custodian / Admin Staff",
-   "options": "User",
-   "reqd": 1
+   "label": "Beneficiary Employee (Admin Head)",
+   "options": "Employee",
+   "reqd": 1,
+   "description": "Select the Admin Head / Custodian receiving the payout"
   },
   {
    "fieldname": "cb_status",
@@ -146,14 +150,36 @@
    "label": "Disbursement Bank Account"
   },
   {
+   "fieldname": "beneficiary_name",
+   "fieldtype": "Data",
+   "label": "Beneficiary Name as per Bank",
+   "read_only": 1,
+   "fetch_from": "custodian.custom_name_as_per_bank"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name",
+   "read_only": 1,
+   "fetch_from": "custodian.bank_name"
+  },
+  {
+   "fieldname": "cb_bank",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "custodian_bank_account",
    "fieldtype": "Data",
-   "label": "Bank Account Number"
+   "label": "Bank Account Number",
+   "read_only": 1,
+   "fetch_from": "custodian.bank_ac_no"
   },
   {
    "fieldname": "custodian_ifsc_code",
    "fieldtype": "Data",
-   "label": "Bank IFSC Code"
+   "label": "Bank IFSC Code",
+   "read_only": 1,
+   "fetch_from": "custodian.custom_ifsc_code"
   },
   {
    "fieldname": "sb_lines",

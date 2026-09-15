@@ -24,6 +24,9 @@
   "admin_l2_approval_date",
   "admin_rejection_reason",
   "sb_bank",
+  "beneficiary_name",
+  "bank_name",
+  "cb_bank",
   "custodian_bank_account",
   "custodian_ifsc_code",
   "sb_lines",
@@ -147,16 +150,36 @@
    "label": "Disbursement Bank Account"
   },
   {
+   "fieldname": "beneficiary_name",
+   "fieldtype": "Data",
+   "label": "Beneficiary Name as per Bank",
+   "read_only": 1,
+   "fetch_from": "custodian.custom_name_as_per_bank"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name",
+   "read_only": 1,
+   "fetch_from": "custodian.bank_name"
+  },
+  {
+   "fieldname": "cb_bank",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "custodian_bank_account",
    "fieldtype": "Data",
    "label": "Bank Account Number",
-   "read_only": 1
+   "read_only": 1,
+   "fetch_from": "custodian.bank_ac_no"
   },
   {
    "fieldname": "custodian_ifsc_code",
    "fieldtype": "Data",
    "label": "Bank IFSC Code",
-   "read_only": 1
+   "read_only": 1,
+   "fetch_from": "custodian.custom_ifsc_code"
   },
   {
    "fieldname": "sb_lines",
@@ -223,7 +246,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-15 12:44:00.000000",
+ "modified": "2026-09-12 15:18:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Petty Cash Entry",
