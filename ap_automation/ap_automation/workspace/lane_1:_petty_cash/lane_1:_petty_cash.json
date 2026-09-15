@@ -34,7 +34,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-15 14:26:08.536630",
+ "modified": "2026-09-15 15:03:21.014001",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Lane 1: Petty Cash",
@@ -58,6 +58,21 @@
   },
   {
    "role": "Desk User"
+  },
+  {
+   "role": "Petty Cash User"
+  },
+  {
+   "role": "Admin L1 Approver"
+  },
+  {
+   "role": "Admin L2 Approver"
+  },
+  {
+   "role": "Accounts Director"
+  },
+  {
+   "role": "Payment Releaser"
   }
  ],
  "sequence_id": 1.1,

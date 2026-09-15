@@ -1,0 +1,125 @@
+{
+ "app": "ap_automation",
+ "charts": [],
+ "content": "[{\"id\": \"header_1\", \"type\": \"header\", \"data\": {\"text\": \"Lane 4: Event Spends\", \"level\": 4, \"col\": 12}}, {\"id\": \"card_ed7e1a\", \"type\": \"card\", \"data\": {\"card_name\": \"Event Lifecycle & Budgets\", \"col\": 4}}]",
+ "creation": "2026-09-09 16:32:51.024415",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "icon": "calendar",
+ "idx": 0,
+ "indicator_color": "purple",
+ "is_hidden": 0,
+ "label": "Lane 4: Event Spends",
+ "link_type": "DocType",
+ "links": [
+  {
+   "hidden": 0,
+   "icon": "calendar",
+   "is_query_report": 0,
+   "label": "Event Lifecycle & Budgets",
+   "link_count": 0,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Event Master",
+   "link_count": 0,
+   "link_to": "Event Master",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Event Advance Request",
+   "link_count": 0,
+   "link_to": "Event Advance Request",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Event Expense Claim",
+   "link_count": 0,
+   "link_to": "Event Expense Claim",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Event Settlement",
+   "link_count": 0,
+   "link_to": "Event Settlement",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-09-15 15:03:21.105310",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Lane 4: Event Spends",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "Accounts User"
+  },
+  {
+   "role": "Employee"
+  },
+  {
+   "role": "Desk User"
+  },
+  {
+   "role": "Petty Cash User"
+  },
+  {
+   "role": "Admin L1 Approver"
+  },
+  {
+   "role": "Admin L2 Approver"
+  },
+  {
+   "role": "Accounts Director"
+  },
+  {
+   "role": "Payment Releaser"
+  }
+ ],
+ "sequence_id": 1.4,
+ "shortcuts": [
+  {
+   "color": "Purple",
+   "label": "Event Masters",
+   "link_to": "Event Master",
+   "type": "DocType"
+  },
+  {
+   "color": "Teal",
+   "label": "Event Advances",
+   "link_to": "Event Advance Request",
+   "type": "DocType"
+  }
+ ],
+ "title": "Lane 4: Event Spends",
+ "type": "Workspace"
+}

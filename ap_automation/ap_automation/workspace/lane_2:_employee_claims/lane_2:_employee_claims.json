@@ -1,0 +1,105 @@
+{
+ "app": "ap_automation",
+ "charts": [],
+ "content": "[{\"id\": \"header_1\", \"type\": \"header\", \"data\": {\"text\": \"Lane 2: Employee Claims\", \"level\": 4, \"col\": 12}}, {\"id\": \"card_920d46\", \"type\": \"card\", \"data\": {\"card_name\": \"Employee Expenses\", \"col\": 4}}]",
+ "creation": "2026-09-09 16:32:50.961798",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "icon": "user",
+ "idx": 0,
+ "indicator_color": "orange",
+ "is_hidden": 0,
+ "label": "Lane 2: Employee Claims",
+ "link_type": "DocType",
+ "links": [
+  {
+   "hidden": 0,
+   "icon": "user",
+   "is_query_report": 0,
+   "label": "Employee Expenses",
+   "link_count": 0,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Employee Reimbursement Claim",
+   "link_count": 0,
+   "link_to": "Employee Reimbursement Claim",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Pre Travel Request",
+   "link_count": 0,
+   "link_to": "Pre Travel Request",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-09-15 15:03:21.045489",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Lane 2: Employee Claims",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "Accounts User"
+  },
+  {
+   "role": "Employee"
+  },
+  {
+   "role": "Desk User"
+  },
+  {
+   "role": "Petty Cash User"
+  },
+  {
+   "role": "Admin L1 Approver"
+  },
+  {
+   "role": "Admin L2 Approver"
+  },
+  {
+   "role": "Accounts Director"
+  },
+  {
+   "role": "Payment Releaser"
+  }
+ ],
+ "sequence_id": 1.2,
+ "shortcuts": [
+  {
+   "color": "Yellow",
+   "label": "Employee Reimbursements",
+   "link_to": "Employee Reimbursement Claim",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "label": "Travel Requests",
+   "link_to": "Pre Travel Request",
+   "type": "DocType"
+  }
+ ],
+ "title": "Lane 2: Employee Claims",
+ "type": "Workspace"
+}

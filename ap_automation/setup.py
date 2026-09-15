@@ -13,6 +13,18 @@ AP_ROLES = [
     {"role_name": "Payment Releaser", "desk_access": 1},
 ]
 
+ALL_AP_ROLES = [
+    "System Manager",
+    "Petty Cash User",
+    "Admin L1 Approver",
+    "Admin L2 Approver",
+    "Accounts User",
+    "Accounts Manager",
+    "Accounts Director",
+    "Payment Releaser",
+    "Employee"
+]
+
 
 def setup_roles():
     """Ensures all standard AP Automation roles exist in the database."""
@@ -39,21 +51,34 @@ def setup_reports():
         doc.module = "AP Automation"
         doc.add_total_row = 1
         doc.disabled = 0
-        roles = [
-            "System Manager",
-            "Accounts Manager",
-            "Accounts User",
-            "Admin Manager",
-            "Admin L1 Approver",
-            "Admin L2 Approver",
-            "Accounts Director",
-            "Petty Cash User",
-            "Employee"
-        ]
-        for role in roles:
+        for role in ALL_AP_ROLES:
             doc.append("roles", {"role": role})
         doc.insert(ignore_permissions=True)
         print(f"[AP Automation] Auto-registered report: {report_name}")
+
+
+def setup_workspaces():
+    """Ensures all AP Automation workspaces and sidebar items are accessible to AP roles."""
+    workspaces = [
+        "AP Automation",
+        "Lane 1: Petty Cash",
+        "Lane 2: Employee Claims",
+        "Lane 3: Vendor Invoices",
+        "Lane 4: Event Spends",
+        "Payment Batches"
+    ]
+
+    for ws_name in workspaces:
+        if frappe.db.exists("Workspace", ws_name):
+            ws = frappe.get_doc("Workspace", ws_name)
+            ws_roles = [r.role for r in ws.roles]
+            changed = False
+            for r in ALL_AP_ROLES:
+                if r not in ws_roles:
+                    ws.append("roles", {"role": r})
+                    changed = True
+            if changed:
+                ws.save(ignore_permissions=True)
 
 
 def reload_doctype_permissions():
@@ -71,6 +96,7 @@ def after_install():
     setup_roles()
     reload_doctype_permissions()
     setup_reports()
+    setup_workspaces()
     frappe.db.commit()
 
 
@@ -79,4 +105,5 @@ def after_migrate():
     setup_roles()
     reload_doctype_permissions()
     setup_reports()
+    setup_workspaces()
     frappe.db.commit()

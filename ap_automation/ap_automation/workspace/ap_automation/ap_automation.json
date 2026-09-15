@@ -249,7 +249,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-15 14:31:58.954382",
+ "modified": "2026-09-15 15:03:20.618477",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "AP Automation",
@@ -273,6 +273,21 @@
   },
   {
    "role": "Desk User"
+  },
+  {
+   "role": "Petty Cash User"
+  },
+  {
+   "role": "Admin L1 Approver"
+  },
+  {
+   "role": "Admin L2 Approver"
+  },
+  {
+   "role": "Accounts Director"
+  },
+  {
+   "role": "Payment Releaser"
   }
  ],
  "sequence_id": 1.0,
