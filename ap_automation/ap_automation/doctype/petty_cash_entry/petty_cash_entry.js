@@ -4,17 +4,12 @@
 
 frappe.ui.form.on('Petty Cash Entry', {
     onload: function (frm) {
-        if (frm.is_new()) {
-            if (!frm.doc.submitted_by) {
-                frm.set_value('submitted_by', frappe.session.user);
-            }
-            if (!frm.doc.posting_date) {
-                frm.set_value('posting_date', frappe.datetime.get_today());
-            }
+        if (frm.is_new() && !frm.doc.posting_date) {
+            frm.set_value('posting_date', frappe.datetime.get_today());
         }
 
         // Filter Beneficiary Employee by selected Company
-        frm.set_query('beneficiary_employee', function () {
+        frm.set_query('custodian', function () {
             let filters = { status: 'Active' };
             if (frm.doc.company) {
                 filters['company'] = frm.doc.company;
@@ -25,40 +20,29 @@ frappe.ui.form.on('Petty Cash Entry', {
 
     company: function (frm) {
         if (frm.doc.company) {
-            frm.set_value('beneficiary_employee', '');
-            frm.set_value('beneficiary_name', '');
+            frm.set_value('custodian', '');
             frm.set_value('custodian_bank_account', '');
             frm.set_value('custodian_ifsc_code', '');
-            frm.set_value('bank_name', '');
         }
     },
 
-    beneficiary_employee: function (frm) {
-        if (frm.doc.beneficiary_employee) {
-            frappe.db.get_value('Employee', frm.doc.beneficiary_employee, [
+    custodian: function (frm) {
+        if (frm.doc.custodian) {
+            frappe.db.get_value('Employee', frm.doc.custodian, [
                 'employee_name',
                 'custom_name_as_per_bank',
                 'bank_name',
                 'bank_ac_no',
                 'custom_ifsc_code',
-                'ifsc_code',
-                'user_id',
-                'prefered_email'
+                'ifsc_code'
             ], (r) => {
                 if (r) {
                     const beneficiary_display_name = r.custom_name_as_per_bank || r.employee_name || '';
                     const ifsc = r.custom_ifsc_code || r.ifsc_code || '';
                     const acc_no = r.bank_ac_no || '';
-                    const bank = r.bank_name || 'IDFC FIRST Bank';
 
-                    frm.set_value('beneficiary_name', beneficiary_display_name);
                     frm.set_value('custodian_bank_account', acc_no);
                     frm.set_value('custodian_ifsc_code', ifsc);
-                    frm.set_value('bank_name', bank);
-
-                    if (r.user_id || r.prefered_email) {
-                        frm.set_value('custodian', r.user_id || r.prefered_email);
-                    }
 
                     if (acc_no && ifsc) {
                         frappe.show_alert({
@@ -179,7 +163,6 @@ function render_status_guidance_banner(frm) {
 
     const status = frm.doc.status || 'Draft';
     const amount_formatted = format_inr_clean(frm.doc.total_amount);
-    const payee_display = frm.doc.beneficiary_name ? ` (Payee: <b>${frm.doc.beneficiary_name}</b>)` : '';
     let banner_config = null;
 
     if (frm.doc.admin_rejection_reason && (status === 'Draft' || status === 'Pending Admin L1')) {
@@ -194,14 +177,14 @@ function render_status_guidance_banner(frm) {
             class: 'banner-draft',
             icon: '📝',
             title: 'Draft Petty Cash Voucher (Front Desk / Reception Entry)',
-            message: `Enter branch expenses, select the <b>Beneficiary Employee (Admin Head)</b>${payee_display}, attach receipt photos, and submit to Assistant Admin Manager.`
+            message: 'Enter branch expenses, select the <b>Beneficiary Employee (Admin Head)</b>, attach receipt photos, and submit to Assistant Admin Manager.'
         };
     } else if (status === 'Pending Admin L1') {
         banner_config = {
             class: 'banner-submitted',
             icon: '⏳',
             title: 'Stage 1: Awaiting Assistant Admin Manager (L1) Review',
-            message: `Voucher for <b>₹ ${amount_formatted}</b>${payee_display} submitted by <b>${frm.doc.submitted_by || frm.doc.custodian || 'Reception'}</b> is awaiting Assistant Admin Manager review.`
+            message: `Voucher for <b>₹ ${amount_formatted}</b> is awaiting Assistant Admin Manager review.`
         };
     } else if (status === 'Pending Admin L2') {
         banner_config = {
@@ -215,7 +198,7 @@ function render_status_guidance_banner(frm) {
             class: 'banner-submitted',
             icon: '🔍',
             title: 'Stage 3: Awaiting Accounts Audit (Finance L1)',
-            message: `Admin pre-approvals complete. Accounts team is verifying tax compliance, receipts, and GST for payout to <b>${frm.doc.beneficiary_name || 'Admin Head'}</b>.`
+            message: 'Admin pre-approvals complete. Accounts team is verifying tax compliance, receipts, and GST.'
         };
     } else if (status === 'L1 Verified') {
         banner_config = {
@@ -229,14 +212,14 @@ function render_status_guidance_banner(frm) {
             class: 'banner-approved',
             icon: '🔐',
             title: 'Sanctioned for Payment Disbursement',
-            message: `Director sanctioned <b>₹ ${amount_formatted}</b> for <b>${frm.doc.beneficiary_name || 'Admin Head'}</b>. Queued in upcoming Thursday corporate bank release batch.`
+            message: `Director sanctioned <b>₹ ${amount_formatted}</b>. Queued in upcoming Thursday corporate bank release batch.`
         };
     } else if (status === 'Paid' || status === 'Disbursed via IDFC') {
         banner_config = {
             class: 'banner-paid',
             icon: '🎉',
             title: 'Disbursed to Beneficiary Bank Account',
-            message: `Payout successfully processed via IDFC Bank API to <b>${frm.doc.beneficiary_name || 'Admin Head'}</b> (A/C: ${frm.doc.custodian_bank_account || ''}). Float replenished.`
+            message: `Payout successfully processed via IDFC Bank API (A/C: ${frm.doc.custodian_bank_account || ''}). Float replenished.`
         };
     }
 
@@ -288,7 +271,7 @@ function render_role_based_action_buttons(frm) {
                 frappe.msgprint(__('Please add at least one expense line before submitting.'));
                 return;
             }
-            if (!frm.doc.beneficiary_employee) {
+            if (!frm.doc.custodian) {
                 frappe.msgprint(__('Please select the Beneficiary Employee (Admin Head) receiving the payout.'));
                 return;
             }
