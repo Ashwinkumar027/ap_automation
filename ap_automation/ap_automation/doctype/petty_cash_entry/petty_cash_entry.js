@@ -1,62 +1,26 @@
-// Petty Cash Entry Master Controller (Lane 1 - Imprest Flow)
-// 6-Step Corporate Lifecycle:
-// Front Desk Submission -> Assistant Admin Manager Approval -> Admin Manager Approval -> Accounts Audit -> Director Approval -> IDFC 2FA Payment Release
+/**
+ * Enterprise Master Controller: Petty Cash Entry (Lane 1 - Imprest System)
+ * Features:
+ * 1. 2-Tier Admin Pre-Approval Gate (Reception -> Admin L1 Supervisor -> Admin L2 Department Head -> Accounts).
+ * 2. 6-Step Visual Responsive Progress Stepper & Guidance Banners.
+ * 3. Role-Based Dynamic Action Buttons with Return/Rejection Prompting.
+ * 4. Original 2-Column Split-Pane Multi-Receipt Gallery Integration (APReceiptGallery).
+ * 5. Instant In-Grid 1-Click File Uploaders with Green Preview Badges.
+ * 6. Line-Item Atomic Dispute Splitting Engine with whitelisted API.
+ * 7. Live Totals Calculation with Zero-Reload Dynamic Sum.
+ */
 
 frappe.ui.form.on('Petty Cash Entry', {
+    setup: function (frm) {
+        apply_petty_cash_styles();
+    },
+
     onload: function (frm) {
+        if (frm.is_new() && !frm.doc.custodian) {
+            frm.set_value('custodian', frappe.session.user);
+        }
         if (frm.is_new() && !frm.doc.posting_date) {
             frm.set_value('posting_date', frappe.datetime.get_today());
-        }
-
-        // Filter Beneficiary Employee by selected Company
-        frm.set_query('custodian', function () {
-            let filters = { status: 'Active' };
-            if (frm.doc.company) {
-                filters['company'] = frm.doc.company;
-            }
-            return { filters: filters };
-        });
-    },
-
-    company: function (frm) {
-        if (frm.doc.company) {
-            frm.set_value('custodian', '');
-            frm.set_value('custodian_bank_account', '');
-            frm.set_value('custodian_ifsc_code', '');
-        }
-    },
-
-    custodian: function (frm) {
-        if (frm.doc.custodian) {
-            frappe.db.get_value('Employee', frm.doc.custodian, [
-                'employee_name',
-                'custom_name_as_per_bank',
-                'bank_name',
-                'bank_ac_no',
-                'custom_ifsc_code',
-                'ifsc_code'
-            ], (r) => {
-                if (r) {
-                    const beneficiary_display_name = r.custom_name_as_per_bank || r.employee_name || '';
-                    const ifsc = r.custom_ifsc_code || r.ifsc_code || '';
-                    const acc_no = r.bank_ac_no || '';
-
-                    frm.set_value('custodian_bank_account', acc_no);
-                    frm.set_value('custodian_ifsc_code', ifsc);
-
-                    if (acc_no && ifsc) {
-                        frappe.show_alert({
-                            message: __(`🏦 Bank Verified: <b>${beneficiary_display_name}</b> | A/C: ${acc_no} | IFSC: ${ifsc}`),
-                            indicator: 'green'
-                        }, 5);
-                    } else {
-                        frappe.show_alert({
-                            message: __(`⚠️ Bank details incomplete for ${r.employee_name} in HRMS (Missing A/C or IFSC).`),
-                            indicator: 'orange'
-                        }, 6);
-                    }
-                }
-            });
         }
     },
 
@@ -119,8 +83,8 @@ function render_petty_cash_stepper(frm) {
 
         const steps = [
             { num: 1, title: 'Bill Entry', icon: '📝', desc: 'Front Desk' },
-            { num: 2, title: 'Admin L1', icon: '👤', desc: 'Asst. Admin Mgr' },
-            { num: 3, title: 'Admin L2', icon: '👥', desc: 'Admin Mgr' },
+            { num: 2, title: 'Admin L1', icon: '👤', desc: 'Lead Review' },
+            { num: 3, title: 'Admin L2', icon: '👥', desc: 'Head Sign-off' },
             { num: 4, title: 'Accounts', icon: '🔍', desc: 'L1 Audit' },
             { num: 5, title: 'Director', icon: '⭐', desc: 'L2 Sanction' },
             { num: 6, title: 'Paid', icon: '🎉', desc: 'Bank UTR' }
@@ -176,36 +140,36 @@ function render_status_guidance_banner(frm) {
         banner_config = {
             class: 'banner-draft',
             icon: '📝',
-            title: 'Draft Petty Cash Voucher (Front Desk / Reception Entry)',
-            message: 'Enter branch expenses, select the <b>Beneficiary Employee (Admin Head)</b>, attach receipt photos, and submit to Assistant Admin Manager.'
+            title: 'Draft Petty Cash Voucher (Front Desk / Reception)',
+            message: 'Add branch expense lines, enter amounts, attach receipt photos via <b>📷 Add Photo</b>, and submit to Admin Lead.'
         };
     } else if (status === 'Pending Admin L1') {
         banner_config = {
             class: 'banner-submitted',
             icon: '⏳',
-            title: 'Stage 1: Awaiting Assistant Admin Manager (L1) Review',
-            message: `Voucher for <b>₹ ${amount_formatted}</b> is awaiting Assistant Admin Manager review.`
+            title: 'Stage 1: Awaiting Admin Team Lead (L1) Review',
+            message: `Voucher for <b>₹ ${amount_formatted}</b> submitted by <b>${frm.doc.custodian || 'Reception'}</b> is awaiting Admin L1 operational review.`
         };
     } else if (status === 'Pending Admin L2') {
         banner_config = {
             class: 'banner-submitted',
             icon: '⏳',
-            title: 'Stage 2: Awaiting Admin Manager (L2) Sign-Off',
-            message: `Assistant Admin Manager (<b>${frm.doc.admin_l1_approver || 'L1'}</b>) approved. Awaiting Admin Manager sign-off to dispatch to Accounts.`
+            title: 'Stage 2: Awaiting Admin Department Head (L2) Sign-Off',
+            message: `Admin Lead (<b>${frm.doc.admin_l1_approver || 'L1'}</b>) approved. Awaiting Admin Head sign-off to dispatch to Accounts.`
         };
     } else if (status === 'Submitted') {
         banner_config = {
             class: 'banner-submitted',
             icon: '🔍',
             title: 'Stage 3: Awaiting Accounts Audit (Finance L1)',
-            message: 'Admin pre-approvals complete. Accounts team is verifying tax compliance, receipts, and GST.'
+            message: `Admin pre-approvals complete. Accounts team is verifying tax compliance, receipts, and GST.`
         };
     } else if (status === 'L1 Verified') {
         banner_config = {
             class: 'banner-approved',
             icon: '⭐',
             title: 'Stage 4: Audited & Ready for Director Sanction (L2)',
-            message: `Accounts verified <b>₹ ${amount_formatted}</b> with zero discrepancies. Waiting for Director Tier (Anshul Sir) sanction.`
+            message: `Accounts verified <b>₹ ${amount_formatted}</b> with zero discrepancies. Waiting for Director Tier sanction.`
         };
     } else if (status === 'Approved for Payment' || status === 'Queued in Batch') {
         banner_config = {
@@ -218,8 +182,8 @@ function render_status_guidance_banner(frm) {
         banner_config = {
             class: 'banner-paid',
             icon: '🎉',
-            title: 'Disbursed to Beneficiary Bank Account',
-            message: `Payout successfully processed via IDFC Bank API (A/C: ${frm.doc.custodian_bank_account || ''}). Float replenished.`
+            title: 'Disbursed to Custodian Bank Account',
+            message: `Payout successfully processed via IDFC Bank API. Imprest float replenished and posted to accounting records.`
         };
     }
 
@@ -264,26 +228,22 @@ function render_role_based_action_buttons(frm) {
         });
     }
 
-    // 1. RECEPTION / DRAFT SUBMISSION TO ASSISTANT ADMIN MANAGER
-    if (status === 'Draft' || status === 'Returned to Reception' || status === 'Returned by Admin L1') {
-        frm.add_custom_button(__('📤 Submit to Asst. Admin Mgr'), function () {
+    // 1. RECEPTION / DRAFT SUBMISSION TO ADMIN L1
+    if (status === 'Draft' || status === 'Returned to Reception') {
+        frm.add_custom_button(__('📤 Submit to Admin Lead'), function () {
             if (!lines || lines.length === 0) {
                 frappe.msgprint(__('Please add at least one expense line before submitting.'));
                 return;
             }
-            if (!frm.doc.custodian) {
-                frappe.msgprint(__('Please select the Beneficiary Employee (Admin Head) receiving the payout.'));
-                return;
-            }
-            frappe.confirm(__('Submit this Petty Cash Voucher to Assistant Admin Manager for review?'), function () {
+            frappe.confirm(__('Submit this Petty Cash Envelope to Admin Team Lead for review?'), function () {
                 frappe.call({
                     method: 'ap_automation.services.admin_approval_service.submit_to_admin_l1',
                     args: { voucher_name: frm.doc.name },
                     freeze: true,
-                    freeze_message: __('Submitting to Assistant Admin Manager...'),
+                    freeze_message: __('Submitting to Admin Lead...'),
                     callback: function (r) {
                         if (r.message && r.message.status === 'SUCCESS') {
-                            frappe.show_alert({ message: __('✅ Submitted to Assistant Admin Manager!'), indicator: 'green' }, 5);
+                            frappe.show_alert({ message: __('✅ Submitted to Admin Lead!'), indicator: 'green' }, 5);
                             frm.reload_doc();
                         }
                     }
@@ -297,18 +257,18 @@ function render_role_based_action_buttons(frm) {
         });
     }
 
-    // 2. ASSISTANT ADMIN MANAGER ACTIONS
-    if (status === 'Pending Admin L1' && (frappe.user.has_role(['Assistant Admin Manager', 'Admin L1 Approver', 'Admin Manager', 'System Manager']) || frappe.session.user === 'Administrator')) {
-        frm.add_custom_button(__('✅ Approve & Forward to Admin Mgr'), function () {
-            frappe.confirm(__(`Approve voucher <b>#${frm.doc.name}</b> (₹${format_inr_clean(frm.doc.total_amount)}) and forward to Admin Manager?`), function () {
+    // 2. ADMIN L1 SUPERVISOR ACTIONS
+    if (status === 'Pending Admin L1' && (frappe.user.has_role(['Admin L1 Approver', 'Admin Manager', 'System Manager']) || frappe.session.user === 'Administrator')) {
+        frm.add_custom_button(__('✅ Approve (Admin L1)'), function () {
+            frappe.confirm(__(`Approve voucher <b>#${frm.doc.name}</b> (₹${format_inr_clean(frm.doc.total_amount)}) and forward to Admin Department Head?`), function () {
                 frappe.call({
                     method: 'ap_automation.services.admin_approval_service.approve_admin_l1',
                     args: { voucher_name: frm.doc.name },
                     freeze: true,
-                    freeze_message: __('Approving as Assistant Admin Manager...'),
+                    freeze_message: __('Approving as Admin L1...'),
                     callback: function (r) {
                         if (r.message && r.message.status === 'SUCCESS') {
-                            frappe.show_alert({ message: __('✅ Approved by Assistant Admin Manager!'), indicator: 'green' }, 5);
+                            frappe.show_alert({ message: __('✅ Approved by Admin L1!'), indicator: 'green' }, 5);
                             frm.reload_doc();
                         }
                     }
@@ -358,9 +318,9 @@ function render_role_based_action_buttons(frm) {
         });
     }
 
-    // 3. ADMIN MANAGER ACTIONS
-    if (status === 'Pending Admin L2' && (frappe.user.has_role(['Admin Manager', 'Admin L2 Approver', 'Director Tier', 'System Manager']) || frappe.session.user === 'Administrator')) {
-        frm.add_custom_button(__('✅ Approve & Forward to Accounts'), function () {
+    // 3. ADMIN L2 DEPARTMENT HEAD ACTIONS
+    if (status === 'Pending Admin L2' && (frappe.user.has_role(['Admin L2 Approver', 'Admin Manager', 'Director Tier', 'System Manager']) || frappe.session.user === 'Administrator')) {
+        frm.add_custom_button(__('✅ Approve & Send to Accounts'), function () {
             frappe.confirm(__(`Final Admin Sign-Off: Dispatch voucher <b>#${frm.doc.name}</b> (₹${format_inr_clean(frm.doc.total_amount)}) to Accounts Audit?`), function () {
                 frappe.call({
                     method: 'ap_automation.services.admin_approval_service.approve_admin_l2',
@@ -382,7 +342,7 @@ function render_role_based_action_buttons(frm) {
             'font-weight': '700'
         });
 
-        frm.add_custom_button(__('↩️ Return Voucher'), function () {
+        frm.add_custom_button(__('↩️ Return to Reception'), function () {
             frappe.prompt(
                 [
                     {
@@ -429,14 +389,14 @@ function render_role_based_action_buttons(frm) {
     }
 
     // 4. ACCOUNTS AUDIT ACTIONS (Status == 'Submitted')
-    if (status === 'Submitted' && (frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager', 'System Manager']) || frappe.session.user === 'Administrator')) {
+    if (status === 'Submitted' && (frappe.user.has_role(['Accounts User', 'Accounts Manager', 'System Manager']) || frappe.session.user === 'Administrator')) {
         frm.add_custom_button(__('✅ Audit & Pass to Director'), function () {
-            frappe.confirm(__('Pass line-item audit and forward to Director (Anshul Sir) for final sanction?'), function () {
+            frappe.confirm(__('Pass line-item audit and forward to Director for final sanction?'), function () {
                 frm.set_value('status', 'L1 Verified');
                 frm.set_value('workflow_state', 'Audited & Verified by Accounts L1');
                 frm.set_value('current_approval_level', 2);
                 frm.save().then(() => {
-                    frappe.show_alert({ message: __('✅ Passed to Director Tier (Anshul Sir)!'), indicator: 'green' }, 5);
+                    frappe.show_alert({ message: __('✅ Passed to Director Tier!'), indicator: 'green' }, 5);
                 });
             });
         }).addClass('btn-primary').css({
@@ -459,7 +419,7 @@ function render_role_based_action_buttons(frm) {
     }
 
     // 5. DIRECTOR TIER SANCTION (Status == 'L1 Verified')
-    if (status === 'L1 Verified' && (frappe.user.has_role(['Director', 'Accounts L2 Approver', 'Director Tier', 'Dileep Director', 'System Manager']) || frappe.session.user === 'Administrator')) {
+    if (status === 'L1 Verified' && (frappe.user.has_role(['Director Tier', 'Dileep Director', 'System Manager']) || frappe.session.user === 'Administrator')) {
         frm.add_custom_button(__('✅ Sanction Payment'), function () {
             frappe.confirm(__(`Sanction payment of <b>₹${format_inr_clean(frm.doc.total_amount)}</b> for IDFC corporate batch release?`), function () {
                 frm.set_value('status', 'Approved for Payment');
@@ -488,147 +448,209 @@ function bind_custom_grid_uploaders(frm) {
 
     grid_rows.each(function (idx) {
         const row_elem = $(this);
-        const doc_row = (frm.doc.expense_lines || [])[idx];
-        if (!doc_row) return;
+        const cell = row_elem.find('.grid-static-col[data-fieldname="receipt_attachment"]');
+        if (!cell.length) return;
 
-        let action_cell = row_elem.find('.grid-static-col[data-fieldname="receipt_attachment"]');
-        if (!action_cell.length) {
-            action_cell = row_elem.find('.grid-static-col').last();
-        }
+        const row_data = (frm.doc.expense_lines || [])[idx];
+        const current_val = row_data ? row_data.receipt_attachment : null;
 
-        if (action_cell.length && !action_cell.find('.custom-photo-btn').length) {
-            const has_file = Boolean(doc_row.receipt_attachment);
-            const btn_label = has_file ? '🧾 Attached' : '📷 Add Photo';
-            const btn_class = has_file ? 'btn-default has-photo' : 'btn-primary no-photo';
+        if (cell.attr('data-rendered-url') === (current_val || 'empty')) return;
+        cell.attr('data-rendered-url', current_val || 'empty');
+        cell.empty();
 
-            const btn = $(`
-                <button type="button" class="btn btn-xs ${btn_class} custom-photo-btn" style="margin-left: 4px; font-weight: 600; border-radius: 4px;">
-                    ${btn_label}
+        if (current_val) {
+            const badge = $(`
+                <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:6px; background:#ecfdf5; border:1px solid #10b981; border-radius:5px; padding:2px 8px; cursor:pointer;" title="Click to view full receipt">
+                    <img src="${current_val}" style="width:20px; height:20px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />
+                    <span style="font-size:11px; font-weight:700; color:#065f46;">🧾 Attached</span>
+                </div>
+            `);
+            badge.on('click', function (e) {
+                e.stopPropagation();
+                open_unified_receipt_gallery(frm, idx);
+            });
+            cell.append(badge);
+        } else {
+            const upload_btn = $(`
+                <button type="button" class="btn btn-xs btn-default ap-upload-btn" style="border:1px dashed #94a3b8; color:#475569; font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:#f8fafc;">
+                    📷 Add Photo
                 </button>
             `);
-
-            btn.on('click', function (e) {
+            upload_btn.on('click', function (e) {
                 e.stopPropagation();
-                if (has_file) {
-                    open_unified_receipt_gallery(frm, idx);
-                } else {
-                    new frappe.ui.FileUploader({
-                        doctype: frm.doc.doctype,
-                        docname: frm.doc.name,
-                        allow_multiple: false,
-                        on_success: (file_doc) => {
-                            frappe.model.set_value(doc_row.doctype, doc_row.name, 'receipt_attachment', file_doc.file_url);
-                            frm.dirty();
-                            frm.save().then(() => {
-                                frappe.show_alert({ message: __('Bill Receipt Uploaded!'), indicator: 'green' }, 3);
-                            });
-                        }
-                    });
-                }
+                new frappe.ui.FileUploader({
+                    folder: 'Home/Attachments',
+                    on_success: (file_doc) => {
+                        frappe.model.set_value(row_data.doctype, row_data.name, 'receipt_attachment', file_doc.file_url);
+                        calculate_grid_totals(frm);
+                        setTimeout(() => bind_custom_grid_uploaders(frm), 200);
+                    }
+                });
             });
-
-            action_cell.append(btn);
+            cell.append(upload_btn);
         }
     });
 }
 
 // --------------------------------------------------------------------------------------
-// 6. 2-COLUMN SPLIT-PANE RECEIPT GALLERY
+// 6. UNIVERSAL 2-COLUMN SPLIT-PANE RECEIPT GALLERY (MODAL LIGHTBOX)
 // --------------------------------------------------------------------------------------
-function open_unified_receipt_gallery(frm, initial_index = 0) {
-    if (window.APReceiptGallery && typeof window.APReceiptGallery.show === 'function') {
-        window.APReceiptGallery.show(frm, { active_index: initial_index });
-    } else if (window.APReceiptGallery && typeof window.APReceiptGallery.openModal === 'function') {
-        const lines = frm.doc.expense_lines || [];
-        const atts = lines.map((r, i) => ({
-            idx: i,
-            url: r.receipt_attachment || '',
-            category: r.expense_category || 'Expense',
-            merchant: r.merchant_name || 'Vendor',
-            amount: r.amount || 0,
-            date: r.expense_date || frm.doc.posting_date,
-            bill_no: r.bill_number || ''
-        })).filter(x => x.url);
-
-        window.APReceiptGallery.openModal(frm, atts, initial_index);
-    } else {
-        open_fallback_receipt_modal(frm, initial_index);
-    }
-}
-
-function open_fallback_receipt_modal(frm, initial_index = 0) {
-    const lines = (frm.doc.expense_lines || []).filter(r => r.receipt_attachment);
-    if (!lines.length) {
-        frappe.msgprint(__('No receipts attached to this voucher.'));
+function open_unified_receipt_gallery(frm, start_idx) {
+    if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.show === 'function') {
+        window.APReceiptGallery.show(frm, { active_index: start_idx });
         return;
     }
 
-    let active_idx = initial_index < lines.length ? initial_index : 0;
-    const d = new frappe.ui.Dialog({
-        title: __(`🧾 Receipts Viewer - #${frm.doc.name}`),
-        size: 'extra-large'
+    // Fallback direct 2-column split-pane modal renderer
+    const atts = [];
+    (frm.doc.expense_lines || []).forEach((row, idx) => {
+        if (row.receipt_attachment) {
+            const clean_url = row.receipt_attachment.trim();
+            const file_name = clean_url.split('/').pop();
+            const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
+            atts.push({
+                row_idx: row.idx || (idx + 1),
+                merchant: row.merchant_name || 'Expense Line',
+                category: row.expense_category || 'General',
+                amount: parseFloat(row.amount || 0.0),
+                date: row.expense_date || frm.doc.posting_date || '',
+                file_url: clean_url,
+                file_name: file_name,
+                is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext),
+                is_pdf: ext === '.pdf',
+                extension: ext
+            });
+        }
     });
 
-    function render_modal_body() {
-        const current = lines[active_idx];
-        const is_pdf = current.receipt_attachment.toLowerCase().endsWith('.pdf');
-        const media_preview = is_pdf
-            ? `<iframe src="${current.receipt_attachment}" style="width: 100%; height: 500px; border: none; border-radius: 8px;"></iframe>`
-            : `<img src="${current.receipt_attachment}" style="max-width: 100%; max-height: 500px; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);" />`;
+    if (atts.length === 0) {
+        frappe.msgprint(__('No receipts attached to this voucher. Use 📷 Add Photo to attach receipts.'));
+        return;
+    }
 
-        let list_items = '';
-        lines.forEach((r, i) => {
-            const is_sel = i === active_idx;
-            list_items += `
-                <div class="gallery-thumb-row ${is_sel ? 'selected-thumb' : ''}" data-idx="${i}" style="padding: 10px; margin-bottom: 6px; border-radius: 6px; cursor: pointer; border: 1.5px solid ${is_sel ? '#3b82f6' : '#e2e8f0'}; background: ${is_sel ? '#eff6ff' : '#ffffff'};">
-                    <div style="font-weight: 700; font-size: 12px; color: ${is_sel ? '#1d4ed8' : '#1e293b'};">${r.expense_category || 'Expense'} - ₹${format_inr_clean(r.amount)}</div>
-                    <div style="font-size: 11px; color: #64748b;">${r.merchant_name || 'Vendor'} | ${r.expense_date || ''}</div>
+    let current_index = start_idx >= 0 && start_idx < atts.length ? start_idx : 0;
+
+    const d = new frappe.ui.Dialog({
+        title: __('Proof & Receipt Gallery — ') + frm.doc.name,
+        size: 'extra-large',
+        fields: [{ fieldtype: 'HTML', fieldname: 'gallery_area' }]
+    });
+
+    const render_modal_view = () => {
+        const active = atts[current_index];
+        let preview_content = '';
+
+        if (active.is_image) {
+            preview_content = `
+                <div style="height: 520px; display: flex; align-items: center; justify-content: center; background: #0f172a; border-radius: 8px; overflow: hidden;">
+                    <img src="${active.file_url}" style="max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 4px 20px rgba(0,0,0,0.4);" alt="Receipt" />
+                </div>
+            `;
+        } else if (active.is_pdf) {
+            preview_content = `
+                <div style="height: 520px; background: #f8fafc; border-radius: 8px; overflow: hidden; border: 1px solid #cbd5e1;">
+                    <iframe src="${active.file_url}" style="width: 100%; height: 100%; border: none;" title="PDF Preview"></iframe>
+                </div>
+            `;
+        } else {
+            preview_content = `
+                <div style="text-align: center; padding: 80px 20px; background: #f8fafc; border-radius: 8px; border: 2px dashed #cbd5e1;">
+                    <div style="font-size: 48px; margin-bottom: 12px;">📁</div>
+                    <div style="font-size: 16px; font-weight: 600; color: #1e293b;">${active.file_name}</div>
+                    <a href="${active.file_url}" download class="btn btn-primary btn-sm" style="margin-top: 16px;">
+                        ⬇️ Download File
+                    </a>
+                </div>
+            `;
+        }
+
+        let list_html = '';
+        atts.forEach((att, idx) => {
+            const is_selected = idx === current_index;
+            list_html += `
+                <div class="ap-receipt-thumb-item" data-idx="${idx}" style="
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 10px 12px;
+                    margin-bottom: 8px;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    background: ${is_selected ? '#ede9fe' : '#ffffff'};
+                    border: ${is_selected ? '2px solid #8b5cf6' : '1px solid #e2e8f0'};
+                    box-shadow: ${is_selected ? '0 2px 8px rgba(139, 92, 246, 0.25)' : 'none'};
+                ">
+                    <div style="font-size: 22px;">${att.is_pdf ? '📄' : '🧾'}</div>
+                    <div style="flex: 1; overflow: hidden;">
+                        <div style="font-size: 13px; font-weight: 700; color: #1e293b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">
+                            Row #${att.row_idx}: ${att.merchant}
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                            <span style="font-size: 12px; font-weight: 700; color: #059669;">₹ ${format_inr_clean(att.amount)}</span>
+                            <span style="font-size: 11px; color: #64748b;">${att.category}</span>
+                        </div>
+                    </div>
                 </div>
             `;
         });
 
-        d.$body.html(`
-            <div style="display: flex; gap: 16px; height: 520px;">
-                <div style="width: 280px; overflow-y: auto; border-right: 1px solid #e2e8f0; padding-right: 12px;">
-                    <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 8px;">Attached Receipts (${lines.length})</div>
-                    ${list_items}
-                </div>
-                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0f172a; border-radius: 8px; padding: 12px;">
-                    ${media_preview}
-                    <div style="margin-top: 8px;">
-                        <a href="${current.receipt_attachment}" target="_blank" class="btn btn-default btn-xs" style="color: #ffffff; background: rgba(255,255,255,0.15); border: none;">
-                            ↗️ Open Full Screen
+        const full_html = `
+            <div style="display: flex; gap: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                <!-- Left Sidebar -->
+                <div style="width: 350px; max-height: 540px; overflow-y: auto; padding-right: 8px; border-right: 1px solid #e2e8f0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #64748b;">
+                            Attached Proofs (${atts.length})
+                        </span>
+                        <a href="/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}" class="btn btn-xs btn-default" style="font-size: 11px; font-weight: 600; color: #4f46e5;">
+                            📦 ZIP All
                         </a>
                     </div>
+                    <div class="ap-receipts-list">${list_html}</div>
+                </div>
+
+                <!-- Right Viewer -->
+                <div style="flex: 1; display: flex; flex-direction: column;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 16px; margin-bottom: 14px;">
+                        <div>
+                            <span style="font-size: 14px; font-weight: 700; color: #0f172a;">Row #${active.row_idx}: ${active.merchant}</span>
+                            <span style="font-size: 12px; color: #64748b; margin-left: 10px;">
+                                Amount: <b style="color: #059669;">₹ ${format_inr_clean(active.amount)}</b> | Category: <b>${active.category}</b>
+                            </span>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <a href="${active.file_url}" download="${active.file_name}" class="btn btn-sm btn-primary">⬇️ Download</a>
+                            <a href="${active.file_url}" target="_blank" class="btn btn-sm btn-default" title="Open New Tab">↗️</a>
+                        </div>
+                    </div>
+                    <div style="flex: 1;">${preview_content}</div>
                 </div>
             </div>
-        `);
+        `;
 
-        d.$body.find('.gallery-thumb-row').on('click', function () {
-            active_idx = parseInt($(this).attr('data-idx'));
-            render_modal_body();
-        });
-    }
+        d.fields_dict.gallery_area.$wrapper.html(full_html);
+    };
 
-    render_modal_body();
-    d.set_primary_action(__('Download ZIP'), () => {
-        const url = `/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
-        window.open(url, '_blank');
-    });
     d.show();
+    render_modal_view();
+
+    d.$wrapper.off('click', '.ap-receipt-thumb-item').on('click', '.ap-receipt-thumb-item', function () {
+        current_index = parseInt($(this).attr('data-idx'));
+        render_modal_view();
+    });
 }
 
 // --------------------------------------------------------------------------------------
-// 7. DISPUTE SPLIT DIALOG FOR ACCOUNTS
+// 7. ATOMIC DISPUTE SPLITTING DIALOG
 // --------------------------------------------------------------------------------------
 function open_dispute_split_dialog(frm) {
     const lines = frm.doc.expense_lines || [];
     let fields = [
         {
             fieldtype: 'HTML',
-            fieldname: 'dispute_info',
+            fieldname: 'dispute_instructions',
             options: `
-                <div style="background: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; padding: 12px; margin-bottom: 14px; font-size: 13px; color: #881337;">
+                <div style="background:#fffbeb; border:1px solid #fef3c7; border-radius:8px; padding:12px; margin-bottom:12px; color:#92400e; font-size:12.5px;">
                     <b>⚠️ Dispute Line Items:</b> Select the rows with invalid or missing bills. Clean rows will remain in <b>#${frm.doc.name}</b> and move forward to Director L2, while disputed lines will be separated into a new linked child voucher for rectification.
                 </div>
             `
