@@ -432,32 +432,68 @@ def notify_director_on_l1_audit_completed(voucher_doctype: str, voucher_name: st
 
 
 # --------------------------------------------------------------------------------------
-# 4. NOTIFY CUSTODIAN/ADMIN: Claim Approved by Director
+# 4. NOTIFY CUSTODIAN, ADMIN & PAYMENT RELEASER (ANISH SIR): Claim Approved by Director
 # --------------------------------------------------------------------------------------
 def notify_admin_on_l2_approved(voucher_doctype: str, voucher_name: str) -> None:
-    """Triggered when Director signs off on the voucher."""
+    """Triggered when Accounts Director signs off on the voucher - alerts Anish Sir (Payment Releaser), Admin Head & Custodian."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
-    custodian = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
-    if not custodian:
+    recipients = []
+
+    # 1. Custodian / Front Desk Creator
+    if getattr(doc, "custodian", None):
+        recipients.append(doc.custodian)
+    if getattr(doc, "owner", None):
+        recipients.append(doc.owner)
+
+    # 2. Admin Approvers
+    if getattr(doc, "admin_l2_approver", None):
+        recipients.append(doc.admin_l2_approver)
+    if getattr(doc, "admin_l1_approver", None):
+        recipients.append(doc.admin_l1_approver)
+
+    # 3. Payment Releaser (Anish Sir)
+    releasers = frappe.get_all(
+        "Has Role",
+        filters={"role": ["in", ["Payment Releaser", "Director Tier"]], "parenttype": "User"},
+        pluck="parent"
+    )
+    releasers = [r for r in releasers if r and r != "Administrator"]
+    if not releasers:
+        releasers = ["anish@quanticus.com"]
+    recipients.extend(releasers)
+
+    recipients = list(dict.fromkeys([r for r in recipients if r]))
+    if not recipients:
         return
 
-    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
-    subject = f"✅ [Approved] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)}) Approved for Payout"
+    amount = float(getattr(doc, "total_amount", 0.0) or getattr(doc, "net_payable_amount", 0.0) or 0.0)
+    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    subject = f"⚡ [Director Sanctioned] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)}) Ready for Payment Batch"
+    
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #d1fae5; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #10b981; padding-bottom: 12px; margin-bottom: 16px;">
-            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #059669; font-weight: 700;">Approval Complete &bull; Payout Scheduled</span>
-            <h2 style="margin: 4px 0 0 0; color: #065f46; font-size: 20px;">Voucher Approved by Director</h2>
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #059669; font-weight: 700;">Director Approval Complete &bull; Queued for Payment</span>
+            <h2 style="margin: 4px 0 0 0; color: #065f46; font-size: 20px;">Voucher Sanctioned by Accounts Director</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            Your petty cash voucher <b>#{voucher_name}</b> for <b>₹ {fmt_money(amount)}</b> has received final Director Approval and is queued in the upcoming corporate IDFC release batch.
+            Petty cash voucher <b>#{voucher_name}</b> for <b>₹ {fmt_money(amount)}</b> has received final Director Sanction from <b>Accounts Director</b> and is queued for corporate payment release.
         </p>
+        <div style="background: #f0fdf4; border-left: 4px solid #10b981; padding: 12px 16px; margin: 16px 0; border-radius: 0 8px 8px 0;">
+            <div style="font-size: 13px; color: #166534;">Payable Beneficiary: <b>{getattr(doc, 'beneficiary_name', 'Employee')}</b></div>
+            <div style="font-size: 13px; color: #166534; margin-top: 4px;">Sanctioned Amount: <b style="font-size: 16px; color: #15803d;">₹ {fmt_money(amount)}</b></div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #10b981; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                View Voucher Details &rarr;
+            </a>
+        </div>
     </div>
     """
-    _send_email_and_desk_alert([custodian], subject, html, voucher_doctype, voucher_name, "green")
+    _send_email_and_desk_alert(recipients, subject, html, voucher_doctype, voucher_name, "green")
 
 
 # --------------------------------------------------------------------------------------
