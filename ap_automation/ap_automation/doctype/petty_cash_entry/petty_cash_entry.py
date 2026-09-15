@@ -6,7 +6,8 @@ Enforces:
 3. Automatic calculation of total_amount and verified_amount.
 4. Immutability when batch_id is linked or status is Disbursed/Queued in Batch.
 5. Automated Notification Hook on submission to notify L1 Accounts Verifier.
-6. Automated Notification Hook on L2 Approval to notify Custodian.
+6. Automated Notification Hook on Accounts L1 Audit Completion to notify Director (Anshul Sir).
+7. Automated Notification Hook on L2 Approval to notify Custodian / Admin.
 """
 import frappe
 from frappe.model.document import Document
@@ -54,16 +55,23 @@ class PettyCashEntry(Document):
         try:
             notification_service.notify_l1_on_voucher_submitted(self.doctype, self.name)
         except Exception as e:
-            frappe.log_error(f"Notification error on submit for {self.name}: {str(e)}")
+            frappe.log_error(f"Notification error on submit for {self.name}: {str(e)}", "AP Notification Error")
 
     def on_update(self):
         """Dispatches automated notifications on status transitions."""
         if self.has_value_changed("status"):
-            if self.status == "Approved for Payment":
+            # 1. Accounts L1 verified -> Escalates to Director L2 (Anshul Sir)
+            if self.status in ("L1 Verified", "Pending Director Signoff", "Pending Director Approval"):
+                try:
+                    notification_service.notify_director_on_l1_audit_completed(self.doctype, self.name)
+                except Exception as e:
+                    frappe.log_error(f"Notification error on Director escalation for {self.name}: {str(e)}", "AP Notification Error")
+            # 2. Director approves -> Notifies Admin / Custodian that payment is queued
+            elif self.status in ("Approved for Payment", "Approved"):
                 try:
                     notification_service.notify_admin_on_l2_approved(self.doctype, self.name)
                 except Exception as e:
-                    frappe.log_error(f"Notification error on L2 approve for {self.name}: {str(e)}")
+                    frappe.log_error(f"Notification error on L2 approve for {self.name}: {str(e)}", "AP Notification Error")
 
     def validate_immutability(self):
         if self.is_new():

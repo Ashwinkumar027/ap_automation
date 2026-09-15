@@ -7,7 +7,7 @@ import hashlib
 import json
 import frappe
 from frappe.model.document import Document
-from ap_automation.services import release_auth_service, funnel_service
+from ap_automation.services import release_auth_service, funnel_service, notification_service
 
 
 class PaymentBatch(Document):
@@ -21,6 +21,21 @@ class PaymentBatch(Document):
             frappe.throw("Cannot submit an empty Payment Batch.")
         if self.status not in ("Pending 2FA Approval", "Dispatched to Bank", "Completed"):
             self.status = "Pending 2FA Approval"
+
+    def on_submit(self):
+        """Notify Anish Sir (CEO & MD / Payment Releaser) that batch is ready for 2FA release."""
+        try:
+            notification_service.notify_releaser_on_batch_ready(self.name)
+        except Exception as e:
+            frappe.log_error(f"Error notifying releaser for batch {self.name}: {str(e)}", "AP Notification Error")
+
+    def on_update(self):
+        """Notify releaser if status transitions to Pending 2FA Approval."""
+        if self.has_value_changed("status") and self.status == "Pending 2FA Approval":
+            try:
+                notification_service.notify_releaser_on_batch_ready(self.name)
+            except Exception as e:
+                frappe.log_error(f"Error notifying releaser for batch {self.name}: {str(e)}", "AP Notification Error")
 
 
 @frappe.whitelist()
@@ -57,51 +72,54 @@ def fetch_approved_claims_for_batch(batch_name=None, company=None):
         "Petty Cash Entry",
         filters={
             "company": company,
-            "status": ["in", ["Approved for Payment", "Approved", "Submitted"]],
-            "batch_id": ["in", ["", None]]
+            "status": ["in", ["Approved for Payment", "Approved", "Submitted", "L1 Verified"]],
+            "batch_id": ["in", ["", None]],
+            "docstatus": 1
         },
-        fields=["name", "company", "total_amount", "custodian"]
+        fields=["name", "total_amount", "custodian", "company"]
     )
+
     for pc in pc_entries:
         pi_name = frappe.db.get_value("Payment Instruction", {"source_doctype": "Petty Cash Entry", "source_voucher": pc.name, "batch_id": ["in", ["", None]]})
         if not pi_name:
             try:
                 pi_name = funnel_service.create_payment_instruction_from_claim("Petty Cash Entry", pc.name)
             except Exception as e:
-                frappe.log_error(f"Error creating PI for {pc.name}: {str(e)}")
+                frappe.log_error(f"Error creating PI for {pc.name}: {str(e)}", "AP Batch Funnel")
         if pi_name:
-            pi_doc = frappe.get_doc("Payment Instruction", pi_name)
-            found_instructions.append(pi_doc)
+            found_instructions.append(frappe.get_doc("Payment Instruction", pi_name))
 
-    # 2. Employee Reimbursement Claims
+    # 2. Employee Reimbursements
     if frappe.db.exists("DocType", "Employee Reimbursement Claim"):
-        emp_claims = frappe.get_all(
+        reim_claims = frappe.get_all(
             "Employee Reimbursement Claim",
             filters={
                 "company": company,
                 "status": ["in", ["Approved for Payment", "Approved"]],
-                "batch_id": ["in", ["", None]]
+                "batch_id": ["in", ["", None]],
+                "docstatus": 1
             },
             fields=["name"]
         )
-        for ec in emp_claims:
-            pi_name = frappe.db.get_value("Payment Instruction", {"source_doctype": "Employee Reimbursement Claim", "source_voucher": ec.name, "batch_id": ["in", ["", None]]})
+        for rc in reim_claims:
+            pi_name = frappe.db.get_value("Payment Instruction", {"source_doctype": "Employee Reimbursement Claim", "source_voucher": rc.name, "batch_id": ["in", ["", None]]})
             if not pi_name:
                 try:
-                    pi_name = funnel_service.create_payment_instruction_from_claim("Employee Reimbursement Claim", ec.name)
+                    pi_name = funnel_service.create_payment_instruction_from_claim("Employee Reimbursement Claim", rc.name)
                 except Exception:
                     pass
             if pi_name:
                 found_instructions.append(frappe.get_doc("Payment Instruction", pi_name))
 
-    # 3. Vendor Invoice Claims
+    # 3. Vendor Invoices
     if frappe.db.exists("DocType", "Vendor Invoice Claim"):
         vendor_claims = frappe.get_all(
             "Vendor Invoice Claim",
             filters={
                 "company": company,
                 "status": ["in", ["Approved for Payment", "Approved"]],
-                "batch_id": ["in", ["", None]]
+                "batch_id": ["in", ["", None]],
+                "docstatus": 1
             },
             fields=["name"]
         )
@@ -115,18 +133,19 @@ def fetch_approved_claims_for_batch(batch_name=None, company=None):
             if pi_name:
                 found_instructions.append(frappe.get_doc("Payment Instruction", pi_name))
 
-    # 4. Event Advance Requests
+    # 4. Event Advances & Spends
     if frappe.db.exists("DocType", "Event Advance Request"):
-        event_claims = frappe.get_all(
+        event_advances = frappe.get_all(
             "Event Advance Request",
             filters={
                 "company": company,
-                "status": ["in", ["Approved for Advance", "Approved for Payment", "Approved"]],
-                "batch_id": ["in", ["", None]]
+                "status": ["in", ["Approved for Payment", "Approved"]],
+                "batch_id": ["in", ["", None]],
+                "docstatus": 1
             },
             fields=["name"]
         )
-        for ev in event_claims:
+        for ev in event_advances:
             pi_name = frappe.db.get_value("Payment Instruction", {"source_doctype": "Event Advance Request", "source_voucher": ev.name, "batch_id": ["in", ["", None]]})
             if not pi_name:
                 try:
