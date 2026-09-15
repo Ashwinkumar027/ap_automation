@@ -1,14 +1,15 @@
 """
-Multi-Stream Payment Funnel & Hard Gate Validation Service
-Orchestrates:
-1. 4-Lane Convergence: Standardizes claims from all lanes into Payment Instruction ledger.
-2. The 3-Condition Hard Gate:
-   - Gate 1: L1 Item-level policy verification & receipts.
-   - Gate 2: L2 Financial & workflow approval.
-   - Gate 3: NPCI Penny-drop clean account.
-3. Consolidated Payment Batch generation with SHA-256 integrity checksum.
+AP Automation Multi-Stream Funnel Service (PRD Section 4 & 5)
+Handles:
+1. Extraction of claims from all 4 lanes into standardized Payment Instructions.
+2. 3-Condition Hard Gate validation:
+   - Gate 1: L1 verified line items.
+   - Gate 2: L2 Director approved.
+   - Gate 3: Penny drop bank account clean.
+3. Cryptographic SHA-256 batch integrity checksum calculation.
+4. Auto-population of Payment Batches.
 """
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List, Optional
 import hashlib
 import json
 import frappe
@@ -66,21 +67,29 @@ def create_payment_instruction_from_claim(
 
     elif source_doctype == "Petty Cash Entry":
         beneficiary_type = "Employee"
-        beneficiary_name = getattr(claim, "custodian", "") or "Petty Cash Custodian"
-        payable_amt = float(getattr(claim, "total_amount", 0.0) or 0.0)
+        # Pull designated Beneficiary Employee (Admin Head / Payee)
+        beneficiary_emp = getattr(claim, "beneficiary_employee", None)
+        beneficiary_name = getattr(claim, "beneficiary_name", "") or ""
         account_no = getattr(claim, "custodian_bank_account", "") or ""
         ifsc = getattr(claim, "custodian_ifsc_code", "") or ""
+        bank_name = getattr(claim, "bank_name", "") or ""
+        payable_amt = float(getattr(claim, "total_amount", 0.0) or 0.0)
 
-        # Look up employee name / bank details if custodian is an employee
-        if beneficiary_name and frappe.db.exists("Employee", beneficiary_name):
-            emp = frappe.db.get_value("Employee", beneficiary_name, ["employee_name", "bank_name", "bank_ac_no", "ifsc_code"], as_dict=True)
+        # Look up employee master if bank details not filled on voucher
+        if beneficiary_emp and frappe.db.exists("Employee", beneficiary_emp):
+            emp = frappe.db.get_value("Employee", beneficiary_emp, ["employee_name", "bank_name", "bank_ac_no", "ifsc_code"], as_dict=True)
             if emp:
-                beneficiary_name = emp.employee_name or beneficiary_name
-                bank_name = emp.bank_name or ""
+                if not beneficiary_name:
+                    beneficiary_name = emp.employee_name
+                if not bank_name:
+                    bank_name = emp.bank_name or ""
                 if not account_no:
                     account_no = emp.bank_ac_no or ""
                 if not ifsc:
                     ifsc = emp.ifsc_code or ""
+
+        if not beneficiary_name:
+            beneficiary_name = getattr(claim, "custodian", "") or "Petty Cash Admin Head"
 
         if not account_no:
             account_no = "CASH-IMPREST-01"

@@ -66,12 +66,34 @@
    "reqd": 1
   },
   {
+   "fieldname": "submitted_by",
+   "fieldtype": "Data",
+   "label": "Submitted By (Front Desk Staff)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "beneficiary_employee",
+   "fieldtype": "Link",
+   "label": "Beneficiary Employee (Admin Head / Payee)",
+   "options": "Employee",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "Select the Admin Manager / Head receiving the reimbursement funds"
+  },
+  {
+   "fieldname": "beneficiary_name",
+   "fieldtype": "Data",
+   "label": "Beneficiary Name",
+   "read_only": 1,
+   "fetch_from": "beneficiary_employee.employee_name"
+  },
+  {
    "fieldname": "custodian",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Custodian / Admin Staff",
+   "label": "Custodian User Email",
    "options": "User",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fieldname": "cb_status",
@@ -148,12 +170,20 @@
   {
    "fieldname": "custodian_bank_account",
    "fieldtype": "Data",
-   "label": "Bank Account Number"
+   "label": "Beneficiary Bank Account Number",
+   "read_only": 1
   },
   {
    "fieldname": "custodian_ifsc_code",
    "fieldtype": "Data",
-   "label": "Bank IFSC Code"
+   "label": "Beneficiary Bank IFSC Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Beneficiary Bank Name",
+   "read_only": 1
   },
   {
    "fieldname": "sb_lines",
