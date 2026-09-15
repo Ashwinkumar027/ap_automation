@@ -1,7 +1,7 @@
 {
  "app": "ap_automation",
  "charts": [],
- "content": "[{\"id\": \"header_1\", \"type\": \"header\", \"data\": {\"text\": \"AP Automation\", \"level\": 4, \"col\": 12}}, {\"id\": \"card_a02ed2\", \"type\": \"card\", \"data\": {\"card_name\": \"Lane 1: Petty Cash Management\", \"col\": 4}}, {\"id\": \"card_32d882\", \"type\": \"card\", \"data\": {\"card_name\": \"Lane 2: Employee Reimbursements\", \"col\": 4}}, {\"id\": \"card_e701f8\", \"type\": \"card\", \"data\": {\"card_name\": \"Lane 3: Vendor Payments\", \"col\": 4}}, {\"id\": \"card_382dee\", \"type\": \"card\", \"data\": {\"card_name\": \"Lane 4: Event Spends & Advances\", \"col\": 4}}, {\"id\": \"card_b38d0c\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Release Funnel & IDFC Bank\", \"col\": 4}}, {\"id\": \"card_a3e78c\", \"type\": \"card\", \"data\": {\"card_name\": \"Reconciliation & Compliance\", \"col\": 4}}]",
+ "content": "[{\"id\":\"header_1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">AP Automation</span>\",\"col\":12}},{\"id\":\"card_a02ed2\",\"type\":\"card\",\"data\":{\"card_name\":\"Lane 1: Petty Cash Management\",\"col\":4}},{\"id\":\"card_32d882\",\"type\":\"card\",\"data\":{\"card_name\":\"Lane 2: Employee Reimbursements\",\"col\":4}},{\"id\":\"card_e701f8\",\"type\":\"card\",\"data\":{\"card_name\":\"Lane 3: Vendor Payments\",\"col\":4}},{\"id\":\"card_382dee\",\"type\":\"card\",\"data\":{\"card_name\":\"Lane 4: Event Spends & Advances\",\"col\":4}},{\"id\":\"card_b38d0c\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Release Funnel & IDFC Bank\",\"col\":4}},{\"id\":\"_f5ePNXQU2\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Release Funnel & IDFC Bank\",\"col\":4}},{\"id\":\"card_a3e78c\",\"type\":\"card\",\"data\":{\"card_name\":\"Reports\",\"col\":4}}]",
  "creation": "2026-09-09 16:32:49.681752",
  "custom_blocks": [],
  "docstatus": 0,
@@ -201,15 +201,6 @@
   },
   {
    "hidden": 0,
-   "icon": "integration",
-   "is_query_report": 0,
-   "label": "Reconciliation & Compliance",
-   "link_count": 0,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
    "is_query_report": 0,
    "label": "Tally Voucher Log",
    "link_count": 0,
@@ -237,9 +228,28 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Reports",
+   "link_count": 1,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Petty Cash Summary Report",
+   "link_count": 0,
+   "link_to": "Petty Cash Summary Report",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-09-15 14:26:08.593528",
+ "modified": "2026-09-15 14:31:58.954382",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "AP Automation",
@@ -266,46 +276,7 @@
   }
  ],
  "sequence_id": 1.0,
- "shortcuts": [
-  {
-   "color": "Green",
-   "label": "Payment Batches",
-   "link_to": "Payment Batch",
-   "type": "DocType"
-  },
-  {
-   "color": "Orange",
-   "label": "Petty Cash Entries",
-   "link_to": "Petty Cash Entry",
-   "type": "DocType"
-  },
-  {
-   "color": "Yellow",
-   "label": "Employee Claims",
-   "link_to": "Employee Reimbursement Claim",
-   "type": "DocType"
-  },
-  {
-   "color": "Blue",
-   "label": "Vendor Invoices",
-   "link_to": "Vendor Invoice Claim",
-   "type": "DocType"
-  },
-  {
-   "color": "Teal",
-   "label": "Event Advances",
-   "link_to": "Event Advance Request",
-   "type": "DocType"
-  },
-  {
-   "color": "Green",
-   "doc_view": "",
-   "label": "Petty Cash Summary Report",
-   "link_to": "Petty Cash Summary Report",
-   "report_ref_doctype": "Petty Cash Entry",
-   "type": "Report"
-  }
- ],
+ "shortcuts": [],
  "title": "AP Automation",
  "type": "Workspace"
 }
