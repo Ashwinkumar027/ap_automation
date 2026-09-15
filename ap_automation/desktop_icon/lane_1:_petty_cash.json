@@ -1,6 +1,6 @@
 {
  "app": "ap_automation",
- "bg_color": "gray",
+ "bg_color": "green",
  "creation": "2026-09-03 12:55:36.598012",
  "docstatus": 0,
  "doctype": "Desktop Icon",
@@ -8,7 +8,7 @@
  "icon": "cash",
  "icon_type": "Link",
  "idx": 0,
- "label": "Lane 1: Petty Cash",
+ "label": "Petty Cash",
  "link_to": "Lane 1: Petty Cash",
  "link_type": "Workspace Sidebar",
  "modified": "2026-09-03 12:55:36.598012",

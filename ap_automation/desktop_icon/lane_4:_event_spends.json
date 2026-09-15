@@ -1,6 +1,6 @@
 {
  "app": "ap_automation",
- "bg_color": "gray",
+ "bg_color": "teal",
  "creation": "2026-09-03 12:55:37.209908",
  "docstatus": 0,
  "doctype": "Desktop Icon",
@@ -8,7 +8,7 @@
  "icon": "calendar",
  "icon_type": "Link",
  "idx": 0,
- "label": "Lane 4: Event Spends",
+ "label": "Event Spends",
  "link_to": "Lane 4: Event Spends",
  "link_type": "Workspace Sidebar",
  "modified": "2026-09-03 12:55:37.209908",

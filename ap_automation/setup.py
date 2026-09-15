@@ -1,6 +1,6 @@
 """
 AP Automation System Setup & Auto-Provisioning
-Automatically seeds standard roles, workspaces, and reports upon app install or migration.
+Automatically seeds standard roles, workspaces, reports, and desktop icons upon app install or migration.
 """
 import frappe
 
@@ -81,6 +81,21 @@ def setup_workspaces():
                 ws.save(ignore_permissions=True)
 
 
+def setup_desktop_icons():
+    """Updates desktop icons with clean titles and colors."""
+    icons = {
+        "AP Automation": {"label": "AP Automation", "bg_color": "purple", "logo_url": "/assets/ap_automation/images/ap-logo.svg"},
+        "Lane 1: Petty Cash": {"label": "Petty Cash", "bg_color": "green", "icon": "cash"},
+        "Lane 2: Employee Claims": {"label": "Employee Claims", "bg_color": "orange", "icon": "expense"},
+        "Lane 3: Vendor Invoices": {"label": "Vendor Invoices", "bg_color": "blue", "icon": "invoice"},
+        "Lane 4: Event Spends": {"label": "Event Spends", "bg_color": "teal", "icon": "calendar"},
+        "Payment Batches": {"label": "Payment Batches", "bg_color": "purple", "icon": "credit-card"}
+    }
+    for icon_name, vals in icons.items():
+        if frappe.db.exists("Desktop Icon", icon_name):
+            frappe.db.set_value("Desktop Icon", icon_name, vals)
+
+
 def reload_doctype_permissions():
     """Force reloads doctypes to ensure latest permissions from JSON are active."""
     for dt in ["petty_cash_entry", "petty_cash_line_item", "payment_batch", "payment_instruction"]:
@@ -97,6 +112,7 @@ def after_install():
     reload_doctype_permissions()
     setup_reports()
     setup_workspaces()
+    setup_desktop_icons()
     frappe.db.commit()
 
 
@@ -106,4 +122,5 @@ def after_migrate():
     reload_doctype_permissions()
     setup_reports()
     setup_workspaces()
+    setup_desktop_icons()
     frappe.db.commit()
