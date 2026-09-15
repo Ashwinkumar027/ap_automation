@@ -4,10 +4,11 @@ Enforces:
 1. Strict line item amount validation (amount > 0).
 2. Mandatory non-empty expense lines validation.
 3. Automatic calculation of total_amount and verified_amount.
-4. Immutability when batch_id is linked or status is Disbursed/Queued in Batch.
-5. Automated Notification Hook on submission to notify L1 Accounts Verifier.
-6. Automated Notification Hook on Accounts L1 Audit Completion to notify Director (Anshul Sir).
-7. Automated Notification Hook on L2 Approval to notify Custodian / Admin.
+4. Duplicate bill validation (within voucher and across all existing vouchers).
+5. Immutability when batch_id is linked or status is Disbursed/Queued in Batch.
+6. Automated Notification Hook on submission to notify L1 Accounts Verifier.
+7. Automated Notification Hook on Accounts L1 Audit Completion to notify Director (Anshul Sir).
+8. Automated Notification Hook on L2 Approval to notify Custodian / Admin.
 """
 import frappe
 from frappe.model.document import Document
@@ -18,6 +19,7 @@ from ap_automation.services import notification_service
 class PettyCashEntry(Document):
     def validate(self):
         self.validate_expense_lines()
+        self.validate_duplicate_lines()
         self.calculate_totals()
         self.validate_immutability()
 
@@ -38,6 +40,52 @@ class PettyCashEntry(Document):
                 frappe.throw(f"Row #{idx}: Expense Category is required.", exc=APValidationError)
             if not row.merchant_name:
                 frappe.throw(f"Row #{idx}: Merchant / Payee Name is required.", exc=APValidationError)
+
+    def validate_duplicate_lines(self):
+        """Checks for duplicate bills within the voucher and across all vouchers."""
+        seen_keys = set()
+        for idx, row in enumerate(self.expense_lines, 1):
+            merchant = (row.merchant_name or "").strip().lower()
+            bill_no = (row.bill_number or "").strip().lower()
+            amt = float(row.amount or 0.0)
+
+            if merchant and bill_no:
+                key = (merchant, bill_no)
+                # 1. Check duplicate within this same voucher
+                if key in seen_keys:
+                    frappe.throw(
+                        f"🚨 Duplicate Bill in Voucher: Row #{idx} has duplicate Merchant '{row.merchant_name}' "
+                        f"and Bill #{row.bill_number}. Duplicate line items within the same voucher are not allowed.",
+                        exc=APValidationError
+                    )
+                seen_keys.add(key)
+
+                # 2. Check duplicate across existing active vouchers in database
+                existing_lines = frappe.db.sql(
+                    """
+                    SELECT parent, merchant_name, bill_number, amount
+                    FROM `tabPetty Cash Line Item`
+                    WHERE parent != %s
+                      AND LOWER(TRIM(merchant_name)) = %s
+                      AND LOWER(TRIM(bill_number)) = %s
+                      AND docstatus < 2
+                    LIMIT 1
+                    """,
+                    (self.name or "", merchant, bill_no),
+                    as_dict=True
+                )
+                if existing_lines:
+                    match = existing_lines[0]
+                    # Verify parent voucher is not cancelled or rejected
+                    p_status = frappe.db.get_value("Petty Cash Entry", match.parent, "status")
+                    if p_status not in ("Rejected", "Cancelled"):
+                        frappe.throw(
+                            f"🚨 FRAUD SHIELD: Duplicate Bill Detected!\n"
+                            f"Bill #{row.bill_number} from Merchant '{row.merchant_name}' (Amount: ₹{row.amount:,.2f}) "
+                            f"has already been claimed in Voucher #{match.parent}. "
+                            f"Duplicate submissions are strictly blocked across the system.",
+                            exc=APValidationError
+                        )
 
     def calculate_totals(self):
         total = 0.0
