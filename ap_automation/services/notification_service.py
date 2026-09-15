@@ -572,3 +572,81 @@ def notify_payee_and_admin_on_payout_dispatched(
             </div>
             """
             _send_email_and_desk_alert([recipient], subject, html, src_dt or "Payment Batch", src_vch or batch_name, "green")
+
+
+# --------------------------------------------------------------------------------------
+# 3.5 NOTIFY ACCOUNTS L1 & ADMIN: Claim Rejected / Returned by Accounts Director
+# --------------------------------------------------------------------------------------
+def notify_on_director_rejection(
+    voucher_doctype: str,
+    voucher_name: str,
+    reason: str,
+    director_user: str,
+    return_to: str = "Accounts L1"
+) -> None:
+    """Triggered when Accounts Director rejects or returns a voucher back to Accounts L1 / Admin."""
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        return
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    recipients = []
+
+    # 1. Accounts L1 Auditors (who audited or hold Accounts User role)
+    for row in getattr(doc, "approval_trail", []):
+        act_by = getattr(row, "action_taken_by", None)
+        if act_by and act_by != director_user:
+            recipients.append(act_by)
+
+    accounts_users = _get_matrix_or_role_approvers(
+        getattr(doc, "company", ""),
+        getattr(doc, "doctype", ""),
+        1,
+        ["Accounts User", "Accounts Auditor", "Accounts L1"]
+    )
+    recipients.extend(accounts_users)
+
+    # 2. Admin Approvers
+    if getattr(doc, "admin_l2_approver", None):
+        recipients.append(doc.admin_l2_approver)
+    if getattr(doc, "admin_l1_approver", None):
+        recipients.append(doc.admin_l1_approver)
+
+    # 3. Custodian / Front Desk
+    if getattr(doc, "owner", None):
+        recipients.append(doc.owner)
+    if getattr(doc, "custodian", None):
+        recipients.append(doc.custodian)
+
+    recipients = list(dict.fromkeys([r for r in recipients if r]))
+    if not recipients:
+        return
+
+    amount = float(getattr(doc, "total_amount", 0.0) or getattr(doc, "net_payable_amount", 0.0) or 0.0)
+    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    target_label = "Accounts L1 Team" if return_to == "Accounts L1" else "Front Desk Reception"
+    subject = f"🚫 [Director Rejected to {target_label}] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)}) Returned"
+    
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fecaca; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #ef4444; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700;">Executive Rejection &bull; Action Required</span>
+            <h2 style="margin: 4px 0 0 0; color: #991b1b; font-size: 20px;">Claim Rejected by Accounts Director</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            The voucher <b>#{voucher_name}</b> for <b>₹ {fmt_money(amount)}</b> was reviewed by <b>Accounts Director</b> and returned to <b>{target_label}</b>.
+        </p>
+        <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; margin: 16px 0; border-radius: 0 8px 8px 0;">
+            <div style="font-size: 12px; text-transform: uppercase; font-weight: 700; color: #b91c1c; margin-bottom: 4px;">Director's Rejection Reason:</div>
+            <p style="margin: 0; color: #7f1d1d; font-size: 14px; font-weight: 600;">{reason}</p>
+        </div>
+        <p style="color: #64748b; font-size: 13px;">
+            Please inspect the flagged discrepancy, perform necessary audit corrections, or coordinate with the claimant.
+        </p>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Open Voucher & Rectify Audit &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(recipients, subject, html, voucher_doctype, voucher_name, "red")

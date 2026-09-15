@@ -123,3 +123,68 @@ def approve_director_tier(
         "new_status": claim.status,
         "workflow_state": claim.workflow_state
     }
+
+
+def reject_accounts_director(
+    voucher_doctype: str,
+    voucher_name: str,
+    director_user: str,
+    reason: str,
+    return_to: str = "Accounts L1"
+) -> Dict[str, Any]:
+    """
+    Handles rejection / send-back by Accounts Director (Anshul Sir).
+    Returns voucher back to Accounts L1 or Reception with immutable audit remarks and sends email alerts.
+    """
+    from ap_automation.services import notification_service
+    roles = frappe.get_roles(director_user)
+    if "Accounts Director" not in roles and "Director Tier" not in roles and "System Manager" not in roles:
+        raise APSecurityError(
+            f"Unauthorized: User '{director_user}' lacks 'Accounts Director' privileges."
+        )
+
+    if not reason or not reason.strip():
+        raise APValidationError("A valid reason is required for Director Rejection.")
+
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        raise APValidationError(f"{voucher_doctype} '{voucher_name}' not found.")
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+
+    if return_to == "Accounts L1":
+        doc.status = "Submitted"
+        doc.workflow_state = "Returned to Accounts L1 by Accounts Director"
+    else:
+        doc.status = "Draft"
+        doc.workflow_state = "Returned to Reception by Accounts Director"
+
+    doc.append("approval_trail", {
+        "level_number": 4,
+        "level_name": f"Director Rejection (Returned to {return_to})",
+        "action_taken_by": director_user,
+        "action": "REJECTED",
+        "action_timestamp": frappe.utils.now_datetime(),
+        "remarks": f"Returned by Accounts Director: {reason.strip()}"
+    })
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    # Trigger email to Accounts L1 and Admin
+    try:
+        notification_service.notify_on_director_rejection(
+            voucher_doctype=doc.doctype,
+            voucher_name=doc.name,
+            reason=reason.strip(),
+            director_user=director_user,
+            return_to=return_to
+        )
+    except Exception as e:
+        frappe.log_error(f"Failed to send director rejection notification for {voucher_name}: {str(e)}")
+
+    return {
+        "status": "SUCCESS",
+        "voucher_name": doc.name,
+        "new_status": doc.status,
+        "workflow_state": doc.workflow_state,
+        "message": f"Voucher returned to {return_to} by Accounts Director."
+    }
