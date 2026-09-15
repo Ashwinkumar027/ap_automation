@@ -3,7 +3,7 @@ Director Tier Dual-Signoff Escalation Service (PRD Section 3 & 12)
 Enforces:
 1. Dual-signoff gate for vendor claims > INR 2,00,000 (INR 2 Lakhs).
 2. Accounts L2 escalation to 'Pending Director Signoff'.
-3. Dedicated Director sign-off endpoint for Dileep Sir / Anish Sir.
+3. Dedicated Director sign-off and rejection endpoints for Anshul Sir / Dileep Sir / Anish Sir.
 4. Immutable audit trail recording before payment release.
 """
 from typing import Dict, Any, Optional
@@ -50,7 +50,6 @@ def approve_accounts_l2(claim_name: str, accounts_user: str) -> Dict[str, Any]:
 
     if next_status == "Pending Director Signoff":
         claim.workflow_state = "Escalated to Director Tier (> INR 2L)"
-        # Resolve designated director
         director_id = frappe.db.get_value("User", {"email": ["in", ["dileep@quanticus.com", "dileep.director@quanticus.com"]]}, "name")
         if not director_id:
             director_id = frappe.db.get_value("Has Role", {"role": ["in", ["Accounts Director", "Director Tier"]]}, "parent") or "Administrator"
@@ -125,25 +124,78 @@ def approve_director_tier(
     }
 
 
+@frappe.whitelist()
+def sanction_accounts_director(
+    voucher_doctype: str,
+    voucher_name: str,
+    director_user: Optional[str] = None,
+    comments: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Whitelisted endpoint for Accounts Director sanctioning vouchers.
+    """
+    from ap_automation.services import notification_service
+    user = director_user or frappe.session.user
+    roles = frappe.get_roles(user)
+    if "Accounts Director" not in roles and "Director Tier" not in roles and "System Manager" not in roles:
+        raise APSecurityError(
+            f"Unauthorized: User '{user}' lacks 'Accounts Director' privileges."
+        )
+
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        raise APValidationError(f"{voucher_doctype} '{voucher_name}' not found.")
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    doc.status = "Approved for Payment"
+    doc.workflow_state = "Approved for Thursday Payment Batch"
+
+    doc.append("approval_trail", {
+        "level_number": 4,
+        "level_name": "Director Sanction (L2)",
+        "action_taken_by": user,
+        "action": "APPROVED",
+        "action_timestamp": frappe.utils.now_datetime(),
+        "remarks": comments or "Sanctioned for IDFC corporate payout release."
+    })
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    # Trigger notifications
+    try:
+        notification_service.notify_admin_on_l2_approved(doc.doctype, doc.name)
+        frappe.db.commit()
+    except Exception as e:
+        frappe.log_error(f"Failed to send director approval notification for {voucher_name}: {str(e)}")
+
+    return {
+        "status": "SUCCESS",
+        "voucher_name": doc.name,
+        "new_status": doc.status,
+        "workflow_state": doc.workflow_state,
+        "message": f"Voucher #{doc.name} successfully sanctioned for payment release."
+    }
+
+
+@frappe.whitelist()
 def reject_accounts_director(
     voucher_doctype: str,
     voucher_name: str,
-    director_user: str,
-    reason: str,
+    director_user: Optional[str] = None,
+    reason: Optional[str] = None,
     return_to: str = "Accounts L1"
 ) -> Dict[str, Any]:
     """
-    Handles rejection / send-back by Accounts Director (Anshul Sir).
-    Returns voucher back to Accounts L1 or Reception with immutable audit remarks and sends email alerts.
+    Whitelisted endpoint for Accounts Director (Anshul Sir) rejecting / returning a voucher.
     """
     from ap_automation.services import notification_service
-    roles = frappe.get_roles(director_user)
+    user = director_user or frappe.session.user
+    roles = frappe.get_roles(user)
     if "Accounts Director" not in roles and "Director Tier" not in roles and "System Manager" not in roles:
         raise APSecurityError(
-            f"Unauthorized: User '{director_user}' lacks 'Accounts Director' privileges."
+            f"Unauthorized: User '{user}' lacks 'Accounts Director' privileges."
         )
 
-    if not reason or not reason.strip():
+    if not reason or not str(reason).strip():
         raise APValidationError("A valid reason is required for Director Rejection.")
 
     if not frappe.db.exists(voucher_doctype, voucher_name):
@@ -161,10 +213,10 @@ def reject_accounts_director(
     doc.append("approval_trail", {
         "level_number": 4,
         "level_name": f"Director Rejection (Returned to {return_to})",
-        "action_taken_by": director_user,
+        "action_taken_by": user,
         "action": "REJECTED",
         "action_timestamp": frappe.utils.now_datetime(),
-        "remarks": f"Returned by Accounts Director: {reason.strip()}"
+        "remarks": f"Returned by Accounts Director: {str(reason).strip()}"
     })
     doc.save(ignore_permissions=True)
     frappe.db.commit()
@@ -174,8 +226,8 @@ def reject_accounts_director(
         notification_service.notify_on_director_rejection(
             voucher_doctype=doc.doctype,
             voucher_name=doc.name,
-            reason=reason.strip(),
-            director_user=director_user,
+            reason=str(reason).strip(),
+            director_user=user,
             return_to=return_to
         )
         frappe.db.commit()

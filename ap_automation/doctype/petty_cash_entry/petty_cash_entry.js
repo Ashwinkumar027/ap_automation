@@ -456,15 +456,34 @@ function render_role_based_action_buttons(frm) {
     if (status === 'L1 Verified' && (frappe.user.has_role(['Accounts Director', 'Director Tier', 'Dileep Director', 'System Manager']) || frappe.session.user === 'Administrator')) {
         frm.add_custom_button(__('✅ Sanction Payment'), function () {
             frappe.confirm(__(`Sanction payment of <b>₹${format_inr_clean(frm.doc.total_amount)}</b> for IDFC corporate batch release?`), function () {
-                frm.set_value('status', 'Approved for Payment');
-                frm.set_value('workflow_state', 'Approved for Thursday Payment Batch');
-                frm.save().then(() => {
-                    frappe.show_alert({ message: __('✅ Sanctioned for Payment Release!'), indicator: 'green' }, 5);
+                frappe.call({
+                    method: 'ap_automation.services.director_approval_service.sanction_accounts_director',
+                    args: {
+                        voucher_doctype: frm.doc.doctype,
+                        voucher_name: frm.doc.name
+                    },
+                    freeze: true,
+                    freeze_message: __('Sanctioning payment release...'),
+                    callback: function (r) {
+                        if (!r.exc) {
+                            frappe.show_alert({ message: __('✅ Sanctioned for Payment Release! Alert sent to Payment Releaser.'), indicator: 'green' }, 5);
+                            frm.reload_doc();
+                        }
+                    }
                 });
             });
         }).addClass('btn-primary').css({
             'background-color': '#16a34a',
             'border-color': '#15803d',
+            'color': '#ffffff',
+            'font-weight': '700'
+        });
+
+        frm.add_custom_button(__('🚫 Reject / Return'), function () {
+            open_director_rejection_dialog(frm);
+        }).addClass('btn-secondary').css({
+            'background-color': '#ef4444',
+            'border-color': '#dc2626',
             'color': '#ffffff',
             'font-weight': '700'
         });
@@ -747,6 +766,75 @@ function open_dispute_split_dialog(frm) {
                                 <b>✅ ${r.message.approved_line_count} Clean Rows</b> (₹${format_inr_clean(r.message.approved_amount)}) retained.<br>
                                 <b>⚠️ ${r.message.disputed_line_count} Disputed Rows</b> (₹${format_inr_clean(r.message.disputed_amount)}) forked into child voucher <b>${r.message.forked_voucher}</b>.
                             `
+                        });
+                        frm.reload_doc();
+                    }
+                }
+            });
+        }
+    });
+
+    d.show();
+}
+
+
+function open_director_rejection_dialog(frm) {
+    const d = new frappe.ui.Dialog({
+        title: __('Director Rejection / Return Voucher'),
+        fields: [
+            {
+                fieldtype: 'HTML',
+                fieldname: 'director_reject_instructions',
+                options: `
+                    <div style="background:#fef2f2; border:1px solid #fee2e2; border-radius:8px; padding:12px; margin-bottom:12px; color:#991b1b; font-size:12.5px;">
+                        <b>🚫 Director Return / Rejection:</b> Returning this voucher will halt payment sanction. Select whom to return this voucher to and provide the mandatory reason. An audit remark will be stamped and real-time email alerts will be sent to the team.
+                    </div>
+                `
+            },
+            {
+                fieldtype: 'Select',
+                fieldname: 'return_to',
+                label: __('Return Destination'),
+                options: [
+                    { label: 'Accounts L1 Team (Re-Audit / Adjustment)', value: 'Accounts L1' },
+                    { label: 'Front Desk Reception (Re-upload / Redraft)', value: 'Front Desk' }
+                ],
+                default: 'Accounts L1',
+                reqd: 1
+            },
+            {
+                fieldtype: 'Small Text',
+                fieldname: 'rejection_reason',
+                label: __('Rejection / Return Remarks (Mandatory)'),
+                reqd: 1,
+                description: __('Explain clearly why this voucher is being rejected or returned.')
+            }
+        ],
+        primary_action_label: __('Confirm Return / Rejection'),
+        primary_action: function () {
+            const values = d.get_values();
+            if (!values || !values.rejection_reason || !values.rejection_reason.trim()) {
+                frappe.msgprint(__('Please provide a valid reason for returning the voucher.'));
+                return;
+            }
+
+            d.hide();
+            frappe.call({
+                method: 'ap_automation.services.director_approval_service.reject_accounts_director',
+                args: {
+                    voucher_doctype: frm.doc.doctype,
+                    voucher_name: frm.doc.name,
+                    reason: values.rejection_reason.trim(),
+                    return_to: values.return_to
+                },
+                freeze: true,
+                freeze_message: __('Processing Director rejection & dispatching alerts...'),
+                callback: function (r) {
+                    if (r.message && r.message.status === 'SUCCESS') {
+                        frappe.msgprint({
+                            title: __('Voucher Returned'),
+                            indicator: 'red',
+                            message: `<b>${r.message.message}</b><br>Status updated to <b>${r.message.new_status}</b>. Email alerts dispatched.`
                         });
                         frm.reload_doc();
                     }
