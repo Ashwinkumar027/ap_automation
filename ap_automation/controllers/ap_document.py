@@ -122,12 +122,15 @@ class APDocument(Document):
 
     def generate_duplicate_hash(self) -> str:
         """Calculates a deterministic SHA-256 spend fingerprint."""
-        company = getattr(self, "company", "").strip().lower()
-        payee = getattr(self, "payee_name", "").strip().lower()
-        account = str(getattr(self, "bank_account_number", "")).strip()
-        invoice_no = getattr(self, "invoice_number", "").strip().lower()
-        date = str(getattr(self, "posting_date", "")).strip()
-        amount = f"{float(getattr(self, 'total_amount', 0.0)):.2f}"
+        company = (getattr(self, "company", "") or "").strip().lower()
+        payee = (getattr(self, "payee_name", "") or "").strip().lower()
+        account = str(getattr(self, "bank_account_number", "") or "").strip()
+        invoice_no = (getattr(self, "invoice_number", "") or "").strip().lower()
+        date = str(getattr(self, "posting_date", "") or "").strip()
+        tot_amt = getattr(self, "total_amount", None)
+        if tot_amt is None:
+            tot_amt = getattr(self, "amount", 0.0) or 0.0
+        amount = f"{float(tot_amt):.2f}"
 
         raw_fingerprint = f"{company}|{payee}|{account}|{invoice_no}|{date}|{amount}"
         hash_val = hashlib.sha256(raw_fingerprint.encode("utf-8")).hexdigest()
