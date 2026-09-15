@@ -178,6 +178,7 @@ def reject_accounts_director(
             director_user=director_user,
             return_to=return_to
         )
+        frappe.db.commit()
     except Exception as e:
         frappe.log_error(f"Failed to send director rejection notification for {voucher_name}: {str(e)}")
 

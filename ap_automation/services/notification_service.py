@@ -115,6 +115,7 @@ def _send_email_and_desk_alert(
                 reference_name=reference_name,
                 now=True
             )
+            frappe.db.commit()
         except Exception as e:
             frappe.log_error(f"Failed to send email for {reference_name}: {str(e)}", "AP Notification Error")
 
