@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letter_head": null,
- "modified": "2026-09-15 14:26:08.370602",
+ "modified": "2026-09-15 14:52:40.309234",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Petty Cash Summary Report",
@@ -43,6 +43,9 @@
   },
   {
    "role": "Employee"
+  },
+  {
+   "role": "Accounts Director"
   }
  ],
  "timeout": 0

@@ -386,7 +386,7 @@ def notify_director_on_l1_audit_completed(voucher_doctype: str, voucher_name: st
         company=company,
         document_lane=voucher_doctype,
         level_number=4,
-        fallback_roles=["Director", "Accounts L2 Approver", "Director Tier", "System Manager"]
+        fallback_roles=["Accounts Director", "Director", "Accounts L2 Approver", "Director Tier", "System Manager"]
     )
 
     subject = f"📑 [Approval Required] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)})"

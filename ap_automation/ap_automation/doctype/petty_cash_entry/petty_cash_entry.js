@@ -353,7 +353,7 @@ function render_role_based_action_buttons(frm) {
     }
 
     // 3. ADMIN L2 DEPARTMENT HEAD ACTIONS
-    if (status === 'Pending Admin L2' && (frappe.user.has_role(['Admin L2 Approver', 'Admin Manager', 'Director Tier', 'System Manager']) || frappe.session.user === 'Administrator')) {
+    if (status === 'Pending Admin L2' && (frappe.user.has_role(['Admin L2 Approver', 'Admin Manager', 'Accounts Director', 'Director Tier', 'System Manager']) || frappe.session.user === 'Administrator')) {
         frm.add_custom_button(__('✅ Approve & Send to Accounts'), function () {
             frappe.confirm(__(`Final Admin Sign-Off: Dispatch voucher <b>#${frm.doc.name}</b> (₹${format_inr_clean(frm.doc.total_amount)}) to Accounts Audit?`), function () {
                 frappe.call({
@@ -453,7 +453,7 @@ function render_role_based_action_buttons(frm) {
     }
 
     // 5. DIRECTOR TIER SANCTION (Status == 'L1 Verified')
-    if (status === 'L1 Verified' && (frappe.user.has_role(['Director Tier', 'Dileep Director', 'System Manager']) || frappe.session.user === 'Administrator')) {
+    if (status === 'L1 Verified' && (frappe.user.has_role(['Accounts Director', 'Director Tier', 'Dileep Director', 'System Manager']) || frappe.session.user === 'Administrator')) {
         frm.add_custom_button(__('✅ Sanction Payment'), function () {
             frappe.confirm(__(`Sanction payment of <b>₹${format_inr_clean(frm.doc.total_amount)}</b> for IDFC corporate batch release?`), function () {
                 frm.set_value('status', 'Approved for Payment');

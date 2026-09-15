@@ -53,7 +53,7 @@ def approve_accounts_l2(claim_name: str, accounts_user: str) -> Dict[str, Any]:
         # Resolve designated director
         director_id = frappe.db.get_value("User", {"email": ["in", ["dileep@quanticus.com", "dileep.director@quanticus.com"]]}, "name")
         if not director_id:
-            director_id = frappe.db.get_value("Has Role", {"role": "Director Tier"}, "parent") or "Administrator"
+            director_id = frappe.db.get_value("Has Role", {"role": ["in", ["Accounts Director", "Director Tier"]]}, "parent") or "Administrator"
         claim.designated_approver = director_id
         comment = f"Claim amount (INR {claim.net_payable_amount:,.2f}) exceeds INR 2,00,000 threshold. Escalated to Director Tier."
     else:
@@ -88,7 +88,7 @@ def approve_director_tier(
     Director Tier sign-off handler for claims > INR 2 Lakhs.
     """
     roles = frappe.get_roles(director_user)
-    if "Director Tier" not in roles and "System Manager" not in roles and "Dileep Director" not in roles:
+    if "Accounts Director" not in roles and "Director Tier" not in roles and "System Manager" not in roles and "Dileep Director" not in roles:
         raise APSecurityError(
             f"Unauthorized: User '{director_user}' lacks 'Director Tier' privileges required "
             "to sanction claims exceeding INR 2 Lakhs."
