@@ -43,27 +43,19 @@
    "label": "Petty Cash Claim Header"
   },
   {
-   "default": "Today",
    "fieldname": "posting_date",
    "fieldtype": "Date",
-   "in_list_view": 1,
    "label": "Posting Date",
-   "reqd": 1
-  },
-  {
-   "fieldname": "claim_title",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Claim Title / Envelope Name (Optional)",
-   "description": "Enter a custom name e.g. 'July 4th Week 2026 - ACM' or leave blank for auto-numbering"
+   "reqd": 1,
+   "default": "Today"
   },
   {
    "fieldname": "company",
    "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Company",
+   "label": "Company Entity",
    "options": "Company",
-   "reqd": 1
+   "reqd": 1,
+   "in_list_view": 1
   },
   {
    "fieldname": "submitted_by",
@@ -72,52 +64,84 @@
    "read_only": 1
   },
   {
+   "fieldname": "claim_title",
+   "fieldtype": "Data",
+   "label": "Claim Title / Envelope Name (Optional)",
+   "description": "Enter a custom name e.g. 'July 4th Week 2026 - ACM' or leave blank for auto-numbering"
+  },
+  {
+   "fieldname": "cb_header_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Workflow Status",
+   "options": "Draft\nPending Admin L1\nPending Admin L2\nSubmitted\nL1 Verified\nQueued in Batch\nApproved for Payment\nPaid\nDisputed\nRejected\nCancelled",
+   "default": "Draft",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
    "fieldname": "beneficiary_employee",
    "fieldtype": "Link",
    "label": "Beneficiary Employee (Admin Head / Payee)",
    "options": "Employee",
    "reqd": 1,
    "in_list_view": 1,
-   "description": "Select the Admin Manager / Head receiving the reimbursement funds"
+   "description": "Select the Admin Head / Custodian who will receive the payment"
   },
   {
    "fieldname": "beneficiary_name",
    "fieldtype": "Data",
-   "label": "Beneficiary Name",
-   "read_only": 1,
-   "fetch_from": "beneficiary_employee.employee_name"
+   "label": "Beneficiary Full Name",
+   "read_only": 1
   },
   {
    "fieldname": "custodian",
    "fieldtype": "Link",
-   "in_list_view": 1,
    "label": "Custodian User Email",
    "options": "User",
-   "reqd": 0
+   "read_only": 1
   },
   {
-   "fieldname": "cb_status",
+   "fieldname": "sb_bank",
+   "fieldtype": "Section Break",
+   "label": "Beneficiary Disbursement Bank Details (Auto-Fetched from HRMS)"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "custodian_bank_account",
+   "fieldtype": "Data",
+   "label": "Bank Account Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_bank",
    "fieldtype": "Column Break"
   },
   {
-   "default": "Draft",
-   "fieldname": "status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Status",
-   "options": "Draft\nPending Admin L1\nPending Admin L2\nSubmitted\nL1 Verified\nQueued in Batch\nApproved for Payment\nPaid\nDisputed\nRejected\nCancelled"
+   "fieldname": "custodian_ifsc_code",
+   "fieldtype": "Data",
+   "label": "Bank IFSC Code",
+   "read_only": 1
   },
   {
    "fieldname": "total_amount",
    "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Total Amount (INR)",
-   "read_only": 1
+   "label": "Total Claim Amount (INR)",
+   "read_only": 1,
+   "in_list_view": 1
   },
   {
    "fieldname": "batch_id",
    "fieldtype": "Data",
-   "label": "Batch ID",
+   "label": "Payment Batch ID",
    "read_only": 1
   },
   {
@@ -129,14 +153,14 @@
   {
    "fieldname": "admin_l1_approver",
    "fieldtype": "Link",
-   "label": "Admin L1 Approver (Lead)",
+   "label": "Assistant Admin Manager (L1 Approver)",
    "options": "User",
    "read_only": 1
   },
   {
    "fieldname": "admin_l1_approval_date",
    "fieldtype": "Datetime",
-   "label": "Admin L1 Approval Date",
+   "label": "Admin L1 Approval Timestamp",
    "read_only": 1
   },
   {
@@ -146,43 +170,20 @@
   {
    "fieldname": "admin_l2_approver",
    "fieldtype": "Link",
-   "label": "Admin L2 Approver (Head)",
+   "label": "Admin Manager (L2 Approver)",
    "options": "User",
    "read_only": 1
   },
   {
    "fieldname": "admin_l2_approval_date",
    "fieldtype": "Datetime",
-   "label": "Admin L2 Approval Date",
+   "label": "Admin L2 Approval Timestamp",
    "read_only": 1
   },
   {
    "fieldname": "admin_rejection_reason",
    "fieldtype": "Small Text",
    "label": "Admin Return / Rejection Remarks",
-   "read_only": 1
-  },
-  {
-   "fieldname": "sb_bank",
-   "fieldtype": "Section Break",
-   "label": "Disbursement Bank Account"
-  },
-  {
-   "fieldname": "custodian_bank_account",
-   "fieldtype": "Data",
-   "label": "Beneficiary Bank Account Number",
-   "read_only": 1
-  },
-  {
-   "fieldname": "custodian_ifsc_code",
-   "fieldtype": "Data",
-   "label": "Beneficiary Bank IFSC Code",
-   "read_only": 1
-  },
-  {
-   "fieldname": "bank_name",
-   "fieldtype": "Data",
-   "label": "Beneficiary Bank Name",
    "read_only": 1
   },
   {
@@ -198,7 +199,12 @@
    "reqd": 1
   },
   {
-   "default": "1",
+   "fieldname": "sb_audit_trail",
+   "fieldtype": "Section Break",
+   "label": "Audit Trail & System Controls",
+   "collapsible": 1
+  },
+  {
    "fieldname": "current_approval_level",
    "fieldtype": "Int",
    "label": "Current Approval Level",
@@ -212,21 +218,16 @@
    "read_only": 1
   },
   {
-   "fieldname": "approval_trail",
-   "fieldtype": "Table",
-   "label": "Approval Audit Trail",
-   "options": "AP Approval Trail",
-   "read_only": 1
-  },
-  {
-   "default": "Draft",
    "fieldname": "workflow_state",
    "fieldtype": "Data",
    "label": "Workflow State",
    "read_only": 1
   },
   {
-   "default": "0",
+   "fieldname": "cb_audit_trail",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "is_forked_voucher",
    "fieldtype": "Check",
    "label": "Is Forked Disputed Voucher",
@@ -244,6 +245,13 @@
    "fieldtype": "Link",
    "label": "Disputed Fork Voucher",
    "options": "Petty Cash Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_trail",
+   "fieldtype": "Table",
+   "label": "Approval Audit Trail",
+   "options": "AP Approval Trail",
    "read_only": 1
   }
  ],

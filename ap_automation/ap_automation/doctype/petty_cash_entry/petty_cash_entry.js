@@ -13,25 +13,17 @@ frappe.ui.form.on('Petty Cash Entry', {
             }
         }
 
-        // Filter Beneficiary Employee by Company
-        frm.set_query('beneficiary_employee', function() {
+        // Filter Beneficiary Employee by selected Company
+        frm.set_query('beneficiary_employee', function () {
+            let filters = { status: 'Active' };
             if (frm.doc.company) {
-                return {
-                    filters: {
-                        company: frm.doc.company,
-                        status: 'Active'
-                    }
-                };
+                filters['company'] = frm.doc.company;
             }
-            return {
-                filters: {
-                    status: 'Active'
-                }
-            };
+            return { filters: filters };
         });
     },
 
-    company: function(frm) {
+    company: function (frm) {
         if (frm.doc.company) {
             frm.set_value('beneficiary_employee', '');
             frm.set_value('beneficiary_name', '');
@@ -41,30 +33,43 @@ frappe.ui.form.on('Petty Cash Entry', {
         }
     },
 
-    beneficiary_employee: function(frm) {
+    beneficiary_employee: function (frm) {
         if (frm.doc.beneficiary_employee) {
             frappe.db.get_value('Employee', frm.doc.beneficiary_employee, [
-                'employee_name', 'bank_name', 'bank_ac_no', 'ifsc_code', 'user_id', 'prefered_email'
+                'employee_name',
+                'custom_name_as_per_bank',
+                'bank_name',
+                'bank_ac_no',
+                'custom_ifsc_code',
+                'ifsc_code',
+                'user_id',
+                'prefered_email'
             ], (r) => {
                 if (r) {
-                    frm.set_value('beneficiary_name', r.employee_name || '');
-                    frm.set_value('custodian_bank_account', r.bank_ac_no || '');
-                    frm.set_value('custodian_ifsc_code', r.ifsc_code || '');
-                    frm.set_value('bank_name', r.bank_name || 'IDFC FIRST Bank');
+                    const beneficiary_display_name = r.custom_name_as_per_bank || r.employee_name || '';
+                    const ifsc = r.custom_ifsc_code || r.ifsc_code || '';
+                    const acc_no = r.bank_ac_no || '';
+                    const bank = r.bank_name || 'IDFC FIRST Bank';
+
+                    frm.set_value('beneficiary_name', beneficiary_display_name);
+                    frm.set_value('custodian_bank_account', acc_no);
+                    frm.set_value('custodian_ifsc_code', ifsc);
+                    frm.set_value('bank_name', bank);
+
                     if (r.user_id || r.prefered_email) {
                         frm.set_value('custodian', r.user_id || r.prefered_email);
                     }
 
-                    if (r.bank_ac_no && r.ifsc_code) {
+                    if (acc_no && ifsc) {
                         frappe.show_alert({
-                            message: __(`🏦 Bank Details Loaded for <b>${r.employee_name}</b> (A/C: ${r.bank_ac_no})`),
+                            message: __(`🏦 Bank Verified: <b>${beneficiary_display_name}</b> | A/C: ${acc_no} | IFSC: ${ifsc}`),
                             indicator: 'green'
-                        }, 4);
+                        }, 5);
                     } else {
                         frappe.show_alert({
-                            message: __(`⚠️ Bank account details not found in HRMS for ${r.employee_name}. Please update in Employee master.`),
+                            message: __(`⚠️ Bank details incomplete for ${r.employee_name} in HRMS (Missing A/C or IFSC).`),
                             indicator: 'orange'
-                        }, 5);
+                        }, 6);
                     }
                 }
             });
