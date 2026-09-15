@@ -45,11 +45,11 @@ def export_petty_cash_excel(voucher_name):
     # 2. Metadata Section
     meta = [
         ("Voucher ID:", doc.name, "Posting Date:", str(doc.posting_date or "")),
-        ("Claim Title:", doc.claim_title or "N/A", "Workflow Status:", doc.status or "Draft"),
-        ("Company:", doc.company or "N/A", "Payment Batch ID:", doc.batch_id or "N/A"),
-        ("Beneficiary Employee:", doc.custodian or "N/A", "Beneficiary Name:", doc.beneficiary_name or "N/A"),
-        ("Bank Name:", doc.bank_name or "N/A", "Bank A/C No:", doc.custodian_bank_account or "N/A"),
-        ("Bank IFSC Code:", doc.custodian_ifsc_code or "N/A", "Total Amount (₹):", f"₹ {float(doc.total_amount or 0):,.2f}")
+        ("Claim Title:", getattr(doc, "claim_title", None) or "N/A", "Workflow Status:", doc.status or "Draft"),
+        ("Company:", doc.company or "N/A", "Payment Batch ID:", getattr(doc, "batch_id", None) or "N/A"),
+        ("Beneficiary Employee:", getattr(doc, "custodian", None) or "N/A", "Beneficiary Name:", getattr(doc, "beneficiary_name", None) or "N/A"),
+        ("Bank Name:", getattr(doc, "bank_name", None) or "N/A", "Bank A/C No:", getattr(doc, "custodian_bank_account", None) or "N/A"),
+        ("Bank IFSC Code:", getattr(doc, "custodian_ifsc_code", None) or "N/A", "Total Amount (₹):", f"₹ {float(doc.total_amount or 0):,.2f}")
     ]
 
     r = 3
@@ -79,17 +79,17 @@ def export_petty_cash_excel(voucher_name):
     lines = doc.expense_lines or []
     for idx, line in enumerate(lines, 1):
         ws.cell(row=r, column=1, value=idx).alignment = Alignment(horizontal="center")
-        ws.cell(row=r, column=2, value=str(line.expense_date or "")).alignment = Alignment(horizontal="center")
-        ws.cell(row=r, column=3, value=line.expense_category or "")
-        ws.cell(row=r, column=4, value=line.merchant_name or "")
-        ws.cell(row=r, column=5, value=line.bill_number or "N/A").alignment = Alignment(horizontal="center")
-        amt_cell = ws.cell(row=r, column=6, value=float(line.amount or 0.0))
+        ws.cell(row=r, column=2, value=str(getattr(line, "expense_date", None) or getattr(doc, "posting_date", "") or "")).alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=3, value=getattr(line, "expense_category", "") or "")
+        ws.cell(row=r, column=4, value=getattr(line, "merchant_name", "") or "")
+        ws.cell(row=r, column=5, value=getattr(line, "bill_number", "") or "N/A").alignment = Alignment(horizontal="center")
+        amt_cell = ws.cell(row=r, column=6, value=float(getattr(line, "amount", 0.0) or 0.0))
         amt_cell.number_format = '₹ #,##0.00'
         amt_cell.alignment = Alignment(horizontal="right")
-        ws.cell(row=r, column=7, value=line.employee or "")
+        ws.cell(row=r, column=7, value=getattr(line, "employee", "") or getattr(line, "staff_name", "") or "")
         ws.cell(row=r, column=8, value=getattr(line, "remarks", "") or getattr(line, "description", "") or "")
 
-        receipt_url = line.receipt_attachment or ""
+        receipt_url = getattr(line, "receipt_attachment", None) or ""
         receipt_cell = ws.cell(row=r, column=9, value="View Receipt" if receipt_url else "No Receipt")
         if receipt_url:
             receipt_cell.hyperlink = receipt_url
@@ -122,7 +122,7 @@ def export_petty_cash_excel(voucher_name):
     if getattr(doc, "approval_trail", None) and len(doc.approval_trail) > 0:
         ws.cell(row=r, column=1, value="APPROVAL AUDIT TRAIL").font = sec_font
         r += 1
-        trail_headers = ["Level", "Action / Status", "Approver User", "Timestamp", "Remarks"]
+        trail_headers = ["Level", "Action", "Action Taken By / Approver", "Timestamp", "Remarks / Notes"]
         for c_idx, h in enumerate(trail_headers, 1):
             cell = ws.cell(row=r, column=c_idx, value=h)
             cell.font = th_font
@@ -131,11 +131,17 @@ def export_petty_cash_excel(voucher_name):
             cell.border = thin_border
         r += 1
         for tr in doc.approval_trail:
-            ws.cell(row=r, column=1, value=tr.approval_level or "").alignment = Alignment(horizontal="center")
-            ws.cell(row=r, column=2, value=tr.action or "")
-            ws.cell(row=r, column=3, value=tr.approver or "")
-            ws.cell(row=r, column=4, value=str(tr.action_timestamp or "")).alignment = Alignment(horizontal="center")
-            ws.cell(row=r, column=5, value=tr.comments or "")
+            lvl_str = f"Level {tr.level_number}" if getattr(tr, "level_number", None) else (getattr(tr, "level_name", None) or "")
+            user_str = getattr(tr, "action_taken_by", None) or getattr(tr, "designated_approver", None) or ""
+            action_str = getattr(tr, "action", None) or ""
+            time_str = str(getattr(tr, "action_timestamp", None) or "")
+            rem_str = getattr(tr, "remarks", None) or ""
+
+            ws.cell(row=r, column=1, value=lvl_str).alignment = Alignment(horizontal="center")
+            ws.cell(row=r, column=2, value=action_str).alignment = Alignment(horizontal="center")
+            ws.cell(row=r, column=3, value=user_str)
+            ws.cell(row=r, column=4, value=time_str).alignment = Alignment(horizontal="center")
+            ws.cell(row=r, column=5, value=rem_str)
             for c in range(1, 6):
                 ws.cell(row=r, column=c).border = thin_border
             r += 1
