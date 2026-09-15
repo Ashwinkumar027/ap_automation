@@ -1,7 +1,7 @@
 {
  "app": "ap_automation",
- "bg_color": "purple",
- "creation": "2026-09-11 12:17:48.353537",
+ "bg_color": "gray",
+ "creation": "2026-09-12 15:19:47.334521",
  "docstatus": 0,
  "doctype": "Desktop Icon",
  "hidden": 0,
@@ -9,13 +9,15 @@
  "idx": 15,
  "label": "AP Automation",
  "link": "/desk/ap-automation",
- "link_type": "External",
+ "link_to": "AP Automation",
+ "link_type": "Workspace Sidebar",
  "logo_url": "/assets/ap_automation/images/ap-logo.svg",
- "modified": "2026-09-11 12:18:42.908675",
+ "modified": "2026-09-15 17:36:08.840732",
  "modified_by": "Administrator",
  "name": "AP Automation",
  "owner": "Administrator",
  "restrict_removal": 1,
  "roles": [],
+ "sidebar": "AP Automation",
  "standard": 1
 }

@@ -1,0 +1,26 @@
+{
+ "app": "ap_automation",
+ "creation": "2026-09-15 17:36:08.757072",
+ "docstatus": 0,
+ "doctype": "Workspace Sidebar",
+ "idx": 0,
+ "items": [
+  {
+   "child": 0,
+   "collapsible": 1,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Employee Claims",
+   "link_to": "Lane 2: Employee Claims",
+   "link_type": "Workspace",
+   "show_arrow": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-09-15 17:36:08.759265",
+ "modified_by": "Administrator",
+ "name": "Employee Claims",
+ "owner": "Administrator",
+ "standard": 1,
+ "title": "Employee Claims"
+}

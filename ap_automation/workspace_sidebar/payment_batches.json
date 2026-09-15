@@ -1,0 +1,26 @@
+{
+ "app": "ap_automation",
+ "creation": "2026-09-15 17:36:08.793565",
+ "docstatus": 0,
+ "doctype": "Workspace Sidebar",
+ "idx": 0,
+ "items": [
+  {
+   "child": 0,
+   "collapsible": 1,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Payment Batches",
+   "link_to": "Payment Batches",
+   "link_type": "Workspace",
+   "show_arrow": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-09-15 17:36:08.795418",
+ "modified_by": "Administrator",
+ "name": "Payment Batches",
+ "owner": "Administrator",
+ "standard": 1,
+ "title": "Payment Batches"
+}
