@@ -24,3 +24,29 @@ app_include_js = [
 doctype_js = {
     "AP IDFC Settings": "public/js/ap_idfc_settings.js"
 }
+
+# --------------------------------------------------------------------------------------
+# AUTO-PROVISIONING HOOKS (For Seamless UAT & Production Deployments)
+# --------------------------------------------------------------------------------------
+after_install = "ap_automation.setup.after_install"
+after_migrate = "ap_automation.setup.after_migrate"
+
+fixtures = [
+    {
+        "dt": "Role",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Petty Cash User",
+                    "Admin L1 Approver",
+                    "Admin L2 Approver",
+                    "Accounts User",
+                    "Accounts Director",
+                    "Payment Releaser"
+                ]
+            ]
+        ]
+    }
+]
