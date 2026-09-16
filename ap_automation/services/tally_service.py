@@ -32,6 +32,7 @@ def generate_tally_journal_voucher_for_petty_cash(voucher_name: str) -> str:
     Debits: Each Expense Category / Head (under Indirect Expenses)
     Credit: Custodian Imprest Ledger (e.g., 'Azar Imprest' or 'Petty Cash Imprest')
     Narration: Claim Title (e.g., 'petty cash 1st week of sep')
+    Returns: Raw XML payload string.
     """
     if not frappe.db.exists("Petty Cash Entry", voucher_name):
         raise APValidationError(f"Petty Cash Entry '{voucher_name}' not found.")
@@ -133,33 +134,36 @@ def generate_tally_journal_voucher_for_petty_cash(voucher_name: str) -> str:
   </BODY>
 </ENVELOPE>"""
 
-    # 4. Record in Tally Voucher Log
-    existing_log = frappe.db.get_value("Tally Voucher Log", {"batch_id": doc.name}, "name")
-    if existing_log:
-        tally_log = frappe.get_doc("Tally Voucher Log", existing_log)
-        tally_log.tally_guid = tally_guid
-        tally_log.voucher_type = "Journal"
-        tally_log.total_debit_amount = round(total_amount, 2)
-        tally_log.tally_xml_payload = xml_payload
-        tally_log.status = "Pending Export"
-        tally_log.save(ignore_permissions=True)
-    else:
-        tally_log = frappe.get_doc({
-            "doctype": "Tally Voucher Log",
-            "company": doc.company,
-            "batch_id": doc.name,
-            "voucher_type": "Journal",
-            "voucher_date": doc.posting_date,
-            "total_debit_amount": round(total_amount, 2),
-            "tally_guid": tally_guid,
-            "status": "Pending Export",
-            "export_timestamp": frappe.utils.now(),
-            "tally_xml_payload": xml_payload
-        })
-        tally_log.insert(ignore_permissions=True)
+    # 4. Safely Log in Tally Voucher Log
+    try:
+        existing_log = frappe.db.get_value("Tally Voucher Log", {"batch_id": doc.name}, "name")
+        if existing_log:
+            frappe.db.set_value("Tally Voucher Log", existing_log, {
+                "tally_guid": tally_guid,
+                "voucher_type": "Journal",
+                "total_debit_amount": round(total_amount, 2),
+                "tally_xml_payload": xml_payload,
+                "status": "Exported to Tally"
+            })
+        else:
+            tally_log = frappe.get_doc({
+                "doctype": "Tally Voucher Log",
+                "company": doc.company,
+                "batch_id": doc.name,
+                "voucher_type": "Journal",
+                "voucher_date": doc.posting_date,
+                "total_debit_amount": round(total_amount, 2),
+                "tally_guid": tally_guid,
+                "status": "Exported to Tally",
+                "export_timestamp": frappe.utils.now(),
+                "tally_xml_payload": xml_payload
+            })
+            tally_log.insert(ignore_permissions=True, ignore_links=True)
+        frappe.db.commit()
+    except Exception as e:
+        frappe.log_error(f"Failed to record Tally Voucher Log for {voucher_name}: {str(e)}")
 
-    frappe.db.commit()
-    return tally_log.name
+    return xml_payload
 
 
 @frappe.whitelist()
@@ -167,14 +171,7 @@ def export_tally_journal_xml_for_petty_cash(voucher_name: str) -> str:
     """
     Retrieves the raw Tally Journal XML string for direct TallyPrime import.
     """
-    log_name = frappe.db.get_value("Tally Voucher Log", {"batch_id": voucher_name}, "name")
-    if not log_name:
-        log_name = generate_tally_journal_voucher_for_petty_cash(voucher_name)
-
-    xml = frappe.db.get_value("Tally Voucher Log", log_name, "tally_xml_payload")
-    frappe.db.set_value("Tally Voucher Log", log_name, "status", "Exported to Tally")
-    frappe.db.commit()
-    return xml
+    return generate_tally_journal_voucher_for_petty_cash(voucher_name)
 
 
 def generate_tally_voucher_for_batch(batch_id: str) -> str:
@@ -285,31 +282,37 @@ def generate_tally_voucher_for_batch(batch_id: str) -> str:
 </ENVELOPE>"""
 
     # 4. Record in Tally Voucher Log
-    existing_log = frappe.db.get_value("Tally Voucher Log", {"batch_id": batch.name}, "name")
-    if existing_log:
-        tally_log = frappe.get_doc("Tally Voucher Log", existing_log)
-        tally_log.tally_guid = tally_guid
-        tally_log.total_debit_amount = round(total_amount, 2)
-        tally_log.tally_xml_payload = xml_payload
-        tally_log.status = "Pending Export"
-        tally_log.save(ignore_permissions=True)
-    else:
-        tally_log = frappe.get_doc({
-            "doctype": "Tally Voucher Log",
-            "company": batch.company,
-            "batch_id": batch.name,
-            "voucher_type": "Payment",
-            "voucher_date": batch.posting_date,
-            "total_debit_amount": round(total_amount, 2),
-            "tally_guid": tally_guid,
-            "status": "Pending Export",
-            "export_timestamp": frappe.utils.now(),
-            "tally_xml_payload": xml_payload
-        })
-        tally_log.insert(ignore_permissions=True)
+    try:
+        existing_log = frappe.db.get_value("Tally Voucher Log", {"batch_id": batch.name}, "name")
+        if existing_log:
+            frappe.db.set_value("Tally Voucher Log", existing_log, {
+                "tally_guid": tally_guid,
+                "total_debit_amount": round(total_amount, 2),
+                "tally_xml_payload": xml_payload,
+                "status": "Pending Export"
+            })
+            log_name = existing_log
+        else:
+            tally_log = frappe.get_doc({
+                "doctype": "Tally Voucher Log",
+                "company": batch.company,
+                "batch_id": batch.name,
+                "voucher_type": "Payment",
+                "voucher_date": batch.posting_date,
+                "total_debit_amount": round(total_amount, 2),
+                "tally_guid": tally_guid,
+                "status": "Pending Export",
+                "export_timestamp": frappe.utils.now(),
+                "tally_xml_payload": xml_payload
+            })
+            tally_log.insert(ignore_permissions=True, ignore_links=True)
+            log_name = tally_log.name
+        frappe.db.commit()
+    except Exception as e:
+        frappe.log_error(f"Failed to record Tally Voucher Log for batch {batch_id}: {str(e)}")
+        log_name = ""
 
-    frappe.db.commit()
-    return tally_log.name
+    return log_name or xml_payload
 
 
 @frappe.whitelist()
@@ -319,9 +322,15 @@ def export_tally_xml_for_batch(batch_id: str) -> str:
     """
     log_name = frappe.db.get_value("Tally Voucher Log", {"batch_id": batch_id}, "name")
     if not log_name:
-        log_name = generate_tally_voucher_for_batch(batch_id)
+        res = generate_tally_voucher_for_batch(batch_id)
+        if str(res).startswith("<ENVELOPE>"):
+            return res
+        log_name = res
 
     xml = frappe.db.get_value("Tally Voucher Log", log_name, "tally_xml_payload")
+    if not xml:
+        return generate_tally_voucher_for_batch(batch_id)
+
     frappe.db.set_value("Tally Voucher Log", log_name, "status", "Exported to Tally")
     frappe.db.commit()
     return xml

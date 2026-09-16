@@ -37,11 +37,11 @@
   },
   {
    "fieldname": "batch_id",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Associated Payment Batch",
-   "options": "Payment Batch",
-   "reqd": 1
+   "label": "Associated Reference / Batch ID",
+   "options": "",
+   "reqd": 0
   },
   {
    "default": "Payment",
@@ -49,7 +49,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Tally Voucher Type",
-   "options": "Payment\nJournal Entry"
+   "options": "Payment\nJournal\nJournal Entry"
   },
   {
    "fieldname": "cb_meta",
