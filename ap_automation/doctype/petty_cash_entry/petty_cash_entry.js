@@ -53,6 +53,28 @@ frappe.ui.form.on('Petty Cash Entry', {
     },
 
     refresh: function (frm) {
+        // Ignore user permissions for dropdown selections so Front Desk can select any Company & Employee
+        frm.set_query('custodian', function () {
+            return {
+                ignore_user_permissions: 1
+            };
+        });
+        frm.set_query('beneficiary_employee', function () {
+            return {
+                ignore_user_permissions: 1
+            };
+        });
+        frm.set_query('company', function () {
+            return {
+                ignore_user_permissions: 1
+            };
+        });
+        frm.set_query('employee', 'expense_lines', function () {
+            return {
+                ignore_user_permissions: 1
+            };
+        });
+
         apply_petty_cash_styles();
         render_petty_cash_stepper(frm);
         render_status_guidance_banner(frm);
