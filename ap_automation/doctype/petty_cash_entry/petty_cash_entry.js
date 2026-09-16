@@ -250,6 +250,30 @@ function render_role_based_action_buttons(frm) {
         window.open(url, '_blank');
     });
 
+    // 1-Click Tally Journal Voucher XML Export
+    frm.add_custom_button(__('📑 Tally Journal XML'), function () {
+        frappe.call({
+            method: 'ap_automation.services.tally_service.export_tally_journal_xml_for_petty_cash',
+            args: { voucher_name: frm.doc.name },
+            freeze: true,
+            freeze_message: __('Generating Tally Journal XML...'),
+            callback: function (r) {
+                if (r.message) {
+                    const blob = new Blob([r.message], { type: 'application/xml;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `Tally_Journal_${frm.doc.name}.xml`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    frappe.show_alert({ message: __('✅ Tally Journal XML downloaded! Ready for TallyPrime import.'), indicator: 'green' }, 5);
+                }
+            }
+        });
+    });
+
     // Common Proof Viewers
     if (attachments.length > 0) {
         frm.add_custom_button(__(`👁️ View Receipts (${attachments.length})`), () => {
