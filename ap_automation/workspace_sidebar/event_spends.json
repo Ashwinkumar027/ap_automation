@@ -17,8 +17,9 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-15 17:36:08.785247",
+ "modified": "2026-09-16 17:42:08.330632",
  "modified_by": "Administrator",
+ "module": "AP Automation",
  "name": "Event Spends",
  "owner": "Administrator",
  "standard": 1,

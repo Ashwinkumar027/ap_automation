@@ -130,7 +130,7 @@ def setup_desktop_icons():
         d.app = "ap_automation"
         d.standard = 1
         d.hidden = 0
-        d.bg_color = color
+        d.bg_color = "blue"
         d.icon = icon
         d.roles = []
         d.flags.ignore_permissions = True
