@@ -119,7 +119,8 @@
    "read": 1,
    "report": 1,
    "role": "System Manager",
-   "share": 1
+   "share": 1,
+   "delete": 1
   },
   {
    "create": 1,
