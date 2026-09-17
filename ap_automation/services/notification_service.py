@@ -294,7 +294,7 @@ def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> N
         company=company,
         document_lane=voucher_doctype,
         level_number=3,
-        fallback_roles=["Accounts User", "Accounts L1 Auditor"]
+        fallback_roles=["Accounts L1 Auditor"]
     )
 
     subject = f"🔔 [Audit Required] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)}) for {company}"
@@ -638,7 +638,7 @@ def notify_on_director_rejection(
         getattr(doc, "company", ""),
         getattr(doc, "doctype", ""),
         1,
-        ["Accounts User", "Accounts Auditor", "Accounts L1"]
+        ["Accounts L1 Auditor"]
     )
     recipients.extend(accounts_users)
 

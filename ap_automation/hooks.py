@@ -42,7 +42,7 @@ fixtures = [
                     "Petty Cash User",
                     "Admin L1 Approver",
                     "Admin L2 Approver",
-                    "Accounts User",
+                    "Accounts L1 Auditor",
                     "Accounts Director",
                     "Payment Releaser"
                 ]

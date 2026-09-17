@@ -8,7 +8,7 @@ AP_ROLES = [
     {"role_name": "Petty Cash User", "desk_access": 1},
     {"role_name": "Admin L1 Approver", "desk_access": 1},
     {"role_name": "Admin L2 Approver", "desk_access": 1},
-    {"role_name": "Accounts User", "desk_access": 1},
+    {"role_name": "Accounts L1 Auditor", "desk_access": 1},
     {"role_name": "Accounts Director", "desk_access": 1},
     {"role_name": "Payment Releaser", "desk_access": 1},
 ]
@@ -18,7 +18,7 @@ ALL_AP_ROLES = [
     "Petty Cash User",
     "Admin L1 Approver",
     "Admin L2 Approver",
-    "Accounts User",
+    "Accounts L1 Auditor",
     "Accounts Manager",
     "Accounts Director",
     "Payment Releaser",
