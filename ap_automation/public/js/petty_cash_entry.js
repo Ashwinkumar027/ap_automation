@@ -53,25 +53,25 @@ frappe.ui.form.on('Petty Cash Entry', {
     },
 
     refresh: function (frm) {
-        // Ignore user permissions for dropdown selections so Front Desk can select any Company & Employee
+        // Whitelisted queries to allow Front Desk to search and select all Employees & Companies
         frm.set_query('custodian', function () {
             return {
-                ignore_user_permissions: 1
+                query: 'ap_automation.ap_automation.doctype.petty_cash_entry.petty_cash_entry.get_all_employees_query'
             };
         });
         frm.set_query('beneficiary_employee', function () {
             return {
-                ignore_user_permissions: 1
+                query: 'ap_automation.ap_automation.doctype.petty_cash_entry.petty_cash_entry.get_all_employees_query'
             };
         });
         frm.set_query('company', function () {
             return {
-                ignore_user_permissions: 1
+                query: 'ap_automation.ap_automation.doctype.petty_cash_entry.petty_cash_entry.get_all_companies_query'
             };
         });
         frm.set_query('employee', 'expense_lines', function () {
             return {
-                ignore_user_permissions: 1
+                query: 'ap_automation.ap_automation.doctype.petty_cash_entry.petty_cash_entry.get_all_employees_query'
             };
         });
 

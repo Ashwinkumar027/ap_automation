@@ -128,3 +128,38 @@ class PettyCashEntry(Document):
                 f"Cannot delete Petty Cash Entry '{self.name}' because it is linked to Payment Batch '{self.batch_id}' or already disbursed.",
                 exc=APValidationError
             )
+
+
+@frappe.whitelist()
+def get_all_employees_query(doctype, txt, searchfield, start, page_len, filters):
+    """Returns all active employees ignoring user permission filters so Front Desk can select any beneficiary/staff."""
+    txt_filter = f"%{txt}%" if txt else "%"
+    return frappe.db.sql("""
+        SELECT name, employee_name, department, designation
+        FROM `tabEmployee`
+        WHERE status = 'Active'
+          AND (name LIKE %(txt)s OR employee_name LIKE %(txt)s)
+        ORDER BY employee_name ASC
+        LIMIT %(start)s, %(page_len)s
+    """, {
+        "txt": txt_filter,
+        "start": int(start or 0),
+        "page_len": int(page_len or 20)
+    })
+
+
+@frappe.whitelist()
+def get_all_companies_query(doctype, txt, searchfield, start, page_len, filters):
+    """Returns all companies ignoring user permission filters."""
+    txt_filter = f"%{txt}%" if txt else "%"
+    return frappe.db.sql("""
+        SELECT name, company_name
+        FROM `tabCompany`
+        WHERE name LIKE %(txt)s OR company_name LIKE %(txt)s
+        ORDER BY name ASC
+        LIMIT %(start)s, %(page_len)s
+    """, {
+        "txt": txt_filter,
+        "start": int(start or 0),
+        "page_len": int(page_len or 20)
+    })
