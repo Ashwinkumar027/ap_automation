@@ -120,7 +120,7 @@ class TestPennyDropLockout(unittest.TestCase):
         with self.assertRaises(APSecurityError) as ctx:
             claim.validate()
 
-        self.assertIn("FRAUD & SECURITY HARD-LOCKOUT", str(ctx.exception))
+        self.assertIn("Security Notice", str(ctx.exception))
 
     def test_04_accounts_manager_manual_override_with_audit_trail(self):
         """Verifies Accounts Manager can unlock a locked account with >= 20-char justification."""

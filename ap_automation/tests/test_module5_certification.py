@@ -267,7 +267,7 @@ class TestModule5Certification(unittest.TestCase):
         with self.assertRaises(APValidationError) as ctx:
             claim2.validate()
 
-        self.assertIn("FRAUD SHIELD ALERT", str(ctx.exception))
+        self.assertIn("Duplicate Invoice Detected", str(ctx.exception))
 
     def test_05_end_to_end_vendor_thursday_batching(self):
         """Verifies approved vendor invoice is cleanly batched into BATCH-PAY."""

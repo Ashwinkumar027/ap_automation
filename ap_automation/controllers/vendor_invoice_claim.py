@@ -92,7 +92,7 @@ class VendorInvoiceClaim(APDocument):
         pd_status = bank_acc.get("penny_drop_status")
         if pd_status == "LOCKED_PENNY_DROP_MISMATCH":
             raise APSecurityError(
-                f"🚨 FRAUD & SECURITY HARD-LOCKOUT: Vendor '{self.vendor_name}' bank account "
+                f"⚠️ Security Notice: Vendor '{self.vendor_name}' bank account "
                 f"({bank_acc.get('bank_account_no')}) is hard-locked due to NPCI Penny Drop Name Mismatch! "
                 "Invoice submission and payments are strictly halted until Accounts Manager review and manual unlock."
             )

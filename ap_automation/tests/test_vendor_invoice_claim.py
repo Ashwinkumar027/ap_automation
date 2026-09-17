@@ -205,7 +205,7 @@ class TestVendorInvoiceClaim(unittest.TestCase):
         })
         with self.assertRaises(APValidationError) as ctx:
             claim2.validate()
-        self.assertIn("FRAUD SHIELD ALERT", str(ctx.exception))
+        self.assertIn("Duplicate Invoice Detected", str(ctx.exception))
 
 
 if __name__ == "__main__":

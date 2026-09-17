@@ -42,51 +42,58 @@ class PettyCashEntry(Document):
                 frappe.throw(f"Row #{idx}: Merchant / Payee Name is required.", exc=APValidationError)
 
     def validate_duplicate_lines(self):
-        """Checks for duplicate bills within the voucher and across all vouchers."""
+        """Checks for duplicate bills within the voucher and across all other active vouchers."""
         seen_keys = set()
+        current_name = getattr(self, "name", None) or ""
+        old_name = None
+        if hasattr(self, "get_doc_before_save") and self.get_doc_before_save():
+            old_name = self.get_doc_before_save().name
+
         for idx, row in enumerate(self.expense_lines, 1):
             merchant = (row.merchant_name or "").strip().lower()
             bill_no = (row.bill_number or "").strip().lower()
             amt = float(row.amount or 0.0)
 
-            if merchant and bill_no:
-                key = (merchant, bill_no)
-                # 1. Check duplicate within this same voucher
+            if merchant and bill_no and amt > 0:
+                key = (merchant, bill_no, amt)
+                # 1. Check duplicate within this same voucher (in-memory)
                 if key in seen_keys:
                     frappe.throw(
-                        f"🚨 Duplicate Bill in Voucher: Row #{idx} has duplicate Merchant '{row.merchant_name}' "
-                        f"and Bill #{row.bill_number}. Duplicate line items within the same voucher are not allowed.",
+                        f"⚠️ Duplicate Line in Voucher: Row #{idx} has identical Merchant '{row.merchant_name}', "
+                        f"Bill #{row.bill_number}, and Amount ₹{row.amount:,.2f}. Duplicate rows within the same voucher are not permitted.",
                         exc=APValidationError
                     )
                 seen_keys.add(key)
 
-                # 2. Check duplicate across existing active vouchers in database
+                # 2. Check duplicate across other active vouchers in database
                 existing_lines = frappe.db.sql(
                     """
                     SELECT parent, merchant_name, bill_number, amount
                     FROM `tabPetty Cash Line Item`
-                    WHERE parent != %s
-                      AND LOWER(TRIM(merchant_name)) = %s
+                    WHERE LOWER(TRIM(merchant_name)) = %s
                       AND LOWER(TRIM(bill_number)) = %s
                       AND docstatus < 2
-                    LIMIT 1
+                    LIMIT 5
                     """,
-                    (self.name or "", merchant, bill_no),
+                    (merchant, bill_no),
                     as_dict=True
                 )
-                if existing_lines:
-                    match = existing_lines[0]
-                    # Verify parent voucher is not cancelled or rejected
+                for match in existing_lines:
+                    # Strictly ignore this voucher itself
+                    if match.parent == current_name or (old_name and match.parent == old_name):
+                        continue
+                    if self.is_new() and match.parent == self.name:
+                        continue
+
+                    # Verify parent voucher is active (not cancelled/rejected)
                     p_status = frappe.db.get_value("Petty Cash Entry", match.parent, "status")
                     if p_status not in ("Rejected", "Cancelled"):
                         frappe.throw(
-                            f"🚨 FRAUD SHIELD: Duplicate Bill Detected!\n"
-                            f"Bill #{row.bill_number} from Merchant '{row.merchant_name}' (Amount: ₹{row.amount:,.2f}) "
-                            f"has already been claimed in Voucher #{match.parent}. "
-                            f"Duplicate submissions are strictly blocked across the system.",
+                            f"⚠️ Duplicate Bill Detected: Bill #{row.bill_number} from Merchant '{row.merchant_name}' "
+                            f"(Amount: ₹{row.amount:,.2f}) has already been submitted in Voucher #{match.parent}. "
+                            f"To prevent duplicate payments, please verify the bill details.",
                             exc=APValidationError
                         )
-
     def calculate_totals(self):
         total = 0.0
         verified = 0.0

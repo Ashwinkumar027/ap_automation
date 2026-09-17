@@ -73,7 +73,7 @@ def check_group_duplicates(doc) -> Dict[str, Any]:
                 continue
 
             raise APValidationError(
-                f"🚨 FRAUD SHIELD ALERT: Cross-Company Duplicate Detected!\n"
+                f"⚠️ Duplicate Invoice Detected:\n"
                 f"This exact invoice has already been claimed in Company '{c['company']}' "
                 f"(Voucher: {c['document_type']} #{c['document_name']}, "
                 f"Invoice: '{c['invoice_number']}', Amount: ₹{c['amount']:,.2f}). "

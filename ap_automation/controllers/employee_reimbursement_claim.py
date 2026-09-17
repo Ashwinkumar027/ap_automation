@@ -173,7 +173,7 @@ class EmployeeReimbursementClaim(APDocument):
                 for c in collisions:
                     if c["document_name"] != getattr(self, "name", None):
                         raise APValidationError(
-                            f"🚨 FRAUD SHIELD ALERT: Cross-Lane Duplicate Spend Detected on Row {idx}! "
+                            f"⚠️ Duplicate Expense Detected on Row {idx}! "
                             f"Invoice '{c['invoice_number']}' for INR {c['amount']:,.2f} at '{merchant}' "
                             f"has already been claimed in Company '{c['company']}' (Voucher: {c['document_type']} #{c['document_name']}). "
                             f"Duplicate claims across sister companies and expense lanes are strictly blocked."
