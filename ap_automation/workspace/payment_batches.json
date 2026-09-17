@@ -9,7 +9,7 @@
  "label": "Payment Batches",
  "title": "Payment Batches",
  "sequence_id": 1.5,
- "parent_page": "",
+ "parent_page": "AP Automation",
  "module": "AP Automation",
  "app": "ap_automation",
  "type": "Workspace",

@@ -9,7 +9,7 @@
  "label": "Lane 3: Vendor Invoices",
  "title": "Lane 3: Vendor Invoices",
  "sequence_id": 1.3,
- "parent_page": "",
+ "parent_page": "AP Automation",
  "module": "AP Automation",
  "app": "ap_automation",
  "type": "Workspace",

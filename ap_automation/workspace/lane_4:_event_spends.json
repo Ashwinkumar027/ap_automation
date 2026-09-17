@@ -9,7 +9,7 @@
  "label": "Lane 4: Event Spends",
  "title": "Lane 4: Event Spends",
  "sequence_id": 1.4,
- "parent_page": "",
+ "parent_page": "AP Automation",
  "module": "AP Automation",
  "app": "ap_automation",
  "type": "Workspace",

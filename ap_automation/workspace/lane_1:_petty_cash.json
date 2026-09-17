@@ -9,7 +9,7 @@
  "label": "Lane 1: Petty Cash",
  "title": "Lane 1: Petty Cash",
  "sequence_id": 1.1,
- "parent_page": "",
+ "parent_page": "AP Automation",
  "module": "AP Automation",
  "app": "ap_automation",
  "type": "Workspace",

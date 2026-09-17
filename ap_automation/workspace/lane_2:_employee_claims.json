@@ -9,7 +9,7 @@
  "label": "Lane 2: Employee Claims",
  "title": "Lane 2: Employee Claims",
  "sequence_id": 1.2,
- "parent_page": "",
+ "parent_page": "AP Automation",
  "module": "AP Automation",
  "app": "ap_automation",
  "type": "Workspace",
