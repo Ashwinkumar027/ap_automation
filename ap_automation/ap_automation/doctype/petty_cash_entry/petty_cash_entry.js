@@ -12,6 +12,7 @@
 
 frappe.ui.form.on('Petty Cash Entry', {
     setup: function (frm) {
+        frm.set_df_property('status', 'read_only', 1);
         apply_petty_cash_styles();
     },
 
@@ -75,6 +76,7 @@ frappe.ui.form.on('Petty Cash Entry', {
             };
         });
 
+        frm.set_df_property('status', 'read_only', 1);
         apply_petty_cash_styles();
         render_petty_cash_stepper(frm);
         render_status_guidance_banner(frm);
