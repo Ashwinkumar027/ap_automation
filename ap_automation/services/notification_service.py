@@ -154,7 +154,7 @@ def notify_admin_l1_on_reception_submit(voucher_doctype: str, voucher_name: str)
         company=company,
         document_lane=voucher_doctype,
         level_number=1,
-        fallback_roles=["Assistant Admin Manager", "Admin L1 Approver", "Admin Manager", "System Manager"]
+        fallback_roles=["Admin L1 Approver"]
     )
 
     subject = f"📋 [Admin L1 Review] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)})"
@@ -197,7 +197,7 @@ def notify_admin_l2_on_l1_approved(voucher_doctype: str, voucher_name: str) -> N
         company=company,
         document_lane=voucher_doctype,
         level_number=2,
-        fallback_roles=["Admin Manager", "Admin L2 Approver", "System Manager"]
+        fallback_roles=["Admin L2 Approver"]
     )
 
     subject = f"📋 [Admin L2 Final Review] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)})"
@@ -294,7 +294,7 @@ def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> N
         company=company,
         document_lane=voucher_doctype,
         level_number=3,
-        fallback_roles=["Accounts L1 Auditor", "Accounts User", "Accounts Manager", "System Manager"]
+        fallback_roles=["Accounts User", "Accounts L1 Auditor"]
     )
 
     subject = f"🔔 [Audit Required] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)}) for {company}"
@@ -405,7 +405,7 @@ def notify_director_on_l1_audit_completed(voucher_doctype: str, voucher_name: st
         company=company,
         document_lane=voucher_doctype,
         level_number=4,
-        fallback_roles=["Accounts Director", "Director", "Accounts L2 Approver", "Director Tier", "System Manager"]
+        fallback_roles=["Accounts Director"]
     )
 
     subject = f"📑 [Approval Required] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)})"
@@ -457,7 +457,7 @@ def notify_admin_on_l2_approved(voucher_doctype: str, voucher_name: str) -> None
     # 3. Payment Releaser (Anish Sir)
     releasers = frappe.get_all(
         "Has Role",
-        filters={"role": ["in", ["Payment Releaser", "Director Tier"]], "parenttype": "User"},
+        filters={"role": ["in", ["Payment Releaser"]], "parenttype": "User"},
         pluck="parent"
     )
     releasers = [r for r in releasers if r and r != "Administrator"]
@@ -512,7 +512,7 @@ def notify_releaser_on_batch_ready(batch_name: str) -> None:
 
     releasers = frappe.get_all(
         "Has Role",
-        filters={"role": ["in", ["Payment Releaser", "Director", "System Manager"]], "parenttype": "User"},
+        filters={"role": ["in", ["Payment Releaser"]], "parenttype": "User"},
         pluck="parent"
     )
 
