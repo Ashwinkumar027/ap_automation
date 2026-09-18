@@ -157,11 +157,11 @@ def create_payment_instruction_from_claim(
         "beneficiary_name": beneficiary_name,
         "beneficiary_account": account_no,
         "beneficiary_ifsc": ifsc,
-        "beneficiary_bank": bank_name or "Scheduled Bank",
+        "bank_name": bank_name or "Scheduled Bank",
         "payable_amount": payable_amt,
-        "gate_1_l1_verified": 1 if l1_verified else 0,
-        "gate_2_l2_approved": 1 if l2_approved else 0,
-        "gate_3_penny_drop_clean": 1 if penny_drop_clean else 0,
+        "gate_l1_verified": 1 if l1_verified else 0,
+        "gate_l2_approved": 1 if l2_approved else 0,
+        "gate_penny_drop_clean": 1 if penny_drop_clean else 0,
         "hard_gate_status": hard_gate_status,
         "status": funnel_status
     })

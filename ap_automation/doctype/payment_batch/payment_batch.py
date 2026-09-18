@@ -52,90 +52,138 @@ def fetch_approved_claims_for_batch(batch_name=None, company=None):
 
     found_instructions = []
 
-    # 1. Petty Cash Entries
-    pc_entries = frappe.get_all(
-        "Petty Cash Entry",
-        filters={
-            "company": company,
-            "status": ["in", ["Approved for Payment", "Approved", "Submitted"]],
-            "batch_id": ["in", ["", None]]
-        },
-        fields=["name", "company", "total_amount", "custodian"]
+    # 1. Petty Cash Entries (Lane 1)
+    pc_entries = frappe.db.sql(
+        """
+        SELECT name, company, total_amount, custodian
+        FROM `tabPetty Cash Entry`
+        WHERE company = %s
+          AND status IN ('Approved for Payment', 'Approved', 'Submitted')
+          AND (batch_id IS NULL OR batch_id = '' OR batch_id = %s)
+        """,
+        (company, batch_name or ""),
+        as_dict=True
     )
     for pc in pc_entries:
-        pi_name = frappe.db.get_value("Payment Instruction", {"source_doctype": "Petty Cash Entry", "source_voucher": pc.name, "batch_id": ["in", ["", None]]})
-        if not pi_name:
+        pi_name = frappe.db.sql(
+            """
+            SELECT name FROM `tabPayment Instruction`
+            WHERE source_doctype = 'Petty Cash Entry'
+              AND source_voucher = %s
+              AND (batch_id IS NULL OR batch_id = '' OR batch_id = %s)
+            LIMIT 1
+            """,
+            (pc.name, batch_name or ""),
+            as_dict=True
+        )
+        pi_id = pi_name[0].name if pi_name else None
+        if not pi_id:
             try:
-                pi_name = funnel_service.create_payment_instruction_from_claim("Petty Cash Entry", pc.name)
+                pi_id = funnel_service.create_payment_instruction_from_claim("Petty Cash Entry", pc.name)
             except Exception as e:
                 frappe.log_error(f"Error creating PI for {pc.name}: {str(e)}")
-        if pi_name:
-            pi_doc = frappe.get_doc("Payment Instruction", pi_name)
+        if pi_id:
+            pi_doc = frappe.get_doc("Payment Instruction", pi_id)
             found_instructions.append(pi_doc)
 
-    # 2. Employee Reimbursement Claims
+    # 2. Employee Reimbursement Claims (Lane 2)
     if frappe.db.exists("DocType", "Employee Reimbursement Claim"):
-        emp_claims = frappe.get_all(
-            "Employee Reimbursement Claim",
-            filters={
-                "company": company,
-                "status": ["in", ["Approved for Payment", "Approved"]],
-                "batch_id": ["in", ["", None]]
-            },
-            fields=["name"]
+        emp_claims = frappe.db.sql(
+            """
+            SELECT name FROM `tabEmployee Reimbursement Claim`
+            WHERE company = %s
+              AND status IN ('Approved for Payment', 'Approved')
+              AND (batch_id IS NULL OR batch_id = '' OR batch_id = %s)
+            """,
+            (company, batch_name or ""),
+            as_dict=True
         )
         for ec in emp_claims:
-            pi_name = frappe.db.get_value("Payment Instruction", {"source_doctype": "Employee Reimbursement Claim", "source_voucher": ec.name, "batch_id": ["in", ["", None]]})
-            if not pi_name:
+            pi_name = frappe.db.sql(
+                """
+                SELECT name FROM `tabPayment Instruction`
+                WHERE source_doctype = 'Employee Reimbursement Claim'
+                  AND source_voucher = %s
+                  AND (batch_id IS NULL OR batch_id = '' OR batch_id = %s)
+                LIMIT 1
+                """,
+                (ec.name, batch_name or ""),
+                as_dict=True
+            )
+            pi_id = pi_name[0].name if pi_name else None
+            if not pi_id:
                 try:
-                    pi_name = funnel_service.create_payment_instruction_from_claim("Employee Reimbursement Claim", ec.name)
-                except Exception:
-                    pass
-            if pi_name:
-                found_instructions.append(frappe.get_doc("Payment Instruction", pi_name))
+                    pi_id = funnel_service.create_payment_instruction_from_claim("Employee Reimbursement Claim", ec.name)
+                except Exception as e:
+                    frappe.log_error(f"Error creating PI for {ec.name}: {str(e)}")
+            if pi_id:
+                found_instructions.append(frappe.get_doc("Payment Instruction", pi_id))
 
-    # 3. Vendor Invoice Claims
+    # 3. Vendor Invoice Claims (Lane 3)
     if frappe.db.exists("DocType", "Vendor Invoice Claim"):
-        vendor_claims = frappe.get_all(
-            "Vendor Invoice Claim",
-            filters={
-                "company": company,
-                "status": ["in", ["Approved for Payment", "Approved"]],
-                "batch_id": ["in", ["", None]]
-            },
-            fields=["name"]
+        vendor_claims = frappe.db.sql(
+            """
+            SELECT name FROM `tabVendor Invoice Claim`
+            WHERE company = %s
+              AND status IN ('Approved for Payment', 'Approved')
+              AND (batch_id IS NULL OR batch_id = '' OR batch_id = %s)
+            """,
+            (company, batch_name or ""),
+            as_dict=True
         )
         for vc in vendor_claims:
-            pi_name = frappe.db.get_value("Payment Instruction", {"source_doctype": "Vendor Invoice Claim", "source_voucher": vc.name, "batch_id": ["in", ["", None]]})
-            if not pi_name:
+            pi_name = frappe.db.sql(
+                """
+                SELECT name FROM `tabPayment Instruction`
+                WHERE source_doctype = 'Vendor Invoice Claim'
+                  AND source_voucher = %s
+                  AND (batch_id IS NULL OR batch_id = '' OR batch_id = %s)
+                LIMIT 1
+                """,
+                (vc.name, batch_name or ""),
+                as_dict=True
+            )
+            pi_id = pi_name[0].name if pi_name else None
+            if not pi_id:
                 try:
-                    pi_name = funnel_service.create_payment_instruction_from_claim("Vendor Invoice Claim", vc.name)
-                except Exception:
-                    pass
-            if pi_name:
-                found_instructions.append(frappe.get_doc("Payment Instruction", pi_name))
+                    pi_id = funnel_service.create_payment_instruction_from_claim("Vendor Invoice Claim", vc.name)
+                except Exception as e:
+                    frappe.log_error(f"Error creating PI for {vc.name}: {str(e)}")
+            if pi_id:
+                found_instructions.append(frappe.get_doc("Payment Instruction", pi_id))
 
-    # 4. Event Advance Requests
+    # 4. Event Advance Requests (Lane 4)
     if frappe.db.exists("DocType", "Event Advance Request"):
-        event_claims = frappe.get_all(
-            "Event Advance Request",
-            filters={
-                "company": company,
-                "status": ["in", ["Approved for Advance", "Approved for Payment", "Approved"]],
-                "batch_id": ["in", ["", None]]
-            },
-            fields=["name"]
+        event_claims = frappe.db.sql(
+            """
+            SELECT name FROM `tabEvent Advance Request`
+            WHERE company = %s
+              AND status IN ('Approved for Advance', 'Approved for Payment', 'Approved')
+              AND (batch_id IS NULL OR batch_id = '' OR batch_id = %s)
+            """,
+            (company, batch_name or ""),
+            as_dict=True
         )
         for ev in event_claims:
-            pi_name = frappe.db.get_value("Payment Instruction", {"source_doctype": "Event Advance Request", "source_voucher": ev.name, "batch_id": ["in", ["", None]]})
-            if not pi_name:
+            pi_name = frappe.db.sql(
+                """
+                SELECT name FROM `tabPayment Instruction`
+                WHERE source_doctype = 'Event Advance Request'
+                  AND source_voucher = %s
+                  AND (batch_id IS NULL OR batch_id = '' OR batch_id = %s)
+                LIMIT 1
+                """,
+                (ev.name, batch_name or ""),
+                as_dict=True
+            )
+            pi_id = pi_name[0].name if pi_name else None
+            if not pi_id:
                 try:
-                    pi_name = funnel_service.create_payment_instruction_from_claim("Event Advance Request", ev.name)
-                except Exception:
-                    pass
-            if pi_name:
-                found_instructions.append(frappe.get_doc("Payment Instruction", pi_name))
-
+                    pi_id = funnel_service.create_payment_instruction_from_claim("Event Advance Request", ev.name)
+                except Exception as e:
+                    frappe.log_error(f"Error creating PI for {ev.name}: {str(e)}")
+            if pi_id:
+                found_instructions.append(frappe.get_doc("Payment Instruction", pi_id))
     # Populate Batch if batch_name is provided
     items_to_return = []
     tot_amt = 0.0
