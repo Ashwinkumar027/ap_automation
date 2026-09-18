@@ -1,7 +1,7 @@
 {
  "app": "ap_automation",
  "charts": [],
- "content": "[{\"id\": \"header_1\", \"type\": \"header\", \"data\": {\"text\": \"Lane 1: Petty Cash\", \"level\": 4, \"col\": 12}}, {\"id\": \"card_9274eb\", \"type\": \"card\", \"data\": {\"card_name\": \"Petty Cash Operations\", \"col\": 4}}]",
+ "content": "[{\"id\":\"header_1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Lane 1: Petty Cash</span>\",\"col\":12}},{\"id\":\"card_9274eb\",\"type\":\"card\",\"data\":{\"card_name\":\"Petty Cash Operations\",\"col\":4}}]",
  "creation": "2026-09-09 16:32:50.888962",
  "custom_blocks": [],
  "docstatus": 0,
@@ -16,10 +16,10 @@
  "links": [
   {
    "hidden": 0,
-   "icon": "cash",
    "is_query_report": 0,
    "label": "Petty Cash Operations",
-   "link_count": 0,
+   "link_count": 2,
+   "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
   },
@@ -32,9 +32,19 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Petty Cash Summary Report",
+   "link_count": 0,
+   "link_to": "Petty Cash Summary Report",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-09-15 15:03:21.014001",
+ "modified": "2026-09-18 11:39:51.893112",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Lane 1: Petty Cash",
@@ -76,22 +86,7 @@
   }
  ],
  "sequence_id": 1.1,
- "shortcuts": [
-  {
-   "color": "Orange",
-   "label": "Petty Cash Entries",
-   "link_to": "Petty Cash Entry",
-   "type": "DocType"
-  },
-  {
-   "color": "Green",
-   "doc_view": "",
-   "label": "Petty Cash Summary Report",
-   "link_to": "Petty Cash Summary Report",
-   "report_ref_doctype": "Petty Cash Entry",
-   "type": "Report"
-  }
- ],
+ "shortcuts": [],
  "title": "Lane 1: Petty Cash",
  "type": "Workspace"
 }

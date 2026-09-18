@@ -322,71 +322,101 @@ def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> N
 
 
 # --------------------------------------------------------------------------------------
-# 2. NOTIFY CUSTODIAN/ADMIN: Item Disputed/Rejected by Accounts
+# 2. NOTIFY ADMIN ON DISPUTE: Line Item Rejected/Disputed by Accounts L1
 # --------------------------------------------------------------------------------------
-def notify_custodian_on_dispute(
+def notify_admin_on_dispute(
     voucher_doctype: str,
     voucher_name: str,
-    disputed_items: List[Dict[str, Any]]
+    disputed_items: List[Dict[str, Any]],
+    forked_voucher_name: Optional[str] = None
 ) -> None:
-    """Triggered when Accounts L1 disputes one or more line items."""
+    """Triggered when Accounts L1 Auditor disputes specific bill lines."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
-    custodian = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
-    if not custodian:
+    recipients = []
+
+    # 1. Admin Approvers
+    if getattr(doc, "admin_l2_approver", None):
+        recipients.append(doc.admin_l2_approver)
+    if getattr(doc, "admin_l1_approver", None):
+        recipients.append(doc.admin_l1_approver)
+
+    # 2. Custodian / Front Desk Owner
+    if getattr(doc, "custodian", None):
+        recipients.append(doc.custodian)
+    if getattr(doc, "owner", None):
+        recipients.append(doc.owner)
+
+    # 3. Dynamic Matrix Fallback
+    if not recipients:
+        admin_users = _get_matrix_or_role_approvers(
+            getattr(doc, "company", ""),
+            getattr(doc, "doctype", ""),
+            1,
+            ["Admin L1 Approver", "Admin L2 Approver"]
+        )
+        recipients.extend(admin_users)
+
+    recipients = list(dict.fromkeys([r for r in recipients if r]))
+    if not recipients:
         return
 
+    total_disputed = sum(float(i.get("amount", 0.0)) for i in disputed_items)
+    doc_url = get_url_to_form(voucher_doctype, forked_voucher_name or voucher_name)
+
     items_html = ""
-    for item in disputed_items:
-        exp_head = item.get("expense_head", "Expense")
+    for idx, item in enumerate(disputed_items, 1):
+        reason = item.get("dispute_reason") or item.get("rejection_reason") or item.get("remarks") or "Missing valid tax invoice proof"
+        m_name = item.get("merchant_name") or item.get("expense_category") or "Item"
         amt = float(item.get("amount", 0.0))
-        reason = item.get("remarks") or item.get("dispute_reason") or "Receipt invalid or unreadable"
         items_html += f"""
-        <tr style="border-bottom: 1px solid #e2e8f0;">
-            <td style="padding: 10px; font-size: 13px; color: #1e293b;">{exp_head}</td>
-            <td style="padding: 10px; font-size: 13px; color: #e11d48; font-weight: 600;">₹ {fmt_money(amt)}</td>
-            <td style="padding: 10px; font-size: 13px; color: #475569;">{reason}</td>
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+            <td style="padding: 10px; color: #0f172a;"><b>#{idx}</b> {m_name}</td>
+            <td style="padding: 10px; font-weight: 700; color: #dc2626;">₹ {fmt_money(amt)}</td>
+            <td style="padding: 10px; color: #b91c1c;">{reason}</td>
         </tr>
         """
 
-    doc_url = get_url_to_form(voucher_doctype, voucher_name)
-    subject = f"⚠️ [Action Required] Items Disputed on {voucher_doctype} #{voucher_name}"
+    subject = f"⚠️ [Action Required] Line Items Disputed in #{voucher_name} (₹ {fmt_money(total_disputed)})"
     html = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fecdd3; border-radius: 10px; padding: 24px; background: #ffffff;">
-        <div style="border-bottom: 2px solid #e11d48; padding-bottom: 12px; margin-bottom: 16px;">
-            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #e11d48; font-weight: 700;">Audit Finding &bull; Dispute Notice</span>
-            <h2 style="margin: 4px 0 0 0; color: #881337; font-size: 20px;">Line Items Disputed by Accounts</h2>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fecaca; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #dc2626; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700;">AP Audit Notice &bull; Action Required</span>
+            <h2 style="margin: 4px 0 0 0; color: #991b1b; font-size: 20px;">Expense Line Items Disputed</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            During the audit of voucher <b>#{voucher_name}</b>, the Accounts team flagged the following items requiring your attention:
+            Accounts L1 Auditor has audited your voucher <b>#{voucher_name}</b> and flagged the following line item(s) as disputed:
         </p>
-        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; background: #fff1f2; border-radius: 6px; overflow: hidden;">
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
             <thead>
-                <tr style="background: #ffe4e6; text-align: left;">
-                    <th style="padding: 10px; font-size: 12px; color: #881337;">Expense Head</th>
-                    <th style="padding: 10px; font-size: 12px; color: #881337;">Amount</th>
-                    <th style="padding: 10px; font-size: 12px; color: #881337;">Reason</th>
+                <tr style="background: #fef2f2; text-align: left; font-size: 12px; color: #991b1b;">
+                    <th style="padding: 8px 10px;">Item / Merchant</th>
+                    <th style="padding: 8px 10px;">Amount</th>
+                    <th style="padding: 8px 10px;">Dispute Reason</th>
                 </tr>
             </thead>
             <tbody>
                 {items_html}
             </tbody>
         </table>
-        <p style="color: #64748b; font-size: 13px;">
-            <i>Note: Validated items will proceed to payment batching. Please review the disputed lines to re-submit or adjust.</i>
+        <p style="font-size: 13px; color: #64748b;">
+            Disputed lines have been separated into new draft <b>#{forked_voucher_name or voucher_name}</b>. Please attach rectified proof and resubmit.
         </p>
-        <div style="text-align: center; margin-top: 24px;">
-            <a href="{doc_url}" style="background: #e11d48; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
-                View Voucher Details &rarr;
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="{doc_url}" style="background: #dc2626; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 13px; display: inline-block;">
+                Review & Upload Corrected Proof &rarr;
             </a>
         </div>
     </div>
     """
-    _send_email_and_desk_alert([custodian], subject, html, voucher_doctype, voucher_name, "red")
+    _send_email_and_desk_alert(recipients, subject, html, voucher_doctype, forked_voucher_name or voucher_name, "red")
 
 
+def notify_custodian_on_dispute(voucher_doctype: str, voucher_name: str, disputed_items: List[Dict[str, Any]]) -> None:
+    """Alias for backwards compatibility."""
+    notify_admin_on_dispute(voucher_doctype, voucher_name, disputed_items)
 # --------------------------------------------------------------------------------------
 # 3. NOTIFY DIRECTOR L2: Batch / Claim Ready for Sanction (Anshul Sir)
 # --------------------------------------------------------------------------------------

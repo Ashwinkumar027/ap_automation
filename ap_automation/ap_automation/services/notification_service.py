@@ -259,7 +259,7 @@ def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> N
 
 
 # --------------------------------------------------------------------------------------
-# 2. NOTIFY ADMIN ON DISPUTE: Line Item Rejected/Disputed by L1
+# 2. NOTIFY ADMIN ON DISPUTE: Line Item Rejected/Disputed by Accounts L1
 # --------------------------------------------------------------------------------------
 def notify_admin_on_dispute(
     voucher_doctype: str,
@@ -267,13 +267,37 @@ def notify_admin_on_dispute(
     disputed_items: List[Dict[str, Any]],
     forked_voucher_name: Optional[str] = None
 ) -> None:
-    """Triggered when L1 Accounts Verifier disputes specific bill lines."""
+    """Triggered when Accounts L1 Auditor disputes specific bill lines."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
-    custodian = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
-    if not custodian:
+    recipients = []
+
+    # 1. Admin Approvers
+    if getattr(doc, "admin_l2_approver", None):
+        recipients.append(doc.admin_l2_approver)
+    if getattr(doc, "admin_l1_approver", None):
+        recipients.append(doc.admin_l1_approver)
+
+    # 2. Custodian / Front Desk Owner
+    if getattr(doc, "custodian", None):
+        recipients.append(doc.custodian)
+    if getattr(doc, "owner", None):
+        recipients.append(doc.owner)
+
+    # 3. Dynamic Matrix Fallback
+    if not recipients:
+        admin_users = _get_matrix_or_role_approvers(
+            getattr(doc, "company", ""),
+            getattr(doc, "doctype", ""),
+            1,
+            ["Admin L1 Approver", "Admin L2 Approver"]
+        )
+        recipients.extend(admin_users)
+
+    recipients = list(dict.fromkeys([r for r in recipients if r]))
+    if not recipients:
         return
 
     total_disputed = sum(float(i.get("amount", 0.0)) for i in disputed_items)
@@ -281,11 +305,13 @@ def notify_admin_on_dispute(
 
     items_html = ""
     for idx, item in enumerate(disputed_items, 1):
-        reason = item.get("dispute_reason") or item.get("rejection_reason") or "Missing valid tax invoice proof"
+        reason = item.get("dispute_reason") or item.get("rejection_reason") or item.get("remarks") or "Missing valid tax invoice proof"
+        m_name = item.get("merchant_name") or item.get("expense_category") or "Item"
+        amt = float(item.get("amount", 0.0))
         items_html += f"""
         <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
-            <td style="padding: 10px; color: #0f172a;"><b>#{idx}</b> {item.get('merchant_name') or item.get('expense_category')}</td>
-            <td style="padding: 10px; font-weight: 700; color: #dc2626;">₹ {fmt_money(float(item.get('amount', 0.0)))}</td>
+            <td style="padding: 10px; color: #0f172a;"><b>#{idx}</b> {m_name}</td>
+            <td style="padding: 10px; font-weight: 700; color: #dc2626;">₹ {fmt_money(amt)}</td>
             <td style="padding: 10px; color: #b91c1c;">{reason}</td>
         </tr>
         """
@@ -298,7 +324,7 @@ def notify_admin_on_dispute(
             <h2 style="margin: 4px 0 0 0; color: #991b1b; font-size: 20px;">Expense Line Items Disputed</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            Accounts L1 Verifier has audited your voucher <b>#{voucher_name}</b> and flagged the following line item(s) as disputed:
+            Accounts L1 Auditor has audited your voucher <b>#{voucher_name}</b> and flagged the following line item(s) as disputed:
         </p>
         <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
             <thead>
@@ -322,9 +348,12 @@ def notify_admin_on_dispute(
         </div>
     </div>
     """
-    _send_email_and_desk_alert([custodian], subject, html, voucher_doctype, forked_voucher_name or voucher_name, "red")
+    _send_email_and_desk_alert(recipients, subject, html, voucher_doctype, forked_voucher_name or voucher_name, "red")
 
 
+def notify_custodian_on_dispute(voucher_doctype: str, voucher_name: str, disputed_items: List[Dict[str, Any]]) -> None:
+    """Alias for backwards compatibility."""
+    notify_admin_on_dispute(voucher_doctype, voucher_name, disputed_items)
 # --------------------------------------------------------------------------------------
 # 3. NOTIFY L2: Clean Voucher Audited & Ready for Director Approval
 # --------------------------------------------------------------------------------------
