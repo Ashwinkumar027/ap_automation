@@ -1057,75 +1057,56 @@ function setup_dispute_merge_helper(frm) {
                 let total_disputed_amt = 0;
                 vouchers.forEach(v => total_disputed_amt += v.total_amount);
 
-                // 1. Add Top Bar Button
-                frm.add_custom_button(__(`📥 Merge ${count} Disputed Bill(s) (₹ ${total_disputed_amt.toLocaleString('en-IN')})`), function () {
+                // Single, Clean, Standard Header Action Button
+                frm.add_custom_button(__(`📥 Merge Disputed Bills (${count})`), function () {
                     open_dispute_merge_dialog(frm, vouchers);
                 }).addClass("btn-warning").css({
                     "background": "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
                     "color": "#ffffff",
                     "font-weight": "700",
-                    "border": "none",
-                    "box-shadow": "0 2px 6px rgba(245, 158, 11, 0.4)"
+                    "border": "none"
                 });
-
-                // 2. Add In-Grid Banner Above Expense Lines Table
-                $('#dispute-merge-banner-box').remove();
-                const bannerHtml = `
-                    <div id="dispute-merge-banner-box" style="background: rgba(245, 158, 11, 0.12); border: 1.5px dashed #f59e0b; border-radius: 8px; padding: 12px 16px; margin: 16px 0; display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <span style="font-size: 15px;">💡</span>
-                            <b style="color: #92400e; font-size: 13.5px; margin-left: 6px;">Unresolved Disputed Bills Found:</b>
-                            <span style="color: #78350f; font-size: 13px; margin-left: 4px;">You have <b>${count}</b> previous disputed record(s) totaling <b>₹ ${total_disputed_amt.toLocaleString('en-IN')}</b>.</span>
-                        </div>
-                        <button type="button" class="btn btn-xs btn-warning" id="btn-quick-merge-disputes" style="font-weight: 700; background: #f59e0b; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer;">
-                            📥 Merge into This Voucher
-                        </button>
-                    </div>
-                `;
-                if (frm.fields_dict['sb_lines'] && frm.fields_dict['sb_lines'].wrapper) {
-                    $(frm.fields_dict['sb_lines'].wrapper).prepend(bannerHtml);
-                } else if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].wrapper) {
-                    $(frm.fields_dict['expense_lines'].wrapper).before(bannerHtml);
-                }
-
-                setTimeout(() => {
-                    $('#btn-quick-merge-disputes').on('click', () => {
-                        open_dispute_merge_dialog(frm, vouchers);
-                    });
-                }, 100);
             }
         }
     });
 }
 
 function open_dispute_merge_dialog(frm, vouchers) {
+    let total_disputed_amt = 0;
+    vouchers.forEach(v => total_disputed_amt += v.total_amount);
+
     let fields = [
         {
             fieldname: "info_html",
             fieldtype: "HTML",
             options: `
-                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px; font-size: 13px; color: #334155;">
-                    Select the previous disputed vouchers to absorb into <b>#${frm.doc.name}</b>. Disputed lines will be merged into this voucher so you can attach updated bills and submit a single consolidated voucher for this cycle.
+                <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px;">
+                    <div style="font-weight: 700; color: #92400e; font-size: 13.5px; margin-bottom: 4px;">
+                        💡 Absorb Carried-Forward Bills into This Voucher
+                    </div>
+                    <div style="font-size: 12.5px; color: #78350f; line-height: 1.4;">
+                        Select the previous disputed vouchers below to merge into <b>#${frm.doc.name}</b>. Disputed lines will be appended into this expense table so you can attach updated proofs and submit a single consolidated voucher for this weekly cycle.
+                    </div>
                 </div>
             `
         }
     ];
 
     vouchers.forEach((v, idx) => {
-        let lines_summary = v.lines.map(l => `• ${l.merchant_name} (₹ ${l.amount.toLocaleString('en-IN')}) — <i>Reason: ${l.dispute_reason}</i>`).join('<br>');
+        let lines_summary = v.lines.map(l => `• <b>${l.merchant_name}</b> (₹ ${l.amount.toLocaleString('en-IN')}) — <span style="color: #b91c1c;">Reason: ${l.dispute_reason}</span>`).join('<br>');
         fields.push({
             fieldname: `merge_${idx}`,
             fieldtype: "Check",
-            label: `<b>${v.name}</b> (${v.claim_title}) — ₹ ${v.total_amount.toLocaleString('en-IN')}`,
+            label: `<b>${v.name}</b> (${v.claim_title}) — <b>₹ ${v.total_amount.toLocaleString('en-IN')}</b>`,
             default: 1,
-            description: `<div style="font-size: 11px; color: #64748b; margin-top: 4px;">${lines_summary}</div>`
+            description: `<div style="font-size: 11.5px; color: #475569; margin: 4px 0 8px 24px; padding-left: 8px; border-left: 2px solid #cbd5e1;">${lines_summary}</div>`
         });
     });
 
     let d = new frappe.ui.Dialog({
-        title: __("📥 Merge Disputed Lines into Current Voucher"),
+        title: __("📥 Merge Disputed Lines into Current Cycle"),
         fields: fields,
-        primary_action_label: __("Merge Lines & Update Voucher"),
+        primary_action_label: __("Merge Lines into Voucher"),
         primary_action(values) {
             let selected_vouchers = [];
             vouchers.forEach((v, idx) => {
