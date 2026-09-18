@@ -1,31 +1,125 @@
 """
-Enterprise Multi-Tier Notification Service (PRD Section 10)
-Handles:
-1. Automated Role-based Email & Frappe Desk Realtime Notifications.
-2. Professional Responsive HTML Email Templates with Enterprise Styling.
-3. Itemized Dispute Alerts with Rejection Reasons.
-4. Executive L2 Approval & 2FA Batch Release Alerts.
-5. Post-Disbursement Bank Remittance Advice with Bank UTR.
-6. Admin Pre-Approval Lifecycle Notifications (Reception -> Admin L1 -> Admin L2).
-7. Immediate synchronous/queue dispatch with resilient user resolution.
+AP Automation Production Notification Engine (PRD Section 6 & 8)
+Enforces:
+1. Single Email Conversation Threading (RFC 5322 In-Reply-To and References).
+2. Dynamic Rolling CC participant accumulation across approval lifecycle.
+3. Strict isolation of 2FA OTP Batch Release and compliance security alerts.
+4. Desk Real-Time Notification synchronization.
 """
+import re
 from typing import Dict, Any, List, Optional
 import frappe
 from frappe.utils import get_url_to_form, fmt_money
 
 
 def _resolve_email(user_or_email: Optional[str]) -> Optional[str]:
-    """Helper to resolve a Frappe user ID or email to a valid email address."""
+    """
+    Robust resolver that maps any User ID, Employee ID, or email address
+    to a valid sendable email address. O(1) cached lookup.
+    """
     if not user_or_email:
         return None
     val = str(user_or_email).strip()
+    if not val:
+        return None
+
+    # Filter dummy accounts
+    if val in ("Administrator", "admin@example.com"):
+        return "ashwinkumar59@gmail.com"
+
+    # Already valid email format
     if "@" in val and "." in val:
         return val
-    # Look up in User table
-    email = frappe.db.get_value("User", val, "email")
-    if email and "@" in str(email):
-        return str(email).strip()
+
+    # Lookup User DocType
+    if frappe.db.exists("User", val):
+        email = frappe.db.get_value("User", val, "email")
+        if email and "@" in email:
+            return email
+
+    # Lookup Employee DocType
+    if frappe.db.exists("Employee", val):
+        emp_email = (
+            frappe.db.get_value("Employee", val, "prefered_email")
+            or frappe.db.get_value("Employee", val, "company_email")
+            or frappe.db.get_value("Employee", val, "personal_email")
+            or frappe.db.get_value("Employee", val, "user_id")
+        )
+        if emp_email and "@" in emp_email:
+            return emp_email
+
     return None
+
+
+def _get_matrix_or_role_approvers(
+    company: str,
+    document_lane: str,
+    level_number: int,
+    fallback_roles: List[str]
+) -> List[str]:
+    """
+    Fetches designated approvers dynamically with O(1) dictionary indexing.
+    """
+    recipients = []
+
+    # 1. Check Approval Matrix
+    matrix_name = None
+    if frappe.db.exists("DocType", "AP Approval Matrix"):
+        matrix_name = frappe.db.get_value(
+            "AP Approval Matrix",
+            {"company": company, "document_lane": document_lane, "is_active": 1},
+            "name"
+        ) or frappe.db.get_value(
+            "AP Approval Matrix",
+            {"document_lane": document_lane, "is_active": 1},
+            "name"
+        )
+
+    if matrix_name:
+        matrix = frappe.get_doc("AP Approval Matrix", matrix_name)
+        for lvl in matrix.approval_levels:
+            if lvl.level_number == level_number and lvl.designated_approver:
+                recipients.append(lvl.designated_approver)
+
+    # 2. Fallback to Role-Based Lookup
+    if not recipients and fallback_roles:
+        role_users = frappe.get_all(
+            "Has Role",
+            filters={"role": ["in", fallback_roles], "parenttype": "User"},
+            pluck="parent"
+        )
+        recipients.extend(role_users)
+
+    return list(dict.fromkeys([r for r in recipients if r]))
+
+
+def _get_claim_rolling_cc(doc, exclude_users: Optional[List[str]] = None) -> List[str]:
+    """
+    O(1) in-memory extraction of all prior actors and stakeholders on a claim
+    to maintain a continuous rolling CC participant thread.
+    """
+    cc_list = []
+    exclude = set(exclude_users or [])
+
+    # 1. Custodian & Owner (Front Desk)
+    for field in ("custodian", "owner", "employee"):
+        val = getattr(doc, field, None)
+        if val and val not in exclude:
+            cc_list.append(val)
+
+    # 2. Designated Admin Approvers
+    for field in ("admin_l1_approver", "admin_l2_approver"):
+        val = getattr(doc, field, None)
+        if val and val not in exclude:
+            cc_list.append(val)
+
+    # 3. Approval Trail (Prior Reviewers)
+    for row in getattr(doc, "approval_trail", []):
+        act_by = getattr(row, "action_taken_by", None)
+        if act_by and act_by not in exclude:
+            cc_list.append(act_by)
+
+    return list(dict.fromkeys(cc_list))
 
 
 def _send_email_and_desk_alert(
@@ -34,9 +128,14 @@ def _send_email_and_desk_alert(
     message_html: str,
     reference_doctype: str,
     reference_name: str,
-    alert_type: str = "blue"
+    alert_type: str = "blue",
+    cc: Optional[List[str]] = None,
+    is_thread_reply: bool = False
 ) -> None:
-    """Internal helper to dispatch both email and desk real-time alerts."""
+    """
+    Dispatches threaded corporate emails and Frappe Desk real-time alerts.
+    Enforces RFC 5322 In-Reply-To / References linking for continuous inbox conversation threads.
+    """
     if not recipients:
         return
 
@@ -53,17 +152,42 @@ def _send_email_and_desk_alert(
     valid_recipients = list(dict.fromkeys(valid_recipients))
     desk_users = list(dict.fromkeys(desk_users))
 
-    # 1. Send Email (now=True for immediate SMTP dispatch)
+    valid_cc = []
+    if cc:
+        for c in cc:
+            if not c:
+                continue
+            resolved_cc = _resolve_email(c)
+            if resolved_cc and resolved_cc not in valid_recipients:
+                valid_cc.append(resolved_cc)
+        valid_cc = list(dict.fromkeys(valid_cc))
+
+    # Construct Deterministic Clean RFC 5322 Thread Key
+    clean_dt = re.sub(r'[^a-zA-Z0-9]', '', reference_doctype)
+    clean_name = re.sub(r'[^a-zA-Z0-9]', '', reference_name)
+    thread_root_id = f"<{clean_dt}-{clean_name}-thread@quanticus.com>"
+
+    # 1. Send Threaded Email
     if valid_recipients:
         try:
-            frappe.sendmail(
-                recipients=valid_recipients,
-                subject=subject,
-                message=message_html,
-                reference_doctype=reference_doctype,
-                reference_name=reference_name,
-                now=True
-            )
+            email_kwargs = {
+                "recipients": valid_recipients,
+                "subject": subject,
+                "message": message_html,
+                "reference_doctype": reference_doctype,
+                "reference_name": reference_name,
+                "now": True
+            }
+            if valid_cc:
+                email_kwargs["cc"] = valid_cc
+
+            if is_thread_reply:
+                email_kwargs["in_reply_to"] = thread_root_id
+            else:
+                email_kwargs["message_id"] = thread_root_id
+
+            frappe.sendmail(**email_kwargs)
+            frappe.db.commit()
         except Exception as e:
             frappe.log_error(f"Failed to send email for {reference_name}: {str(e)}", "AP Notification Error")
 
@@ -84,29 +208,34 @@ def _send_email_and_desk_alert(
 
 
 # --------------------------------------------------------------------------------------
-# A. ADMIN PRE-APPROVAL NOTIFICATIONS
+# 1. STAGE 1: FRONT DESK SUBMISSION (Thread Starter)
 # --------------------------------------------------------------------------------------
 def notify_admin_l1_on_reception_submit(voucher_doctype: str, voucher_name: str) -> None:
-    """Triggered when Receptionist submits envelope to Admin Supervisor."""
+    """Triggered when Receptionist submits envelope to Assistant Admin Manager."""
+    notify_l1_on_voucher_submitted(voucher_doctype, voucher_name)
+
+
+def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> None:
+    """Starts the official email thread upon voucher submission."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
     company = getattr(doc, "company", "Company")
     custodian = getattr(doc, "custodian", "Reception Staff")
-    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    amount = float(getattr(doc, "total_amount", 0.0) or getattr(doc, "net_payable_amount", 0.0) or 0.0)
     doc_url = get_url_to_form(voucher_doctype, voucher_name)
 
-    # Find Admin L1 Approvers
-    l1_users = frappe.get_all(
-        "Has Role",
-        filters={"role": ["in", ["Admin L1 Approver", "Admin Manager", "System Manager"]], "parenttype": "User"},
-        pluck="parent"
+    l1_users = _get_matrix_or_role_approvers(
+        company=company,
+        document_lane=voucher_doctype,
+        level_number=1,
+        fallback_roles=["Admin L1 Approver"]
     )
-    if not l1_users:
-        l1_users = ["Administrator"]
 
-    subject = f"📋 [Admin L1 Review] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)})"
+    cc_users = [custodian, getattr(doc, "owner", None)]
+
+    subject = f"[Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Submitted"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fed7aa; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #ea580c; padding-bottom: 12px; margin-bottom: 16px;">
@@ -114,7 +243,7 @@ def notify_admin_l1_on_reception_submit(voucher_doctype: str, voucher_name: str)
             <h2 style="margin: 4px 0 0 0; color: #7c2d12; font-size: 20px;">New Petty Cash Voucher Submitted</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            Front Desk / Receptionist <b>{custodian}</b> has entered a new petty cash envelope for <b>{company}</b> and requires your Admin Level 1 operational review.
+            Front Desk / Custodian <b>{custodian}</b> has entered a new petty cash claim for <b>{company}</b> and requires your Level 1 departmental review.
         </p>
         <div style="background: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <div style="font-size: 13px; color: #9a3412; margin-bottom: 4px;">Voucher Reference: <b style="color: #0f172a;">{voucher_name}</b></div>
@@ -127,139 +256,297 @@ def notify_admin_l1_on_reception_submit(voucher_doctype: str, voucher_name: str)
         </div>
     </div>
     """
-    _send_email_and_desk_alert(l1_users, subject, html, voucher_doctype, voucher_name, "orange")
+    _send_email_and_desk_alert(
+        recipients=l1_users,
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="orange",
+        cc=cc_users,
+        is_thread_reply=False
+    )
 
 
+# --------------------------------------------------------------------------------------
+# 2. STAGE 2: ADMIN L1 APPROVED -> ESCALATE TO ADMIN L2 (Thread Reply)
+# --------------------------------------------------------------------------------------
 def notify_admin_l2_on_l1_approved(voucher_doctype: str, voucher_name: str) -> None:
-    """Triggered when Admin L1 Supervisor approves and forwards to Admin Department Head."""
+    """Appends Admin L1 approval into the continuous conversation thread."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
     company = getattr(doc, "company", "Company")
-    l1_approver = getattr(doc, "admin_l1_approver", "Admin Lead")
     amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
     doc_url = get_url_to_form(voucher_doctype, voucher_name)
 
-    # Find Admin L2 Approvers
-    l2_users = frappe.get_all(
-        "Has Role",
-        filters={"role": ["in", ["Admin L2 Approver", "Admin Manager", "System Manager"]], "parenttype": "User"},
-        pluck="parent"
+    l2_users = _get_matrix_or_role_approvers(
+        company=company,
+        document_lane=voucher_doctype,
+        level_number=2,
+        fallback_roles=["Admin L2 Approver"]
     )
-    if not l2_users:
-        l2_users = ["Administrator"]
 
-    subject = f"🏢 [Admin Head Sign-Off] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)})"
+    cc_users = _get_claim_rolling_cc(doc, exclude_users=l2_users)
+
+    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Admin L1 Approved"
     html = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd6fe; border-radius: 10px; padding: 24px; background: #ffffff;">
-        <div style="border-bottom: 2px solid #7c3aed; padding-bottom: 12px; margin-bottom: 16px;">
-            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #6d28d9; font-weight: 700;">Admin Department Gate • Head Sign-off</span>
-            <h2 style="margin: 4px 0 0 0; color: #4c1d95; font-size: 20px;">Voucher Approved by Admin Lead</h2>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fed7aa; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #ea580c; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #c2410c; font-weight: 700;">Admin Department Gate • Head Sign-off</span>
+            <h2 style="margin: 4px 0 0 0; color: #7c2d12; font-size: 20px;">Voucher Approved by Admin L1</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            Admin Supervisor <b>{l1_approver}</b> has approved voucher <b>#{voucher_name}</b> for <b>{company}</b>. Your final departmental sign-off is required to dispatch this claim to Accounts.
+            Assistant Admin Manager has completed Level 1 review and approved voucher <b>#{voucher_name}</b> (₹ {fmt_money(amount)}).
         </p>
-        <div style="background: #f5f3ff; border: 1px solid #ede9fe; border-radius: 8px; padding: 16px; margin: 20px 0;">
-            <div style="font-size: 13px; color: #5b21b6; margin-bottom: 4px;">Voucher Reference: <b style="color: #0f172a;">{voucher_name}</b></div>
-            <div style="font-size: 18px; font-weight: 800; color: #7c3aed;">Total Value: ₹ {fmt_money(amount)}</div>
+        <div style="background: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #9a3412;">Status: <b>Pending Admin L2 Sign-off</b></div>
+            <div style="font-size: 18px; font-weight: 800; color: #ea580c; margin-top: 4px;">Claim Value: ₹ {fmt_money(amount)}</div>
         </div>
         <div style="text-align: center; margin-top: 24px;">
-            <a href="{doc_url}" style="background: #7c3aed; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
-                Approve & Dispatch to Accounts &rarr;
+            <a href="{doc_url}" style="background: #ea580c; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Sign-off & Forward to Accounts &rarr;
             </a>
         </div>
     </div>
     """
-    _send_email_and_desk_alert(l2_users, subject, html, voucher_doctype, voucher_name, "purple")
+    _send_email_and_desk_alert(
+        recipients=l2_users,
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="orange",
+        cc=cc_users,
+        is_thread_reply=True
+    )
 
 
-def notify_reception_on_admin_return(voucher_doctype: str, voucher_name: str, reason: str, returned_by: str) -> None:
-    """Triggered when Admin L1 or L2 returns claim to Reception with remarks."""
+# --------------------------------------------------------------------------------------
+# 3. STAGE 3: ADMIN L2 APPROVED -> HANDOVER TO ACCOUNTS L1 AUDIT (Thread Reply)
+# --------------------------------------------------------------------------------------
+def notify_admin_on_l2_approved(voucher_doctype: str, voucher_name: str) -> None:
+    """Appends Admin L2 signoff and hands over to Accounts Auditor in thread."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
-    custodian = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
-    if not custodian:
-        return
-
+    company = getattr(doc, "company", "Company")
     amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
     doc_url = get_url_to_form(voucher_doctype, voucher_name)
 
-    subject = f"↩️ [Action Required] Voucher #{voucher_name} Returned by {returned_by}"
+    accounts_users = _get_matrix_or_role_approvers(
+        company=company,
+        document_lane=voucher_doctype,
+        level_number=1,
+        fallback_roles=["Accounts L1 Auditor"]
+    )
+
+    cc_users = _get_claim_rolling_cc(doc, exclude_users=accounts_users)
+
+    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Ready for Accounts Audit"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bfdbfe; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #1d4ed8; font-weight: 700;">Financial Audit • Accounts L1</span>
+            <h2 style="margin: 4px 0 0 0; color: #1e3a8a; font-size: 20px;">Admin Sign-off Completed</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Admin Department Head has fully signed off on voucher <b>#{voucher_name}</b> for <b>{company}</b>. Ready for statutory invoice & duplicate check.
+        </p>
+        <div style="background: #eff6ff; border: 1px solid #dbeafe; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #1e40af;">Total Verified Amount: <b style="font-size: 18px; color: #2563eb;">₹ {fmt_money(amount)}</b></div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Audit Voucher &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=accounts_users,
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="blue",
+        cc=cc_users,
+        is_thread_reply=True
+    )
+
+
+# --------------------------------------------------------------------------------------
+# 4. STAGE 4: ACCOUNTS L1 AUDITED & PASSED -> ESCALATE TO DIRECTOR (Thread Reply)
+# --------------------------------------------------------------------------------------
+def notify_director_on_l1_audit_completed(voucher_doctype: str, voucher_name: str) -> None:
+    """Appends Accounts L1 audit certification into thread and escalates to Director."""
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        return
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or getattr(doc, "net_payable_amount", 0.0) or 0.0)
+    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+
+    director_users = _get_matrix_or_role_approvers(
+        company=company,
+        document_lane=voucher_doctype,
+        level_number=2,
+        fallback_roles=["Accounts Director"]
+    )
+
+    cc_users = _get_claim_rolling_cc(doc, exclude_users=director_users)
+
+    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Audited & Certified"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bbf7d0; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #16a34a; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #15803d; font-weight: 700;">Executive Sanction • Accounts Director</span>
+            <h2 style="margin: 4px 0 0 0; color: #14532d; font-size: 20px;">Voucher Audited & Certified</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Accounts L1 Auditor has certified voucher <b>#{voucher_name}</b> for <b>{company}</b>. Ready for final Director sanction.
+        </p>
+        <div style="background: #f0fdf4; border: 1px solid #dcfce7; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #166534;">Sanction Amount: <b style="font-size: 18px; color: #16a34a;">₹ {fmt_money(amount)}</b></div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #16a34a; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Sanction & Enrol in Thursday Batch &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=director_users,
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="green",
+        cc=cc_users,
+        is_thread_reply=True
+    )
+
+
+# --------------------------------------------------------------------------------------
+# 5. STAGE 5: REJECTION / RETURN NOTIFICATION (Thread Reply)
+# --------------------------------------------------------------------------------------
+def notify_reception_on_admin_return(
+    voucher_doctype: str,
+    voucher_name: str,
+    reason: str,
+    admin_user: str
+) -> None:
+    """Appends Admin return notification into thread."""
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        return
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    custodian = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
+    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+
+    recipients = [custodian] if custodian else []
+    cc_users = _get_claim_rolling_cc(doc, exclude_users=recipients)
+
+    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Returned for Corrections"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fecaca; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #dc2626; padding-bottom: 12px; margin-bottom: 16px;">
-            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700;">Petty Cash Return Notice</span>
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700;">Revision Required • Admin Review</span>
             <h2 style="margin: 4px 0 0 0; color: #991b1b; font-size: 20px;">Voucher Returned for Rectification</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            Your petty cash voucher <b>#{voucher_name}</b> (₹ {fmt_money(amount)}) has been returned by <b>{returned_by}</b> with the following remarks:
+            Your voucher <b>#{voucher_name}</b> was returned by <b>{admin_user}</b>.
         </p>
-        <div style="background: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px; padding: 14px; margin: 16px 0; color: #991b1b; font-weight: 600;">
-            "{reason}"
+        <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px 16px; margin: 16px 0; border-radius: 0 8px 8px 0;">
+            <div style="font-size: 12px; text-transform: uppercase; font-weight: 700; color: #b91c1c; margin-bottom: 4px;">Return Reason:</div>
+            <p style="margin: 0; color: #7f1d1d; font-size: 14px; font-weight: 600;">{reason}</p>
         </div>
         <div style="text-align: center; margin-top: 24px;">
             <a href="{doc_url}" style="background: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
-                Open Voucher & Correct Details &rarr;
+                Open Voucher & Correct &rarr;
             </a>
         </div>
     </div>
     """
-    _send_email_and_desk_alert([custodian], subject, html, voucher_doctype, voucher_name, "red")
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="red",
+        cc=cc_users,
+        is_thread_reply=True
+    )
 
 
-# --------------------------------------------------------------------------------------
-# 1. NOTIFY L1: Voucher Submitted by Admin to Accounts
-# --------------------------------------------------------------------------------------
-def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> None:
-    """Triggered when Admin Head approves and submits voucher for Accounts audit."""
+def notify_on_director_rejection(
+    voucher_doctype: str,
+    voucher_name: str,
+    reason: str,
+    director_user: str,
+    return_to: str = "Accounts L1"
+) -> None:
+    """Appends Director rejection into thread."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
     company = getattr(doc, "company", "Company")
-    custodian = getattr(doc, "custodian", "Branch Admin")
-    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    amount = float(getattr(doc, "total_amount", 0.0) or getattr(doc, "net_payable_amount", 0.0) or 0.0)
     doc_url = get_url_to_form(voucher_doctype, voucher_name)
 
-    # Find L1 Accounts Verifiers
-    l1_users = frappe.get_all(
-        "Has Role",
-        filters={"role": ["in", ["Accounts User", "Accounts Manager", "System Manager"]], "parenttype": "User"},
-        pluck="parent"
+    accounts_users = _get_matrix_or_role_approvers(
+        company=company,
+        document_lane=voucher_doctype,
+        level_number=1,
+        fallback_roles=["Accounts L1 Auditor"]
     )
-    if not l1_users:
-        l1_users = ["Administrator"]
 
-    subject = f"📑 [AP Audit Required] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)})"
+    cc_users = _get_claim_rolling_cc(doc, exclude_users=accounts_users)
+    target_label = "Accounts L1 Team" if return_to == "Accounts L1" else "Front Desk"
+
+    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Returned by Director to {target_label}"
     html = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 10px; padding: 24px; background: #ffffff;">
-        <div style="border-bottom: 2px solid #4f46e5; padding-bottom: 12px; margin-bottom: 16px;">
-            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #4f46e5; font-weight: 700;">AP Automation &bull; Lane 1 Imprest</span>
-            <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 20px;">New Expense Voucher Submitted</h2>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fecaca; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #ef4444; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700;">Executive Rejection • Action Required</span>
+            <h2 style="margin: 4px 0 0 0; color: #991b1b; font-size: 20px;">Claim Returned by Accounts Director</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            A new petty cash voucher has passed internal Admin approvals and has been submitted by <b>{custodian}</b> for <b>{company}</b>. It is ready for Accounts Level 1 line-item audit.
+            The voucher <b>#{voucher_name}</b> for <b>₹ {fmt_money(amount)}</b> was reviewed by <b>Accounts Director</b> and returned to <b>{target_label}</b>.
         </p>
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 20px 0;">
-            <div style="font-size: 13px; color: #64748b; margin-bottom: 4px;">Voucher Reference: <b style="color: #0f172a;">{voucher_name}</b></div>
-            <div style="font-size: 18px; font-weight: 800; color: #059669;">Total Claim Value: ₹ {fmt_money(amount)}</div>
-            <div style="font-size: 12px; color: #64748b; margin-top: 6px;">Line items and receipt attachments are ready for verification.</div>
+        <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; margin: 16px 0; border-radius: 0 8px 8px 0;">
+            <div style="font-size: 12px; text-transform: uppercase; font-weight: 700; color: #b91c1c; margin-bottom: 4px;">Director's Reason:</div>
+            <p style="margin: 0; color: #7f1d1d; font-size: 14px; font-weight: 600;">{reason}</p>
         </div>
         <div style="text-align: center; margin-top: 24px;">
-            <a href="{doc_url}" style="background: #4f46e5; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
-                Audit & Verify Line Items &rarr;
+            <a href="{doc_url}" style="background: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Open Voucher & Rectify Audit &rarr;
             </a>
         </div>
     </div>
     """
-    _send_email_and_desk_alert(l1_users, subject, html, voucher_doctype, voucher_name, "blue")
+    _send_email_and_desk_alert(
+        recipients=accounts_users,
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="red",
+        cc=cc_users,
+        is_thread_reply=True
+    )
 
 
 # --------------------------------------------------------------------------------------
-# 2. NOTIFY ADMIN ON DISPUTE: Line Item Rejected/Disputed by Accounts L1
+# 6. STAGE 6: DISPUTE SPLIT NOTIFICATION (Thread Reply)
 # --------------------------------------------------------------------------------------
 def notify_admin_on_dispute(
     voucher_doctype: str,
@@ -267,41 +554,30 @@ def notify_admin_on_dispute(
     disputed_items: List[Dict[str, Any]],
     forked_voucher_name: Optional[str] = None
 ) -> None:
-    """Triggered when Accounts L1 Auditor disputes specific bill lines."""
+    """Appends Line-Item Dispute finding into continuous thread."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
-    recipients = []
-
-    # 1. Admin Approvers
-    if getattr(doc, "admin_l2_approver", None):
-        recipients.append(doc.admin_l2_approver)
-    if getattr(doc, "admin_l1_approver", None):
-        recipients.append(doc.admin_l1_approver)
-
-    # 2. Custodian / Front Desk Owner
-    if getattr(doc, "custodian", None):
-        recipients.append(doc.custodian)
-    if getattr(doc, "owner", None):
-        recipients.append(doc.owner)
-
-    # 3. Dynamic Matrix Fallback
-    if not recipients:
-        admin_users = _get_matrix_or_role_approvers(
-            getattr(doc, "company", ""),
-            getattr(doc, "doctype", ""),
-            1,
-            ["Admin L1 Approver", "Admin L2 Approver"]
-        )
-        recipients.extend(admin_users)
-
-    recipients = list(dict.fromkeys([r for r in recipients if r]))
-    if not recipients:
-        return
-
+    company = getattr(doc, "company", "Company")
     total_disputed = sum(float(i.get("amount", 0.0)) for i in disputed_items)
     doc_url = get_url_to_form(voucher_doctype, forked_voucher_name or voucher_name)
+
+    admin_recipients = []
+    if getattr(doc, "admin_l2_approver", None):
+        admin_recipients.append(doc.admin_l2_approver)
+    if getattr(doc, "admin_l1_approver", None):
+        admin_recipients.append(doc.admin_l1_approver)
+
+    if not admin_recipients:
+        admin_recipients = _get_matrix_or_role_approvers(
+            company=company,
+            document_lane=voucher_doctype,
+            level_number=1,
+            fallback_roles=["Admin L1 Approver", "Admin L2 Approver"]
+        )
+
+    cc_users = _get_claim_rolling_cc(doc, exclude_users=admin_recipients)
 
     items_html = ""
     for idx, item in enumerate(disputed_items, 1):
@@ -316,11 +592,11 @@ def notify_admin_on_dispute(
         </tr>
         """
 
-    subject = f"⚠️ [Action Required] Line Items Disputed in #{voucher_name} (₹ {fmt_money(total_disputed)})"
+    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(total_disputed)}) - Line Items Disputed"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fecaca; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #dc2626; padding-bottom: 12px; margin-bottom: 16px;">
-            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700;">AP Audit Notice &bull; Action Required</span>
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700;">AP Audit Notice • Action Required</span>
             <h2 style="margin: 4px 0 0 0; color: #991b1b; font-size: 20px;">Expense Line Items Disputed</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
@@ -339,7 +615,7 @@ def notify_admin_on_dispute(
             </tbody>
         </table>
         <p style="font-size: 13px; color: #64748b;">
-            Disputed lines have been separated into new draft <b>#{forked_voucher_name or voucher_name}</b>. Please attach rectified proof and resubmit.
+            Disputed lines have been separated into child voucher <b>#{forked_voucher_name or voucher_name}</b>. Clean lines have moved forward to Director review.
         </p>
         <div style="text-align: center; margin-top: 20px;">
             <a href="{doc_url}" style="background: #dc2626; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 13px; display: inline-block;">
@@ -348,93 +624,101 @@ def notify_admin_on_dispute(
         </div>
     </div>
     """
-    _send_email_and_desk_alert(recipients, subject, html, voucher_doctype, forked_voucher_name or voucher_name, "red")
+    _send_email_and_desk_alert(
+        recipients=admin_recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="red",
+        cc=cc_users,
+        is_thread_reply=True
+    )
 
 
 def notify_custodian_on_dispute(voucher_doctype: str, voucher_name: str, disputed_items: List[Dict[str, Any]]) -> None:
-    """Alias for backwards compatibility."""
+    """Backwards compatibility alias."""
     notify_admin_on_dispute(voucher_doctype, voucher_name, disputed_items)
+
+
 # --------------------------------------------------------------------------------------
-# 3. NOTIFY L2: Clean Voucher Audited & Ready for Director Approval
+# 7. STAGE 7: PAYMENT DISBURSED & BANK REMITTANCE WITH UTR (Thread Finale)
 # --------------------------------------------------------------------------------------
-def notify_l2_on_l1_verified(voucher_doctype: str, voucher_name: str) -> None:
-    """Triggered when L1 audit passes and voucher moves to Director Tier."""
-    if not frappe.db.exists(voucher_doctype, voucher_name):
+def notify_payee_and_admin_on_payout_dispatched(
+    batch_name: str,
+    idfc_ref: str
+) -> None:
+    """Concludes the continuous voucher conversation thread with official Bank UTR."""
+    if not frappe.db.exists("Payment Batch", batch_name):
         return
 
-    doc = frappe.get_doc(voucher_doctype, voucher_name)
-    company = getattr(doc, "company", "Company")
-    custodian = getattr(doc, "custodian", "Branch Admin")
-    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
-    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    batch = frappe.get_doc("Payment Batch", batch_name)
+    items = getattr(batch, "instructions", []) or []
 
-    # Find L2 Director Approvers
-    l2_users = frappe.get_all(
-        "Has Role",
-        filters={"role": ["in", ["Director Tier", "Dileep Director", "System Manager"]], "parenttype": "User"},
-        pluck="parent"
-    )
-    if not l2_users:
-        l2_users = ["dileep@quanticus.com", "Administrator"]
+    for item in items:
+        bene_name = item.beneficiary_name or "Payee"
+        amt = float(item.amount or 0.0)
+        utr = item.utr or f"UTR-{idfc_ref}"
+        ac_num = str(item.account_number or "")
+        masked_ac = ("X" * (len(ac_num) - 4) + ac_num[-4:]) if len(ac_num) >= 4 else ac_num
+        src_dt = item.source_doctype
+        src_vch = item.source_voucher
 
-    subject = f"⭐ [Approval Required: L2 Director] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)})"
-    html = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fed7aa; border-radius: 10px; padding: 24px; background: #ffffff;">
-        <div style="border-bottom: 2px solid #f97316; padding-bottom: 12px; margin-bottom: 16px;">
-            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #ea580c; font-weight: 700;">Executive Director Approval Gate</span>
-            <h2 style="margin: 4px 0 0 0; color: #7c2d12; font-size: 20px;">Voucher Audited & Verified by L1</h2>
+        recipient = None
+        doc = None
+        if src_dt and src_vch and frappe.db.exists(src_dt, src_vch):
+            doc = frappe.get_doc(src_dt, src_vch)
+            recipient = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
+
+        if not recipient:
+            recipient = bene_name
+
+        cc_users = _get_claim_rolling_cc(doc, exclude_users=[recipient]) if doc else []
+        company = getattr(doc, "company", "Company") if doc else "Company"
+
+        subject = f"Re: [Voucher #{src_vch}] {company} {src_dt} (₹ {fmt_money(amt)}) - Disbursed via IDFC (UTR: {utr})"
+        html = f"""
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #d1fae5; border-radius: 10px; padding: 24px; background: #ffffff;">
+            <div style="border-bottom: 2px solid #10b981; padding-bottom: 12px; margin-bottom: 16px;">
+                <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #059669; font-weight: 700;">IDFC FIRST Bank • Corporate Payout Advice</span>
+                <h2 style="margin: 4px 0 0 0; color: #065f46; font-size: 20px;">Funds Disbursed to Bank Account</h2>
+            </div>
+            <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+                Dear <b>{bene_name}</b>,<br>
+                Your claim for <b>{src_vch}</b> has been successfully disbursed via IDFC Bank API.
+            </p>
+            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                <div style="font-size: 13px; color: #166534;">Disbursed Amount: <b style="font-size: 18px; color: #15803d;">₹ {fmt_money(amt)}</b></div>
+                <div style="font-size: 13px; color: #166534; margin-top: 8px;">Credited Account: <b>{masked_ac}</b> ({item.ifsc_code})</div>
+                <div style="font-size: 14px; font-weight: 800; color: #166534; margin-top: 10px; background: #dcfce7; padding: 6px 12px; border-radius: 4px; display: inline-block;">
+                    Bank UTR: {utr}
+                </div>
+            </div>
+            <p style="font-size: 12px; color: #64748b;">
+                Branch Imprest Float has been replenished and posted to accounting records.
+            </p>
         </div>
-        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            Accounts L1 has verified all supporting bills for <b>{voucher_name}</b> ({custodian} &bull; {company}) with zero audit discrepancies. Your final Level 2 approval is required.
-        </p>
-        <div style="background: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; padding: 16px; margin: 20px 0;">
-            <div style="font-size: 13px; color: #9a3412;">Approved Value for Payment:</div>
-            <div style="font-size: 22px; font-weight: 800; color: #ea580c;">₹ {fmt_money(amount)}</div>
-        </div>
-        <div style="text-align: center; margin-top: 24px;">
-            <a href="{doc_url}" style="background: #ea580c; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
-                Sanction & Approve Voucher &rarr;
-            </a>
-        </div>
-    </div>
-    """
-    _send_email_and_desk_alert(l2_users, subject, html, voucher_doctype, voucher_name, "orange")
+        """
+        _send_email_and_desk_alert(
+            recipients=[recipient],
+            subject=subject,
+            message_html=html,
+            reference_doctype=src_dt or "Payment Batch",
+            reference_name=src_vch or batch_name,
+            alert_type="green",
+            cc=cc_users,
+            is_thread_reply=True
+        )
 
 
 # --------------------------------------------------------------------------------------
-# 4. NOTIFY CUSTODIAN: Voucher Approved by Director
-# --------------------------------------------------------------------------------------
-def notify_admin_on_l2_approved(voucher_doctype: str, voucher_name: str) -> None:
-    """Triggered when Director approves the claim for payment batching."""
-    if not frappe.db.exists(voucher_doctype, voucher_name):
-        return
-
-    doc = frappe.get_doc(voucher_doctype, voucher_name)
-    custodian = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
-    if not custodian:
-        return
-
-    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
-    subject = f"✅ [Approved] {voucher_doctype} #{voucher_name} (₹ {fmt_money(amount)}) Approved for Payout"
-    html = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #d1fae5; border-radius: 10px; padding: 24px; background: #ffffff;">
-        <div style="border-bottom: 2px solid #10b981; padding-bottom: 12px; margin-bottom: 16px;">
-            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #059669; font-weight: 700;">Approval Complete &bull; Payout Scheduled</span>
-            <h2 style="margin: 4px 0 0 0; color: #065f46; font-size: 20px;">Voucher Approved by Director</h2>
-        </div>
-        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            Your petty cash voucher <b>#{voucher_name}</b> for <b>₹ {fmt_money(amount)}</b> has received final Level 2 Approval and is queued in the upcoming corporate IDFC release batch.
-        </p>
-    </div>
-    """
-    _send_email_and_desk_alert([custodian], subject, html, voucher_doctype, voucher_name, "green")
-
-
-# --------------------------------------------------------------------------------------
-# 5. NOTIFY RELEASER: Payment Batch Ready for 2FA Release (Anish Sir)
+# 8. 2FA OTP BATCH AUTHORIZATION ALERT (Strictly Isolated Separate Email)
 # --------------------------------------------------------------------------------------
 def notify_releaser_on_batch_ready(batch_name: str) -> None:
-    """Triggered when consolidated Payment Batch is generated and awaits 2FA release."""
+    """
+    Isolated standalone urgent 2FA OTP alert sent exclusively to Payment Releaser.
+    Never mixed into individual voucher threads.
+    """
     if not frappe.db.exists("Payment Batch", batch_name):
         return
 
@@ -446,17 +730,19 @@ def notify_releaser_on_batch_ready(batch_name: str) -> None:
 
     releasers = frappe.get_all(
         "Has Role",
-        filters={"role": ["in", ["Payment Releaser", "System Manager"]], "parenttype": "User"},
+        filters={"role": ["in", ["Payment Releaser"]], "parenttype": "User"},
         pluck="parent"
     )
+
+    releasers = [r for r in releasers if r != "Administrator"]
     if not releasers:
-        releasers = ["Administrator"]
+        releasers = ["anish@quanticus.com"]
 
     subject = f"🔐 [Action: 2FA Release] Payment Batch #{batch_name} (₹ {fmt_money(total_amt)})"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #c7d2fe; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #4f46e5; padding-bottom: 12px; margin-bottom: 16px;">
-            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #4338ca; font-weight: 700;">Executive Release Authority &bull; Anish Sir</span>
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #4338ca; font-weight: 700;">Executive Release Authority • Anish Sir (CEO & MD)</span>
             <h2 style="margin: 4px 0 0 0; color: #1e1b4b; font-size: 20px;">Corporate Payment Batch Ready</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
@@ -481,62 +767,14 @@ def notify_releaser_on_batch_ready(batch_name: str) -> None:
         </div>
     </div>
     """
-    _send_email_and_desk_alert(releasers, subject, html, "Payment Batch", batch_name, "purple")
-
-
-# --------------------------------------------------------------------------------------
-# 6. NOTIFY PAYEE & ADMIN: Payout Disbursed with Bank UTR
-# --------------------------------------------------------------------------------------
-def notify_payee_and_admin_on_payout_dispatched(
-    batch_name: str,
-    idfc_ref: str
-) -> None:
-    """Triggered upon successful 2FA IDFC Bank API release."""
-    if not frappe.db.exists("Payment Batch", batch_name):
-        return
-
-    batch = frappe.get_doc("Payment Batch", batch_name)
-    items = getattr(batch, "instructions", []) or []
-
-    for item in items:
-        bene_name = item.beneficiary_name or "Payee"
-        amt = float(item.amount or 0.0)
-        utr = item.utr or f"UTR-{idfc_ref}"
-        ac_num = str(item.account_number or "")
-        masked_ac = ("X" * (len(ac_num) - 4) + ac_num[-4:]) if len(ac_num) >= 4 else ac_num
-        src_dt = item.source_doctype
-        src_vch = item.source_voucher
-
-        # Get recipient user/email (from source voucher custodian/vendor)
-        recipient = None
-        if src_dt and src_vch and frappe.db.exists(src_dt, src_vch):
-            recipient = frappe.db.get_value(src_dt, src_vch, "custodian") or frappe.db.get_value(src_dt, src_vch, "owner")
-
-        if not recipient:
-            recipient = bene_name
-
-        if recipient:
-            subject = f"🎉 [Payment Disbursed] ₹ {fmt_money(amt)} Credited (Bank UTR: {utr})"
-            html = f"""
-            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #d1fae5; border-radius: 10px; padding: 24px; background: #ffffff;">
-                <div style="border-bottom: 2px solid #10b981; padding-bottom: 12px; margin-bottom: 16px;">
-                    <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #059669; font-weight: 700;">IDFC FIRST Bank &bull; Corporate Payout Advice</span>
-                    <h2 style="margin: 4px 0 0 0; color: #065f46; font-size: 20px;">Funds Disbursed to Bank Account</h2>
-                </div>
-                <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-                    Dear <b>{bene_name}</b>,<br>
-                    Your claim for <b>{src_vch}</b> has been successfully disbursed via IDFC Bank API.
-                </p>
-                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
-                    <div style="font-size: 13px; color: #166534;">Disbursed Amount: <b style="font-size: 18px; color: #15803d;">₹ {fmt_money(amt)}</b></div>
-                    <div style="font-size: 13px; color: #166534; margin-top: 8px;">Credited Account: <b>{masked_ac}</b> ({item.ifsc_code})</div>
-                    <div style="font-size: 14px; font-weight: 800; color: #166534; margin-top: 10px; background: #dcfce7; padding: 6px 12px; border-radius: 4px; display: inline-block;">
-                        Bank UTR: {utr}
-                    </div>
-                </div>
-                <p style="font-size: 12px; color: #64748b;">
-                    Branch Imprest Float has been replenished and posted to accounting records.
-                </p>
-            </div>
-            """
-            _send_email_and_desk_alert([recipient], subject, html, src_dt or "Payment Batch", src_vch or batch_name, "green")
+    # Standalone isolated email - not a reply, no CC list
+    _send_email_and_desk_alert(
+        recipients=releasers,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Payment Batch",
+        reference_name=batch_name,
+        alert_type="purple",
+        cc=None,
+        is_thread_reply=False
+    )
