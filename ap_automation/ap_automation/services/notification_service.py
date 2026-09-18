@@ -176,7 +176,7 @@ def _send_email_and_desk_alert(
                 "message": message_html,
                 "reference_doctype": reference_doctype,
                 "reference_name": reference_name,
-                "now": True
+                "now": False
             }
             if valid_cc:
                 email_kwargs["cc"] = valid_cc
