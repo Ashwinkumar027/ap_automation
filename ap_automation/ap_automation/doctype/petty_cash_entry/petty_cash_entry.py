@@ -42,25 +42,27 @@ class PettyCashEntry(Document):
                 frappe.throw(f"Row #{idx}: Merchant / Payee Name is required.", exc=APValidationError)
 
     def validate_duplicate_lines(self):
-        """Checks for duplicate bills within the voucher and across all other active vouchers."""
+        """Checks for duplicate bills (Merchant + Bill #) within the voucher and across all other active vouchers."""
         seen_keys = set()
         current_name = getattr(self, "name", None) or ""
         old_name = None
         if hasattr(self, "get_doc_before_save") and self.get_doc_before_save():
             old_name = self.get_doc_before_save().name
 
+        parent_voucher = getattr(self, "parent_voucher", None) or ""
+        forked_voucher = getattr(self, "forked_voucher", None) or ""
+
         for idx, row in enumerate(self.expense_lines, 1):
             merchant = (row.merchant_name or "").strip().lower()
             bill_no = (row.bill_number or "").strip().lower()
-            amt = float(row.amount or 0.0)
 
-            if merchant and bill_no and amt > 0:
-                key = (merchant, bill_no, amt)
-                # 1. Check duplicate within this same voucher (in-memory)
+            if merchant and bill_no:
+                key = (merchant, bill_no)
+                # 1. Check duplicate within this same voucher (in-memory) - Merchant + Bill # only
                 if key in seen_keys:
                     frappe.throw(
-                        f"⚠️ Duplicate Line in Voucher: Row #{idx} has identical Merchant '{row.merchant_name}', "
-                        f"Bill #{row.bill_number}, and Amount ₹{row.amount:,.2f}. Duplicate rows within the same voucher are not permitted.",
+                        f"⚠️ Duplicate Line in Voucher: Row #{idx} has duplicate Merchant '{row.merchant_name}' "
+                        f"and Bill #{row.bill_number}. Duplicate bills within the same voucher are not permitted.",
                         exc=APValidationError
                     )
                 seen_keys.add(key)
@@ -73,7 +75,7 @@ class PettyCashEntry(Document):
                     WHERE LOWER(TRIM(merchant_name)) = %s
                       AND LOWER(TRIM(bill_number)) = %s
                       AND docstatus < 2
-                    LIMIT 5
+                    LIMIT 10
                     """,
                     (merchant, bill_no),
                     as_dict=True
@@ -83,6 +85,16 @@ class PettyCashEntry(Document):
                     if match.parent == current_name or (old_name and match.parent == old_name):
                         continue
                     if self.is_new() and match.parent == self.name:
+                        continue
+
+                    # Strictly ignore related parent/child dispute vouchers in the same lineage
+                    if parent_voucher and match.parent == parent_voucher:
+                        continue
+                    if forked_voucher and match.parent == forked_voucher:
+                        continue
+                    if current_name and frappe.db.get_value("Petty Cash Entry", match.parent, "parent_voucher") == current_name:
+                        continue
+                    if current_name and frappe.db.get_value("Petty Cash Entry", match.parent, "forked_voucher") == current_name:
                         continue
 
                     # Verify parent voucher is active (not cancelled/rejected)

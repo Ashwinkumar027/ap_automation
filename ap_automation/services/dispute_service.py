@@ -55,6 +55,22 @@ def api_dispute_split(parent_docname: str, disputed_indices: Any, dispute_reason
     }
 
 
+def split_disputed_voucher(
+    parent_docname: str,
+    disputed_row_indices: List[int],
+    dispute_reasons: Dict[Any, str] = None,
+    reviewer_user: str = "Administrator"
+) -> Dict[str, Any]:
+    """
+    Compatibility wrapper for unit tests and programmatic execution.
+    """
+    return api_dispute_split(
+        parent_docname=parent_docname,
+        disputed_indices=disputed_row_indices,
+        dispute_reasons=dispute_reasons or {}
+    )
+
+
 def dispute_and_fork_petty_cash_lines(
     parent_docname: str,
     disputed_row_names: List[str],
@@ -125,7 +141,12 @@ def dispute_and_fork_petty_cash_lines(
     # ----------------------------------------------------------------------------------
     # CASE B: PARTIAL DISPUTE (Split into Clean Parent + Disputed Child)
     # ----------------------------------------------------------------------------------
-    # Create Child Disputed Voucher for Admin
+    # 1. Update Parent Voucher to retain only verified lines first
+    parent.expense_lines = verified_lines
+    parent.calculate_totals()
+    parent.save(ignore_permissions=True)
+
+    # 2. Create Child Disputed Voucher for Admin
     forked_voucher = frappe.get_doc({
         "doctype": "Petty Cash Entry",
         "claim_title": f"{parent.claim_title or parent.name} (Disputed Items)",
@@ -153,10 +174,8 @@ def dispute_and_fork_petty_cash_lines(
     })
     forked_voucher.insert(ignore_permissions=True)
 
-    # Update Parent Voucher with only verified lines
-    parent.expense_lines = verified_lines
+    # 3. Link child voucher to parent
     parent.forked_voucher = forked_voucher.name
-    parent.calculate_totals()
     parent.save(ignore_permissions=True)
     frappe.db.commit()
 
