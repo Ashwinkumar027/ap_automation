@@ -82,6 +82,7 @@ frappe.ui.form.on('Petty Cash Entry', {
         render_status_guidance_banner(frm);
         render_role_based_action_buttons(frm);
         bind_custom_grid_uploaders(frm);
+        setup_dispute_merge_helper(frm);
     },
 
     validate: function (frm) {
@@ -1039,8 +1040,6 @@ function apply_petty_cash_styles() {
     }
 }
 
-
-
 // Check & Offer Merging of Previous Disputed Lines on Draft Vouchers
 function setup_dispute_merge_helper(frm) {
     if (frm.is_new() || frm.doc.status !== "Draft") return;
@@ -1058,33 +1057,42 @@ function setup_dispute_merge_helper(frm) {
                 let total_disputed_amt = 0;
                 vouchers.forEach(v => total_disputed_amt += v.total_amount);
 
-                // Add 1-Click Action Button
-                frm.add_custom_button(__(`📥 Merge ${count} Previous Disputed Voucher(s) (₹ ${total_disputed_amt.toLocaleString('en-IN')})`), function () {
+                // 1. Add Top Bar Button
+                frm.add_custom_button(__(`📥 Merge ${count} Disputed Bill(s) (₹ ${total_disputed_amt.toLocaleString('en-IN')})`), function () {
                     open_dispute_merge_dialog(frm, vouchers);
                 }).addClass("btn-warning").css({
                     "background": "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
                     "color": "#ffffff",
                     "font-weight": "700",
-                    "border": "none"
+                    "border": "none",
+                    "box-shadow": "0 2px 6px rgba(245, 158, 11, 0.4)"
                 });
 
-                // Show Non-intrusive alert
-                frm.dashboard.set_headline(
-                    `<div style="background: rgba(245, 158, 11, 0.1); border: 1px solid #f59e0b; border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #92400e; display: flex; justify-content: space-between; align-items: center;">
+                // 2. Add In-Grid Banner Above Expense Lines Table
+                $('#dispute-merge-banner-box').remove();
+                const bannerHtml = `
+                    <div id="dispute-merge-banner-box" style="background: rgba(245, 158, 11, 0.12); border: 1.5px dashed #f59e0b; border-radius: 8px; padding: 12px 16px; margin: 16px 0; display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <b>💡 Unresolved Disputed Bills Found:</b> You have <b>${count}</b> previous disputed record(s) totaling <b>₹ ${total_disputed_amt.toLocaleString('en-IN')}</b>.
+                            <span style="font-size: 15px;">💡</span>
+                            <b style="color: #92400e; font-size: 13.5px; margin-left: 6px;">Unresolved Disputed Bills Found:</b>
+                            <span style="color: #78350f; font-size: 13px; margin-left: 4px;">You have <b>${count}</b> previous disputed record(s) totaling <b>₹ ${total_disputed_amt.toLocaleString('en-IN')}</b>.</span>
                         </div>
-                        <button class="btn btn-xs btn-warning" id="btn-quick-merge-disputes" style="font-weight: 700;">
+                        <button type="button" class="btn btn-xs btn-warning" id="btn-quick-merge-disputes" style="font-weight: 700; background: #f59e0b; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer;">
                             📥 Merge into This Voucher
                         </button>
-                    </div>`
-                );
+                    </div>
+                `;
+                if (frm.fields_dict['sb_lines'] && frm.fields_dict['sb_lines'].wrapper) {
+                    $(frm.fields_dict['sb_lines'].wrapper).prepend(bannerHtml);
+                } else if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].wrapper) {
+                    $(frm.fields_dict['expense_lines'].wrapper).before(bannerHtml);
+                }
 
                 setTimeout(() => {
                     $('#btn-quick-merge-disputes').on('click', () => {
                         open_dispute_merge_dialog(frm, vouchers);
                     });
-                }, 300);
+                }, 100);
             }
         }
     });
