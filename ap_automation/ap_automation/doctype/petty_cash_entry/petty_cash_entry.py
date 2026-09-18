@@ -99,7 +99,7 @@ class PettyCashEntry(Document):
 
                     # Verify parent voucher is active (not cancelled/rejected)
                     p_status = frappe.db.get_value("Petty Cash Entry", match.parent, "status")
-                    if p_status not in ("Rejected", "Cancelled"):
+                    if p_status not in ("Rejected", "Cancelled", "Merged"):
                         frappe.throw(
                             f"⚠️ Duplicate Bill Detected: Bill #{row.bill_number} from Merchant '{row.merchant_name}' "
                             f"(Amount: ₹{row.amount:,.2f}) has already been submitted in Voucher #{match.parent}. "

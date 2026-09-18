@@ -1038,3 +1038,119 @@ function apply_petty_cash_styles() {
         document.head.appendChild(style);
     }
 }
+
+
+
+// Check & Offer Merging of Previous Disputed Lines on Draft Vouchers
+function setup_dispute_merge_helper(frm) {
+    if (frm.is_new() || frm.doc.status !== "Draft") return;
+
+    frappe.call({
+        method: "ap_automation.services.dispute_service.get_pending_disputed_vouchers",
+        args: {
+            company: frm.doc.company,
+            custodian: frm.doc.custodian
+        },
+        callback: function (r) {
+            if (r.message && r.message.status === "SUCCESS" && r.message.count > 0) {
+                const count = r.message.count;
+                const vouchers = r.message.vouchers;
+                let total_disputed_amt = 0;
+                vouchers.forEach(v => total_disputed_amt += v.total_amount);
+
+                // Add 1-Click Action Button
+                frm.add_custom_button(__(`📥 Merge ${count} Previous Disputed Voucher(s) (₹ ${total_disputed_amt.toLocaleString('en-IN')})`), function () {
+                    open_dispute_merge_dialog(frm, vouchers);
+                }).addClass("btn-warning").css({
+                    "background": "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+                    "color": "#ffffff",
+                    "font-weight": "700",
+                    "border": "none"
+                });
+
+                // Show Non-intrusive alert
+                frm.dashboard.set_headline(
+                    `<div style="background: rgba(245, 158, 11, 0.1); border: 1px solid #f59e0b; border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #92400e; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <b>💡 Unresolved Disputed Bills Found:</b> You have <b>${count}</b> previous disputed record(s) totaling <b>₹ ${total_disputed_amt.toLocaleString('en-IN')}</b>.
+                        </div>
+                        <button class="btn btn-xs btn-warning" id="btn-quick-merge-disputes" style="font-weight: 700;">
+                            📥 Merge into This Voucher
+                        </button>
+                    </div>`
+                );
+
+                setTimeout(() => {
+                    $('#btn-quick-merge-disputes').on('click', () => {
+                        open_dispute_merge_dialog(frm, vouchers);
+                    });
+                }, 300);
+            }
+        }
+    });
+}
+
+function open_dispute_merge_dialog(frm, vouchers) {
+    let fields = [
+        {
+            fieldname: "info_html",
+            fieldtype: "HTML",
+            options: `
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px; font-size: 13px; color: #334155;">
+                    Select the previous disputed vouchers to absorb into <b>#${frm.doc.name}</b>. Disputed lines will be merged into this voucher so you can attach updated bills and submit a single consolidated voucher for this cycle.
+                </div>
+            `
+        }
+    ];
+
+    vouchers.forEach((v, idx) => {
+        let lines_summary = v.lines.map(l => `• ${l.merchant_name} (₹ ${l.amount.toLocaleString('en-IN')}) — <i>Reason: ${l.dispute_reason}</i>`).join('<br>');
+        fields.push({
+            fieldname: `merge_${idx}`,
+            fieldtype: "Check",
+            label: `<b>${v.name}</b> (${v.claim_title}) — ₹ ${v.total_amount.toLocaleString('en-IN')}`,
+            default: 1,
+            description: `<div style="font-size: 11px; color: #64748b; margin-top: 4px;">${lines_summary}</div>`
+        });
+    });
+
+    let d = new frappe.ui.Dialog({
+        title: __("📥 Merge Disputed Lines into Current Voucher"),
+        fields: fields,
+        primary_action_label: __("Merge Lines & Update Voucher"),
+        primary_action(values) {
+            let selected_vouchers = [];
+            vouchers.forEach((v, idx) => {
+                if (values[`merge_${idx}`]) {
+                    selected_vouchers.push(v.name);
+                }
+            });
+
+            if (selected_vouchers.length === 0) {
+                frappe.msgprint(__("Please select at least one disputed voucher to merge."));
+                return;
+            }
+
+            frappe.call({
+                method: "ap_automation.services.dispute_service.merge_disputed_voucher_into_target",
+                args: {
+                    target_voucher_name: frm.doc.name,
+                    source_dispute_voucher_names: selected_vouchers
+                },
+                freeze: true,
+                freeze_message: __("Merging disputed lines into voucher..."),
+                callback: function (r) {
+                    if (r.message && r.message.status === "SUCCESS") {
+                        d.hide();
+                        frappe.show_alert({
+                            message: __(`🎉 Successfully merged ${r.message.merged_lines_count} line(s) totaling ₹ ${r.message.merged_amount.toLocaleString('en-IN')}`),
+                            indicator: "green"
+                        }, 5);
+                        frm.reload_doc();
+                    }
+                }
+            });
+        }
+    });
+    d.show();
+}

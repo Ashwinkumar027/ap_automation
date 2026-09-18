@@ -21,6 +21,8 @@ frappe.listview_settings["Petty Cash Entry"] = {
             return [__("Approved for Payment"), "green", "status,=,Approved for Payment"];
         } else if (status === "Paid" || status === "Disbursed via IDFC" || status === "Dispatched to Bank") {
             return [__("Paid (IDFC Bank)"), "darkgreen", "status,=,Paid"];
+        } else if (status === "Merged") {
+            return [__("Merged"), "grey", "status,=,Merged"];
         } else if (status === "Disputed") {
             return [__("Disputed"), "orange", "status,=,Disputed"];
         } else if (status === "Rejected" || status === "Returned to Reception") {
