@@ -307,13 +307,13 @@ def merge_disputed_voucher_into_target(target_voucher_name: str, source_dispute_
             total_merged_amount += float(line.amount or 0.0)
 
         # Mark source dispute voucher as Merged
-        source_doc.status = "Merged"
+        source_doc.status = "Cancelled"
         source_doc.append("approval_trail", {
             "level": 0,
             "level_title": "Dispute Merged",
             "designated_role": "Accounts L1 Auditor",
             "action_taken_by": frappe.session.user,
-            "action": "MERGED",
+            "action": "DISPUTED",
             "remarks": f"All disputed lines absorbed into next cycle voucher #{target_doc.name}",
             "timestamp": frappe.utils.now_datetime()
         })
