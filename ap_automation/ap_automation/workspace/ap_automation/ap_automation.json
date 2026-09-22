@@ -249,7 +249,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-15 15:03:20.618477",
+ "modified": "2026-09-22 14:37:03.828574",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "AP Automation",
@@ -263,18 +263,6 @@
    "role": "System Manager"
   },
   {
-   "role": "Accounts Manager"
-  },
-  {
-   "role": "Accounts User"
-  },
-  {
-   "role": "Employee"
-  },
-  {
-   "role": "Desk User"
-  },
-  {
    "role": "Petty Cash User"
   },
   {
@@ -282,6 +270,9 @@
   },
   {
    "role": "Admin L2 Approver"
+  },
+  {
+   "role": "Accounts L1 Auditor"
   },
   {
    "role": "Accounts Director"

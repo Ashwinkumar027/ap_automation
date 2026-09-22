@@ -6,12 +6,32 @@ from openpyxl.utils import get_column_letter
 
 
 @frappe.whitelist()
-def export_petty_cash_excel(voucher_name):
+def download_voucher_excel(doctype: str = "Petty Cash Entry", docname: str = None, voucher_name: str = None):
+    """
+    Unified entry point for downloading voucher Excel workbooks directly from desk action buttons.
+    Supports both docname & voucher_name params.
+    """
+    target_name = docname or voucher_name
+    if not target_name:
+        frappe.throw("Voucher name / Docname is required for Excel export.", frappe.ValidationError)
+
+    if doctype == "Petty Cash Entry":
+        return export_petty_cash_excel(voucher_name=target_name)
+    else:
+        return export_petty_cash_excel(voucher_name=target_name)
+
+
+@frappe.whitelist()
+def export_petty_cash_excel(voucher_name: str = None, docname: str = None, doctype: str = None):
     """Generates and downloads a beautifully styled Excel workbook for a Petty Cash Voucher."""
-    if not frappe.has_permission("Petty Cash Entry", "read", voucher_name):
+    target_name = voucher_name or docname
+    if not target_name:
+        frappe.throw("Voucher name is required for Excel export.", frappe.ValidationError)
+
+    if not frappe.has_permission("Petty Cash Entry", "read", target_name):
         frappe.throw("You do not have permission to export this Petty Cash Voucher.", frappe.PermissionError)
 
-    doc = frappe.get_doc("Petty Cash Entry", voucher_name)
+    doc = frappe.get_doc("Petty Cash Entry", target_name)
 
     wb = openpyxl.Workbook()
     ws = wb.active

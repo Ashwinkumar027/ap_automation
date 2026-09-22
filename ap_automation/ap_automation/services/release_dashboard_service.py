@@ -8,7 +8,7 @@ import frappe
 @frappe.whitelist()
 def get_pending_release_batches(company: Optional[str] = None) -> List[Dict[str, Any]]:
     """
-    Returns all batches ready for Anish Sir to review and release.
+    Returns all batches ready for Payment Releaser to review and release.
     """
     filters = {"status": ["in", ["Generated", "Pending 2FA Approval"]]}
     if company:

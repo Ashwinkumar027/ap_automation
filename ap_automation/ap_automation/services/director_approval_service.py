@@ -3,7 +3,7 @@ Director Tier Dual-Signoff Escalation Service (PRD Section 3 & 12)
 Enforces:
 1. Dual-signoff gate for vendor claims > INR 2,00,000 (INR 2 Lakhs).
 2. Accounts L2 escalation to 'Pending Director Signoff'.
-3. Dedicated Director sign-off endpoint for Dileep Sir / Anish Sir.
+3. Dedicated Director sign-off endpoint for Director Tier / Payment Releaser.
 4. Immutable audit trail recording before payment release.
 """
 from typing import Dict, Any, Optional

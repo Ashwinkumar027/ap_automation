@@ -1,7 +1,7 @@
 """
 Payment Release 2FA OTP Engine (PRD Section 8, Step 4)
 Enforces:
-1. Executive 2FA: Only Payment Releaser (Anish Sir) can authorize IDFC bank payouts.
+1. Executive 2FA: Only Payment Releaser (Payment Releaser) can authorize IDFC bank payouts.
 2. Cryptographically secure 6-digit numeric OTP generation.
 3. Frappe Redis cache storage with 300-second (5-minute) TTL.
 4. Anti-brute-force rate limiting: Maximum 3 failed attempts before OTP invalidation.

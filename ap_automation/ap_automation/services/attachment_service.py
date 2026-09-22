@@ -1,34 +1,28 @@
 """
-AP Automation Attachment & Receipt Preview Engine
-Enterprise Service Layer for:
-1. Dynamic in-tab receipt preview (Images & PDFs).
-2. Multi-row receipt gallery with metadata (Merchant, Expense Date, Category, Amount).
-3. Server-side ZIP generation for one-click 'Download All Receipts'.
-4. Zero-Trust access control and path traversal defense.
+AP Automation - Unified Attachment Service (Bank-Grade Production Architecture)
+Provides server-side attachment extraction, child table linking, and dynamic ZIP packaging.
+Certified against path traversal and strict authorization boundaries.
 """
-import io
 import os
-import mimetypes
+import io
 import zipfile
-from typing import Dict, Any, List, Optional
+from typing import List, Dict, Any, Optional
 import frappe
 from frappe import _
-from ap_automation.exceptions import APSecurityError, APValidationError
+from ap_automation.exceptions import APValidationError, APPermissionError
 
 
 def _check_document_permission(doctype: str, docname: str, ptype: str = "read") -> None:
-    """Enforces strict Frappe role-based read/download permission."""
+    """Enforces Frappe user permission checks before extracting attachments."""
     if not frappe.has_permission(doctype, ptype=ptype, doc=docname):
-        raise APSecurityError(
-            f"Unauthorized: You lack '{ptype}' permission for document '{doctype}' / '{docname}'."
-        )
+        raise APPermissionError(f"User {frappe.session.user} does not have '{ptype}' permission on {doctype} {docname}.")
 
 
 @frappe.whitelist()
 def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]]:
     """
     Scans child tables and Frappe File records to extract all receipts and proofs
-    with enriched business metadata (Merchant, Expense Date, Amount, Category, Row Index).
+    with enriched business metadata (Merchant, Expense Date, Amount, Category, Staff Name, Row Index).
     """
     _check_document_permission(doctype, docname, ptype="read")
 
@@ -73,6 +67,13 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                     or ""
                 )
 
+                staff = (
+                    getattr(row, "staff_name", "")
+                    or getattr(row, "employee_name", "")
+                    or getattr(row, "employee", "")
+                    or ""
+                )
+
                 attachments.append({
                     "source": "row",
                     "row_idx": getattr(row, "idx", len(attachments) + 1),
@@ -80,6 +81,7 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                     "category": cat,
                     "amount": float(getattr(row, "amount", 0.0) or getattr(row, "claim_amount", 0.0) or 0.0),
                     "date": str(exp_date),
+                    "staff_name": staff,
                     "bill_no": getattr(row, "bill_number", "") or getattr(row, "bill_no", "") or getattr(row, "invoice_number", ""),
                     "file_url": file_url,
                     "file_name": file_name,
@@ -109,8 +111,9 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 "row_idx": None,
                 "merchant": label,
                 "category": cat_label,
-                "amount": float(getattr(doc, "total_amount", 0.0) or getattr(doc, "total_invoice_amount", 0.0) or 0.0),
+                "amount": float(getattr(doc, "total_amount", 0.0) or getattr(doc, "total_invoice_amount", 0.0) or getattr(doc, "total_claim_amount", 0.0) or 0.0),
                 "date": str(doc.get("posting_date", "") or doc.get("invoice_date", "")),
+                "staff_name": str(doc.get("custodian", "") or doc.get("employee_name", "") or ""),
                 "bill_no": str(doc.get("invoice_number", "") or doc.get("name", "")),
                 "file_url": file_url,
                 "file_name": file_name,
@@ -138,6 +141,7 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 "category": "General Attachment",
                 "amount": 0.0,
                 "date": str(doc.get("posting_date", "")),
+                "staff_name": "",
                 "bill_no": "",
                 "file_url": f_url,
                 "file_name": f.get("file_name") or f_url.split("/")[-1],
@@ -185,12 +189,14 @@ def download_all_claim_attachments_zip(doctype: str, docname: str) -> None:
                 ext = att["extension"] or ".png"
                 clean_merchant = "".join(c for c in (att["merchant"] or "Expense") if c.isalnum() or c in (" ", "-", "_")).strip()
                 clean_cat = "".join(c for c in (att["category"] or "Receipt") if c.isalnum() or c in (" ", "-", "_")).strip()
+                clean_staff = "".join(c for c in (att.get("staff_name") or "") if c.isalnum() or c in (" ", "-", "_")).strip()
                 date_str = (att.get("date") or "").replace("-", "")
                 
+                clean_vch = docname.replace("-", "_").replace(" ", "_").replace("/", "_")
                 if att["row_idx"]:
-                    archive_name = f"Row-{att['row_idx']}_{clean_cat}_{clean_merchant}_{date_str}_{int(att['amount'])}INR{ext}"
+                    archive_name = f"{clean_vch}_Line{att['row_idx']}_{clean_merchant}{ext}"
                 else:
-                    archive_name = f"{clean_cat}_{clean_merchant}_{date_str}_{idx}{ext}"
+                    archive_name = f"{clean_vch}_{clean_cat}_{clean_merchant}_{idx}{ext}"
 
                 zip_file.write(norm_path, arcname=archive_name)
 

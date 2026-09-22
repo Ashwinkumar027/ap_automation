@@ -26,6 +26,20 @@ doctype_js = {
 }
 
 # --------------------------------------------------------------------------------------
+# SCHEDULED CRON JOBS (Tuesday 10:00 AM Turnaround Approval Reminders)
+# --------------------------------------------------------------------------------------
+scheduler_events = {
+    "cron": {
+        "0 10 * * 2": [
+            "ap_automation.services.notification_service.send_pending_petty_cash_reminders"
+        ]
+    },
+    "weekly": [
+        "ap_automation.services.notification_service.send_pending_petty_cash_reminders"
+    ]
+}
+
+# --------------------------------------------------------------------------------------
 # AUTO-PROVISIONING HOOKS (For Seamless UAT & Production Deployments)
 # --------------------------------------------------------------------------------------
 after_install = "ap_automation.setup.after_install"

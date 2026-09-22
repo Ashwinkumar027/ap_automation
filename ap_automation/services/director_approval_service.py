@@ -3,7 +3,7 @@ Director Tier Dual-Signoff Escalation Service (PRD Section 3 & 12)
 Enforces:
 1. Dual-signoff gate for vendor claims > INR 2,00,000 (INR 2 Lakhs).
 2. Accounts L2 escalation to 'Pending Director Signoff'.
-3. Dedicated Director sign-off and rejection endpoints for Anshul Sir / Dileep Sir / Anish Sir.
+3. Dedicated Director sign-off and rejection endpoints for Executive Directors.
 4. Immutable audit trail recording before payment release.
 """
 from typing import Dict, Any, Optional
@@ -50,9 +50,9 @@ def approve_accounts_l2(claim_name: str, accounts_user: str) -> Dict[str, Any]:
 
     if next_status == "Pending Director Signoff":
         claim.workflow_state = "Escalated to Director Tier (> INR 2L)"
-        director_id = frappe.db.get_value("User", {"email": ["in", ["dileep@quanticus.com", "dileep.director@quanticus.com"]]}, "name")
-        if not director_id:
-            director_id = frappe.db.get_value("Has Role", {"role": ["in", ["Accounts Director", "Director Tier"]]}, "parent") or "Administrator"
+        director_id = frappe.db.get_value("Has Role", {"role": ["in", ["Accounts Director", "Director Tier"]], "parenttype": "User"}, "parent")
+        if not director_id or not frappe.db.get_value("User", director_id, "enabled"):
+            director_id = "Administrator"
         claim.designated_approver = director_id
         comment = f"Claim amount (INR {claim.net_payable_amount:,.2f}) exceeds INR 2,00,000 threshold. Escalated to Director Tier."
     else:
@@ -185,7 +185,7 @@ def reject_accounts_director(
     return_to: str = "Accounts L1"
 ) -> Dict[str, Any]:
     """
-    Whitelisted endpoint for Accounts Director (Anshul Sir) rejecting / returning a voucher.
+    Whitelisted endpoint for Accounts Director (Accounts Director) rejecting / returning a voucher.
     """
     from ap_automation.services import notification_service
     user = director_user or frappe.session.user

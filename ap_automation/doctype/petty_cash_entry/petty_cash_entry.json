@@ -57,8 +57,10 @@
    "fieldname": "claim_title",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Claim Title / Envelope Name (Optional)",
-   "description": "Enter a custom name e.g. 'July 4th Week 2026 - ACM' or leave blank for auto-numbering"
+   "label": "Claim Title (Auto: Week # - Company)",
+   "description": "Automatically calculated from Posting Date week & Company (e.g. 'Week 38 - ACM')",
+   "default": "Weekly Petty Cash - Office Expenses",
+   "read_only": 1
   },
   {
    "fieldname": "company",

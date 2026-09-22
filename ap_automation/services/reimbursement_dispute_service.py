@@ -3,7 +3,7 @@ Atomic Reimbursement Dispute Splitting Engine (Voucher Forking)
 Enforces:
 1. Atomic separation of approved vs disputed reimbursement line items.
 2. Proportional advance deduction handling (Zero leakage).
-3. Parent claim auto-advances to Level 2 (Accounts L2 - Anshul Sir).
+3. Parent claim auto-advances to Level 2 (Accounts L2 - Accounts L2 Head).
 4. Child claim creation in 'Disputed' status with line-level reasons for employee correction.
 """
 from typing import Dict, Any, List, Optional

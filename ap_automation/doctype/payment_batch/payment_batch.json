@@ -77,7 +77,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Batch Status",
-   "options": "Draft\nGenerated\nPending 2FA Approval\nDispatched to Bank\nCompleted\nFailed"
+   "options": "Draft\nGenerated\nPending 2FA Approval\nDispatched to Bank\nCompleted\nFailed\nBank File Exported"
   },
   {
    "fieldname": "idfc_batch_ref",

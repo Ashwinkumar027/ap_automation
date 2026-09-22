@@ -102,6 +102,8 @@ def approve_admin_l1(voucher_name: str, comments: Optional[str] = None) -> Dict[
         raise APValidationError(
             f"Cannot approve voucher #{voucher_name} as Admin L1: current status is '{doc.status}', expected 'Pending Admin L1'."
         )
+    if user != "Administrator" and (getattr(doc, "custodian", None) == user or getattr(doc, "owner", None) == user):
+        raise APValidationError("Segregation of Duties: You cannot approve your own petty cash voucher as Admin L1.")
 
     doc.status = "Pending Admin L2"
     doc.workflow_state = "Pending Admin L2 Head Sign-Off"
@@ -206,6 +208,8 @@ def approve_admin_l2(voucher_name: str, comments: Optional[str] = None) -> Dict[
         raise APValidationError(
             f"Cannot approve voucher #{voucher_name} as Admin L2: current status is '{doc.status}', expected 'Pending Admin L2'."
         )
+    if user != "Administrator" and (getattr(doc, "custodian", None) == user or getattr(doc, "owner", None) == user):
+        raise APValidationError("Segregation of Duties: You cannot approve your own petty cash voucher as Admin L2.")
 
     doc.status = "Submitted"
     doc.workflow_state = "Submitted for Accounts Audit"

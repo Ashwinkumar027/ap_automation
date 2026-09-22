@@ -9,12 +9,16 @@
   "expense_date",
   "expense_category",
   "merchant_name",
+  "is_gst",
   "bill_number",
   "amount",
+  "receipt_attachment",
+  "line_decision",
   "employee",
   "staff_name",
+  "merchant_gstin",
+  "transaction_id",
   "remarks",
-  "receipt_attachment",
   "description",
   "is_disputed",
   "dispute_reason"
@@ -33,7 +37,7 @@
    "fieldname": "expense_category",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Category",
+   "label": "Expense Type",
    "options": "Tea & Refreshments\nCourier & Logistics\nOffice Supplies & Stationery\nRepairs & Maintenance\nLocal Conveyance\nCleaning & Housekeeping\nMiscellaneous",
    "reqd": 1
   },
@@ -42,15 +46,24 @@
    "fieldname": "merchant_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Merchant",
+   "label": "Shop / Merchant",
    "reqd": 1
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "is_gst",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "GST?"
   },
   {
    "columns": 1,
    "fieldname": "bill_number",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Bill #"
+   "label": "Bill # / Txn ID",
+   "description": "GST Bill No. (if GST) or UPI / Transaction Ref ID (if Non-GST)"
   },
   {
    "columns": 1,
@@ -61,11 +74,26 @@
    "reqd": 1
   },
   {
+   "columns": 1,
+   "fieldname": "receipt_attachment",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "Receipt"
+  },
+  {
    "columns": 2,
+   "fieldname": "line_decision",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Decision",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
    "fieldname": "employee",
    "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Staff Name",
+   "in_list_view": 0,
+   "label": "Spent By (Staff)",
    "options": "Employee",
    "ignore_user_permissions": 1
   },
@@ -79,18 +107,25 @@
    "in_list_view": 0
   },
   {
-   "columns": 2,
-   "fieldname": "remarks",
+   "fieldname": "merchant_gstin",
    "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Remarks"
+   "in_list_view": 0,
+   "label": "Merchant GST Number (15 Digits)",
+   "description": "Required only for GST invoices (e.g. 29AAAAA0000A1Z5)",
+   "depends_on": "eval:doc.is_gst==1"
   },
   {
-   "columns": 1,
-   "fieldname": "receipt_attachment",
-   "fieldtype": "Attach",
-   "in_list_view": 1,
-   "label": "Receipt"
+   "fieldname": "transaction_id",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Transaction ID / UPI Ref",
+   "hidden": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Notes / Remarks (Optional)"
   },
   {
    "fieldname": "description",

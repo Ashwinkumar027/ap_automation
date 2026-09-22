@@ -2,7 +2,7 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "format:BATCH-IDFC-{YYYY}-{MM}-{DD}-{#####}",
- "creation": "2026-09-01 18:38:30.803442",
+ "creation": "2026-09-21 12:40:09.145148",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -77,7 +77,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Batch Status",
-   "options": "Draft\nGenerated\nPending 2FA Approval\nDispatched to Bank\nCompleted\nFailed"
+   "options": "Draft\nGenerated\nPending 2FA Approval\nDispatched to Bank\nCompleted\nFailed\nBank File Exported"
   },
   {
    "fieldname": "idfc_batch_ref",
@@ -111,7 +111,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-09-03 14:05:37.306688",
+ "modified": "2026-09-22 14:24:00.119811",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Payment Batch",
@@ -120,6 +120,7 @@
  "permissions": [
   {
    "create": 1,
+   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
@@ -136,7 +137,17 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Accounts Manager",
+   "role": "Accounts Director",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Payment Releaser",
    "share": 1,
    "write": 1
   }

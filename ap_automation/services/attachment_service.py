@@ -192,11 +192,11 @@ def download_all_claim_attachments_zip(doctype: str, docname: str) -> None:
                 clean_staff = "".join(c for c in (att.get("staff_name") or "") if c.isalnum() or c in (" ", "-", "_")).strip()
                 date_str = (att.get("date") or "").replace("-", "")
                 
-                staff_part = f"_{clean_staff}" if clean_staff else ""
+                clean_vch = docname.replace("-", "_").replace(" ", "_").replace("/", "_")
                 if att["row_idx"]:
-                    archive_name = f"Row-{att['row_idx']}_{clean_cat}_{clean_merchant}{staff_part}_{date_str}_{int(att['amount'])}INR{ext}"
+                    archive_name = f"{clean_vch}_Line{att['row_idx']}_{clean_merchant}{ext}"
                 else:
-                    archive_name = f"{clean_cat}_{clean_merchant}{staff_part}_{date_str}_{idx}{ext}"
+                    archive_name = f"{clean_vch}_{clean_cat}_{clean_merchant}_{idx}{ext}"
 
                 zip_file.write(norm_path, arcname=archive_name)
 

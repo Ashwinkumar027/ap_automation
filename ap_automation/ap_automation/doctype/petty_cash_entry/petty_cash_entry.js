@@ -1,66 +1,23 @@
-/**
- * Enterprise Master Controller: Petty Cash Entry (Lane 1 - Imprest System)
- * Features:
- * 1. 2-Tier Admin Pre-Approval Gate (Reception -> Admin L1 Supervisor -> Admin L2 Department Head -> Accounts).
- * 2. 6-Step Visual Responsive Progress Stepper & Guidance Banners.
- * 3. Role-Based Dynamic Action Buttons with Return/Rejection Prompting.
- * 4. Original 2-Column Split-Pane Multi-Receipt Gallery Integration (APReceiptGallery).
- * 5. Instant In-Grid 1-Click File Uploaders with Green Preview Badges.
- * 6. Line-Item Atomic Dispute Splitting Engine with whitelisted API.
- * 7. Live Totals Calculation with Zero-Reload Dynamic Sum.
- */
-
+// Enterprise Petty Cash Entry Client Controller (Production-Ready)
 frappe.ui.form.on('Petty Cash Entry', {
-    setup: function (frm) {
-        frm.set_df_property('status', 'read_only', 1);
-        apply_petty_cash_styles();
-    },
-
     onload: function (frm) {
-        if (frm.is_new() && !frm.doc.posting_date) {
-            frm.set_value('posting_date', frappe.datetime.get_today());
-        }
-    },
-
-    custodian: function (frm) {
-        if (frm.doc.custodian) {
-            frappe.db.get_value('Employee', frm.doc.custodian, [
-                'employee_name',
-                'custom_name_as_per_bank',
-                'bank_name',
-                'bank_ac_no',
-                'custom_ifsc_code',
-                'ifsc_code'
-            ]).then(r => {
-                if (r && r.message) {
-                    const d = r.message;
-                    const name = d.custom_name_as_per_bank || d.employee_name || '';
-                    const bank = d.bank_name || '';
-                    const ac_no = d.bank_ac_no || '';
-                    const ifsc = d.custom_ifsc_code || d.ifsc_code || '';
-
-                    frm.set_value('beneficiary_name', name);
-                    frm.set_value('bank_name', bank);
-                    frm.set_value('custodian_bank_account', ac_no);
-                    frm.set_value('custodian_ifsc_code', ifsc);
-                }
-            });
-        } else {
-            frm.set_value('beneficiary_name', '');
-            frm.set_value('bank_name', '');
-            frm.set_value('custodian_bank_account', '');
-            frm.set_value('custodian_ifsc_code', '');
-        }
+        auto_update_claim_title(frm);
+        setTimeout(() => apply_bank_account_masking(frm), 100);
+        setTimeout(() => apply_bank_account_masking(frm), 400);
     },
 
     refresh: function (frm) {
-        // Whitelisted queries to allow Front Desk to search and select all Employees & Companies
+        frm.set_df_property('posting_date', 'max_date', frappe.datetime.get_today());
+        auto_update_claim_title(frm);
+        frm.set_df_property('expense_lines', 'read_only', 0);
+
+        // Bank Masking
+        apply_bank_account_masking(frm);
+        setTimeout(() => apply_bank_account_masking(frm), 150);
+        setTimeout(() => apply_bank_account_masking(frm), 500);
+
+        // Filter queries
         frm.set_query('custodian', function () {
-            return {
-                query: 'ap_automation.ap_automation.doctype.petty_cash_entry.petty_cash_entry.get_all_employees_query'
-            };
-        });
-        frm.set_query('beneficiary_employee', function () {
             return {
                 query: 'ap_automation.ap_automation.doctype.petty_cash_entry.petty_cash_entry.get_all_employees_query'
             };
@@ -81,16 +38,56 @@ frappe.ui.form.on('Petty Cash Entry', {
         render_petty_cash_stepper(frm);
         render_status_guidance_banner(frm);
         render_role_based_action_buttons(frm);
-        bind_custom_grid_uploaders(frm);
+        bind_custom_grid_uploaders_and_review(frm);
         setup_dispute_merge_helper(frm);
+    },
+
+    company: function (frm) {
+        auto_update_claim_title(frm);
+    },
+
+    posting_date: function (frm) {
+        validate_client_posting_date(frm);
+        auto_update_claim_title(frm);
+    },
+
+    custodian: function (frm) {
+        setTimeout(() => apply_bank_account_masking(frm), 250);
+        setTimeout(() => apply_bank_account_masking(frm), 600);
+    },
+
+    custodian_bank_account: function (frm) {
+        apply_bank_account_masking(frm);
     },
 
     validate: function (frm) {
         calculate_grid_totals(frm);
+        validate_client_posting_date(frm);
+        auto_update_claim_title(frm);
     }
 });
 
 frappe.ui.form.on('Petty Cash Line Item', {
+    is_gst: function (frm, cdt, cdn) {
+        let row = locals[cdt][cdn];
+        if (row.is_gst) {
+            frappe.show_alert({
+                message: __('🧾 GST Bill selected: Please enter GST Bill Number and 15-digit Merchant GSTIN.'),
+                indicator: 'blue'
+            }, 4);
+        } else {
+            frappe.show_alert({
+                message: __('💳 Non-GST Expense: Please enter Transaction ID / UPI Ref Number.'),
+                indicator: 'orange'
+            }, 4);
+        }
+    },
+    bill_number: function (frm, cdt, cdn) {
+        let row = locals[cdt][cdn];
+        if (row.bill_number && !row.transaction_id) {
+            frappe.model.set_value(cdt, cdn, 'transaction_id', row.bill_number);
+        }
+    },
     amount: function (frm) {
         calculate_grid_totals(frm);
     },
@@ -99,13 +96,45 @@ frappe.ui.form.on('Petty Cash Line Item', {
     },
     expense_lines_add: function (frm) {
         calculate_grid_totals(frm);
-        setTimeout(() => bind_custom_grid_uploaders(frm), 250);
+        setTimeout(() => bind_custom_grid_uploaders_and_review(frm), 250);
     }
 });
 
 // --------------------------------------------------------------------------------------
-// 1. DYNAMIC GRID TOTALS CALCULATION
+// 1. AUTO-CALCULATE CLAIM TITLE (Week # - Company Abbreviation)
 // --------------------------------------------------------------------------------------
+function auto_update_claim_title(frm) {
+    if (!frm.doc.posting_date) {
+        frm.doc.posting_date = frappe.datetime.get_today();
+    }
+    const post_date = frappe.datetime.str_to_obj(frm.doc.posting_date);
+    const target = new Date(post_date.valueOf());
+    const dayNr = (post_date.getDay() + 6) % 7;
+    target.setDate(target.getDate() - dayNr + 3);
+    const firstThursday = target.valueOf();
+    target.setMonth(0, 1);
+    if (target.getDay() !== 4) {
+        target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+    }
+    const week_num = 1 + Math.ceil((firstThursday - target) / 604800000);
+
+    const company_name = frm.doc.company;
+    if (company_name) {
+        frappe.db.get_value('Company', company_name, 'abbr').then(r => {
+            let abbr = (r.message && r.message.abbr) ? r.message.abbr : company_name.split(' ')[0];
+            const title_val = `Week ${week_num} - ${abbr}`;
+            if (frm.doc.claim_title !== title_val) {
+                frm.set_value('claim_title', title_val);
+            }
+        });
+    } else {
+        const title_val = `Week ${week_num} - ACM`;
+        if (frm.doc.claim_title !== title_val) {
+            frm.set_value('claim_title', title_val);
+        }
+    }
+}
+
 function calculate_grid_totals(frm) {
     let total = 0.0;
     (frm.doc.expense_lines || []).forEach(row => {
@@ -114,8 +143,60 @@ function calculate_grid_totals(frm) {
     frm.set_value('total_amount', total);
 }
 
+function validate_client_posting_date(frm) {
+    if (!frm.doc.posting_date) return;
+    const post_date = frappe.datetime.str_to_obj(frm.doc.posting_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (post_date > today) {
+        frappe.msgprint({
+            title: __('Invalid Posting Date'),
+            indicator: 'red',
+            message: __('Posting Date cannot be in the future. Resetting to today.')
+        });
+        frm.set_value('posting_date', frappe.datetime.get_today());
+    }
+}
+
 // --------------------------------------------------------------------------------------
-// 2. 6-STEP VISUAL WORKFLOW STEPPER TRACKER
+// 2. BULLETPROOF BANK ACCOUNT MASKING (PERMANENT MASK)
+// --------------------------------------------------------------------------------------
+function apply_bank_account_masking(frm) {
+    const field = frm.fields_dict['custodian_bank_account'];
+    if (!field || !field.$wrapper) return;
+
+    const raw_val = String(frm.doc.custodian_bank_account || '').trim();
+    field.$wrapper.find('.bank-mask-ui-container').remove();
+
+    if (!raw_val) {
+        field.$wrapper.find('.control-value, .like-disabled-input, input, .disp_area').show();
+        return;
+    }
+
+    const last4 = raw_val.length > 4 ? raw_val.slice(-4) : raw_val;
+    const masked = '•••• •••• •••• ' + last4;
+
+    field.$wrapper.find('.control-value, .like-disabled-input, input, .disp_area, .static-data-area').hide();
+
+    const mask_ui = $(`
+        <div class="bank-mask-ui-container" style="display: inline-flex; align-items: center; margin-top: 2px;">
+            <div class="bank-acc-display" style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 13.5px; font-weight: 700; letter-spacing: 1.5px; color: #0f172a; background: #f1f5f9; padding: 5px 12px; border-radius: 6px; border: 1px solid #cbd5e1; min-width: 150px;">
+                ${masked}
+            </div>
+        </div>
+    `);
+
+    const target = field.$wrapper.find('.control-input-wrapper');
+    if (target.length) {
+        target.append(mask_ui);
+    } else {
+        field.$wrapper.find('.control-input').append(mask_ui);
+    }
+}
+
+// --------------------------------------------------------------------------------------
+// 3. WORKFLOW STEPPER TRACKER
 // --------------------------------------------------------------------------------------
 function render_petty_cash_stepper(frm) {
     if (frm.fields_dict['sb_header'] && frm.fields_dict['sb_header'].wrapper) {
@@ -170,7 +251,7 @@ function render_petty_cash_stepper(frm) {
 }
 
 // --------------------------------------------------------------------------------------
-// 3. STATUS GUIDANCE & RETURN ALERT BANNERS
+// 4. STATUS GUIDANCE BANNERS
 // --------------------------------------------------------------------------------------
 function render_status_guidance_banner(frm) {
     if (!frm.fields_dict['sb_header'] || !frm.fields_dict['sb_header'].wrapper) return;
@@ -201,7 +282,7 @@ function render_status_guidance_banner(frm) {
             class: 'banner-submitted',
             icon: '⏳',
             title: 'Stage 1: Awaiting Admin Team Lead (L1) Review',
-            message: `Voucher for <b>₹ ${amount_formatted}</b> submitted by <b>${frm.doc.custodian || 'Reception'}</b> is awaiting Admin L1 operational review.`
+            message: `Voucher for <b>₹ ${amount_formatted}</b> submitted by <b>${frm.doc.custodian || 'Reception'}</b> is awaiting Admin L1 review.`
         };
     } else if (status === 'Pending Admin L2') {
         banner_config = {
@@ -214,22 +295,22 @@ function render_status_guidance_banner(frm) {
         banner_config = {
             class: 'banner-submitted',
             icon: '🔍',
-            title: 'Stage 3: Awaiting Accounts Audit (Finance L1)',
-            message: `Admin pre-approvals complete. Accounts team is verifying tax compliance, receipts, and GST.`
+            title: 'Stage 3: Accounts L1 Audit & Verification',
+            message: `Auditing lines. You can dispute individual invalid lines by clicking <b>⚠️ Dispute</b> under the Receipt column.`
         };
     } else if (status === 'L1 Verified') {
         banner_config = {
             class: 'banner-approved',
             icon: '⭐',
             title: 'Stage 4: Audited & Ready for Director Sanction (L2)',
-            message: `Accounts verified <b>₹ ${amount_formatted}</b> with zero discrepancies. Waiting for Director Tier sanction.`
+            message: `Accounts verified <b>₹ ${amount_formatted}</b>. Waiting for Director Tier sanction.`
         };
     } else if (status === 'Approved for Payment' || status === 'Queued in Batch') {
         banner_config = {
             class: 'banner-approved',
             icon: '🔐',
             title: 'Sanctioned for Payment Disbursement',
-            message: `Director sanctioned <b>₹ ${amount_formatted}</b>. Queued in upcoming Thursday corporate bank release batch.`
+            message: `Director sanctioned <b>₹ ${amount_formatted}</b>. Queued in upcoming corporate bank release batch.`
         };
     } else if (status === 'Paid' || status === 'Disbursed via IDFC') {
         banner_config = {
@@ -249,7 +330,7 @@ function render_status_guidance_banner(frm) {
                     <div class="banner-sub">${banner_config.message}</div>
                 </div>
                 <div class="banner-stat">
-                    <div class="stat-label">Claim Total</div>
+                    <div class="stat-label">Total Amount</div>
                     <div class="stat-val">₹ ${amount_formatted}</div>
                 </div>
             </div>
@@ -259,31 +340,24 @@ function render_status_guidance_banner(frm) {
 }
 
 // --------------------------------------------------------------------------------------
-// 4. ROLE-BASED DYNAMIC ACTION BUTTONS
+// 5. ROLE-BASED ACTION BUTTONS
 // --------------------------------------------------------------------------------------
 function render_role_based_action_buttons(frm) {
     if (frm.is_new()) return;
 
-    frm.clear_custom_buttons();
     const status = frm.doc.status || 'Draft';
     const lines = frm.doc.expense_lines || [];
-    const attachments = lines.filter(r => r.receipt_attachment);
+    const attachments = get_claim_attachments(frm);
 
-    // 1-Click Excel Statement Export
+    // 1-Click Excel Export
     frm.add_custom_button(__('📊 Export Excel'), function () {
-        const url = `/api/method/ap_automation.services.export_service.export_petty_cash_excel?voucher_name=${encodeURIComponent(frm.doc.name)}`;
+        const url = `/api/method/ap_automation.services.export_service.download_voucher_excel?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
         window.open(url, '_blank');
     });
 
-    // 1-Click Tally Journal Voucher XML Export (Accounts L1 / Accounts Director only)
+    // 1-Click Tally Journal Voucher XML Export
     const is_accounts_or_director = frappe.user.has_role([
-        'Accounts User',
-        'Accounts Auditor',
-        'Accounts Manager',
-        'Accounts Director',
-        'Director Tier',
-        'Dileep Director',
-        'System Manager'
+        'Accounts L1 Auditor', 'Accounts Manager', 'Accounts Director', 'Director Tier', 'Payment Releaser', 'System Manager'
     ]) || frappe.session.user === 'Administrator';
 
     if (is_accounts_or_director) {
@@ -311,19 +385,17 @@ function render_role_based_action_buttons(frm) {
         });
     }
 
-    // Common Proof Viewers
     if (attachments.length > 0) {
         frm.add_custom_button(__(`👁️ View Receipts (${attachments.length})`), () => {
             open_unified_receipt_gallery(frm, 0);
         });
-
         frm.add_custom_button(__('📦 Download ZIP'), () => {
             const url = `/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
             window.open(url, '_blank');
         });
     }
 
-    // 1. RECEPTION / DRAFT SUBMISSION TO ADMIN L1
+    // 1. RECEPTION SUBMISSION
     if (status === 'Draft' || status === 'Returned to Reception') {
         frm.add_custom_button(__('📤 Submit to Admin Lead'), function () {
             if (!lines || lines.length === 0) {
@@ -352,7 +424,7 @@ function render_role_based_action_buttons(frm) {
         });
     }
 
-    // 2. ADMIN L1 SUPERVISOR ACTIONS
+    // 2. ADMIN L1 ACTIONS
     if (status === 'Pending Admin L1' && (frappe.user.has_role(['Admin L1 Approver', 'Admin Manager', 'System Manager']) || frappe.session.user === 'Administrator')) {
         frm.add_custom_button(__('✅ Approve (Admin L1)'), function () {
             frappe.confirm(__(`Approve voucher <b>#${frm.doc.name}</b> (₹${format_inr_clean(frm.doc.total_amount)}) and forward to Admin Department Head?`), function () {
@@ -377,35 +449,20 @@ function render_role_based_action_buttons(frm) {
         });
 
         frm.add_custom_button(__('↩️ Return to Reception'), function () {
-            frappe.prompt(
-                [
-                    {
-                        fieldname: 'reason',
-                        fieldtype: 'Small Text',
-                        label: __('Reason for Returning to Reception'),
-                        reqd: 1
-                    }
-                ],
-                function (values) {
-                    frappe.call({
-                        method: 'ap_automation.services.admin_approval_service.return_admin_l1',
-                        args: {
-                            voucher_name: frm.doc.name,
-                            reason: values.reason
-                        },
-                        freeze: true,
-                        freeze_message: __('Returning voucher to Reception...'),
-                        callback: function (r) {
-                            if (r.message && r.message.status === 'SUCCESS') {
-                                frappe.show_alert({ message: __('↩️ Voucher Returned to Reception'), indicator: 'orange' }, 5);
-                                frm.reload_doc();
-                            }
+            open_rejection_reason_dialog(frm, 'Admin L1', function (reason_code, remarks) {
+                frappe.call({
+                    method: 'ap_automation.services.admin_approval_service.return_admin_l1',
+                    args: { voucher_name: frm.doc.name, reason: `[${reason_code}] ${remarks}` },
+                    freeze: true,
+                    freeze_message: __('Returning voucher to Reception...'),
+                    callback: function (r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({ message: __('↩️ Voucher Returned to Reception'), indicator: 'orange' }, 5);
+                            frm.reload_doc();
                         }
-                    });
-                },
-                __('Return Voucher to Reception'),
-                __('Return Voucher')
-            );
+                    }
+                });
+            });
         }).addClass('btn-danger').css({
             'background-color': '#dc2626',
             'border-color': '#b91c1c',
@@ -413,7 +470,7 @@ function render_role_based_action_buttons(frm) {
         });
     }
 
-    // 3. ADMIN L2 DEPARTMENT HEAD ACTIONS
+    // 3. ADMIN L2 ACTIONS
     if (status === 'Pending Admin L2' && (frappe.user.has_role(['Admin L2 Approver', 'Admin Manager', 'Accounts Director', 'Director Tier', 'System Manager']) || frappe.session.user === 'Administrator')) {
         frm.add_custom_button(__('✅ Approve & Send to Accounts'), function () {
             frappe.confirm(__(`Final Admin Sign-Off: Dispatch voucher <b>#${frm.doc.name}</b> (₹${format_inr_clean(frm.doc.total_amount)}) to Accounts Audit?`), function () {
@@ -437,45 +494,21 @@ function render_role_based_action_buttons(frm) {
             'font-weight': '700'
         });
 
-        frm.add_custom_button(__('↩️ Return to Reception'), function () {
-            frappe.prompt(
-                [
-                    {
-                        fieldname: 'reason',
-                        fieldtype: 'Small Text',
-                        label: __('Reason for Returning Voucher'),
-                        reqd: 1
-                    },
-                    {
-                        fieldname: 'return_to',
-                        fieldtype: 'Select',
-                        label: __('Return To'),
-                        options: 'Reception\nAdmin L1',
-                        default: 'Reception',
-                        reqd: 1
-                    }
-                ],
-                function (values) {
-                    frappe.call({
-                        method: 'ap_automation.services.admin_approval_service.return_admin_l2',
-                        args: {
-                            voucher_name: frm.doc.name,
-                            reason: values.reason,
-                            return_to: values.return_to
-                        },
-                        freeze: true,
-                        freeze_message: __('Returning voucher...'),
-                        callback: function (r) {
-                            if (r.message && r.message.status === 'SUCCESS') {
-                                frappe.show_alert({ message: __('↩️ Voucher Returned'), indicator: 'orange' }, 5);
-                                frm.reload_doc();
-                            }
+        frm.add_custom_button(__('↩️ Return Voucher'), function () {
+            open_rejection_reason_dialog(frm, 'Admin L2', function (reason_code, remarks) {
+                frappe.call({
+                    method: 'ap_automation.services.admin_approval_service.return_admin_l2',
+                    args: { voucher_name: frm.doc.name, reason: `[${reason_code}] ${remarks}`, return_to: 'Reception' },
+                    freeze: true,
+                    freeze_message: __('Returning voucher...'),
+                    callback: function (r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({ message: __('↩️ Voucher Returned'), indicator: 'orange' }, 5);
+                            frm.reload_doc();
                         }
-                    });
-                },
-                __('Return Voucher'),
-                __('Submit Return')
-            );
+                    }
+                });
+            });
         }).addClass('btn-danger').css({
             'background-color': '#dc2626',
             'border-color': '#b91c1c',
@@ -483,51 +516,106 @@ function render_role_based_action_buttons(frm) {
         });
     }
 
-    // 4. ACCOUNTS AUDIT ACTIONS (Status == 'Submitted')
-    if (status === 'Submitted' && (frappe.user.has_role(['Accounts User', 'Accounts Manager', 'System Manager']) || frappe.session.user === 'Administrator')) {
-        frm.add_custom_button(__('✅ Audit & Pass to Director'), function () {
-            frappe.confirm(__('Pass line-item audit and forward to Director for final sanction?'), function () {
-                frm.set_value('status', 'L1 Verified');
-                frm.set_value('workflow_state', 'Audited & Verified by Accounts L1');
-                frm.set_value('current_approval_level', 2);
-                frm.save().then(() => {
-                    frappe.show_alert({ message: __('✅ Passed to Director Tier!'), indicator: 'green' }, 5);
-                });
+    // 4. ACCOUNTS AUDIT ACTIONS (Line-by-Line Approve & Dispute Execution)
+    if (status === 'Submitted' && (frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Manager', 'System Manager']) || frappe.session.user === 'Administrator')) {
+        const disputed_lines = lines.filter(l => l.is_disputed);
+        const approved_lines = lines.filter(l => !l.is_disputed);
+
+        if (disputed_lines.length > 0) {
+            frm.add_custom_button(__(`⚡ Approve Clean (${approved_lines.length}) & Fork Disputed (${disputed_lines.length})`), function () {
+                frappe.confirm(
+                    __(`You have marked <b>${disputed_lines.length} disputed line(s)</b> and <b>${approved_lines.length} approved line(s)</b>.<br><br>` +
+                       `• Approved lines will advance to <b>Director Tier</b>.<br>` +
+                       `• Disputed lines will be forked and returned to <b>Reception</b>.<br><br>Proceed?`),
+                    function () {
+                        let disputed_indices = [];
+                        let dispute_reasons = {};
+                        lines.forEach((l, idx) => {
+                            if (l.is_disputed) {
+                                disputed_indices.push(idx);
+                                dispute_reasons[idx] = l.dispute_reason || 'Disputed during Accounts L1 audit';
+                            }
+                        });
+
+                        frappe.call({
+                            method: 'ap_automation.services.dispute_service.api_dispute_split',
+                            args: {
+                                parent_docname: frm.doc.name,
+                                disputed_indices: disputed_indices,
+                                dispute_reasons: dispute_reasons
+                            },
+                            freeze: true,
+                            freeze_message: __('Forking disputed lines and forwarding approved lines...'),
+                            callback: function (r) {
+                                if (r.message && r.message.status === 'split_success') {
+                                    frappe.db.set_value('Petty Cash Entry', frm.doc.name, {
+                                        status: 'L1 Verified',
+                                        workflow_state: 'Audited & Verified by Accounts L1 (Disputed Lines Forked)',
+                                        current_approval_level: 2
+                                    }).then(() => {
+                                        frappe.show_alert({
+                                            message: __(`🎉 Split Complete! Approved lines sent to Director. Disputed voucher #${r.message.forked_voucher} returned to submitter.`),
+                                            indicator: 'green'
+                                        }, 7);
+                                        frm.reload_doc();
+                                    });
+                                }
+                            }
+                        });
+                    }
+                );
+            }).addClass('btn-primary').css({
+                'background': 'linear-gradient(135deg, #16a34a 0%, #0d9488 100%)',
+                'color': '#ffffff',
+                'font-weight': '700',
+                'border': 'none'
             });
-        }).addClass('btn-primary').css({
-            'background-color': '#16a34a',
-            'border-color': '#15803d',
-            'color': '#ffffff',
-            'font-weight': '700'
-        });
+        } else {
+            frm.add_custom_button(__('✅ Audit & Pass to Director'), function () {
+                frappe.confirm(__('Pass all line items as verified and forward to Director for final sanction?'), function () {
+                    frm.set_value('status', 'L1 Verified');
+                    frm.set_value('workflow_state', 'Audited & Verified by Accounts L1');
+                    frm.set_value('current_approval_level', 2);
+                    frm.save().then(() => {
+                        frappe.show_alert({ message: __('✅ Passed to Director Tier!'), indicator: 'green' }, 5);
+                    });
+                });
+            }).addClass('btn-primary').css({
+                'background-color': '#16a34a',
+                'border-color': '#15803d',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
+        }
 
         if (lines.length > 1) {
-            frm.add_custom_button(__('⚠️ Dispute Lines'), function () {
+            frm.add_custom_button(__('⚠️ Dispute Split Helper'), function () {
                 open_dispute_split_dialog(frm);
             }).addClass('btn-secondary').css({
                 'background-color': '#f59e0b',
                 'border-color': '#d97706',
                 'color': '#ffffff',
-                'font-weight': '700'
+                'font-weight': '600'
             });
         }
     }
 
-    // 5. DIRECTOR TIER SANCTION (Status == 'L1 Verified')
-    if (status === 'L1 Verified' && (frappe.user.has_role(['Accounts Director', 'Director Tier', 'Dileep Director', 'System Manager']) || frappe.session.user === 'Administrator')) {
+    // 5. DIRECTOR TIER ACTIONS
+    const can_sanction_or_reject = frappe.user.has_role([
+        'Accounts Director', 'Director Tier', 'Payment Releaser', 'System Manager'
+    ]) || frappe.session.user === 'Administrator';
+
+    if (status === 'L1 Verified' && can_sanction_or_reject) {
         frm.add_custom_button(__('✅ Sanction Payment'), function () {
             frappe.confirm(__(`Sanction payment of <b>₹${format_inr_clean(frm.doc.total_amount)}</b> for IDFC corporate batch release?`), function () {
                 frappe.call({
                     method: 'ap_automation.services.director_approval_service.sanction_accounts_director',
-                    args: {
-                        voucher_doctype: frm.doc.doctype,
-                        voucher_name: frm.doc.name
-                    },
+                    args: { voucher_doctype: frm.doc.doctype, voucher_name: frm.doc.name },
                     freeze: true,
                     freeze_message: __('Sanctioning payment release...'),
                     callback: function (r) {
                         if (!r.exc) {
-                            frappe.show_alert({ message: __('✅ Sanctioned for Payment Release! Alert sent to Payment Releaser.'), indicator: 'green' }, 5);
+                            frappe.show_alert({ message: __('✅ Sanctioned for Payment Release!'), indicator: 'green' }, 5);
                             frm.reload_doc();
                         }
                     }
@@ -540,8 +628,26 @@ function render_role_based_action_buttons(frm) {
             'font-weight': '700'
         });
 
-        frm.add_custom_button(__('🚫 Reject / Return'), function () {
-            open_director_rejection_dialog(frm);
+        frm.add_custom_button(__('🚫 Reject / Return (Director Sign-Off)'), function () {
+            open_rejection_reason_dialog(frm, 'Accounts Director / Payment Releaser', function (reason_code, remarks, return_to) {
+                frappe.call({
+                    method: 'ap_automation.services.director_approval_service.reject_accounts_director',
+                    args: {
+                        voucher_doctype: frm.doc.doctype,
+                        voucher_name: frm.doc.name,
+                        reason: `[${reason_code}] ${remarks}`,
+                        return_to: return_to || 'Accounts L1'
+                    },
+                    freeze: true,
+                    freeze_message: __('Processing rejection...'),
+                    callback: function (r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({ message: __('🚫 Voucher Returned / Rejected'), indicator: 'red' }, 5);
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            });
         }).addClass('btn-secondary').css({
             'background-color': '#ef4444',
             'border-color': '#dc2626',
@@ -552,70 +658,334 @@ function render_role_based_action_buttons(frm) {
 }
 
 // --------------------------------------------------------------------------------------
-// 5. 1-CLICK IN-GRID PHOTO UPLOADER
+// 6. IN-GRID DEDICATED RECEIPT PHOTO & DEDICATED DECISION COLUMN
 // --------------------------------------------------------------------------------------
-function bind_custom_grid_uploaders(frm) {
+function bind_custom_grid_uploaders_and_review(frm) {
     if (!frm.fields_dict['expense_lines'] || !frm.fields_dict['expense_lines'].grid) return;
 
     const grid = frm.fields_dict['expense_lines'].grid;
     const grid_rows = (grid.wrapper || $(grid.parent)).find('.grid-body .grid-row');
+    const is_review_stage = ['Pending Admin L1', 'Pending Admin L2', 'Submitted', 'L1 Verified'].includes(frm.doc.status);
 
     grid_rows.each(function (idx) {
         const row_elem = $(this);
-        const cell = row_elem.find('.grid-static-col[data-fieldname="receipt_attachment"]');
-        if (!cell.length) return;
-
         const row_data = (frm.doc.expense_lines || [])[idx];
-        const current_val = row_data ? row_data.receipt_attachment : null;
+        if (!row_data) return;
 
-        if (cell.attr('data-rendered-url') === (current_val || 'empty')) return;
-        cell.attr('data-rendered-url', current_val || 'empty');
-        cell.empty();
+        // Clean up any row-index badge pollution
+        row_elem.find('.row-index .line-dispute-pill').remove();
 
-        if (current_val) {
-            const badge = $(`
-                <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:6px; background:#ecfdf5; border:1px solid #10b981; border-radius:5px; padding:2px 8px; cursor:pointer;" title="Click to view full receipt">
-                    <img src="${current_val}" style="width:20px; height:20px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />
-                    <span style="font-size:11px; font-weight:700; color:#065f46;">🧾 Attached</span>
-                </div>
-            `);
-            badge.on('click', function (e) {
+        // 1. DEDICATED RECEIPT COLUMN (Receipt Photo Only: Attached or Add Photo)
+        const cell_receipt = row_elem.find('.grid-static-col[data-fieldname="receipt_attachment"]');
+        if (cell_receipt.length) {
+            cell_receipt.empty();
+
+            const current_val = row_data.receipt_attachment;
+            let receipt_btn_html = '';
+
+            if (current_val) {
+                receipt_btn_html = `
+                    <div class="ap-attached-badge" style="display:inline-flex; align-items:center; justify-content:center; gap:4px; background:#ecfdf5; border:1px solid #10b981; border-radius:5px; padding:3px 8px; cursor:pointer; width:100%; box-sizing:border-box;" title="Click to view receipt photo">
+                        <span style="font-size:11px;">🧾</span>
+                        <span style="font-size:11px; font-weight:700; color:#065f46;">Attached</span>
+                    </div>
+                `;
+            } else {
+                receipt_btn_html = `
+                    <button type="button" class="btn btn-xs btn-default ap-upload-btn" style="border:1px dashed #94a3b8; color:#475569; font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:#f8fafc; cursor:pointer; width:100%; box-sizing:border-box;" title="Upload bill receipt photo">
+                        📷 Add Photo
+                    </button>
+                `;
+            }
+
+            const receipt_container = $(receipt_btn_html);
+
+            receipt_container.filter('.ap-attached-badge').add(receipt_container.find('.ap-attached-badge')).on('click', function (e) {
                 e.stopPropagation();
                 open_unified_receipt_gallery(frm, idx);
             });
-            cell.append(badge);
-        } else {
-            const upload_btn = $(`
-                <button type="button" class="btn btn-xs btn-default ap-upload-btn" style="border:1px dashed #94a3b8; color:#475569; font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:#f8fafc;">
-                    📷 Add Photo
-                </button>
-            `);
-            upload_btn.on('click', function (e) {
+
+            receipt_container.filter('.ap-upload-btn').add(receipt_container.find('.ap-upload-btn')).on('click', function (e) {
                 e.stopPropagation();
                 new frappe.ui.FileUploader({
                     folder: 'Home/Attachments',
                     on_success: (file_doc) => {
                         frappe.model.set_value(row_data.doctype, row_data.name, 'receipt_attachment', file_doc.file_url);
                         calculate_grid_totals(frm);
-                        setTimeout(() => bind_custom_grid_uploaders(frm), 200);
+                        setTimeout(() => bind_custom_grid_uploaders_and_review(frm), 200);
                     }
                 });
             });
-            cell.append(upload_btn);
+
+            cell_receipt.append(receipt_container);
+        }
+
+        // 2. DEDICATED DECISION COLUMN (Separate Column for Approve & Dispute Actions)
+        const cell_decision = row_elem.find('.grid-static-col[data-fieldname="line_decision"]');
+        if (cell_decision.length) {
+            cell_decision.empty();
+
+            let decision_html = '';
+            if (is_review_stage) {
+                if (row_data.is_disputed) {
+                    row_elem.css({ 'background-color': '#fef2f2', 'border-left': '4px solid #ef4444' });
+                    decision_html = `
+                        <div style="display:flex; align-items:center; justify-content:center; gap:5px; flex-wrap:nowrap;">
+                            <span class="badge" style="background:#fee2e2; border:1px solid #f87171; color:#b91c1c; font-size:10px; font-weight:700; padding:3px 7px; border-radius:4px; white-space:nowrap;" title="${row_data.dispute_reason || 'Disputed'}">
+                                ⚠️ Disputed
+                            </span>
+                            <button type="button" class="btn btn-xs btn-default btn-clear-dispute" style="padding:2px 6px; font-size:10px; color:#475569; background:#ffffff; border:1px solid #cbd5e1; border-radius:4px; cursor:pointer;" title="Undo Dispute (Mark OK)">
+                                ↩️ Reset
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    row_elem.css({ 'background-color': '', 'border-left': '' });
+                    decision_html = `
+                        <div style="display:flex; align-items:center; justify-content:center; gap:6px; flex-wrap:nowrap;">
+                            <button type="button" class="btn btn-xs btn-line-ok" style="background:#f0fdf4; border:1px solid #86efac; color:#15803d; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:4px; cursor:pointer; display:inline-flex; align-items:center; gap:3px;" title="Line is Verified OK">
+                                ✅ OK
+                            </button>
+                            <button type="button" class="btn btn-xs btn-outline-warning btn-line-dispute" style="font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:4px; color:#b45309; background:#fffbeb; border:1px solid #fcd34d; cursor:pointer; display:inline-flex; align-items:center; gap:3px;" title="Dispute this line item">
+                                ⚠️ Dispute
+                            </button>
+                        </div>
+                    `;
+                }
+            } else {
+                if (row_data.is_disputed) {
+                    decision_html = `
+                        <div style="display:flex; align-items:center; justify-content:center;">
+                            <span class="badge" style="background:#fee2e2; border:1px solid #f87171; color:#b91c1c; font-size:10px; font-weight:700; padding:3px 7px; border-radius:4px;" title="${row_data.dispute_reason || 'Disputed'}">
+                                ⚠️ Disputed
+                            </span>
+                        </div>
+                    `;
+                } else {
+                    decision_html = `
+                        <div style="display:flex; align-items:center; justify-content:center;">
+                            <span style="color:#15803d; font-size:11px; font-weight:700; display:inline-flex; align-items:center; gap:3px;">
+                                ✅ OK
+                            </span>
+                        </div>
+                    `;
+                }
+            }
+
+            const decision_container = $(decision_html);
+
+            decision_container.find('.btn-line-ok').add(decision_container.filter('.btn-line-ok')).on('click', function (e) {
+                e.stopPropagation();
+                frappe.show_alert({ message: __('Line #' + row_data.idx + ' verified OK'), indicator: 'green' }, 2);
+            });
+
+            decision_container.find('.btn-line-dispute').add(decision_container.filter('.btn-line-dispute')).on('click', function (e) {
+                e.stopPropagation();
+                open_single_line_dispute_dialog(frm, row_data);
+            });
+
+            decision_container.find('.btn-clear-dispute').add(decision_container.filter('.btn-clear-dispute')).on('click', function (e) {
+                e.stopPropagation();
+                frappe.model.set_value(row_data.doctype, row_data.name, 'is_disputed', 0);
+                frappe.model.set_value(row_data.doctype, row_data.name, 'dispute_reason', '');
+                render_role_based_action_buttons(frm);
+                setTimeout(() => bind_custom_grid_uploaders_and_review(frm), 150);
+            });
+
+            cell_decision.append(decision_container);
         }
     });
 }
 
-// --------------------------------------------------------------------------------------
-// 6. UNIVERSAL 2-COLUMN SPLIT-PANE RECEIPT GALLERY (MODAL LIGHTBOX)
-// --------------------------------------------------------------------------------------
+function open_single_line_dispute_dialog(frm, row_data) {
+    let d = new frappe.ui.Dialog({
+        title: __(`⚠️ Dispute Line #${row_data.idx}: ${row_data.merchant_name || 'Expense'}`),
+        fields: [
+            {
+                fieldname: 'reason_code',
+                fieldtype: 'Select',
+                label: __('Dispute Reason Code'),
+                options: [
+                    'Missing / Illegible Bill Photo',
+                    'Incorrect Amount / Tax Rate',
+                    'Non-Compliant Expense Category',
+                    'Duplicate Expense Entry',
+                    'Unapproved Expenditure',
+                    'Other Reason'
+                ].join('\n'),
+                default: 'Missing / Illegible Bill Photo',
+                reqd: 1
+            },
+            {
+                fieldname: 'remarks',
+                fieldtype: 'Small Text',
+                label: __('Specific Remarks for Submitter'),
+                reqd: 1,
+                description: __('Explain what needs to be corrected so the submitter can fix it.')
+            }
+        ],
+        primary_action_label: __('Mark as Disputed'),
+        primary_action(values) {
+            frappe.model.set_value(row_data.doctype, row_data.name, 'is_disputed', 1);
+            frappe.model.set_value(row_data.doctype, row_data.name, 'dispute_reason', `[${values.reason_code}] ${values.remarks.trim()}`);
+            d.hide();
+            frappe.show_alert({
+                message: __(`⚠️ Line #${row_data.idx} marked as Disputed. Click 'Approve Clean & Fork Disputed' to finalize.`),
+                indicator: 'orange'
+            }, 5);
+            render_role_based_action_buttons(frm);
+            setTimeout(() => bind_custom_grid_uploaders_and_review(frm), 150);
+        }
+    });
+    d.show();
+}
+
+function open_dispute_split_dialog(frm) {
+    let fields = [
+        {
+            fieldname: "info",
+            fieldtype: "HTML",
+            options: `
+                <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px; margin-bottom: 12px; font-size: 12.5px; color: #92400e;">
+                    Select lines to dispute. Approved lines advance to Director, while disputed lines fork and return to submitter.
+                </div>
+            `
+        }
+    ];
+
+    (frm.doc.expense_lines || []).forEach((row, idx) => {
+        fields.push({
+            fieldname: `dispute_${idx}`,
+            fieldtype: "Check",
+            label: `Line #${row.idx || (idx + 1)}: <b>${row.merchant_name}</b> — ₹ ${Number(row.amount || 0).toLocaleString('en-IN')}`,
+            default: row.is_disputed || 0
+        });
+        fields.push({
+            fieldname: `reason_${idx}`,
+            fieldtype: "Data",
+            label: `Dispute Reason for Line #${row.idx || (idx + 1)}`,
+            depends_on: `eval:doc.dispute_${idx} == 1`,
+            default: row.dispute_reason || ""
+        });
+    });
+
+    let d = new frappe.ui.Dialog({
+        title: __("⚠️ Dispute Lines & Split Voucher"),
+        fields: fields,
+        primary_action_label: __("Split & Fork Disputed Lines"),
+        primary_action(values) {
+            let disputed_indices = [];
+            let dispute_reasons = {};
+
+            (frm.doc.expense_lines || []).forEach((row, idx) => {
+                if (values[`dispute_${idx}`]) {
+                    disputed_indices.push(idx);
+                    dispute_reasons[idx] = values[`reason_${idx}`] || "Disputed during review";
+                }
+            });
+
+            if (disputed_indices.length === 0) {
+                frappe.msgprint(__("Please select at least one line to dispute."));
+                return;
+            }
+
+            frappe.call({
+                method: "ap_automation.services.dispute_service.api_dispute_split",
+                args: {
+                    parent_docname: frm.doc.name,
+                    disputed_indices: disputed_indices,
+                    dispute_reasons: dispute_reasons
+                },
+                freeze: true,
+                freeze_message: __("Splitting voucher..."),
+                callback: function (r) {
+                    if (r.message && r.message.status === "split_success") {
+                        d.hide();
+                        frappe.show_alert({
+                            message: __(`🎉 Voucher split successfully! Clean lines remain on #${frm.doc.name}.`),
+                            indicator: "green"
+                        }, 5);
+                        frm.reload_doc();
+                    }
+                }
+            });
+        }
+    });
+    d.show();
+}
+
+function open_rejection_reason_dialog(frm, role_title, callback) {
+    let fields = [
+        {
+            fieldname: 'reason_code',
+            fieldtype: 'Select',
+            label: __('Rejection Reason Code'),
+            options: [
+                'Missing / Illegible Bill',
+                'Duplicate Submission',
+                'Non-Compliant Category',
+                'Incorrect Amount / Tax Head',
+                'Unapproved Spend',
+                'GST Invoice / GSTIN Mismatch',
+                'Other Operational Issue'
+            ].join('\n'),
+            default: 'Missing / Illegible Bill',
+            reqd: 1
+        },
+        {
+            fieldname: 'remarks',
+            fieldtype: 'Small Text',
+            label: __('Detailed Rejection Remarks (Mandatory)'),
+            reqd: 1
+        }
+    ];
+
+    if (role_title.includes('Director') || role_title.includes('Payment Releaser')) {
+        fields.push({
+            fieldname: 'return_to',
+            fieldtype: 'Select',
+            label: __('Return Destination'),
+            options: 'Accounts L1\nReception (Front Desk)',
+            default: 'Accounts L1',
+            reqd: 1
+        });
+    }
+
+    let d = new frappe.ui.Dialog({
+        title: __(`🚫 Reject / Return Voucher (${role_title})`),
+        fields: fields,
+        primary_action_label: __('Submit Rejection'),
+        primary_action(values) {
+            if (!values.remarks || !values.remarks.trim()) {
+                frappe.msgprint(__('Detailed remarks are strictly mandatory for rejection.'));
+                return;
+            }
+            d.hide();
+            callback(values.reason_code, values.remarks.trim(), values.return_to);
+        }
+    });
+    d.show();
+}
+
+function format_inr_clean(amt) {
+    return Number(amt || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function get_claim_attachments(frm) {
+    const atts = [];
+    (frm.doc.expense_lines || []).forEach((row, idx) => {
+        if (row.receipt_attachment) {
+            atts.push(row.receipt_attachment);
+        }
+    });
+    return atts;
+}
+
 function open_unified_receipt_gallery(frm, start_idx) {
     if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.show === 'function') {
         window.APReceiptGallery.show(frm, { active_index: start_idx });
         return;
     }
-
-    // Fallback direct 2-column split-pane modal renderer
     const atts = [];
     (frm.doc.expense_lines || []).forEach((row, idx) => {
         if (row.receipt_attachment) {
@@ -638,391 +1008,42 @@ function open_unified_receipt_gallery(frm, start_idx) {
     });
 
     if (atts.length === 0) {
-        frappe.msgprint(__('No receipts attached to this voucher. Use 📷 Add Photo to attach receipts.'));
+        frappe.msgprint(__('No receipts attached to this voucher.'));
         return;
     }
 
     let current_index = start_idx >= 0 && start_idx < atts.length ? start_idx : 0;
-
     const d = new frappe.ui.Dialog({
         title: __('Proof & Receipt Gallery — ') + frm.doc.name,
         size: 'extra-large',
         fields: [{ fieldtype: 'HTML', fieldname: 'gallery_area' }]
     });
-
-    const render_modal_view = () => {
-        const active = atts[current_index];
-        let preview_content = '';
-
-        if (active.is_image) {
-            preview_content = `
-                <div style="height: 520px; display: flex; align-items: center; justify-content: center; background: #0f172a; border-radius: 8px; overflow: hidden;">
-                    <img src="${active.file_url}" style="max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 4px 20px rgba(0,0,0,0.4);" alt="Receipt" />
-                </div>
-            `;
-        } else if (active.is_pdf) {
-            preview_content = `
-                <div style="height: 520px; background: #f8fafc; border-radius: 8px; overflow: hidden; border: 1px solid #cbd5e1;">
-                    <iframe src="${active.file_url}" style="width: 100%; height: 100%; border: none;" title="PDF Preview"></iframe>
-                </div>
-            `;
-        } else {
-            preview_content = `
-                <div style="text-align: center; padding: 80px 20px; background: #f8fafc; border-radius: 8px; border: 2px dashed #cbd5e1;">
-                    <div style="font-size: 48px; margin-bottom: 12px;">📁</div>
-                    <div style="font-size: 16px; font-weight: 600; color: #1e293b;">${active.file_name}</div>
-                    <a href="${active.file_url}" download class="btn btn-primary btn-sm" style="margin-top: 16px;">
-                        ⬇️ Download File
-                    </a>
-                </div>
-            `;
-        }
-
-        let list_html = '';
-        atts.forEach((att, idx) => {
-            const is_selected = idx === current_index;
-            list_html += `
-                <div class="ap-receipt-thumb-item" data-idx="${idx}" style="
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    padding: 10px 12px;
-                    margin-bottom: 8px;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    background: ${is_selected ? '#ede9fe' : '#ffffff'};
-                    border: ${is_selected ? '2px solid #8b5cf6' : '1px solid #e2e8f0'};
-                    box-shadow: ${is_selected ? '0 2px 8px rgba(139, 92, 246, 0.25)' : 'none'};
-                ">
-                    <div style="font-size: 22px;">${att.is_pdf ? '📄' : '🧾'}</div>
-                    <div style="flex: 1; overflow: hidden;">
-                        <div style="font-size: 13px; font-weight: 700; color: #1e293b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">
-                            Row #${att.row_idx}: ${att.merchant}
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-                            <span style="font-size: 12px; font-weight: 700; color: #059669;">₹ ${format_inr_clean(att.amount)}</span>
-                            <span style="font-size: 11px; color: #64748b;">${att.category}</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
-
-        const full_html = `
-            <div style="display: flex; gap: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                <!-- Left Sidebar -->
-                <div style="width: 350px; max-height: 540px; overflow-y: auto; padding-right: 8px; border-right: 1px solid #e2e8f0;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                        <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #64748b;">
-                            Attached Proofs (${atts.length})
-                        </span>
-                        <a href="/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}" class="btn btn-xs btn-default" style="font-size: 11px; font-weight: 600; color: #4f46e5;">
-                            📦 ZIP All
-                        </a>
-                    </div>
-                    <div class="ap-receipts-list">${list_html}</div>
-                </div>
-
-                <!-- Right Viewer -->
-                <div style="flex: 1; display: flex; flex-direction: column;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 16px; margin-bottom: 14px;">
-                        <div>
-                            <span style="font-size: 14px; font-weight: 700; color: #0f172a;">Row #${active.row_idx}: ${active.merchant}</span>
-                            <span style="font-size: 12px; color: #64748b; margin-left: 10px;">
-                                Amount: <b style="color: #059669;">₹ ${format_inr_clean(active.amount)}</b> | Category: <b>${active.category}</b>
-                            </span>
-                        </div>
-                        <div style="display: flex; gap: 8px;">
-                            <a href="${active.file_url}" download="${active.file_name}" class="btn btn-sm btn-primary">⬇️ Download</a>
-                            <a href="${active.file_url}" target="_blank" class="btn btn-sm btn-default" title="Open New Tab">↗️</a>
-                        </div>
-                    </div>
-                    <div style="flex: 1;">${preview_content}</div>
-                </div>
-            </div>
-        `;
-
-        d.fields_dict.gallery_area.$wrapper.html(full_html);
-    };
-
-    d.show();
-    render_modal_view();
-
-    d.$wrapper.off('click', '.ap-receipt-thumb-item').on('click', '.ap-receipt-thumb-item', function () {
-        current_index = parseInt($(this).attr('data-idx'));
-        render_modal_view();
-    });
-}
-
-// --------------------------------------------------------------------------------------
-// 7. ATOMIC DISPUTE SPLITTING DIALOG
-// --------------------------------------------------------------------------------------
-function open_dispute_split_dialog(frm) {
-    const lines = frm.doc.expense_lines || [];
-    let fields = [
-        {
-            fieldtype: 'HTML',
-            fieldname: 'dispute_instructions',
-            options: `
-                <div style="background:#fffbeb; border:1px solid #fef3c7; border-radius:8px; padding:12px; margin-bottom:12px; color:#92400e; font-size:12.5px;">
-                    <b>⚠️ Dispute Line Items:</b> Select the rows with invalid or missing bills. Clean rows will remain in <b>#${frm.doc.name}</b> and move forward to Director L2, while disputed lines will be separated into a new linked child voucher for rectification.
-                </div>
-            `
-        }
-    ];
-
-    lines.forEach((row, i) => {
-        const row_label = `Row #${i + 1}: ${row.merchant_name || 'Item'} - ₹${format_inr_clean(row.amount)} (${row.expense_category || 'General'})`;
-        fields.push({
-            fieldtype: 'Check',
-            fieldname: `dispute_row_${i}`,
-            label: row_label,
-            default: 0
-        });
-        fields.push({
-            fieldtype: 'Small Text',
-            fieldname: `reason_row_${i}`,
-            label: `Dispute Reason for Row #${i + 1}`,
-            depends_on: `eval:doc.dispute_row_${i} == 1`
-        });
-    });
-
-    const d = new frappe.ui.Dialog({
-        title: __('Dispute Specific Line Items'),
-        fields: fields,
-        primary_action_label: __('Execute Dispute Split'),
-        primary_action: function () {
-            const values = d.get_values();
-            let disputed_indices = [];
-            let dispute_reasons = {};
-
-            lines.forEach((_, i) => {
-                if (values[`dispute_row_${i}`]) {
-                    disputed_indices.push(i);
-                    dispute_reasons[i] = values[`reason_row_${i}`] || 'Missing valid receipt proof';
-                }
-            });
-
-            if (disputed_indices.length === 0) {
-                frappe.msgprint(__('Please select at least one row to dispute, or click Audit & Pass if all rows are valid.'));
-                return;
-            }
-
-            d.hide();
-            frappe.call({
-                method: 'ap_automation.services.dispute_service.api_dispute_split',
-                args: {
-                    parent_docname: frm.doc.name,
-                    disputed_indices: JSON.stringify(disputed_indices),
-                    dispute_reasons: JSON.stringify(dispute_reasons)
-                },
-                freeze: true,
-                freeze_message: __('Splitting disputed line items...'),
-                callback: function (r) {
-                    if (r.message && r.message.status === 'split_success') {
-                        frappe.msgprint({
-                            title: __('Dispute Split Completed'),
-                            indicator: 'green',
-                            message: `
-                                <b>✅ ${r.message.approved_line_count} Clean Rows</b> (₹${format_inr_clean(r.message.approved_amount)}) retained.<br>
-                                <b>⚠️ ${r.message.disputed_line_count} Disputed Rows</b> (₹${format_inr_clean(r.message.disputed_amount)}) forked into child voucher <b>${r.message.forked_voucher}</b>.
-                            `
-                        });
-                        frm.reload_doc();
-                    }
-                }
-            });
-        }
-    });
-
     d.show();
 }
 
-
-function open_director_rejection_dialog(frm) {
-    const d = new frappe.ui.Dialog({
-        title: __('Director Rejection / Return Voucher'),
-        fields: [
-            {
-                fieldtype: 'HTML',
-                fieldname: 'director_reject_instructions',
-                options: `
-                    <div style="background:#fef2f2; border:1px solid #fee2e2; border-radius:8px; padding:12px; margin-bottom:12px; color:#991b1b; font-size:12.5px;">
-                        <b>🚫 Director Return / Rejection:</b> Returning this voucher will halt payment sanction. Select whom to return this voucher to and provide the mandatory reason. An audit remark will be stamped and real-time email alerts will be sent to the team.
-                    </div>
-                `
-            },
-            {
-                fieldtype: 'Select',
-                fieldname: 'return_to',
-                label: __('Return Destination'),
-                options: [
-                    { label: 'Accounts L1 Team (Re-Audit / Adjustment)', value: 'Accounts L1' },
-                    { label: 'Front Desk Reception (Re-upload / Redraft)', value: 'Front Desk' }
-                ],
-                default: 'Accounts L1',
-                reqd: 1
-            },
-            {
-                fieldtype: 'Small Text',
-                fieldname: 'rejection_reason',
-                label: __('Rejection / Return Remarks (Mandatory)'),
-                reqd: 1,
-                description: __('Explain clearly why this voucher is being rejected or returned.')
-            }
-        ],
-        primary_action_label: __('Confirm Return / Rejection'),
-        primary_action: function () {
-            const values = d.get_values();
-            if (!values || !values.rejection_reason || !values.rejection_reason.trim()) {
-                frappe.msgprint(__('Please provide a valid reason for returning the voucher.'));
-                return;
-            }
-
-            d.hide();
-            frappe.call({
-                method: 'ap_automation.services.director_approval_service.reject_accounts_director',
-                args: {
-                    voucher_doctype: frm.doc.doctype,
-                    voucher_name: frm.doc.name,
-                    reason: values.rejection_reason.trim(),
-                    return_to: values.return_to
-                },
-                freeze: true,
-                freeze_message: __('Processing Director rejection & dispatching alerts...'),
-                callback: function (r) {
-                    if (r.message && r.message.status === 'SUCCESS') {
-                        frappe.msgprint({
-                            title: __('Voucher Returned'),
-                            indicator: 'red',
-                            message: `<b>${r.message.message}</b><br>Status updated to <b>${r.message.new_status}</b>. Email alerts dispatched.`
-                        });
-                        frm.reload_doc();
-                    }
-                }
-            });
-        }
-    });
-
-    d.show();
-}
-
-function format_inr_clean(val) {
-    return parseFloat(val || 0).toLocaleString('en-IN', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-    });
-}
-
-// --------------------------------------------------------------------------------------
-// 8. RESPONSIVE CSS & VISUAL DESIGN SYSTEM
-// --------------------------------------------------------------------------------------
 function apply_petty_cash_styles() {
-    if (!document.getElementById('ap-petty-cash-unified-styles')) {
+    if (!document.getElementById('petty-cash-flow-styles')) {
         const style = document.createElement('style');
-        style.id = 'ap-petty-cash-unified-styles';
+        style.id = 'petty-cash-flow-styles';
         style.innerHTML = `
-            .ap-stepper-container {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                background: #ffffff;
-                border: 1px solid #e2e8f0;
-                border-radius: 10px;
-                padding: 12px 16px;
-                margin-bottom: 14px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-                overflow-x: auto;
-            }
-            .ap-step-card {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                padding: 6px 10px;
-                border-radius: 8px;
-                border: 1.5px solid #e2e8f0;
-                background: #f8fafc;
-                min-width: 120px;
-                flex: 1;
-                transition: all 0.15s ease;
-            }
-            .ap-step-card.step-completed {
-                background: #f0fdf4;
-                border-color: #86efac;
-            }
-            .ap-step-card.step-completed .step-badge {
-                background: #16a34a;
-                color: #ffffff;
-            }
-            .ap-step-card.step-completed .step-title {
-                color: #15803d;
-            }
-            .ap-step-card.step-active {
-                background: #eff6ff;
-                border-color: #93c5fd;
-                box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
-            }
-            .ap-step-card.step-active .step-badge {
-                background: #2563eb;
-                color: #ffffff;
-            }
-            .ap-step-card.step-active .step-title {
-                color: #1d4ed8;
-            }
-            .ap-step-card.step-error {
-                background: #fef2f2;
-                border-color: #fca5a5;
-            }
-            .ap-step-card.step-error .step-badge {
-                background: #dc2626;
-                color: #ffffff;
-            }
-            .ap-step-card.step-pending {
-                opacity: 0.65;
-            }
-            .step-badge {
-                width: 22px;
-                height: 22px;
-                border-radius: 50%;
-                background: #cbd5e1;
-                color: #475569;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 11px;
-                font-weight: 700;
-                flex-shrink: 0;
-            }
-            .step-title {
-                font-size: 12px;
-                font-weight: 700;
-                color: #334155;
-                line-height: 1.2;
-            }
-            .step-sub {
-                font-size: 10.5px;
-                color: #64748b;
-                line-height: 1.2;
-            }
-            .ap-step-connector {
-                width: 14px;
-                height: 2px;
-                background: #e2e8f0;
-                flex-shrink: 0;
-            }
-            .ap-step-connector.line-completed {
-                background: #86efac;
-            }
+            .ap-stepper-container { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px; overflow-x: auto; }
+            .ap-step-card { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; flex: 1; transition: all 0.15s ease; }
+            .ap-step-card.step-completed { background: #f0fdf4; border-color: #86efac; }
+            .ap-step-card.step-completed .step-badge { background: #16a34a; color: #ffffff; }
+            .ap-step-card.step-completed .step-title { color: #15803d; }
+            .ap-step-card.step-active { background: #eff6ff; border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
+            .ap-step-card.step-active .step-badge { background: #2563eb; color: #ffffff; }
+            .ap-step-card.step-active .step-title { color: #1d4ed8; }
+            .ap-step-card.step-error { background: #fef2f2; border-color: #fca5a5; }
+            .ap-step-card.step-error .step-badge { background: #dc2626; color: #ffffff; }
+            .ap-step-card.step-pending { opacity: 0.65; }
+            .step-badge { width: 22px; height: 22px; border-radius: 50%; background: #cbd5e1; color: #475569; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+            .step-title { font-size: 12px; font-weight: 700; color: #334155; line-height: 1.2; }
+            .step-sub { font-size: 10.5px; color: #64748b; line-height: 1.2; }
+            .ap-step-connector { width: 14px; height: 2px; background: #e2e8f0; flex-shrink: 0; }
+            .ap-step-connector.line-completed { background: #86efac; }
 
-            .ap-status-banner {
-                display: flex;
-                align-items: center;
-                gap: 14px;
-                padding: 12px 18px;
-                border-radius: 9px;
-                margin-bottom: 14px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-            }
+            .ap-status-banner { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-radius: 9px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
             .banner-icon { font-size: 24px; flex-shrink: 0; }
             .banner-content { flex: 1; }
             .banner-title { font-size: 13.5px; font-weight: 700; margin-bottom: 2px; }
@@ -1040,24 +1061,16 @@ function apply_petty_cash_styles() {
     }
 }
 
-// Check & Offer Merging of Previous Disputed Lines on Draft Vouchers
 function setup_dispute_merge_helper(frm) {
     if (frm.is_new() || frm.doc.status !== "Draft") return;
 
     frappe.call({
         method: "ap_automation.services.dispute_service.get_pending_disputed_vouchers",
-        args: {
-            company: frm.doc.company,
-            custodian: frm.doc.custodian
-        },
+        args: { company: frm.doc.company, custodian: frm.doc.custodian },
         callback: function (r) {
             if (r.message && r.message.status === "SUCCESS" && r.message.count > 0) {
                 const count = r.message.count;
                 const vouchers = r.message.vouchers;
-                let total_disputed_amt = 0;
-                vouchers.forEach(v => total_disputed_amt += v.total_amount);
-
-                // Single, Clean, Standard Header Action Button
                 frm.add_custom_button(__(`📥 Merge Disputed Bills (${count})`), function () {
                     open_dispute_merge_dialog(frm, vouchers);
                 }).addClass("btn-warning").css({
@@ -1072,9 +1085,6 @@ function setup_dispute_merge_helper(frm) {
 }
 
 function open_dispute_merge_dialog(frm, vouchers) {
-    let total_disputed_amt = 0;
-    vouchers.forEach(v => total_disputed_amt += v.total_amount);
-
     let fields = [
         {
             fieldname: "info_html",
@@ -1085,7 +1095,7 @@ function open_dispute_merge_dialog(frm, vouchers) {
                         💡 Absorb Carried-Forward Bills into This Voucher
                     </div>
                     <div style="font-size: 12.5px; color: #78350f; line-height: 1.4;">
-                        Select the previous disputed vouchers below to merge into <b>#${frm.doc.name}</b>. Disputed lines will be appended into this expense table so you can attach updated proofs and submit a single consolidated voucher for this weekly cycle.
+                        Select previous disputed vouchers below to merge into <b>#${frm.doc.name}</b>. Disputed lines will be appended so you can attach updated proofs and submit a single consolidated voucher.
                     </div>
                 </div>
             `
@@ -1110,9 +1120,7 @@ function open_dispute_merge_dialog(frm, vouchers) {
         primary_action(values) {
             let selected_vouchers = [];
             vouchers.forEach((v, idx) => {
-                if (values[`merge_${idx}`]) {
-                    selected_vouchers.push(v.name);
-                }
+                if (values[`merge_${idx}`]) selected_vouchers.push(v.name);
             });
 
             if (selected_vouchers.length === 0) {
@@ -1122,10 +1130,7 @@ function open_dispute_merge_dialog(frm, vouchers) {
 
             frappe.call({
                 method: "ap_automation.services.dispute_service.merge_disputed_voucher_into_target",
-                args: {
-                    target_voucher_name: frm.doc.name,
-                    source_dispute_voucher_names: selected_vouchers
-                },
+                args: { target_voucher_name: frm.doc.name, source_dispute_voucher_names: selected_vouchers },
                 freeze: true,
                 freeze_message: __("Merging disputed lines into voucher..."),
                 callback: function (r) {

@@ -24,7 +24,7 @@ def run_full_pipeline_for_claim(
     source_doctype: str,
     source_voucher: str,
     company: str,
-    releaser_user: str = "anish@quanticus.com"
+    releaser_user: str = "releaser@quanticus.com"
 ) -> Dict[str, Any]:
     """
     Executes universal funnel through to Tally export for any approved claim.
@@ -44,7 +44,7 @@ def run_full_pipeline_for_claim(
     batch_res = generate_consolidated_payment_batch(company)
     batch_id = batch_res["batch_id"]
 
-    # 3. 2FA OTP Request & Authorization by Anish Sir
+    # 3. 2FA OTP Request & Authorization by Payment Releaser
     otp_res = request_release_otp(batch_id, user=releaser_user)
     auth_res = verify_otp_and_authorize_release(
         batch_id,

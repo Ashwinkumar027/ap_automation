@@ -734,15 +734,29 @@ def notify_releaser_on_batch_ready(batch_name: str) -> None:
         pluck="parent"
     )
 
-    releasers = [r for r in releasers if r != "Administrator"]
+    # Filter only enabled, active users
+    active_releasers = []
+    for r in releasers:
+        if r != "Administrator" and frappe.db.get_value("User", r, "enabled"):
+            active_releasers.append(r)
+
+    if not active_releasers:
+        directors = frappe.get_all(
+            "Has Role",
+            filters={"role": ["in", ["Accounts Director", "Director Tier"]], "parenttype": "User"},
+            pluck="parent"
+        )
+        active_releasers = [d for d in directors if d != "Administrator" and frappe.db.get_value("User", d, "enabled")]
+
+    releasers = active_releasers
     if not releasers:
-        releasers = ["anish@quanticus.com"]
+        return
 
     subject = f"🔐 [Action: 2FA Release] Payment Batch #{batch_name} (₹ {fmt_money(total_amt)})"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #c7d2fe; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #4f46e5; padding-bottom: 12px; margin-bottom: 16px;">
-            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #4338ca; font-weight: 700;">Executive Release Authority • Anish Sir (CEO & MD)</span>
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #4338ca; font-weight: 700;">Executive Release Authority • Payment Releaser</span>
             <h2 style="margin: 4px 0 0 0; color: #1e1b4b; font-size: 20px;">Corporate Payment Batch Ready</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
@@ -778,3 +792,60 @@ def notify_releaser_on_batch_ready(batch_name: str) -> None:
         cc=None,
         is_thread_reply=False
     )
+
+
+@frappe.whitelist()
+def send_pending_petty_cash_reminders() -> Dict[str, Any]:
+    """
+    Scheduled cron job to remind approvers of vouchers pending action
+    (e.g., Friday submissions pending by Tuesday morning).
+    """
+    pending_vouchers = frappe.get_all(
+        "Petty Cash Entry",
+        filters={"status": ["in", ["Pending Admin L1", "Pending Admin L2", "Submitted", "L1 Verified"]]},
+        fields=["name", "company", "custodian", "status", "total_amount", "creation", "admin_l1_approver", "admin_l2_approver", "designated_approver"]
+    )
+
+    sent_count = 0
+    for vch in pending_vouchers:
+        amt_str = fmt_money(vch.total_amount, currency="INR")
+        target_approvers = []
+
+        if vch.status == "Pending Admin L1":
+            target_approvers = [vch.admin_l1_approver] if vch.admin_l1_approver else _get_matrix_or_role_approvers(vch.company, "Petty Cash", 1, ["Admin L1 Approver"])
+        elif vch.status == "Pending Admin L2":
+            target_approvers = [vch.admin_l2_approver] if vch.admin_l2_approver else _get_matrix_or_role_approvers(vch.company, "Petty Cash", 2, ["Admin L2 Approver"])
+        elif vch.status == "Submitted":
+            target_approvers = _get_matrix_or_role_approvers(vch.company, "Petty Cash", 3, ["Accounts L1 Auditor"])
+        elif vch.status == "L1 Verified":
+            target_approvers = _get_matrix_or_role_approvers(vch.company, "Petty Cash", 4, ["Accounts Director", "Director Tier"])
+
+        if target_approvers:
+            subject = f"[AP-PettyCash] [Reminder] [Action Required] [Voucher #{vch.name}] {vch.company} ({amt_str}) - {vch.status}"
+            msg_html = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px;">
+                <div style="background: #eff6ff; padding: 12px; border-radius: 6px; margin-bottom: 16px;">
+                    <h3 style="color: #1e40af; margin: 0;">⏰ Petty Cash Approval Reminder</h3>
+                </div>
+                <p>Dear Approver,</p>
+                <p>This is an automated reminder that Petty Cash Voucher <b>#{vch.name}</b> (Amount: <b>{amt_str}</b>) submitted by <b>{vch.custodian}</b> is currently pending your review under stage <b>{vch.status}</b>.</p>
+                <p>Please review and take action promptly.</p>
+                <div style="margin-top: 20px;">
+                    <a href="{get_url_to_form('Petty Cash Entry', vch.name)}" style="background: #2563eb; color: #ffffff; padding: 10px 18px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                        Open Voucher #{vch.name}
+                    </a>
+                </div>
+            </div>
+            """
+            _send_email_and_desk_alert(
+                recipients=target_approvers,
+                subject=subject,
+                message_html=msg_html,
+                reference_doctype="Petty Cash Entry",
+                reference_name=vch.name,
+                alert_type="orange",
+                is_thread_reply=True
+            )
+            sent_count += 1
+
+    return {"status": "SUCCESS", "reminders_sent": sent_count}

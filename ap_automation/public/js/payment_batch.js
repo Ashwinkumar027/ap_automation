@@ -259,7 +259,7 @@ function setup_2fa_release_buttons(frm) {
                             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
                                 <div style="font-size: 12px; color: #64748b;">Batch ID: <b>${frm.doc.name}</b></div>
                                 <div style="font-size: 14px; font-weight: bold; color: #0f172a; margin-top: 4px;">Total Release Amount: ${frm.doc.total_batch_amount ? '₹ ' + frm.doc.total_batch_amount.toLocaleString('en-IN') : ''}</div>
-                                <div style="font-size: 11px; color: #dc2626; margin-top: 6px;">⚠️ Authorized for Payment Releaser (Anish Sir) only. Max 3 attempts.</div>
+                                <div style="font-size: 11px; color: #dc2626; margin-top: 6px;">⚠️ Authorized for Payment Releaser only. Max 3 attempts.</div>
                             </div>
                         `
                     },

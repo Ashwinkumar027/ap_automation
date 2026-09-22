@@ -1,3 +1,4 @@
+from typing import Dict, Any, Optional, List, Union
 """
 Payment Batch Controller (Submittable)
 Represents a converged IDFC payment release batch with multi-stream lane separation
@@ -23,7 +24,7 @@ class PaymentBatch(Document):
             self.status = "Pending 2FA Approval"
 
     def on_submit(self):
-        """Notify Anish Sir (CEO & MD / Payment Releaser) that batch is ready for 2FA release."""
+        """Notify Payment Releaser (CEO & MD / Payment Releaser) that batch is ready for 2FA release."""
         try:
             notification_service.notify_releaser_on_batch_ready(self.name)
         except Exception as e:
@@ -365,3 +366,29 @@ def request_batch_otp(batch_name: str):
 def verify_batch_otp(batch_name: str, otp: str):
     """Verifies OTP and authorizes IDFC release."""
     return release_auth_service.verify_otp_and_authorize_release(batch_name, otp, frappe.session.user)
+
+
+@frappe.whitelist()
+def mark_bank_file_exported(batch_name: str) -> Dict[str, Any]:
+    """
+    Transitions the Payment Batch to 'Bank File Exported' status
+    when accounts operator downloads the bank upload CSV / TXT.
+    """
+    if not frappe.db.exists("Payment Batch", batch_name):
+        frappe.throw(f"Payment Batch '{batch_name}' not found.")
+
+    batch = frappe.get_doc("Payment Batch", batch_name)
+    if batch.status in ("Dispatched to Bank", "Completed", "Paid"):
+        return {"status": "SUCCESS", "current_status": batch.status}
+
+    batch.status = "Bank File Exported"
+    batch.add_comment("Comment", f"Bank upload payment file exported by {frappe.session.user}.")
+    batch.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "batch_name": batch.name,
+        "new_status": batch.status,
+        "message": f"Payment Batch #{batch.name} marked as 'Bank File Exported'."
+    }

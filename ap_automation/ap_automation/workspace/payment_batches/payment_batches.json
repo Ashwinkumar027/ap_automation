@@ -54,7 +54,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-15 15:03:21.138846",
+ "modified": "2026-09-22 14:24:01.172874",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Payment Batches",
@@ -66,27 +66,6 @@
  "roles": [
   {
    "role": "System Manager"
-  },
-  {
-   "role": "Accounts Manager"
-  },
-  {
-   "role": "Accounts User"
-  },
-  {
-   "role": "Employee"
-  },
-  {
-   "role": "Desk User"
-  },
-  {
-   "role": "Petty Cash User"
-  },
-  {
-   "role": "Admin L1 Approver"
-  },
-  {
-   "role": "Admin L2 Approver"
   },
   {
    "role": "Accounts Director"
