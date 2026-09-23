@@ -353,7 +353,7 @@ function render_role_based_action_buttons(frm) {
     frm.add_custom_button(__('📊 Export Excel'), function () {
         const url = `/api/method/ap_automation.services.export_service.download_voucher_excel?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
         window.open(url, '_blank');
-    });
+    }, __('Tools'));
 
     // 1-Click Tally Journal Voucher XML Export
     const is_accounts_or_director = frappe.user.has_role([
@@ -382,17 +382,17 @@ function render_role_based_action_buttons(frm) {
                     }
                 }
             });
-        });
+        }, __('Tools'));
     }
 
     if (attachments.length > 0) {
         frm.add_custom_button(__(`👁️ View Receipts (${attachments.length})`), () => {
             open_unified_receipt_gallery(frm, 0);
-        });
+        }, __('Tools'));
         frm.add_custom_button(__('📦 Download ZIP'), () => {
             const url = `/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
             window.open(url, '_blank');
-        });
+        }, __('Tools'));
     }
 
     // 1. RECEPTION SUBMISSION
@@ -647,12 +647,7 @@ function render_role_based_action_buttons(frm) {
         if (lines.length > 1) {
             frm.add_custom_button(__('⚠️ Dispute Split Helper'), function () {
                 open_dispute_split_dialog(frm);
-            }).addClass('btn-secondary').css({
-                'background-color': '#f59e0b',
-                'border-color': '#d97706',
-                'color': '#ffffff',
-                'font-weight': '600'
-            });
+            }, __('Tools'));
         }
     }
 
@@ -720,12 +715,7 @@ function render_role_based_action_buttons(frm) {
         if (lines.length > 1) {
             frm.add_custom_button(__('⚠️ Dispute Split Helper'), function () {
                 open_dispute_split_dialog(frm);
-            }).addClass('btn-secondary').css({
-                'background-color': '#f59e0b',
-                'border-color': '#d97706',
-                'color': '#ffffff',
-                'font-weight': '600'
-            });
+            }, __('Tools'));
         }
 
         frm.add_custom_button(__('✅ Sanction Payment'), function () {
@@ -1157,36 +1147,38 @@ function apply_petty_cash_styles() {
         const style = document.createElement('style');
         style.id = 'petty-cash-flow-styles';
         style.innerHTML = `
-            .ap-stepper-container { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px; overflow-x: auto; }
-            .ap-step-card { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; flex: 1; transition: all 0.15s ease; }
+            .ap-stepper-container { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px; width: 100%; box-sizing: border-box; overflow-x: auto; }
+            .ap-step-card { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; flex: 1 1 0; min-width: 0; transition: all 0.15s ease; }
             .ap-step-card.step-completed { background: #f0fdf4; border-color: #86efac; }
             .ap-step-card.step-completed .step-badge { background: #16a34a; color: #ffffff; }
             .ap-step-card.step-completed .step-title { color: #15803d; }
-            .ap-step-card.step-active { background: #eff6ff; border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
+            .ap-step-card.step-active { background: #eff6ff; border-color: #93c5fd; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
             .ap-step-card.step-active .step-badge { background: #2563eb; color: #ffffff; }
             .ap-step-card.step-active .step-title { color: #1d4ed8; }
             .ap-step-card.step-error { background: #fef2f2; border-color: #fca5a5; }
             .ap-step-card.step-error .step-badge { background: #dc2626; color: #ffffff; }
             .ap-step-card.step-pending { opacity: 0.65; }
-            .step-badge { width: 22px; height: 22px; border-radius: 50%; background: #cbd5e1; color: #475569; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
-            .step-title { font-size: 12px; font-weight: 700; color: #334155; line-height: 1.2; }
-            .step-sub { font-size: 10.5px; color: #64748b; line-height: 1.2; }
-            .ap-step-connector { width: 14px; height: 2px; background: #e2e8f0; flex-shrink: 0; }
+            .step-badge { width: 20px; height: 20px; border-radius: 50%; background: #cbd5e1; color: #475569; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700; flex-shrink: 0; }
+            .step-info { min-width: 0; overflow: hidden; }
+            .step-title { font-size: 11.5px; font-weight: 700; color: #334155; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .step-sub { font-size: 10px; color: #64748b; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .ap-step-connector { width: 10px; height: 2px; background: #e2e8f0; flex-shrink: 0; }
             .ap-step-connector.line-completed { background: #86efac; }
 
-            .ap-status-banner { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-radius: 9px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-            .banner-icon { font-size: 24px; flex-shrink: 0; }
-            .banner-content { flex: 1; }
-            .banner-title { font-size: 13.5px; font-weight: 700; margin-bottom: 2px; }
-            .banner-sub { font-size: 12px; opacity: 0.9; }
+            .ap-status-banner { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+            .banner-icon { font-size: 22px; flex-shrink: 0; }
+            .banner-content { flex: 1; min-width: 0; }
+            .banner-title { font-size: 13px; font-weight: 700; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .banner-sub { font-size: 11.5px; opacity: 0.9; }
             .banner-stat { text-align: right; flex-shrink: 0; }
-            .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; opacity: 0.75; }
-            .stat-val { font-size: 17px; font-weight: 800; font-family: inherit; }
+                        .stat-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; opacity: 0.75; }
+            .stat-val { font-size: 16px; font-weight: 800; font-family: inherit; }
             .banner-draft { background: #f8fafc; border: 1.5px solid #e2e8f0; color: #334155; }
             .banner-submitted { background: #eff6ff; border: 1.5px solid #bfdbfe; color: #1e40af; }
             .banner-approved { background: #f0fdf4; border: 1.5px solid #bbf7d0; color: #166534; }
             .banner-paid { background: #f0fdf4; border: 1.5px solid #86efac; color: #14532d; }
             .banner-rejected { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
+            
         `;
         document.head.appendChild(style);
     }
