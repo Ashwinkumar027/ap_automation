@@ -949,3 +949,176 @@ def notify_admin_l2_on_direct_resubmit(voucher_doctype: str, voucher_name: str) 
         cc=cc_users,
         is_thread_reply=True
     )
+
+def notify_accounts_l1_sla_reminder(voucher_doctype: str, voucher_name: str) -> None:
+    """Dispatches a 24-hour SLA reminder to Accounts L1 Auditor."""
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        return
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    admin_date = getattr(doc, "admin_l2_approval_date", None)
+    admin_date_str = frappe.utils.format_datetime(admin_date, "dd-MM-yyyy hh:mm a") if admin_date else "Yesterday"
+
+    l1_auditors = _get_matrix_or_role_approvers(company, voucher_doctype, 3, ["Accounts L1 Auditor"])
+    cc_users = _get_claim_rolling_cc(doc, exclude_users=l1_auditors)
+    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+
+    subject = f"[AP-PettyCash] [SLA Reminder] [Action Required] [Voucher #{voucher_name}] {company} (₹ {fmt_money(amount)}) - Accounts L1 Audit Pending > 24 Hours"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fde68a; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #d97706; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #d97706; font-weight: 700;">24-Hour SLA Reminder • Accounts L1</span>
+            <h2 style="margin: 4px 0 0 0; color: #92400e; font-size: 20px;">Accounts L1 Audit Pending Overdue</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Petty Cash Voucher <b>#{voucher_name}</b> for <b>{company}</b> was approved and submitted by Admin Department Head on <b>{admin_date_str}</b>.
+        </p>
+        <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; margin: 16px 0; border-radius: 0 8px 8px 0;">
+            <div style="font-size: 12px; text-transform: uppercase; font-weight: 700; color: #b45309; margin-bottom: 4px;">SLA Notice:</div>
+            <p style="margin: 0; color: #78350f; font-size: 14px;">This voucher has exceeded the <b>1-Day (24-Hour)</b> initial review SLA. Please verify the receipts and approve or return without delay.</p>
+        </div>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin: 16px 0;">
+            <div style="font-size: 13px; color: #475569;">Voucher Total: <b style="font-size: 17px; color: #0f172a;">₹ {fmt_money(amount)}</b></div>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">Custodian: <b>{getattr(doc, 'custodian', 'Front Desk')}</b></div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #d97706; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Open Voucher & Verify Audit &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=l1_auditors,
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="orange",
+        cc=cc_users,
+        is_thread_reply=True
+    )
+
+
+def notify_accounts_director_sla_escalation(voucher_doctype: str, voucher_name: str) -> None:
+    """Dispatches 24-hour SLA Escalation alert to Accounts Director / Director Tier."""
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        return
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    admin_date = getattr(doc, "admin_l2_approval_date", None)
+    admin_date_str = frappe.utils.format_datetime(admin_date, "dd-MM-yyyy hh:mm a") if admin_date else "Yesterday"
+
+    directors = _get_matrix_or_role_approvers(company, voucher_doctype, 4, ["Accounts Director", "Director Tier"])
+    l1_auditors = _get_matrix_or_role_approvers(company, voucher_doctype, 3, ["Accounts L1 Auditor"])
+    cc_users = _get_claim_rolling_cc(doc, exclude_users=directors)
+    for auditor in l1_auditors:
+        if auditor not in directors and auditor not in cc_users:
+            cc_users.append(auditor)
+
+    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+
+    subject = f"[AP-PettyCash] [🚨 SLA Escalation] [Voucher #{voucher_name}] {company} (₹ {fmt_money(amount)}) - Accounts L1 Review Overdue (> 24 Hours)"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fecaca; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #dc2626; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700;">🚨 Executive Escalation • Accounts SLA</span>
+            <h2 style="margin: 4px 0 0 0; color: #991b1b; font-size: 20px;">Accounts L1 24h Review SLA Breached</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Petty Cash Voucher <b>#{voucher_name}</b> for <b>{company}</b> (Total: <b>₹ {fmt_money(amount)}</b>) has been awaiting Accounts L1 audit for <b>over 24 hours</b> since Admin Department Head sign-off on <b>{admin_date_str}</b>.
+        </p>
+        <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px 16px; margin: 16px 0; border-radius: 0 8px 8px 0;">
+            <div style="font-size: 12px; text-transform: uppercase; font-weight: 700; color: #b91c1c; margin-bottom: 4px;">Escalation Reason:</div>
+            <p style="margin: 0; color: #7f1d1d; font-size: 14px; font-weight: 600;">Accounts L1 has not verified, disputed, or returned the voucher within the mandatory 1-day turnaround SLA.</p>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                View Overdue Voucher &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=directors,
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="red",
+        cc=cc_users,
+        is_thread_reply=True
+    )
+
+
+@frappe.whitelist()
+def check_and_escalate_accounts_l1_slas() -> Dict[str, Any]:
+    """
+    Automated SLA Monitor:
+    Scans all vouchers in 'Submitted' status (Accounts L1 stage).
+    If a voucher has been pending for >= 24 hours (1 day) without L1 action:
+      1. Dispatches Reminder to Accounts L1 Auditor.
+      2. Dispatches Escalation Alert to Accounts Director.
+      3. Records escalation in audit trail to avoid redundant duplicate alerts.
+    Time Complexity: O(N) where N is active Submitted vouchers (typically < 50).
+    """
+    submitted_vouchers = frappe.get_all(
+        "Petty Cash Entry",
+        filters={"status": "Submitted"},
+        fields=["name", "company", "total_amount", "admin_l2_approval_date", "creation", "modified"]
+    )
+
+    now = frappe.utils.now_datetime()
+    escalated_count = 0
+
+    for vch in submitted_vouchers:
+        # Determine baseline submission time from admin_l2_approval_date or creation
+        submission_time = vch.admin_l2_approval_date or vch.modified or vch.creation
+        if not submission_time:
+            continue
+
+        submission_dt = frappe.utils.get_datetime(submission_time)
+        hours_elapsed = (now - submission_dt).total_seconds() / 3600.0
+
+        if hours_elapsed >= 24.0:
+            doc = frappe.get_doc("Petty Cash Entry", vch.name)
+
+            # Check if 24h SLA escalation has already been stamped for this cycle
+            already_escalated = False
+            for trail in (doc.approval_trail or []):
+                if getattr(trail, "level_name", "") == "Accounts L1 24h SLA Escalation":
+                    trail_dt = frappe.utils.get_datetime(getattr(trail, "action_timestamp", None) or now)
+                    if trail_dt >= submission_dt:
+                        already_escalated = True
+                        break
+
+            if not already_escalated:
+                # 1. Notify Accounts L1 Auditor (Reminder)
+                notify_accounts_l1_sla_reminder("Petty Cash Entry", doc.name)
+
+                # 2. Notify Accounts Director (Escalation)
+                notify_accounts_director_sla_escalation("Petty Cash Entry", doc.name)
+
+                # 3. Record in audit trail
+                doc.append("approval_trail", {
+                    "level_number": 3,
+                    "level_name": "Accounts L1 24h SLA Escalation",
+                    "action_taken_by": "Administrator",
+                    "action": "APPROVED",
+                    "action_timestamp": now,
+                    "remarks": f"1-Day (24h) SLA breached ({hours_elapsed:.1f} hours elapsed). Reminder sent to Accounts L1; Escalation sent to Accounts Director."
+                })
+                doc.save(ignore_permissions=True)
+                frappe.db.commit()
+                escalated_count += 1
+
+    return {
+        "status": "SUCCESS",
+        "scanned_count": len(submitted_vouchers),
+        "escalated_count": escalated_count
+    }
+
