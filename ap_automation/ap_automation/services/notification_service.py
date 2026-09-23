@@ -849,3 +849,103 @@ def send_pending_petty_cash_reminders() -> Dict[str, Any]:
             sent_count += 1
 
     return {"status": "SUCCESS", "reminders_sent": sent_count}
+
+
+
+def notify_admin_l1_on_l2_return(voucher_doctype: str, voucher_name: str, reason: str) -> None:
+    """Notifies Admin L1 Supervisor when Admin L2 Head returns a claim back to L1."""
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        return
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    l1_user = getattr(doc, "admin_l1_approver", None)
+    if not l1_user:
+        l1_user = _get_matrix_or_role_approvers(company, voucher_doctype, 1, ["Admin L1 Approver"])
+    else:
+        l1_user = [l1_user]
+
+    cc_users = _get_claim_rolling_cc(doc, exclude_users=l1_user)
+    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+
+    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Returned to L1 by Admin Head"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fecaca; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #dc2626; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700;">Revision Required • Admin L1</span>
+            <h2 style="margin: 4px 0 0 0; color: #991b1b; font-size: 20px;">Returned by Admin Department Head</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Admin Department Head returned voucher <b>#{voucher_name}</b> for <b>{company}</b> back to Level 1 review.
+        </p>
+        <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px 16px; margin: 16px 0; border-radius: 0 8px 8px 0;">
+            <div style="font-size: 12px; text-transform: uppercase; font-weight: 700; color: #b91c1c; margin-bottom: 4px;">Return Reason:</div>
+            <p style="margin: 0; color: #7f1d1d; font-size: 14px; font-weight: 600;">{reason}</p>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Review Voucher &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=l1_user,
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="red",
+        cc=cc_users,
+        is_thread_reply=True
+    )
+
+
+def notify_admin_l2_on_direct_resubmit(voucher_doctype: str, voucher_name: str) -> None:
+    """Notifies Admin L2 Head when Reception resubmits directly after corrections (L1 skipped)."""
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        return
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    l2_users = getattr(doc, "admin_l2_approver", None)
+    if not l2_users:
+        l2_users = _get_matrix_or_role_approvers(company, voucher_doctype, 2, ["Admin L2 Approver"])
+    else:
+        l2_users = [l2_users]
+
+    cc_users = _get_claim_rolling_cc(doc, exclude_users=l2_users)
+    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+
+    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Resubmitted by Reception for Head Sign-off"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #c7d2fe; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #4f46e5; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #4338ca; font-weight: 700;">Direct Resubmission • Admin L2 Head</span>
+            <h2 style="margin: 4px 0 0 0; color: #1e1b4b; font-size: 20px;">Corrections Completed by Reception</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Reception / Custodian has applied requested bill corrections and resubmitted voucher <b>#{voucher_name}</b> directly for your final sign-off (L1 intermediate review skipped).
+        </p>
+        <div style="background: #eef2ff; border: 1px solid #e0e7ff; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #4338ca;">Total Resubmitted Value: <b style="font-size: 18px; color: #4f46e5;">₹ {fmt_money(amount)}</b></div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #4f46e5; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Review & Sign-Off &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=l2_users,
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="blue",
+        cc=cc_users,
+        is_thread_reply=True
+    )

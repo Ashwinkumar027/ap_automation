@@ -940,7 +940,16 @@ function open_rejection_reason_dialog(frm, role_title, callback) {
         }
     ];
 
-    if (role_title.includes('Director') || role_title.includes('Payment Releaser')) {
+    if (role_title.includes('Admin L2') || role_title.includes('Admin Department Head')) {
+        fields.push({
+            fieldname: 'return_to',
+            fieldtype: 'Select',
+            label: __('Return Destination'),
+            options: 'Reception (Front Desk)\nAdmin L1 Supervisor',
+            default: 'Reception (Front Desk)',
+            reqd: 1
+        });
+    } else if (role_title.includes('Director') || role_title.includes('Payment Releaser')) {
         fields.push({
             fieldname: 'return_to',
             fieldtype: 'Select',

@@ -243,11 +243,10 @@ def approve_admin_l2(voucher_name: str, comments: Optional[str] = None) -> Dict[
         "message": f"Voucher #{doc.name} approved by Admin Head and dispatched to Accounts Audit."
     }
 
-
 @frappe.whitelist()
 def return_admin_l2(voucher_name: str, reason: str, return_to: str = "Reception") -> Dict[str, Any]:
     """
-    Admin L2 returns claim either to Admin L1 or directly to Reception.
+    Admin L2 (Department Head) returns claim either to Admin L1 Supervisor or directly to Reception.
     """
     user = frappe.session.user
     _enforce_role_or_system_manager(user, ["Admin L2 Approver", "Admin Manager", "Accounts Director", "Director Tier"], "Admin L2 Return")
@@ -265,26 +264,32 @@ def return_admin_l2(voucher_name: str, reason: str, return_to: str = "Reception"
             f"Cannot return voucher #{voucher_name}: current status is '{doc.status}', expected 'Pending Admin L2'."
         )
 
-    target_status = "Pending Admin L1" if return_to == "Admin L1" else "Draft"
+    is_return_to_l1 = "Admin L1" in str(return_to)
+    target_status = "Pending Admin L1" if is_return_to_l1 else "Draft"
+    destination_label = "Admin L1 Supervisor" if is_return_to_l1 else "Reception (Front Desk)"
+
     doc.status = target_status
-    doc.workflow_state = f"Returned to {return_to} by Admin L2 Head"
+    doc.workflow_state = f"Returned to {destination_label} by Admin Department Head"
     doc.admin_rejection_reason = reason.strip()
 
     doc.append("approval_trail", {
         "level_number": 2,
-        "level_name": f"Admin L2 Return to {return_to}",
+        "level_name": f"Admin L2 Return to {destination_label}",
         "action_taken_by": user,
         "action": "REJECTED",
         "action_timestamp": now_datetime(),
-        "remarks": f"Returned by Admin Head to {return_to}: {reason.strip()}"
+        "remarks": f"Returned by Admin Head to {destination_label}: {reason.strip()}"
     })
 
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
-    # Notify Target
+    # Threaded RFC 5322 Notification
     try:
-        notification_service.notify_reception_on_admin_return(doc.doctype, doc.name, reason.strip(), "Admin Department Head", return_to=return_to)
+        if is_return_to_l1:
+            notification_service.notify_admin_l1_on_l2_return(doc.doctype, doc.name, reason.strip())
+        else:
+            notification_service.notify_reception_on_admin_return(doc.doctype, doc.name, reason.strip(), "Admin Department Head")
     except Exception as e:
         frappe.log_error(f"Failed to send return notification for {voucher_name}: {str(e)}")
 
@@ -293,5 +298,58 @@ def return_admin_l2(voucher_name: str, reason: str, return_to: str = "Reception"
         "voucher_name": doc.name,
         "new_status": doc.status,
         "workflow_state": doc.workflow_state,
-        "message": f"Voucher #{doc.name} returned to {return_to}."
+        "message": f"Voucher #{doc.name} successfully returned to {destination_label}."
     }
+
+
+@frappe.whitelist()
+def resubmit_to_admin_l2_direct(voucher_name: str) -> Dict[str, Any]:
+    """
+    Direct resubmission from Reception directly to Admin L2 Head when returned by Admin L2 (skipping Admin L1).
+    Time Complexity: O(1)
+    """
+    user = frappe.session.user
+    if not frappe.db.exists("Petty Cash Entry", voucher_name):
+        raise APValidationError(f"Petty Cash Entry '{voucher_name}' not found.")
+
+    doc = frappe.get_doc("Petty Cash Entry", voucher_name)
+
+    if doc.status != "Draft":
+        raise APValidationError(
+            f"Cannot resubmit voucher #{voucher_name}: current status is '{doc.status}', expected 'Draft'."
+        )
+
+    doc.status = "Pending Admin L2"
+    doc.workflow_state = "Resubmitted to Admin Department Head (L1 Review Skipped)"
+    doc.admin_rejection_reason = None
+
+    doc.append("approval_trail", {
+        "level_number": 1,
+        "level_name": "Direct Resubmission to Admin Head",
+        "action_taken_by": user,
+        "action": "APPROVED",
+        "action_timestamp": now_datetime(),
+        "remarks": "Corrected by Reception and resubmitted directly to Admin Head (L1 review skipped)."
+    })
+
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    # Trigger notification in thread
+    try:
+        notification_service.notify_admin_l2_on_direct_resubmit(doc.doctype, doc.name)
+    except Exception as e:
+        frappe.log_error(f"Failed to send Admin L2 resubmit notification for {voucher_name}: {str(e)}")
+
+    return {
+        "status": "SUCCESS",
+        "voucher_name": doc.name,
+        "new_status": doc.status,
+        "workflow_state": doc.workflow_state,
+        "message": f"Voucher #{doc.name} successfully resubmitted directly to Admin Department Head."
+    }
+
+
+# Convenience alias for submit_to_admin_l1
+submit_petty_cash_voucher = submit_to_admin_l1
+
