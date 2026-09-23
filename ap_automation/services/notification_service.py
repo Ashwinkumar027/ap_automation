@@ -25,7 +25,7 @@ def _resolve_email(user_or_email: Optional[str]) -> Optional[str]:
 
     # Filter dummy accounts
     if val in ("Administrator", "admin@example.com"):
-        return "ashwinkumar59@gmail.com"
+        return None
 
     # Already valid email format
     if "@" in val and "." in val:
@@ -136,6 +136,8 @@ def _send_email_and_desk_alert(
     Dispatches threaded corporate emails and Frappe Desk real-time alerts.
     Enforces RFC 5322 In-Reply-To / References linking for continuous inbox conversation threads.
     """
+    if getattr(frappe.flags, "in_test", False) or getattr(frappe.flags, "mute_emails", False):
+        return
     if not recipients:
         return
 

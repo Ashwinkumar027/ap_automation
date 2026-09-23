@@ -14,6 +14,8 @@ class TestAccountsL1SLAEscalation(unittest.TestCase):
         frappe.init(site="hrms1.local", sites_path=".")
         frappe.connect()
         frappe.set_user("Administrator")
+        frappe.flags.mute_emails = True
+        frappe.flags.in_test = True
         cls.company = frappe.db.get_value("Company", {}, "name") or "Quanticus Software Solutions Private Limited"
         cls.employee = frappe.db.get_value("Employee", {}, "name") or "Administrator"
 
