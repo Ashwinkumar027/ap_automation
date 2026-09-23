@@ -55,8 +55,15 @@ def export_petty_cash_excel(voucher_name: str = None, docname: str = None, docty
         bottom=Side(style='thin', color='CBD5E1')
     )
 
+    # Masked Account Format for Security
+    raw_acc = str(getattr(doc, "custodian_bank_account", "") or "")
+    if len(raw_acc) >= 4 and not raw_acc.startswith("••••"):
+        masked_acc = f"•••• •••• •••• {raw_acc[-4:]}"
+    else:
+        masked_acc = raw_acc or "N/A"
+
     # 1. Title Banner
-    ws.merge_cells("A1:I1")
+    ws.merge_cells("A1:L1")
     ws["A1"] = f"PETTY CASH VOUCHER STATEMENT — {doc.name}"
     ws["A1"].font = title_font
     ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
@@ -68,7 +75,7 @@ def export_petty_cash_excel(voucher_name: str = None, docname: str = None, docty
         ("Claim Title:", getattr(doc, "claim_title", None) or "N/A", "Workflow Status:", doc.status or "Draft"),
         ("Company:", doc.company or "N/A", "Payment Batch ID:", getattr(doc, "batch_id", None) or "N/A"),
         ("Beneficiary Employee:", getattr(doc, "custodian", None) or "N/A", "Beneficiary Name:", getattr(doc, "beneficiary_name", None) or "N/A"),
-        ("Bank Name:", getattr(doc, "bank_name", None) or "N/A", "Bank A/C No:", getattr(doc, "custodian_bank_account", None) or "N/A"),
+        ("Bank Name:", getattr(doc, "bank_name", None) or "N/A", "Bank A/C No:", masked_acc),
         ("Bank IFSC Code:", getattr(doc, "custodian_ifsc_code", None) or "N/A", "Total Amount (₹):", f"₹ {float(doc.total_amount or 0):,.2f}")
     ]
 
@@ -81,18 +88,32 @@ def export_petty_cash_excel(voucher_name: str = None, docname: str = None, docty
         r += 1
 
     r += 1
-    # 3. Line Items Table
+    # 3. Line Items Table (Updated Columns Matching New Standard)
     ws.cell(row=r, column=1, value="EXPENSE LINE ITEMS").font = sec_font
     r += 1
 
-    headers = ["#", "Date", "Category", "Merchant / Payee", "Bill #", "Amount (₹)", "Staff Name", "Remarks", "Receipt Attachment"]
+    headers = [
+        "#",
+        "Date",
+        "Expense Type",
+        "Shop / Merchant",
+        "GST?",
+        "Merchant GST Number (15 Digits)",
+        "Bill # / Txn ID",
+        "Amount (₹)",
+        "Spent By (Staff)",
+        "Receipt",
+        "Notes / Remarks (Optional)",
+        "Decision"
+    ]
+    
     for c_idx, h in enumerate(headers, 1):
         cell = ws.cell(row=r, column=c_idx, value=h)
         cell.font = th_font
         cell.fill = th_fill
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = thin_border
-    ws.row_dimensions[r].height = 22
+    ws.row_dimensions[r].height = 24
 
     r += 1
     start_line_r = r
@@ -102,21 +123,48 @@ def export_petty_cash_excel(voucher_name: str = None, docname: str = None, docty
         ws.cell(row=r, column=2, value=str(getattr(line, "expense_date", None) or getattr(doc, "posting_date", "") or "")).alignment = Alignment(horizontal="center")
         ws.cell(row=r, column=3, value=getattr(line, "expense_category", "") or "")
         ws.cell(row=r, column=4, value=getattr(line, "merchant_name", "") or "")
-        ws.cell(row=r, column=5, value=getattr(line, "bill_number", "") or "N/A").alignment = Alignment(horizontal="center")
-        amt_cell = ws.cell(row=r, column=6, value=float(getattr(line, "amount", 0.0) or 0.0))
+        
+        # GST?
+        is_gst = int(getattr(line, "is_gst", 0) or 0)
+        ws.cell(row=r, column=5, value="Yes" if is_gst else "No").alignment = Alignment(horizontal="center")
+        
+        # Merchant GSTIN
+        ws.cell(row=r, column=6, value=getattr(line, "merchant_gstin", "") or "N/A").alignment = Alignment(horizontal="center")
+        
+        # Bill # / Txn ID
+        ws.cell(row=r, column=7, value=getattr(line, "bill_number", "") or getattr(line, "transaction_id", "") or "N/A").alignment = Alignment(horizontal="center")
+        
+        # Amount (₹) - Column 8 (H)
+        amt_cell = ws.cell(row=r, column=8, value=float(getattr(line, "amount", 0.0) or 0.0))
         amt_cell.number_format = '₹ #,##0.00'
         amt_cell.alignment = Alignment(horizontal="right")
-        ws.cell(row=r, column=7, value=getattr(line, "employee", "") or getattr(line, "staff_name", "") or "")
-        ws.cell(row=r, column=8, value=getattr(line, "remarks", "") or getattr(line, "description", "") or "")
-
+        
+        # Spent By (Staff)
+        staff_disp = getattr(line, "staff_name", "") or getattr(line, "employee", "") or ""
+        ws.cell(row=r, column=9, value=staff_disp).alignment = Alignment(horizontal="center")
+        
+        # Receipt
         receipt_url = getattr(line, "receipt_attachment", None) or ""
-        receipt_cell = ws.cell(row=r, column=9, value="View Receipt" if receipt_url else "No Receipt")
+        receipt_cell = ws.cell(row=r, column=10, value="View Receipt" if receipt_url else "No Receipt")
         if receipt_url:
             receipt_cell.hyperlink = receipt_url
             receipt_cell.font = Font(color="2563EB", underline="single")
         receipt_cell.alignment = Alignment(horizontal="center")
 
-        for c in range(1, 10):
+        # Notes / Remarks (Optional)
+        ws.cell(row=r, column=11, value=getattr(line, "remarks", "") or getattr(line, "description", "") or "")
+
+        # Decision
+        if getattr(line, "is_disputed", 0):
+            d_val = f"⚠️ Disputed: {getattr(line, 'dispute_reason', '') or 'Disputed'}"
+            d_cell = ws.cell(row=r, column=12, value=d_val)
+            d_cell.font = Font(name="Calibri", size=10, bold=True, color="B91C1C")
+        else:
+            d_cell = ws.cell(row=r, column=12, value="✅ OK / Approved")
+            d_cell.font = Font(name="Calibri", size=10, color="15803D")
+        d_cell.alignment = Alignment(horizontal="center")
+
+        for c in range(1, 13):
             ws.cell(row=r, column=c).border = thin_border
         r += 1
 
@@ -125,16 +173,19 @@ def export_petty_cash_excel(voucher_name: str = None, docname: str = None, docty
         ws.cell(row=r, column=1, value="TOTAL").font = total_font
         ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
         ws.cell(row=r, column=1).fill = total_fill
-        for c in range(2, 6):
+        for c in range(2, 8):
             ws.cell(row=r, column=c).fill = total_fill
-        tot_cell = ws.cell(row=r, column=6, value=f"=SUM(F{start_line_r}:F{r-1})")
+        
+        # Formula for Amount (Column H)
+        tot_cell = ws.cell(row=r, column=8, value=f"=SUM(H{start_line_r}:H{r-1})")
         tot_cell.font = total_font
         tot_cell.fill = total_fill
         tot_cell.number_format = '₹ #,##0.00'
         tot_cell.alignment = Alignment(horizontal="right")
-        for c in range(7, 10):
+        
+        for c in range(9, 13):
             ws.cell(row=r, column=c).fill = total_fill
-        for c in range(1, 10):
+        for c in range(1, 13):
             ws.cell(row=r, column=c).border = thin_border
         r += 2
 
@@ -171,7 +222,7 @@ def export_petty_cash_excel(voucher_name: str = None, docname: str = None, docty
         vals = [len(str(cell.value or '')) for cell in col if cell.row > 1]
         max_len = max(vals) if vals else 10
         col_letter = get_column_letter(col[0].column)
-        ws.column_dimensions[col_letter].width = max(min(max_len + 4, 40), 12)
+        ws.column_dimensions[col_letter].width = max(min(max_len + 4, 38), 12)
 
     out = io.BytesIO()
     wb.save(out)
