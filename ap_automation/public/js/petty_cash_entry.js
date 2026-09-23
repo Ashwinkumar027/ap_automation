@@ -662,6 +662,72 @@ function render_role_based_action_buttons(frm) {
     ]) || frappe.session.user === 'Administrator';
 
     if (status === 'L1 Verified' && can_sanction_or_reject) {
+        const disputed_lines = lines.filter(l => l.is_disputed);
+        const approved_lines = lines.filter(l => !l.is_disputed);
+
+        if (disputed_lines.length > 0) {
+            frm.add_custom_button(__(`⚡ Sanction Clean (${approved_lines.length}) & Fork Disputed (${disputed_lines.length}) for Payment`), function () {
+                frappe.confirm(
+                    __(`Executive Dispute & Sanction:<br><br>` +
+                       `• <b>${approved_lines.length} Clean Line(s)</b> will be <b>Sanctioned for Payment Release</b> immediately.<br>` +
+                       `• <b>${disputed_lines.length} Disputed Line(s)</b> will be forked and returned to <b>Reception</b>.<br><br>Proceed?`),
+                    function () {
+                        let disputed_indices = [];
+                        let dispute_reasons = {};
+                        lines.forEach((l, idx) => {
+                            if (l.is_disputed) {
+                                disputed_indices.push(idx);
+                                dispute_reasons[idx] = l.dispute_reason || 'Disputed during Director review';
+                            }
+                        });
+
+                        frappe.call({
+                            method: 'ap_automation.services.dispute_service.api_dispute_split',
+                            args: {
+                                parent_docname: frm.doc.name,
+                                disputed_indices: disputed_indices,
+                                dispute_reasons: dispute_reasons
+                            },
+                            freeze: true,
+                            freeze_message: __('Forking disputed lines and sanctioning clean lines...'),
+                            callback: function (r) {
+                                if (r.message && r.message.status === 'split_success') {
+                                    frappe.call({
+                                        method: 'ap_automation.services.director_approval_service.sanction_accounts_director',
+                                        args: { voucher_doctype: frm.doc.doctype, voucher_name: frm.doc.name, comments: 'Clean lines sanctioned for payment release; disputed lines forked to Reception.' },
+                                        freeze: true,
+                                        callback: function (res) {
+                                            frappe.show_alert({
+                                                message: __(`🎉 Clean lines sanctioned for Payment Release! Disputed voucher #${r.message.forked_voucher} returned to Reception.`),
+                                                indicator: 'green'
+                                            }, 7);
+                                            frm.reload_doc();
+                                        }
+                                    });
+                                }
+                            }
+                        });
+                    }
+                );
+            }).addClass('btn-primary').css({
+                'background': 'linear-gradient(135deg, #059669 0%, #0d9488 100%)',
+                'color': '#ffffff',
+                'font-weight': '700',
+                'border': 'none'
+            });
+        }
+
+        if (lines.length > 1) {
+            frm.add_custom_button(__('⚠️ Dispute Split Helper'), function () {
+                open_dispute_split_dialog(frm);
+            }).addClass('btn-secondary').css({
+                'background-color': '#f59e0b',
+                'border-color': '#d97706',
+                'color': '#ffffff',
+                'font-weight': '600'
+            });
+        }
+
         frm.add_custom_button(__('✅ Sanction Payment'), function () {
             frappe.confirm(__(`Sanction payment of <b>₹${format_inr_clean(frm.doc.total_amount)}</b> for IDFC corporate batch release?`), function () {
                 frappe.call({
