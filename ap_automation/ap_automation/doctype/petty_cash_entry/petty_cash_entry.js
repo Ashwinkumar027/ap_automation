@@ -397,6 +397,37 @@ function render_role_based_action_buttons(frm) {
 
     // 1. RECEPTION SUBMISSION
     if (status === 'Draft' || status === 'Returned to Reception') {
+        const can_admin_head_direct_submit = frappe.user.has_role([
+            'Admin L2 Approver', 'Admin Manager', 'Accounts Director', 'Director Tier', 'System Manager'
+        ]) || frappe.session.user === 'Administrator';
+
+        if (can_admin_head_direct_submit) {
+            frm.add_custom_button(__('⚡ Direct Submit to Accounts (Admin Head)'), function () {
+                if (!lines || lines.length === 0) {
+                    frappe.msgprint(__('Please add at least one expense line before submitting.'));
+                    return;
+                }
+                frappe.confirm(__('Admin Head Direct Submission: Dispatch directly to Accounts Audit (skipping Admin L1)?'), function () {
+                    frappe.call({
+                        method: 'ap_automation.services.admin_approval_service.submit_to_accounts_direct',
+                        args: { voucher_name: frm.doc.name },
+                        freeze: true,
+                        freeze_message: __('Submitting directly to Accounts Audit...'),
+                        callback: function (r) {
+                            if (r.message && r.message.status === 'SUCCESS') {
+                                frappe.show_alert({ message: __('⚡ Submitted directly to Accounts Audit!'), indicator: 'green' }, 5);
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                });
+            }).addClass('btn-primary').css({
+                'background': 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                'border': 'none',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
+        }
         frm.add_custom_button(__('📤 Submit to Admin Lead'), function () {
             if (!lines || lines.length === 0) {
                 frappe.msgprint(__('Please add at least one expense line before submitting.'));
@@ -517,7 +548,32 @@ function render_role_based_action_buttons(frm) {
     }
 
     // 4. ACCOUNTS AUDIT ACTIONS (Line-by-Line Approve & Dispute Execution)
-    if (status === 'Submitted' && (frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Manager', 'System Manager']) || frappe.session.user === 'Administrator')) {
+    if (status === 'Submitted' && (frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Manager', 'Accounts Director', 'Director Tier', 'System Manager']) || frappe.session.user === 'Administrator')) {
+        const is_director_tier = frappe.user.has_role(['Accounts Director', 'Director Tier', 'System Manager']) || frappe.session.user === 'Administrator';
+
+        if (is_director_tier) {
+            frm.add_custom_button(__('⚡ Direct Director Sanction (Skip L1)'), function () {
+                frappe.confirm(__(`Executive Direct Sanction: Sanction payment of <b>₹${format_inr_clean(frm.doc.total_amount)}</b> directly (bypassing Accounts L1)?`), function () {
+                    frappe.call({
+                        method: 'ap_automation.services.director_approval_service.sanction_accounts_director',
+                        args: { voucher_doctype: frm.doc.doctype, voucher_name: frm.doc.name },
+                        freeze: true,
+                        freeze_message: __('Sanctioning payment release...'),
+                        callback: function (r) {
+                            if (!r.exc) {
+                                frappe.show_alert({ message: __('⚡ Sanctioned directly for Payment Release!'), indicator: 'green' }, 5);
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                });
+            }).addClass('btn-primary').css({
+                'background': 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                'border': 'none',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
+        }
         const disputed_lines = lines.filter(l => l.is_disputed);
         const approved_lines = lines.filter(l => !l.is_disputed);
 

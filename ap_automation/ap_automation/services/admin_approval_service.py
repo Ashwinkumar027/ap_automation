@@ -353,3 +353,63 @@ def resubmit_to_admin_l2_direct(voucher_name: str) -> Dict[str, Any]:
 # Convenience alias for submit_to_admin_l1
 submit_petty_cash_voucher = submit_to_admin_l1
 
+@frappe.whitelist()
+def submit_to_accounts_direct(voucher_name: str, comments: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Direct submission from Admin Department Head straight to Accounts Audit (skipping Reception & L1).
+    Used when Reception / Admin L1 are absent or when Admin Head directly creates departmental claims.
+    Time Complexity: O(1)
+    """
+    user = frappe.session.user
+    _enforce_role_or_system_manager(user, ["Admin L2 Approver", "Admin Manager", "Accounts Director", "Director Tier"], "Admin Head Direct Submission")
+
+    if not frappe.db.exists("Petty Cash Entry", voucher_name):
+        raise APValidationError(f"Petty Cash Entry '{voucher_name}' not found.")
+
+    doc = frappe.get_doc("Petty Cash Entry", voucher_name)
+
+    if doc.status not in ("Draft", "Rejected", "Returned to Reception"):
+        raise APValidationError(
+            f"Cannot submit voucher #{voucher_name}: current status is '{doc.status}', expected 'Draft'."
+        )
+
+    if not doc.expense_lines or len(doc.expense_lines) == 0:
+        raise APValidationError("Cannot submit an empty Petty Cash voucher. Please add at least one expense line.")
+
+    for idx, row in enumerate(doc.expense_lines, 1):
+        if not row.amount or float(row.amount) <= 0:
+            raise APValidationError(f"Row #{idx}: Amount must be strictly greater than ₹ 0.00.")
+
+    now = frappe.utils.now_datetime()
+    doc.status = "Submitted"
+    doc.workflow_state = "Submitted for Accounts Audit (Admin Head Direct)"
+    doc.admin_l2_approver = user
+    doc.admin_l2_approval_date = now
+    doc.admin_rejection_reason = None
+
+    doc.append("approval_trail", {
+        "level_number": 2,
+        "level_name": "Admin Head Direct Submission",
+        "action_taken_by": user,
+        "action": "APPROVED",
+        "action_timestamp": now,
+        "remarks": comments or "Created/Signed off directly by Admin Department Head. Dispatched straight to Accounts Audit (L1 review skipped)."
+    })
+
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    # Trigger Notification to Accounts Team
+    try:
+        notification_service.notify_l1_on_voucher_submitted(doc.doctype, doc.name)
+    except Exception as e:
+        frappe.log_error(f"Failed to send Accounts L1 notification for {voucher_name}: {str(e)}")
+
+    return {
+        "status": "SUCCESS",
+        "voucher_name": doc.name,
+        "new_status": doc.status,
+        "workflow_state": doc.workflow_state,
+        "message": f"Voucher #{doc.name} directly submitted to Accounts Audit by Admin Head."
+    }
+

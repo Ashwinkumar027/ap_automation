@@ -133,6 +133,7 @@ def sanction_accounts_director(
 ) -> Dict[str, Any]:
     """
     Whitelisted endpoint for Accounts Director sanctioning vouchers.
+    Supports sanctioning directly from 'L1 Verified' or 'Submitted' (when Accounts L1 is absent).
     """
     from ap_automation.services import notification_service
     user = director_user or frappe.session.user
@@ -146,16 +147,20 @@ def sanction_accounts_director(
         raise APValidationError(f"{voucher_doctype} '{voucher_name}' not found.")
 
     doc = frappe.get_doc(voucher_doctype, voucher_name)
+    prior_status = doc.status
     doc.status = "Approved for Payment"
     doc.workflow_state = "Approved for Thursday Payment Batch"
 
+    level_label = "Direct Director Sanction (L1 Bypassed)" if prior_status == "Submitted" else "Director Sanction (L2)"
+    auto_comment = "Directly sanctioned by Accounts Director (Accounts L1 audit bypassed due to absence)." if prior_status == "Submitted" else "Sanctioned for IDFC corporate payout release."
+
     doc.append("approval_trail", {
         "level_number": 4,
-        "level_name": "Director Sanction (L2)",
+        "level_name": level_label,
         "action_taken_by": user,
         "action": "APPROVED",
         "action_timestamp": frappe.utils.now_datetime(),
-        "remarks": comments or "Sanctioned for IDFC corporate payout release."
+        "remarks": comments or auto_comment
     })
     doc.save(ignore_permissions=True)
     frappe.db.commit()
