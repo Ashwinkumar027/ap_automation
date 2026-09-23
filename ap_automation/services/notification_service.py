@@ -135,12 +135,25 @@ def _send_email_and_desk_alert(
     """
     Dispatches threaded corporate emails and Frappe Desk real-time alerts.
     Enforces RFC 5322 In-Reply-To / References linking for continuous inbox conversation threads.
+    Includes strict recipient deduplication and idempotency debouncing.
     """
     if getattr(frappe.flags, "in_test", False) or getattr(frappe.flags, "mute_emails", False):
         return
     if not recipients:
         return
 
+    # Idempotency / Debounce check: Prevent duplicate email triggers within 60 seconds
+    try:
+        import hashlib
+        subject_hash = hashlib.md5(subject.strip().encode("utf-8")).hexdigest()
+        dedup_key = f"ap_email_dedup:{reference_doctype}:{reference_name}:{subject_hash}"
+        if frappe.cache().get_value(dedup_key):
+            return  # Suppress duplicate email sent within debounce window
+        frappe.cache().set_value(dedup_key, 1, expires_in_sec=60)
+    except Exception:
+        pass
+
+    # Deduplicate Primary Recipients (case-insensitive)
     valid_recipients = []
     desk_users = []
     for r in recipients:
@@ -148,21 +161,23 @@ def _send_email_and_desk_alert(
             continue
         desk_users.append(str(r).strip())
         resolved = _resolve_email(r)
-        if resolved:
-            valid_recipients.append(resolved)
+        if resolved and resolved.strip():
+            clean_email = resolved.strip()
+            if clean_email.lower() not in [x.lower() for x in valid_recipients]:
+                valid_recipients.append(clean_email)
 
-    valid_recipients = list(dict.fromkeys(valid_recipients))
-    desk_users = list(dict.fromkeys(desk_users))
-
+    # Deduplicate CC Recipients (Exclude any email already present in To:)
     valid_cc = []
     if cc:
+        recipients_lower = [x.lower() for x in valid_recipients]
         for c in cc:
             if not c:
                 continue
             resolved_cc = _resolve_email(c)
-            if resolved_cc and resolved_cc not in valid_recipients:
-                valid_cc.append(resolved_cc)
-        valid_cc = list(dict.fromkeys(valid_cc))
+            if resolved_cc and resolved_cc.strip():
+                clean_cc = resolved_cc.strip()
+                if clean_cc.lower() not in recipients_lower and clean_cc.lower() not in [x.lower() for x in valid_cc]:
+                    valid_cc.append(clean_cc)
 
     # Construct Deterministic Clean RFC 5322 Thread Key
     clean_dt = re.sub(r'[^a-zA-Z0-9]', '', reference_doctype)

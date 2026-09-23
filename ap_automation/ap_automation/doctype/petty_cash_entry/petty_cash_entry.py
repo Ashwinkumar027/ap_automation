@@ -268,20 +268,12 @@ class PettyCashEntry(Document):
         pass
 
     def on_submit(self):
-        """Dispatches automated notification to L1 Admin Reviewer."""
-        try:
-            notification_service.notify_l1_on_voucher_submitted(self.doctype, self.name)
-        except Exception as e:
-            frappe.log_error(f"Notification error on submit for {self.name}: {str(e)}")
+        """Workflow notifications are dispatched explicitly by service layer to prevent duplicates."""
+        pass
 
     def on_update(self):
-        """Dispatches automated notifications on status transitions."""
-        if self.has_value_changed("status"):
-            if self.status == "Approved for Payment":
-                try:
-                    notification_service.notify_admin_on_l2_approved(self.doctype, self.name)
-                except Exception as e:
-                    frappe.log_error(f"Notification error on L2 approve for {self.name}: {str(e)}")
+        """Workflow notifications are dispatched explicitly by service layer to prevent duplicates."""
+        pass
 
     def before_delete(self):
         if self.batch_id or self.status in ("Queued in Batch", "Disbursed via IDFC", "Settled"):
