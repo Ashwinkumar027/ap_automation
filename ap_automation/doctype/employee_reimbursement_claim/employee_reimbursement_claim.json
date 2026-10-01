@@ -12,40 +12,87 @@
   "employee_name",
   "company",
   "department",
+  "claim_category",
   "cb_claim",
   "posting_date",
   "status",
-  "workflow_state",
-  "current_approval_level",
-  "designated_approver",
-  "batch_id",
   "sb_bank",
   "bank_name",
   "bank_account_number",
   "bank_ifsc_code",
+  "sb_pre_travel",
+  "pre_travel_request",
+  "cb_pre_travel",
+  "pre_approval_attachment",
+  "sb_client_travel",
+  "client_visit_legs",
+  "sb_client_travel_summary",
+  "cb_travel_summary_1",
+  "total_trip_distance_km",
+  "total_leg_mileage_amount",
+  "total_toll_parking_amount",
+  "cb_travel_summary_2",
+  "is_per_diem_claimed",
+  "per_diem_days",
+  "per_diem_amount",
+  "travel_calculated_amount",
+  "sb_team_lunch",
+  "activity_type",
+  "activity_date",
+  "activity_photo",
+  "per_head_cap",
+  "participant_count",
+  "total_team_entitlement",
+  "cb_team_budget",
+  "prior_quarter_claimed",
+  "remaining_quarter_budget",
+  "capped_claim_amount",
+  "participants",
+  "sb_dinner",
+  "swipe_out_time",
+  "dinner_allowance_amount",
+  "sb_branch_expense",
+  "branch_expense_category",
+  "payment_mode_used",
+  "sb_lines",
+  "expense_lines",
   "sb_amounts",
   "total_claim_amount",
   "advance_amount",
   "cb_net",
   "net_payable_amount",
-  "total_amount",
-  "sb_lines",
-  "expense_lines",
+  "sanctioned_amount",
+  "sb_audit",
+  "is_resubmission",
+  "reporting_manager",
+  "manager_approver",
+  "admin_l1_approver",
+  "admin_l2_approver",
+  "receptionist_verifier",
+  "accounts_l2_approver",
+  "payment_releaser",
+  "cb_audit_2",
+  "workflow_state",
+  "current_approval_level",
+  "target_return_to",
+  "payment_reference",
+  "payment_release_date",
+  "rejection_reason",
+  "admin_rejection_reason",
+  "budget_variance_status",
+  "budget_variance_percent",
+  "overrun_justification",
   "sb_fork",
   "is_forked_voucher",
   "parent_voucher",
   "forked_voucher",
-  "approval_trail",
-  "pre_travel_request",
-  "budget_variance_status",
-  "budget_variance_percent",
-  "overrun_justification"
+  "approval_trail"
  ],
  "fields": [
   {
    "fieldname": "sb_emp",
    "fieldtype": "Section Break",
-   "label": "Employee Profile (HRMS Locked)"
+   "label": "Employee & Claim Information"
   },
   {
    "fieldname": "employee",
@@ -60,7 +107,8 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Employee Name",
-   "read_only": 1
+   "read_only": 1,
+   "fetch_from": "employee.employee_name"
   },
   {
    "fieldname": "company",
@@ -69,14 +117,25 @@
    "label": "HRMS Legal Entity",
    "options": "Company",
    "read_only": 1,
-   "reqd": 1
+   "reqd": 1,
+   "fetch_from": "employee.company"
   },
   {
    "fieldname": "department",
    "fieldtype": "Link",
    "label": "Department",
    "options": "Department",
-   "read_only": 1
+   "read_only": 1,
+   "fetch_from": "employee.department"
+  },
+  {
+   "default": "General Expense",
+   "fieldname": "claim_category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Claim Category",
+   "options": "Client Visit Travel\nTeam Lunch / Outing\nDinner Allowance\nBranch Expense & Maintenance\nGeneral Expense",
+   "reqd": 1
   },
   {
    "fieldname": "cb_claim",
@@ -96,57 +155,243 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nSubmitted\nPending Manager Approval\nApproved by Manager\nApproved for Payment\nQueued in Batch\nPaid\nDisputed\nRejected\nCancelled"
-  },
-  {
-   "default": "Draft",
-   "fieldname": "workflow_state",
-   "fieldtype": "Data",
-   "label": "Workflow State",
-   "read_only": 1
-  },
-  {
-   "default": "1",
-   "fieldname": "current_approval_level",
-   "fieldtype": "Int",
-   "label": "Current Approval Level",
-   "read_only": 1
-  },
-  {
-   "fieldname": "designated_approver",
-   "fieldtype": "Link",
-   "label": "Current Designated Approver",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "fieldname": "batch_id",
-   "fieldtype": "Data",
-   "label": "Payment Batch ID",
-   "read_only": 1
+   "options": "Draft\nSubmitted\nPending Manager Approval\nApproved by Manager\nPending Receptionist Verification\nPending Admin L1 Review\nPending Admin L2 Sign-Off\nPending Accounts L1 Audit\nPending Accounts L1\nPending Accounts L2\nPending Director L2 Sanction\nApproved for Payment\nReady for Payment Batch\nQueued in Batch\nPaid via Bank Transfer\nPaid\nReturned to Employee\nPending Receptionist\nPending Manager\nPending Admin L1\nDisputed\nRejected\nCancelled\nPending Admin L2\nPending Employee Resubmission"
   },
   {
    "fieldname": "sb_bank",
    "fieldtype": "Section Break",
-   "label": "Verified Salary Bank Account (HRMS Read-Only)"
+   "label": "Salary Bank Details (HRMS Verified)",
+   "collapsible": 1
   },
   {
    "fieldname": "bank_name",
    "fieldtype": "Data",
    "label": "Bank Name",
-   "read_only": 1
+   "read_only": 1,
+   "fetch_from": "employee.bank_name"
   },
   {
    "fieldname": "bank_account_number",
    "fieldtype": "Data",
    "label": "Salary Bank Account Number",
-   "read_only": 1
+   "read_only": 1,
+   "fetch_from": "employee.bank_ac_no"
   },
   {
    "fieldname": "bank_ifsc_code",
    "fieldtype": "Data",
    "label": "Bank IFSC Code",
+   "read_only": 1,
+   "fetch_from": "employee.ifsc_code"
+  },
+  {
+   "fieldname": "sb_pre_travel",
+   "fieldtype": "Section Break",
+   "label": "Pre-Travel Authorization & Approval Screenshot"
+  },
+  {
+   "fieldname": "pre_travel_request",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Approved Pre-Travel Authorization",
+   "options": "Pre Travel Request"
+  },
+  {
+   "fieldname": "cb_pre_travel",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sb_client_travel",
+   "fieldtype": "Section Break",
+   "label": "Client Visits & Multi-Stop Travel (Policy ACM-TRP-1.0)"
+  },
+  {
+   "fieldname": "client_visit_legs",
+   "fieldtype": "Table",
+   "label": "Client Visits & Multi-Stop Itinerary",
+   "options": "Employee Client Visit Leg"
+  },
+  {
+   "fieldname": "sb_client_travel_summary",
+   "fieldtype": "Section Break",
+   "label": "Travel Mileage & Food Per Diem Summary"
+  },
+  {
+   "fieldname": "cb_travel_summary_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_trip_distance_km",
+   "fieldtype": "Float",
+   "label": "Total Trip Distance (KM)",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "total_leg_mileage_amount",
+   "fieldtype": "Currency",
+   "label": "Total Travel Mileage (INR)",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "total_toll_parking_amount",
+   "fieldtype": "Currency",
+   "label": "Total Toll & Parking (INR)",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "cb_travel_summary_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "is_per_diem_claimed",
+   "fieldtype": "Check",
+   "label": "Claim Daily Food Per Diem",
+   "default": "0"
+  },
+  {
+   "fieldname": "per_diem_days",
+   "fieldtype": "Int",
+   "label": "Per Diem Days",
+   "default": "1"
+  },
+  {
+   "fieldname": "per_diem_amount",
+   "fieldtype": "Currency",
+   "label": "Food Per Diem Rate (INR)",
+   "default": "500"
+  },
+  {
+   "fieldname": "travel_calculated_amount",
+   "fieldtype": "Currency",
+   "label": "Total Calculated Travel Allowance (INR)",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "sb_team_lunch",
+   "fieldtype": "Section Break",
+   "label": "Team Bonding & Recreation Details (Policy ACM-QTB-1.0)"
+  },
+  {
+   "default": "Team Food & Dining (Lunch / Dinner / Movie)",
+   "fieldname": "activity_type",
+   "fieldtype": "Select",
+   "label": "Activity Type",
+   "options": "Team Food & Dining (Lunch / Dinner / Movie)\nTeam Engagement & Recreation (Sports / Outing / Wellness)",
+   "reqd": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "activity_date",
+   "fieldtype": "Date",
+   "label": "Activity Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "activity_photo",
+   "fieldtype": "Attach Image",
+   "label": "\ud83d\udcf8 Team Group Photo (Mandatory Participation Proof)"
+  },
+  {
+   "default": "1000",
+   "fieldname": "per_head_cap",
+   "fieldtype": "Currency",
+   "label": "Per Head Policy Cap (INR)",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "participant_count",
+   "fieldtype": "Int",
+   "label": "Total Headcount (Participants)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_team_entitlement",
+   "fieldtype": "Currency",
+   "label": "Gross Team Entitlement (INR)",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "cb_team_budget",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "prior_quarter_claimed",
+   "fieldtype": "Currency",
+   "label": "Prior Claims in Current Quarter (INR)",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "remaining_quarter_budget",
+   "fieldtype": "Currency",
+   "label": "Available Wallet Balance for Trip (INR)",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "capped_claim_amount",
+   "fieldtype": "Currency",
+   "label": "Policy Capped Claim Amount (INR)",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "participants",
+   "fieldtype": "Table",
+   "label": "Team Participants",
+   "options": "Employee Reimbursement Participant"
+  },
+  {
+   "fieldname": "sb_dinner",
+   "fieldtype": "Section Break",
+   "label": "Late Night Dinner Allowance Gate"
+  },
+  {
+   "fieldname": "swipe_out_time",
+   "fieldtype": "Time",
+   "label": "Swipe-Out / Shift End Time"
+  },
+  {
+   "default": "200",
+   "fieldname": "dinner_allowance_amount",
+   "fieldtype": "Currency",
+   "label": "Dinner Allowance (INR)"
+  },
+  {
+   "fieldname": "sb_branch_expense",
+   "fieldtype": "Section Break",
+   "label": "Branch Expense & Procurement"
+  },
+  {
+   "default": "Housekeeping Materials",
+   "fieldname": "branch_expense_category",
+   "fieldtype": "Select",
+   "label": "Branch Expense Type",
+   "options": "Housekeeping Materials\nPantry & Refreshments (Tea/Coffee)\nBranch Equipment & Repairs\nOffice Stationery\nOther Branch Operations"
+  },
+  {
+   "default": "GPAY / UPI",
+   "fieldname": "payment_mode_used",
+   "fieldtype": "Select",
+   "label": "Payment Mode Used",
+   "options": "GPAY / UPI\nCompany Credit Card\nPersonal Credit Card\nCash\nBank Transfer"
+  },
+  {
+   "fieldname": "sb_lines",
+   "fieldtype": "Section Break",
+   "label": "Expense Lines (Mandatory Bill Proofs)"
+  },
+  {
+   "fieldname": "expense_lines",
+   "fieldtype": "Table",
+   "label": "Expense Items",
+   "options": "Employee Reimbursement Line"
   },
   {
    "fieldname": "sb_amounts",
@@ -178,28 +423,74 @@
    "read_only": 1
   },
   {
-   "fieldname": "total_amount",
-   "fieldtype": "Currency",
-   "hidden": 1,
-   "label": "Total Base Amount",
+   "fieldname": "sb_audit",
+   "fieldtype": "Section Break",
+   "label": "Approval & Workflow Trail",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "admin_l1_approver",
+   "fieldtype": "Link",
+   "label": "Admin L1 Approver",
+   "options": "User",
    "read_only": 1
   },
   {
-   "fieldname": "sb_lines",
-   "fieldtype": "Section Break",
-   "label": "Expense Lines (Mandatory Bill Proofs)"
+   "fieldname": "admin_l2_approver",
+   "fieldtype": "Link",
+   "label": "Admin L2 Approver",
+   "options": "User",
+   "read_only": 1
   },
   {
-   "fieldname": "expense_lines",
-   "fieldtype": "Table",
-   "label": "Expense Items",
-   "options": "Employee Reimbursement Line",
-   "reqd": 1
+   "fieldname": "cb_audit_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "workflow_state",
+   "fieldtype": "Data",
+   "label": "Workflow State",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "current_approval_level",
+   "fieldtype": "Int",
+   "label": "Current Approval Level",
+   "read_only": 1
+  },
+  {
+   "fieldname": "admin_rejection_reason",
+   "fieldtype": "Small Text",
+   "label": "Admin Rejection / Return Reason",
+   "read_only": 1
+  },
+  {
+   "default": "Within Budget",
+   "fieldname": "budget_variance_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Budget Variance Status",
+   "options": "Within Budget\nBudget Overrun Flagged\nNo Pre-Travel Required",
+   "read_only": 1
+  },
+  {
+   "fieldname": "budget_variance_percent",
+   "fieldtype": "Percent",
+   "label": "Budget Variance %",
+   "read_only": 1
+  },
+  {
+   "fieldname": "overrun_justification",
+   "fieldtype": "Small Text",
+   "label": "Budget Overrun Justification"
   },
   {
    "fieldname": "sb_fork",
    "fieldtype": "Section Break",
-   "label": "Voucher Relationships"
+   "label": "Voucher Relationships & History",
+   "collapsible": 1
   },
   {
    "default": "0",
@@ -230,31 +521,97 @@
    "read_only": 1
   },
   {
-   "fieldname": "pre_travel_request",
+   "fieldname": "designated_approver",
    "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Approved Pre-Travel Authorization",
-   "options": "Pre Travel Request"
+   "label": "Current Designated Approver",
+   "options": "User",
+   "read_only": 1,
+   "hidden": 1
   },
   {
-   "default": "Within Budget",
-   "fieldname": "budget_variance_status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Budget Variance Status",
-   "options": "Within Budget\nBudget Overrun Flagged\nNo Pre-Travel Required",
+   "fieldname": "batch_id",
+   "fieldtype": "Data",
+   "label": "Payment Batch ID",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Total Base Amount",
    "read_only": 1
   },
   {
-   "fieldname": "budget_variance_percent",
-   "fieldtype": "Percent",
-   "label": "Budget Variance %",
-   "read_only": 1
+   "fieldname": "client_code",
+   "fieldtype": "Data",
+   "label": "Client Code / ID",
+   "hidden": 1
   },
   {
-   "fieldname": "overrun_justification",
+   "fieldname": "client_name",
+   "fieldtype": "Data",
+   "label": "Client Name",
+   "hidden": 1
+  },
+  {
+   "fieldname": "client_phone",
+   "fieldtype": "Data",
+   "label": "Client Phone Number",
+   "hidden": 1
+  },
+  {
+   "fieldname": "purpose_of_visit",
    "fieldtype": "Small Text",
-   "label": "Budget Overrun Justification"
+   "label": "Purpose of Client Visit",
+   "hidden": 1
+  },
+  {
+   "fieldname": "cb_route",
+   "fieldtype": "Column Break",
+   "hidden": 1
+  },
+  {
+   "fieldname": "from_location",
+   "fieldtype": "Data",
+   "label": "From Location (e.g. Home / Office)",
+   "hidden": 1
+  },
+  {
+   "fieldname": "to_location",
+   "fieldtype": "Data",
+   "label": "To Location (Client Address)",
+   "hidden": 1
+  },
+  {
+   "default": "Two-Wheeler",
+   "fieldname": "mode_of_travel",
+   "fieldtype": "Select",
+   "label": "Mode of Travel",
+   "options": "Two-Wheeler\nCar\nAuto / Taxi\nBus / Train\nFlight",
+   "hidden": 1
+  },
+  {
+   "default": "Metro Cities",
+   "fieldname": "city_tier",
+   "fieldtype": "Select",
+   "label": "City Tier",
+   "options": "Metro Cities\nNon-Metro Cities",
+   "hidden": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "distance_km",
+   "fieldtype": "Float",
+   "label": "Distance Travelled (KM)",
+   "hidden": 1
+  },
+  {
+   "fieldname": "rate_per_km",
+   "fieldtype": "Currency",
+   "label": "Applied Rate / KM",
+   "read_only": 1,
+   "hidden": 1
   }
  ],
  "grid_page_length": 50,

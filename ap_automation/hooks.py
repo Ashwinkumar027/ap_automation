@@ -22,7 +22,8 @@ app_include_js = [
 ]
 
 doctype_js = {
-    "AP IDFC Settings": "public/js/ap_idfc_settings.js"
+    "AP IDFC Settings": "public/js/ap_idfc_settings.js",
+    "Employee Reimbursement Claim": "public/js/employee_reimbursement_claim.js"
 }
 
 # --------------------------------------------------------------------------------------

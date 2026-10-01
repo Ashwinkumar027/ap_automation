@@ -1,0 +1,113 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-29 15:55:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "employee_id",
+  "employee_name",
+  "department",
+  "branch_location",
+  "quarterly_cap",
+  "utilized_in_quarter",
+  "available_balance",
+  "allocated_share",
+  "wallet_status"
+ ],
+ "fields": [
+  {
+   "fieldname": "employee_id",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Employee ID",
+   "options": "Employee",
+   "reqd": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Employee Name",
+   "read_only": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department",
+   "read_only": 1
+  },
+  {
+   "fieldname": "branch_location",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Branch / Location",
+   "read_only": 1,
+   "columns": 2
+  },
+  {
+   "default": "1250",
+   "fieldname": "quarterly_cap",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Qtr Cap (INR)",
+   "read_only": 1,
+   "columns": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "utilized_in_quarter",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Used in Qtr (INR)",
+   "read_only": 1,
+   "columns": 1
+  },
+  {
+   "default": "1250",
+   "fieldname": "available_balance",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Available (INR)",
+   "read_only": 1,
+   "columns": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "allocated_share",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Trip Share (INR)",
+   "read_only": 1,
+   "columns": 1
+  },
+  {
+   "default": "\u2705 Active",
+   "fieldname": "wallet_status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Wallet Status",
+   "read_only": 1,
+   "columns": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-29 15:55:00.000000",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Employee Reimbursement Participant",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,106 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-29 15:40:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "visit_date",
+  "client_type",
+  "customer",
+  "client_name",
+  "client_phone",
+  "cb_route",
+  "from_location",
+  "to_location",
+  "purpose"
+ ],
+ "fields": [
+  {
+   "default": "Today",
+   "fieldname": "visit_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Visit Date",
+   "columns": 2,
+   "reqd": 1
+  },
+  {
+   "default": "Existing Client",
+   "fieldname": "client_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Client Type",
+   "options": "Existing Client\nNew Prospect / Lead",
+   "columns": 2,
+   "reqd": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Customer / Client",
+   "options": "Customer",
+   "columns": 2,
+   "depends_on": "eval:doc.client_type=='Existing Client'"
+  },
+  {
+   "fieldname": "client_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Client Name",
+   "columns": 2,
+   "reqd": 1
+  },
+  {
+   "fieldname": "client_phone",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Contact Phone",
+   "columns": 2
+  },
+  {
+   "fieldname": "cb_route",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "from_location",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "From Location",
+   "columns": 2,
+   "reqd": 1
+  },
+  {
+   "fieldname": "to_location",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "To Location (Client Address)",
+   "columns": 2,
+   "reqd": 1
+  },
+  {
+   "fieldname": "purpose",
+   "fieldtype": "Data",
+   "label": "Purpose of Visit",
+   "in_list_view": 1,
+   "columns": 2
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-29 15:40:00.000000",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Pre Travel Client Visit",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

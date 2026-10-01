@@ -8,18 +8,22 @@
  "field_order": [
   "expense_date",
   "expense_type",
+  "description",
+  "out_time",
+  "amount",
+  "receipt_attachment",
+  "payment_mode_used",
+  "company_name",
   "merchant_name",
   "invoice_number",
   "is_b2b",
   "merchant_gstin",
-  "amount",
-  "receipt_attachment",
-  "description",
   "is_disputed",
   "dispute_reason"
  ],
  "fields": [
   {
+   "columns": 2,
    "fieldname": "expense_date",
    "fieldtype": "Date",
    "in_list_view": 1,
@@ -27,47 +31,39 @@
    "reqd": 1
   },
   {
+   "columns": 2,
+   "default": "Team Lunch / Outing",
    "fieldname": "expense_type",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Expense Category",
-   "options": "Hotel & Accommodation\nFood & Meals\nIntercity Air/Train/Bus\nLocal Conveyance/Taxi\nClient Entertainment\nFuel/Mileage\nMiscellaneous",
+   "options": "Team Lunch / Outing\nDinner Allowance\nFood & Meals\nClient Entertainment\nHotel & Accommodation\nIntercity Air/Train/Bus\nLocal Conveyance/Taxi\nFuel/Mileage\nBranch Maintenance / Repairs\nOffice Supplies / Groceries\nMiscellaneous",
    "reqd": 1
   },
   {
-   "fieldname": "merchant_name",
+   "columns": 3,
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Expense Description / Route"
+  },
+  {
+   "columns": 1,
+   "fieldname": "out_time",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Merchant / Service Provider",
-   "reqd": 1
+   "label": "OUT TIME"
   },
   {
-   "fieldname": "invoice_number",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Tax Invoice / Bill #"
-  },
-  {
-   "default": "0",
-   "fieldname": "is_b2b",
-   "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "B2B Tax Invoice"
-  },
-  {
-   "fieldname": "merchant_gstin",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Merchant GSTIN"
-  },
-  {
+   "columns": 2,
    "fieldname": "amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Amount (INR)",
+   "label": "Invoice Amount (₹)",
    "reqd": 1
   },
   {
+   "columns": 2,
    "fieldname": "receipt_attachment",
    "fieldtype": "Attach",
    "in_list_view": 1,
@@ -75,20 +71,57 @@
    "reqd": 1
   },
   {
-   "fieldname": "description",
-   "fieldtype": "Small Text",
-   "label": "Business Purpose"
+   "columns": 2,
+   "default": "Bill attached",
+   "fieldname": "payment_mode_used",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Remarks / Payment Mode"
+  },
+  {
+   "default": "ACM",
+   "fieldname": "company_name",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Company Name"
+  },
+  {
+   "fieldname": "merchant_name",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Merchant / Restaurant Name"
+  },
+  {
+   "fieldname": "invoice_number",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Tax Invoice / Bill #"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_b2b",
+   "fieldtype": "Check",
+   "in_list_view": 0,
+   "label": "B2B Tax Invoice"
+  },
+  {
+   "fieldname": "merchant_gstin",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Merchant GSTIN"
   },
   {
    "default": "0",
    "fieldname": "is_disputed",
    "fieldtype": "Check",
+   "in_list_view": 0,
    "label": "Disputed",
    "read_only": 1
   },
   {
    "fieldname": "dispute_reason",
    "fieldtype": "Small Text",
+   "in_list_view": 0,
    "label": "Dispute Reason",
    "read_only": 1
   }
@@ -97,7 +130,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-09-03 14:05:38.905223",
+ "modified": "2026-09-30 10:30:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Employee Reimbursement Line",

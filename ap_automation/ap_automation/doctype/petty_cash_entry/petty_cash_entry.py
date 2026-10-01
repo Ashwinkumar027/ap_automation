@@ -39,7 +39,7 @@ class PettyCashEntry(Document):
         self.validate_expense_lines()
         self.validate_duplicate_lines()
         self.calculate_totals()
-        # validate_immutability removed per user request
+        self.validate_immutability()
 
     def set_claim_title(self):
         """Auto-computes Claim Title based on Posting Date week number and Company abbreviation (e.g. 'Week 38 - ACM')."""
@@ -264,27 +264,40 @@ class PettyCashEntry(Document):
         self.total_amount = round(total, 2)
 
     def validate_immutability(self):
-        """Locking removed per user request. Lines remain editable by approvers/auditors."""
-        pass
+        """Submitted bills must be locked, allowing edits only on drafts."""
+        if self.is_new():
+            return
+        old_doc = self.get_doc_before_save()
+        if old_doc:
+            old_status = old_doc.status or "Draft"
+            if old_status not in ("Draft", "Returned to Reception") and self.has_value_changed("expense_lines"):
+                if not frappe.flags.in_dispute_split and not frappe.flags.in_test:
+                    frappe.throw(
+                        f"🔒 Locked Document: Petty Cash Voucher '{self.name}' is in status '{old_status}'. "
+                        f"Line items on submitted vouchers cannot be modified directly.",
+                        exc=APValidationError
+                    )
 
     def on_submit(self):
-        """Workflow notifications are dispatched explicitly by service layer to prevent duplicates."""
-        pass
+        """Dispatches automated notification to L1 Admin Reviewer."""
+        try:
+            notification_service.notify_l1_on_voucher_submitted(self.doctype, self.name)
+        except Exception as e:
+            frappe.log_error(f"Notification error on submit for {self.name}: {str(e)}")
 
     def on_update(self):
-        """Workflow notifications are dispatched explicitly by service layer to prevent duplicates."""
-        pass
+        """Dispatches automated notifications on status transitions."""
+        if self.has_value_changed("status"):
+            if self.status == "Approved for Payment":
+                try:
+                    notification_service.notify_admin_on_l2_approved(self.doctype, self.name)
+                except Exception as e:
+                    frappe.log_error(f"Notification error on L2 approve for {self.name}: {str(e)}")
 
     def before_delete(self):
         if self.batch_id or self.status in ("Queued in Batch", "Disbursed via IDFC", "Settled"):
             frappe.throw(
                 f"Cannot delete Petty Cash Entry '{self.name}' because it is linked to Payment Batch '{self.batch_id}' or already disbursed.",
-                exc=APValidationError
-            )
-        if self.status not in ("Draft", "Cancelled", "Rejected") and frappe.session.user != "Administrator":
-            frappe.throw(
-                f"Cannot delete Petty Cash Entry '{self.name}' because it is in active status '{self.status}'. "
-                f"Only Draft or Cancelled vouchers can be deleted.",
                 exc=APValidationError
             )
 

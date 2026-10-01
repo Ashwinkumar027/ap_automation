@@ -18,6 +18,8 @@
   "cb_dates",
   "departure_date",
   "return_date",
+  "sb_visits",
+  "planned_client_visits",
   "sb_budget",
   "estimated_budget",
   "advance_requested",
@@ -98,6 +100,17 @@
    "in_list_view": 1,
    "label": "Return Date",
    "reqd": 1
+  },
+  {
+   "fieldname": "sb_visits",
+   "fieldtype": "Section Break",
+   "label": "Planned Client Visits & Stops"
+  },
+  {
+   "fieldname": "planned_client_visits",
+   "fieldtype": "Table",
+   "label": "Client Visits Itinerary",
+   "options": "Pre Travel Client Visit"
   },
   {
    "fieldname": "sb_budget",
