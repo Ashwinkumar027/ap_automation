@@ -1,3 +1,11 @@
+def _get_form_url(doctype: str, docname: str) -> str:
+    host = ""
+    if getattr(frappe.local, "request", None) and hasattr(frappe.local.request, "host"):
+        host = f"{frappe.local.request.scheme}://{frappe.local.request.host}"
+    if not host:
+        host = frappe.utils.get_url()
+    return f"{host}/desk/{doctype.lower().replace(' ', '-')}/{docname}"
+
 """
 AP Automation Production Notification Engine (PRD Section 6 & 8)
 Enforces:
@@ -193,7 +201,7 @@ def _send_email_and_desk_alert(
                 "message": message_html,
                 "reference_doctype": reference_doctype,
                 "reference_name": reference_name,
-                "now": False
+                "now": True
             }
             if valid_cc:
                 email_kwargs["cc"] = valid_cc
@@ -241,7 +249,7 @@ def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> N
     company = getattr(doc, "company", "Company")
     custodian = getattr(doc, "custodian", "Reception Staff")
     amount = float(getattr(doc, "total_amount", 0.0) or getattr(doc, "net_payable_amount", 0.0) or 0.0)
-    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
 
     l1_users = _get_matrix_or_role_approvers(
         company=company,
@@ -296,7 +304,7 @@ def notify_admin_l2_on_l1_approved(voucher_doctype: str, voucher_name: str) -> N
     doc = frappe.get_doc(voucher_doctype, voucher_name)
     company = getattr(doc, "company", "Company")
     amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
-    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
 
     l2_users = _get_matrix_or_role_approvers(
         company=company,
@@ -351,7 +359,7 @@ def notify_admin_on_l2_approved(voucher_doctype: str, voucher_name: str) -> None
     doc = frappe.get_doc(voucher_doctype, voucher_name)
     company = getattr(doc, "company", "Company")
     amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
-    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
 
     accounts_users = _get_matrix_or_role_approvers(
         company=company,
@@ -405,7 +413,7 @@ def notify_director_on_l1_audit_completed(voucher_doctype: str, voucher_name: st
     doc = frappe.get_doc(voucher_doctype, voucher_name)
     company = getattr(doc, "company", "Company")
     amount = float(getattr(doc, "total_amount", 0.0) or getattr(doc, "net_payable_amount", 0.0) or 0.0)
-    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
 
     director_users = _get_matrix_or_role_approvers(
         company=company,
@@ -465,7 +473,7 @@ def notify_reception_on_admin_return(
     company = getattr(doc, "company", "Company")
     amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
     custodian = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
-    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
 
     recipients = [custodian] if custodian else []
     cc_users = _get_claim_rolling_cc(doc, exclude_users=recipients)
@@ -517,7 +525,7 @@ def notify_on_director_rejection(
     doc = frappe.get_doc(voucher_doctype, voucher_name)
     company = getattr(doc, "company", "Company")
     amount = float(getattr(doc, "total_amount", 0.0) or getattr(doc, "net_payable_amount", 0.0) or 0.0)
-    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
 
     accounts_users = _get_matrix_or_role_approvers(
         company=company,
@@ -884,7 +892,7 @@ def notify_admin_l1_on_l2_return(voucher_doctype: str, voucher_name: str, reason
         l1_user = [l1_user]
 
     cc_users = _get_claim_rolling_cc(doc, exclude_users=l1_user)
-    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
 
     subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Returned to L1 by Admin Head"
     html = f"""
@@ -934,7 +942,7 @@ def notify_admin_l2_on_direct_resubmit(voucher_doctype: str, voucher_name: str) 
         l2_users = [l2_users]
 
     cc_users = _get_claim_rolling_cc(doc, exclude_users=l2_users)
-    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
 
     subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Resubmitted by Reception for Head Sign-off"
     html = f"""
@@ -980,7 +988,7 @@ def notify_accounts_l1_sla_reminder(voucher_doctype: str, voucher_name: str) -> 
 
     l1_auditors = _get_matrix_or_role_approvers(company, voucher_doctype, 3, ["Accounts L1 Auditor"])
     cc_users = _get_claim_rolling_cc(doc, exclude_users=l1_auditors)
-    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
 
     subject = f"[AP-PettyCash] [SLA Reminder] [Action Required] [Voucher #{voucher_name}] {company} (₹ {fmt_money(amount)}) - Accounts L1 Audit Pending > 24 Hours"
     html = f"""
@@ -1037,7 +1045,7 @@ def notify_accounts_director_sla_escalation(voucher_doctype: str, voucher_name: 
         if auditor not in directors and auditor not in cc_users:
             cc_users.append(auditor)
 
-    doc_url = get_url_to_form(voucher_doctype, voucher_name)
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
 
     subject = f"[AP-PettyCash] [🚨 SLA Escalation] [Voucher #{voucher_name}] {company} (₹ {fmt_money(amount)}) - Accounts L1 Review Overdue (> 24 Hours)"
     html = f"""
