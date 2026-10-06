@@ -235,7 +235,7 @@ def approve_admin_l2(voucher_name: str, comments: Optional[str] = None) -> Dict[
 
     # Trigger Notification to Accounts Team
     try:
-        notification_service.notify_l1_on_voucher_submitted(doc.doctype, doc.name)
+        notification_service.notify_admin_on_l2_approved(doc.doctype, doc.name)
     except Exception as e:
         frappe.log_error(f"Failed to send Accounts L1 notification for {voucher_name}: {str(e)}")
 
@@ -408,7 +408,7 @@ def submit_to_accounts_direct(voucher_name: str, comments: Optional[str] = None)
 
     # Trigger Notification to Accounts Team
     try:
-        notification_service.notify_l1_on_voucher_submitted(doc.doctype, doc.name)
+        notification_service.notify_admin_on_l2_approved(doc.doctype, doc.name)
     except Exception as e:
         frappe.log_error(f"Failed to send Accounts L1 notification for {voucher_name}: {str(e)}")
 

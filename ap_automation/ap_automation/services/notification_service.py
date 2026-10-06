@@ -63,10 +63,12 @@ def _get_matrix_or_role_approvers(
     company: str,
     document_lane: str,
     level_number: int,
-    fallback_roles: List[str]
+    fallback_roles: List[str],
+    stage_keyword: Optional[str] = None
 ) -> List[str]:
     """
-    Fetches designated approvers dynamically with O(1) dictionary indexing.
+    Fetches designated approvers dynamically from AP Approval Matrix with fallback to Role.
+    Supports both level_number and semantic stage keyword matching (e.g. 'Admin L1', 'Admin L2', 'Accounts', 'Director').
     """
     recipients = []
 
@@ -85,9 +87,20 @@ def _get_matrix_or_role_approvers(
 
     if matrix_name:
         matrix = frappe.get_doc("AP Approval Matrix", matrix_name)
-        for lvl in matrix.approval_levels:
-            if lvl.level_number == level_number and lvl.designated_approver:
-                recipients.append(lvl.designated_approver)
+        
+        # Try matching by semantic stage keyword first
+        if stage_keyword:
+            kw = stage_keyword.lower()
+            for lvl in matrix.approval_levels:
+                title = (lvl.level_title or "").lower()
+                if kw in title and lvl.designated_approver:
+                    recipients.append(lvl.designated_approver)
+        
+        # Try matching by level_number if not found
+        if not recipients:
+            for lvl in matrix.approval_levels:
+                if lvl.level_number == level_number and lvl.designated_approver:
+                    recipients.append(lvl.designated_approver)
 
     # 2. Fallback to Role-Based Lookup
     if not recipients and fallback_roles:
@@ -255,7 +268,7 @@ def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> N
         company=company,
         document_lane=voucher_doctype,
         level_number=1,
-        fallback_roles=["Admin L1 Approver"]
+        fallback_roles=["Admin L1 Approver"], stage_keyword="Admin L1"
     )
 
     cc_users = [custodian, getattr(doc, "owner", None)]
@@ -310,7 +323,7 @@ def notify_admin_l2_on_l1_approved(voucher_doctype: str, voucher_name: str) -> N
         company=company,
         document_lane=voucher_doctype,
         level_number=2,
-        fallback_roles=["Admin L2 Approver"]
+        fallback_roles=["Admin L2 Approver"], stage_keyword="Admin L2"
     )
 
     cc_users = _get_claim_rolling_cc(doc, exclude_users=l2_users)
@@ -365,7 +378,7 @@ def notify_admin_on_l2_approved(voucher_doctype: str, voucher_name: str) -> None
         company=company,
         document_lane=voucher_doctype,
         level_number=1,
-        fallback_roles=["Accounts L1 Auditor"]
+        fallback_roles=["Accounts L1 Auditor"], stage_keyword="Accounts"
     )
 
     cc_users = _get_claim_rolling_cc(doc, exclude_users=accounts_users)
@@ -419,7 +432,7 @@ def notify_director_on_l1_audit_completed(voucher_doctype: str, voucher_name: st
         company=company,
         document_lane=voucher_doctype,
         level_number=2,
-        fallback_roles=["Accounts Director"]
+        fallback_roles=["Accounts Director"], stage_keyword="Director"
     )
 
     cc_users = _get_claim_rolling_cc(doc, exclude_users=director_users)
@@ -531,7 +544,7 @@ def notify_on_director_rejection(
         company=company,
         document_lane=voucher_doctype,
         level_number=1,
-        fallback_roles=["Accounts L1 Auditor"]
+        fallback_roles=["Accounts L1 Auditor"], stage_keyword="Accounts"
     )
 
     cc_users = _get_claim_rolling_cc(doc, exclude_users=accounts_users)
