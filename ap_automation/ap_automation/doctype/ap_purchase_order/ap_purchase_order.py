@@ -34,8 +34,8 @@ class APPurchaseOrder(Document):
 
     def fetch_entity_master_data(self):
         """Populates company entity details and registered address."""
-        if not self.company_entity:
-            self.company_entity = "Aionion Capital Management"
+        if not getattr(self, "company_entity", None):
+            self.company_entity = "Aionion Capital Market Services Private Limited"
 
         comp = frappe.db.get_value(
             "Company",
@@ -44,43 +44,45 @@ class APPurchaseOrder(Document):
             as_dict=True
         )
         if comp:
-            self.company_gstin = comp.get("tax_id") or "27AAACA1234A1Z5"
-            self.company_cin = comp.get("registration_details") or "U74999MH2020PTC123456"
-            self.company_contact_email = comp.get("email") or "finance@aionion.com"
-            self.company_contact_phone = comp.get("phone_no") or "+91 22 6900 1000"
-            if not self.company_registered_address:
+            self.company_gstin = comp.get("tax_id") or getattr(self, "company_gstin", "27AAACA1234A1Z5")
+            self.company_cin = comp.get("registration_details") or getattr(self, "company_cin", "U74999MH2020PTC123456")
+            self.company_contact_email = comp.get("email") or getattr(self, "company_contact_email", "finance@aionion.com")
+            self.company_contact_phone = comp.get("phone_no") or getattr(self, "company_contact_phone", "+91 22 6900 1000")
+            if not getattr(self, "company_registered_address", None):
                 self.company_registered_address = (
-                    "Aionion Capital Management Pvt Ltd\n"
+                    "Aionion Capital Market Services Private Limited\n"
                     "Level 8, Tower B, Peninsula Business Park, Lower Parel, Mumbai, Maharashtra 400013"
                 )
 
     def fetch_vendor_master_data(self):
         """Fetches registered supplier details from ERPNext Supplier master."""
-        if not self.vendor:
+        vendor_id = getattr(self, "vendor", None)
+        if not vendor_id:
             return
 
         supp = frappe.db.get_value(
             "Supplier",
-            self.vendor,
+            vendor_id,
             ["supplier_name", "tax_id", "country", "mobile_no", "email_id"],
             as_dict=True
         )
         if supp:
             self.vendor_name = supp.supplier_name
             self.vendor_gstin = supp.tax_id or getattr(self, "vendor_gstin", "")
-            if not self.vendor_email:
+            if not getattr(self, "vendor_email", None):
                 self.vendor_email = supp.email_id or ""
-            if not self.vendor_mobile:
+            if not getattr(self, "vendor_mobile", None):
                 self.vendor_mobile = supp.mobile_no or ""
 
     def fetch_spoc_details(self):
         """Pulls SPOC details if user link is provided."""
-        if self.spoc_user and (not self.spoc_name or not self.spoc_email):
-            usr = frappe.db.get_value("User", self.spoc_user, ["full_name", "email", "mobile_no"], as_dict=True)
+        spoc_user = getattr(self, "spoc_user", None)
+        if spoc_user and (not getattr(self, "spoc_name", None) or not getattr(self, "spoc_email", None)):
+            usr = frappe.db.get_value("User", spoc_user, ["full_name", "email", "mobile_no"], as_dict=True)
             if usr:
                 self.spoc_name = usr.full_name
                 self.spoc_email = usr.email
-                if not self.spoc_mobile and usr.mobile_no:
+                if not getattr(self, "spoc_mobile", None) and usr.mobile_no:
                     self.spoc_mobile = usr.mobile_no
 
     def calculate_line_items_and_taxes(self):
@@ -89,8 +91,8 @@ class APPurchaseOrder(Document):
         total_gst = 0.0
 
         # Determine Intra-State vs Inter-State based on GSTIN State codes (first 2 digits)
-        comp_state = (self.company_gstin or "")[:2].strip()
-        vendor_state = (self.vendor_gstin or "")[:2].strip()
+        comp_state = (getattr(self, "company_gstin", "") or "")[:2].strip()
+        vendor_state = (getattr(self, "vendor_gstin", "") or "")[:2].strip()
 
         is_intra_state = False
         if comp_state and vendor_state and comp_state == vendor_state:
@@ -104,12 +106,12 @@ class APPurchaseOrder(Document):
             self.gst_type = "Intra-State (Default CGST + SGST)"
 
         for item in self.get("items", []):
-            qty = flt(item.qty) or 1.0
-            rate = flt(item.rate) or 0.0
-            discount = flt(item.discount_amount) or 0.0
+            qty = flt(getattr(item, "qty", 1.0)) or 1.0
+            rate = flt(getattr(item, "rate", 0.0)) or 0.0
+            discount = flt(getattr(item, "discount_amount", 0.0)) or 0.0
             taxable = round(max((qty * rate) - discount, 0.0), 2)
 
-            gst_rate_str = item.gst_rate or "18%"
+            gst_rate_str = getattr(item, "gst_rate", "18%") or "18%"
             gst_pct = flt(gst_rate_str.replace("%", "").strip() or 18.0)
             gst_val = round(taxable * (gst_pct / 100.0), 2)
 
@@ -145,29 +147,30 @@ class APPurchaseOrder(Document):
 
     def ensure_default_terms(self):
         """Injects default terms & conditions if empty."""
-        if not self.terms_and_conditions:
+        if not getattr(self, "terms_and_conditions", None):
             self.terms_and_conditions = DEFAULT_PO_TERMS
 
     def generate_signatory_hash(self):
         """Generates digital hash verifying the authorised signatory and PO contents."""
-        if not self.date_of_issue:
+        if not getattr(self, "date_of_issue", None):
             self.date_of_issue = nowdate()
 
-        raw = f"PO|{self.name or 'DRAFT'}|{self.company_entity}|{self.vendor}|{self.grand_total:.2f}|{self.date_of_issue}|{self.signatory_name}"
+        sign_name = getattr(self, "signatory_name", "Anshul Gupta") or "Anshul Gupta"
+        raw = f"PO|{self.name or 'DRAFT'}|{self.company_entity}|{getattr(self, 'vendor', '')}|{flt(self.grand_total):.2f}|{self.date_of_issue}|{sign_name}"
         self.signatory_signature_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def ensure_vendor_esign_token(self):
         """Generates secure token and public signing URL for vendor."""
-        if not self.vendor_sign_token:
+        if not getattr(self, "vendor_sign_token", None):
             self.vendor_sign_token = secrets.token_urlsafe(32)
         
         base_url = get_url()
-        self.vendor_sign_url = f"{base_url}/po-sign?token={self.vendor_sign_token}&po={self.name}"
+        self.vendor_sign_url = f"{base_url}/po-sign?token={self.vendor_sign_token}&po={self.name or 'DRAFT'}"
 
     @frappe.whitelist()
     def send_po_to_vendor_for_esign(self):
         """Sends the generated PO and E-Sign token link to the vendor via email."""
-        if not self.vendor_email:
+        if not getattr(self, "vendor_email", None):
             frappe.throw("Vendor Email is required to send Purchase Order for digital signature.")
 
         self.vendor_sign_status = "Sent to Vendor"
@@ -175,17 +178,17 @@ class APPurchaseOrder(Document):
 
         subject = f"Purchase Order #{self.name} from {self.company_entity} - Signature Requested"
         message = f"""
-        <p>Dear {self.vendor_contact_person or self.vendor_name},</p>
+        <p>Dear {getattr(self, 'vendor_contact_person', None) or self.vendor_name},</p>
         <p>Please find enclosed Purchase Order <strong>#{self.name}</strong> for <strong>₹{self.grand_total:,.2f}</strong> issued by <strong>{self.company_entity}</strong>.</p>
         <p><strong>Department SPOC:</strong> {self.spoc_name} ({self.spoc_email})</p>
         <p>Please review the details and sign digitally using the secure link below:</p>
         <p><a href="{self.vendor_sign_url}" style="background-color: #1B365D; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">Review & Sign Purchase Order →</a></p>
-        <p>Regards,<br>{self.signatory_name}<br>{self.signatory_designation}<br>{self.company_entity}</p>
+        <p>Regards,<br>{getattr(self, 'signatory_name', 'Anshul Gupta')}<br>{getattr(self, 'signatory_designation', 'Director')}<br>{self.company_entity}</p>
         """
 
         frappe.sendmail(
             recipients=[self.vendor_email],
-            cc=[self.spoc_email] if self.spoc_email else [],
+            cc=[self.spoc_email] if getattr(self, "spoc_email", None) else [],
             subject=subject,
             message=message
         )
