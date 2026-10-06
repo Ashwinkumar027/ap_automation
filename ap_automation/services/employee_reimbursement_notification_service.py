@@ -15,6 +15,8 @@ Enforces:
 """
 
 from typing import Dict, Any, List, Optional
+import re
+import hashlib
 import frappe
 from frappe.utils import get_url_to_form, fmt_money, cstr, flt
 
@@ -156,10 +158,11 @@ def _dispatch_reimbursement_email(
     reference_doctype: str,
     reference_name: str,
     cc: Optional[List[str]] = None,
-    alert_color: str = "blue"
+    alert_color: str = "blue",
+    is_thread_reply: bool = True
 ) -> None:
     """
-    Dispatches asynchronous email with RFC 5322 threading and real-time Desk popups.
+    Dispatches asynchronous email with RFC 5322 continuous single-threading and real-time Desk popups.
     """
     clean_recipients = list(dict.fromkeys([_resolve_email_address(r) for r in recipients if _resolve_email_address(r)]))
     if not clean_recipients:
@@ -167,23 +170,31 @@ def _dispatch_reimbursement_email(
 
     clean_cc = list(dict.fromkeys([_resolve_email_address(c) for c in (cc or []) if _resolve_email_address(c) and c not in clean_recipients]))
 
-    # Threading identifier
-    thread_msg_id = f"<{reference_doctype.lower().replace(' ', '-')}-{reference_name}@ap-automation.quanti.com>"
+    # Deterministic Thread Message-ID Root for continuous Gmail/Outlook conversation grouping
+    clean_dt = re.sub(r'[^a-zA-Z0-9]', '', reference_doctype)
+    clean_name = re.sub(r'[^a-zA-Z0-9]', '', reference_name)
+    thread_msg_id = f"<{clean_dt}-{clean_name}-thread@quanticus.com>"
 
     # 1. Email Dispatch
     try:
-        frappe.sendmail(
-            recipients=clean_recipients,
-            cc=clean_cc,
-            subject=subject,
-            message=html_body,
-            reference_doctype=reference_doctype,
-            reference_name=reference_name,
-            header=["AP Automation", alert_color],
-            in_reply_to=thread_msg_id,
-            email_headers={"References": thread_msg_id},
-            now=True
-        )
+        email_kwargs = {
+            "recipients": clean_recipients,
+            "cc": clean_cc,
+            "subject": subject,
+            "message": html_body,
+            "reference_doctype": reference_doctype,
+            "reference_name": reference_name,
+            "header": ["AP Automation", alert_color],
+            "now": True
+        }
+        if is_thread_reply:
+            email_kwargs["in_reply_to"] = thread_msg_id
+            email_kwargs["email_headers"] = {"References": thread_msg_id}
+        else:
+            email_kwargs["message_id"] = thread_msg_id
+
+        frappe.sendmail(**email_kwargs)
+        frappe.db.commit()
     except Exception as e:
         frappe.log_error(f"Failed to dispatch reimbursement email for {reference_name}: {str(e)}", "AP Email Error")
 
@@ -399,7 +410,7 @@ def notify_manager_on_claim_submitted(docname: str) -> None:
     doc_url = _get_form_url("Employee Reimbursement Claim", docname)
     cat = doc.claim_category or doc.expense_type or "General Expense"
     amount = flt(doc.total_claim_amount)
-    subject = f"📋 [Action Required] Expense Claim #{doc.name} from {doc.employee_name} (₹ {_safe_fmt_money(amount)})"
+    subject = f"[Claim #{doc.name}] {doc.employee_name} - {cat} (₹ {_safe_fmt_money(amount)}) - Submitted for Review"
     body = _build_html_template(
         title="New Expense Claim Submitted",
         subtitle=f"Stage 1 &bull; {cat}",
@@ -416,7 +427,7 @@ def notify_manager_on_claim_submitted(docname: str) -> None:
         button_text="Review & Approve Claim",
         badge_color="#2563eb"
     )
-    _dispatch_reimbursement_email([mgr_email], subject, body, "Employee Reimbursement Claim", docname)
+    _dispatch_reimbursement_email([mgr_email], subject, body, "Employee Reimbursement Claim", docname, is_thread_reply=False)
 
 
 def notify_receptionist_on_manager_approved(docname: str) -> None:
@@ -426,7 +437,7 @@ def notify_receptionist_on_manager_approved(docname: str) -> None:
 
     doc_url = _get_form_url("Employee Reimbursement Claim", docname)
     amount = flt(doc.total_claim_amount)
-    subject = f"🏢 [Action Required] Claim #{doc.name} ready for Receipt Verification (₹ {_safe_fmt_money(amount)})"
+    subject = f"Re: [Claim #{doc.name}] {doc.employee_name} - {doc.claim_category or 'Expense'} (₹ {_safe_fmt_money(amount)}) - Manager Approved"
     body = _build_html_template(
         title="Receipt Verification Required",
         subtitle="Stage 2 &bull; Receptionist / Petty Cash Flow",
@@ -453,7 +464,7 @@ def notify_admin_l1_on_reception_verified(docname: str) -> None:
 
     doc_url = _get_form_url("Employee Reimbursement Claim", docname)
     amount = flt(doc.total_claim_amount)
-    subject = f"🛡️ [Action Required] Admin L1 Review for Claim #{doc.name} (₹ {_safe_fmt_money(amount)})"
+    subject = f"Re: [Claim #{doc.name}] {doc.employee_name} - {doc.claim_category or 'Expense'} (₹ {_safe_fmt_money(amount)}) - Reception Verified"
     body = _build_html_template(
         title="Admin L1 Operational Review",
         subtitle="Stage 3 &bull; Admin L1 Approval",
@@ -480,7 +491,7 @@ def notify_admin_l2_on_admin_l1_approved(docname: str) -> None:
 
     doc_url = _get_form_url("Employee Reimbursement Claim", docname)
     amount = flt(doc.total_claim_amount)
-    subject = f"🌟 [Action Required] Admin L2 Sign-Off: Claim #{doc.name} (₹ {_safe_fmt_money(amount)})"
+    subject = f"Re: [Claim #{doc.name}] {doc.employee_name} - {doc.claim_category or 'Expense'} (₹ {_safe_fmt_money(amount)}) - Admin L1 Approved"
     body = _build_html_template(
         title="Admin L2 Department Sign-Off",
         subtitle="Stage 4 &bull; Admin L2 Head Clearance",
@@ -507,7 +518,7 @@ def notify_accounts_l1_on_admin_l2_approved(docname: str) -> None:
 
     doc_url = _get_form_url("Employee Reimbursement Claim", docname)
     amount = flt(doc.total_claim_amount)
-    subject = f"📊 [Action Required] Accounts L1 Tax Audit: Claim #{doc.name} (₹ {_safe_fmt_money(amount)})"
+    subject = f"Re: [Claim #{doc.name}] {doc.employee_name} - {doc.claim_category or 'Expense'} (₹ {_safe_fmt_money(amount)}) - Admin L2 Cleared"
     body = _build_html_template(
         title="Accounts L1 Line-Item & Tax Audit",
         subtitle="Stage 5 &bull; Accounts Audit Tier",
@@ -534,7 +545,7 @@ def notify_accounts_l2_on_accounts_l1_audited(docname: str) -> None:
 
     doc_url = _get_form_url("Employee Reimbursement Claim", docname)
     sanctioned = flt(doc.sanctioned_amount or doc.total_claim_amount)
-    subject = f"💰 [Action Required] Accounts L2 Final Sanction: Claim #{doc.name} (₹ {_safe_fmt_money(sanctioned)})"
+    subject = f"Re: [Claim #{doc.name}] {doc.employee_name} - {doc.claim_category or 'Expense'} (₹ {_safe_fmt_money(sanctioned)}) - Accounts L1 Audited"
     body = _build_html_template(
         title="Final Financial Sanction Required",
         subtitle="Stage 6 &bull; Accounts L2 Sanction",
@@ -561,7 +572,7 @@ def notify_releaser_on_accounts_l2_sanctioned(docname: str) -> None:
 
     doc_url = _get_form_url("Employee Reimbursement Claim", docname)
     sanctioned = flt(doc.sanctioned_amount or doc.total_claim_amount)
-    subject = f"💵 [Action Required] Ready for Payment Release: Claim #{doc.name} (₹ {_safe_fmt_money(sanctioned)})"
+    subject = f"Re: [Claim #{doc.name}] {doc.employee_name} - {doc.claim_category or 'Expense'} (₹ {_safe_fmt_money(sanctioned)}) - Ready for Payment"
     body = _build_html_template(
         title="Payment Release Ready",
         subtitle="Stage 7 &bull; Treasury & Disbursal",
@@ -592,7 +603,7 @@ def notify_employee_on_payment_released(docname: str, payment_reference: str) ->
     doc_url = _get_form_url("Employee Reimbursement Claim", docname)
     amount = flt(doc.sanctioned_amount or doc.total_claim_amount)
 
-    subject = f"🎉 Payment Disbursed: Expense Claim #{doc.name} (₹ {_safe_fmt_money(amount)})"
+    subject = f"Re: [Claim #{doc.name}] {doc.employee_name} - {doc.claim_category or 'Expense'} (₹ {_safe_fmt_money(amount)}) - 🎉 Payment Disbursed"
     body = _build_html_template(
         title="Payment Successfully Released!",
         subtitle="Disbursal Completed &bull; Reimbursement Settled",
@@ -625,7 +636,7 @@ def notify_employee_on_claim_returned(docname: str, approver_role: str, reason: 
 
     doc_url = _get_form_url("Employee Reimbursement Claim", docname)
     amount = flt(doc.total_claim_amount)
-    subject = f"⚠️ [Action Required] Claim #{doc.name} Returned by {approver_role} (₹ {_safe_fmt_money(amount)})"
+    subject = f"Re: [Claim #{doc.name}] {doc.employee_name} - {doc.claim_category or 'Expense'} (₹ {_safe_fmt_money(amount)}) - ⚠️ Returned by {approver_role}"
     body = _build_html_template(
         title="Claim Returned for Correction",
         subtitle=f"Action Required &bull; Returned by {approver_role}",
@@ -747,7 +758,7 @@ def notify_manager_on_cost_increased_resubmitted(docname: str, old_amount: float
         button_text="Review & Approve Updated Claim",
         badge_color="#2563eb"
     )
-    _dispatch_reimbursement_email([mgr_email], subject, body, "Employee Reimbursement Claim", docname)
+    _dispatch_reimbursement_email([mgr_email], subject, body, "Employee Reimbursement Claim", docname, is_thread_reply=False)
 
 
 # ==============================================================================
