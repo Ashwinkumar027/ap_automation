@@ -67,6 +67,7 @@ def submit_to_admin_l1(voucher_name: str) -> Dict[str, Any]:
         "remarks": "Petty Cash envelope submitted for Admin L1 operational review."
     })
 
+    doc.flags.ignore_validate_immutability = True
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
@@ -120,6 +121,7 @@ def approve_admin_l1(voucher_name: str, comments: Optional[str] = None) -> Dict[
         "remarks": comments or "Admin L1 review passed. Forwarded to Admin Department Head."
     })
 
+    doc.flags.ignore_validate_immutability = True
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
@@ -172,6 +174,7 @@ def return_admin_l1(voucher_name: str, reason: str) -> Dict[str, Any]:
         "remarks": f"Returned by Admin L1: {reason.strip()}"
     })
 
+    doc.flags.ignore_validate_immutability = True
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
@@ -226,6 +229,7 @@ def approve_admin_l2(voucher_name: str, comments: Optional[str] = None) -> Dict[
         "remarks": comments or "Admin Department Head sign-off complete. Dispatched to Accounts L1 Audit."
     })
 
+    doc.flags.ignore_validate_immutability = True
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
@@ -281,6 +285,7 @@ def return_admin_l2(voucher_name: str, reason: str, return_to: str = "Reception"
         "remarks": f"Returned by Admin Head to {destination_label}: {reason.strip()}"
     })
 
+    doc.flags.ignore_validate_immutability = True
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
@@ -332,6 +337,7 @@ def resubmit_to_admin_l2_direct(voucher_name: str) -> Dict[str, Any]:
         "remarks": "Corrected by Reception and resubmitted directly to Admin Head (L1 review skipped)."
     })
 
+    doc.flags.ignore_validate_immutability = True
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
@@ -396,6 +402,7 @@ def submit_to_accounts_direct(voucher_name: str, comments: Optional[str] = None)
         "remarks": comments or "Created/Signed off directly by Admin Department Head. Dispatched straight to Accounts Audit (L1 review skipped)."
     })
 
+    doc.flags.ignore_validate_immutability = True
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 

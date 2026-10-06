@@ -7,7 +7,9 @@ Enforces:
 4. Anti-brute-force rate limiting: Maximum 3 failed attempts before OTP invalidation.
 5. Constant-time digest comparison (hmac.compare_digest) to prevent timing attacks.
 6. Atomic batch dispatch to IDFC Bank upon authentication.
-7. Automated Post-Disbursement Email Remittance Advice with Bank UTR.
+7. Auto-updates source vouchers (Petty Cash, Vendor, Reimb, Event) to 'Paid' / 'Disbursed'.
+8. Auto-generates synchronized Tally Voucher Log for 1-click accounting sync.
+9. Automated Post-Disbursement Email Remittance Advice with Bank UTR.
 """
 from typing import Dict, Any, Optional
 import secrets
@@ -77,6 +79,7 @@ def verify_otp_and_authorize_release(
 ) -> Dict[str, Any]:
     """
     Verifies 2FA OTP and releases Payment Batch to IDFC Bank.
+    Updates all source claims to Paid and prepares Tally Log.
     """
     roles = frappe.get_roles(user)
     if "Payment Releaser" not in roles and "System Manager" not in roles:
@@ -118,6 +121,7 @@ def verify_otp_and_authorize_release(
     # Execute Batch Release
     batch = frappe.get_doc("Payment Batch", batch_id)
     host_ref = f"IDFC-HOST-{frappe.generate_hash(length=8).upper()}"
+    utr_str = f"UTR-{host_ref}"
 
     frappe.db.set_value("Payment Batch", batch_id, {
         "status": "Dispatched to Bank",
@@ -140,7 +144,7 @@ def verify_otp_and_authorize_release(
             SET status = 'Disbursed via IDFC', idfc_utr = %s, modified = %s
             WHERE name IN %s
             """,
-            (f"UTR-{host_ref}", frappe.utils.now(), tuple(pi_names))
+            (utr_str, frappe.utils.now(), tuple(pi_names))
         )
         frappe.db.sql(
             """
@@ -148,8 +152,48 @@ def verify_otp_and_authorize_release(
             SET utr = %s
             WHERE parent = %s
             """,
-            (f"UTR-{host_ref}", batch_id)
+            (utr_str, batch_id)
         )
+
+        # ------------------------------------------------------------------------------
+        # AUTO-TRANSITION SOURCE CLAIMS (Petty Cash -> Paid, Vendor -> Disbursed, etc.)
+        # ------------------------------------------------------------------------------
+        pi_records = frappe.get_all(
+            "Payment Instruction",
+            filters={"name": ("in", pi_names)},
+            fields=["source_doctype", "source_voucher"]
+        )
+        for pi_doc in pi_records:
+            s_dt = pi_doc.source_doctype
+            s_v = pi_doc.source_voucher
+            if s_dt and s_v and frappe.db.exists(s_dt, s_v):
+                if s_dt == "Petty Cash Entry":
+                    frappe.db.set_value(s_dt, s_v, {
+                        "status": "Paid",
+                        "batch_id": batch_id
+                    })
+                elif s_dt == "Vendor Invoice Claim":
+                    frappe.db.set_value(s_dt, s_v, {
+                        "status": "Disbursed via IDFC",
+                        "payment_batch_id": batch_id
+                    })
+                elif s_dt == "Employee Reimbursement Claim":
+                    frappe.db.set_value(s_dt, s_v, {
+                        "status": "Paid",
+                        "payment_batch": batch_id
+                    })
+                elif s_dt == "Event Advance Request":
+                    frappe.db.set_value(s_dt, s_v, {
+                        "status": "Disbursed",
+                        "batch_id": batch_id
+                    })
+
+    # Auto-generate synchronized Tally Voucher Log
+    try:
+        from ap_automation.services import tally_service
+        tally_service.generate_tally_voucher_for_batch(batch_id)
+    except Exception as e:
+        frappe.log_error(f"Failed to auto-generate Tally log for {batch_id}: {str(e)}")
 
     frappe.db.commit()
 
@@ -164,6 +208,7 @@ def verify_otp_and_authorize_release(
         "batch_id": batch_id,
         "batch_status": "Dispatched to Bank",
         "idfc_batch_ref": host_ref,
+        "bank_utr": utr_str,
         "released_by": user,
         "instructions_disbursed": len(pi_names)
     }

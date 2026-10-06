@@ -23,16 +23,20 @@ app_include_js = [
 
 doctype_js = {
     "AP IDFC Settings": "public/js/ap_idfc_settings.js",
-    "Employee Reimbursement Claim": "public/js/employee_reimbursement_claim.js"
+    "Employee Reimbursement Claim": "public/js/employee_reimbursement_claim.js",
+    "Weekly Accounts Audit Batch": "public/js/weekly_accounts_audit_batch.js"
 }
 
 # --------------------------------------------------------------------------------------
-# SCHEDULED CRON JOBS (Tuesday 10:00 AM Turnaround Approval Reminders)
+# SCHEDULED CRON JOBS (Tuesday 10:00 AM Reminders & Friday 12:00 PM Weekly Accounts Batch)
 # --------------------------------------------------------------------------------------
 scheduler_events = {
     "cron": {
         "0 10 * * 2": [
             "ap_automation.services.notification_service.send_pending_petty_cash_reminders"
+        ],
+        "0 12 * * 5": [
+            "ap_automation.services.weekly_accounts_batch_service.generate_all_weekly_accounts_batches"
         ]
     },
     "weekly": [

@@ -465,50 +465,48 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     },
 
     setup_receipt_gallery_and_tools: function(frm) {
-        frm.add_custom_button(__('👁️ View All Bill Proofs'), function() {
-            const proofs = [];
-            (frm.doc.expense_lines || []).forEach(r => {
-                if (r.receipt_attachment) {
-                    proofs.push({ name: r.merchant_name || 'Bill Proof', url: r.receipt_attachment, amt: r.amount });
+        if (frm.is_new()) return;
+
+        // Calculate total proofs attached
+        const proofs = [];
+        (frm.doc.expense_lines || []).forEach(r => {
+            if (r.receipt_attachment) proofs.push(r.receipt_attachment);
+        });
+        (frm.doc.client_visit_legs || []).forEach(leg => {
+            if (leg.receipt_attachment) proofs.push(leg.receipt_attachment);
+        });
+        if (frm.doc.activity_photo) proofs.push(frm.doc.activity_photo);
+        if (frm.doc.pre_approval_attachment) proofs.push(frm.doc.pre_approval_attachment);
+
+        const proof_count = proofs.length;
+
+        // 1. Primary Top-Level Custom Button for Instant Access
+        if (proof_count > 0) {
+            frm.add_custom_button(__(`👁️ View Receipts (${proof_count})`), function() {
+                if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.open === 'function') {
+                    window.APReceiptGallery.open(frm);
+                } else if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.show === 'function') {
+                    window.APReceiptGallery.show(frm, { active_index: 0 });
                 }
             });
-            (frm.doc.client_visit_legs || []).forEach(leg => {
-                if (leg.receipt_attachment) {
-                    proofs.push({ name: `${leg.client_name || 'Visit'} - ${leg.mode_of_travel || 'Travel'}`, url: leg.receipt_attachment, amt: leg.leg_amount });
-                }
+
+            frm.add_custom_button(__('📦 Download ZIP'), function() {
+                const url = `/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
+                window.open(url, '_blank');
             });
-            if (frm.doc.activity_photo) {
-                proofs.push({ name: '📸 Team Activity Photo Proof', url: frm.doc.activity_photo, amt: frm.doc.total_claim_amount });
+        }
+
+        // 2. Tools Menu Items
+        frm.add_custom_button(__('👁️ Proof & Receipt Gallery'), function() {
+            if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.open === 'function') {
+                window.APReceiptGallery.open(frm);
+            } else if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.show === 'function') {
+                window.APReceiptGallery.show(frm, { active_index: 0 });
             }
-
-            if (proofs.length === 0) {
-                frappe.msgprint(__('No bill or event attachments found on this claim.'));
-                return;
-            }
-
-            let html = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; padding: 10px;">`;
-            proofs.forEach(p => {
-                html += `
-                    <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; text-align: center; background: #fafafa;">
-                        <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</div>
-                        <div style="font-size: 12px; color: #2563eb; font-weight: 700; margin-bottom: 8px;">INR ${p.amt || 0.0}</div>
-                        <a href="${p.url}" target="_blank">
-                            <img src="${p.url}" style="max-height: 140px; max-width: 100%; border-radius: 4px; object-fit: contain; border: 1px solid #cbd5e1;" onerror="this.src='/assets/frappe/images/default-avatar.png';"/>
-                        </a>
-                    </div>
-                `;
-            });
-            html += `</div>`;
-
-            const d = new frappe.ui.Dialog({
-                title: __('Attached Expense & Travel Proofs Gallery'),
-                fields: [{ fieldtype: 'HTML', fieldname: 'gallery_html', options: html }]
-            });
-            d.show();
         }, __('Tools ▾'));
 
         frm.add_custom_button(__('📦 Download All Receipts (.ZIP)'), function() {
-            window.open(`/api/method/ap_automation.services.attachment_service.download_voucher_receipts_zip?voucher_type=Employee%20Reimbursement%20Claim&voucher_name=${frm.doc.name}`);
+            window.open(`/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`);
         }, __('Tools ▾'));
 
         frm.add_custom_button(__('📊 Export Tally XML'), function() {

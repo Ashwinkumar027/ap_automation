@@ -1,0 +1,289 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-10-06 14:21:11.788458",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_header",
+  "company",
+  "batch_date",
+  "week_number",
+  "status",
+  "cb_metrics",
+  "total_claims_count",
+  "total_employees_count",
+  "total_claimed_amount",
+  "total_sanctioned_amount",
+  "total_disputed_amount",
+  "sb_workstation",
+  "items_summary_html",
+  "items",
+  "sb_signoffs",
+  "accounts_l1_auditor",
+  "accounts_l1_audit_date",
+  "accounts_l1_remarks",
+  "cb_dir",
+  "accounts_director",
+  "accounts_director_sign_date",
+  "payment_releaser",
+  "payment_reference",
+  "payment_date"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_header",
+   "fieldtype": "Section Break",
+   "label": "Batch Overview"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company Entity",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "batch_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Batch Friday Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "week_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Fiscal Week Label"
+  },
+  {
+   "default": "Pending Accounts L1 Audit",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Batch Status",
+   "options": "Draft\nPending Accounts L1 Audit\nPending Accounts Director\nApproved for Payment\nPaid\nCancelled"
+  },
+  {
+   "fieldname": "cb_metrics",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_claims_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Total Claims Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_employees_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Total Unique Employees",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_claimed_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Claimed (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_sanctioned_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Sanctioned (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_disputed_amount",
+   "fieldtype": "Currency",
+   "label": "Total Disputed (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_workstation",
+   "fieldtype": "Section Break",
+   "label": "Accounts Audit Workstation (Employee-Wise & Line Audit)"
+  },
+  {
+   "fieldname": "items_summary_html",
+   "fieldtype": "HTML",
+   "label": "Employee Breakdown & Category View"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Audited Reimbursement Vouchers",
+   "options": "Weekly Accounts Audit Item"
+  },
+  {
+   "fieldname": "sb_signoffs",
+   "fieldtype": "Section Break",
+   "label": "Audit Sign-Off & Approvals"
+  },
+  {
+   "fieldname": "accounts_l1_auditor",
+   "fieldtype": "Link",
+   "label": "Accounts L1 Auditor",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "accounts_l1_audit_date",
+   "fieldtype": "Datetime",
+   "label": "Accounts L1 Audit Timestamp",
+   "read_only": 1
+  },
+  {
+   "fieldname": "accounts_l1_remarks",
+   "fieldtype": "Small Text",
+   "label": "Accounts L1 Audit Remarks"
+  },
+  {
+   "fieldname": "cb_dir",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "accounts_director",
+   "fieldtype": "Link",
+   "label": "Accounts Director",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "accounts_director_sign_date",
+   "fieldtype": "Datetime",
+   "label": "Director Sign-Off Timestamp",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_releaser",
+   "fieldtype": "Link",
+   "label": "Payment Releaser",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_reference",
+   "fieldtype": "Data",
+   "label": "Disbursal / Bank UTR Reference",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_date",
+   "fieldtype": "Datetime",
+   "label": "Payment Disbursed Date",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-06 14:21:11.788458",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Weekly Accounts Audit Batch",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Director",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Payment Releaser",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Admin L2 Approver",
+   "share": 1
+  },
+  {
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Admin L1 Approver",
+   "share": 1
+  },
+  {
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Receptionist",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

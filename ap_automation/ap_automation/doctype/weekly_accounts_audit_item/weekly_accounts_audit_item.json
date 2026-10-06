@@ -1,0 +1,139 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-10-06 14:20:37.720633",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "voucher_type",
+  "voucher_no",
+  "employee_id",
+  "employee_name",
+  "department",
+  "bank_name",
+  "bank_account_number",
+  "bank_ifsc",
+  "claim_category",
+  "claim_date",
+  "claimed_amount",
+  "sanctioned_amount",
+  "status",
+  "dispute_reason",
+  "receipt_count"
+ ],
+ "fields": [
+  {
+   "default": "Employee Reimbursement Claim",
+   "fieldname": "voucher_type",
+   "fieldtype": "Data",
+   "label": "Voucher Type"
+  },
+  {
+   "columns": 2,
+   "fieldname": "voucher_no",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Voucher #",
+   "options": "Employee Reimbursement Claim",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "employee_id",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Employee ID",
+   "options": "Employee"
+  },
+  {
+   "columns": 2,
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Employee Name"
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Data",
+   "label": "Department"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name"
+  },
+  {
+   "fieldname": "bank_account_number",
+   "fieldtype": "Data",
+   "label": "Bank Account No"
+  },
+  {
+   "fieldname": "bank_ifsc",
+   "fieldtype": "Data",
+   "label": "IFSC Code"
+  },
+  {
+   "columns": 2,
+   "fieldname": "claim_category",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Category"
+  },
+  {
+   "fieldname": "claim_date",
+   "fieldtype": "Date",
+   "label": "Claim Date"
+  },
+  {
+   "columns": 2,
+   "fieldname": "claimed_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Claimed Amount (INR)"
+  },
+  {
+   "columns": 2,
+   "fieldname": "sanctioned_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Sanctioned Amount (INR)"
+  },
+  {
+   "columns": 2,
+   "default": "Pending Audit",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Audit Status",
+   "options": "Pending Audit\nAudited / Approved\nDisputed / Returned"
+  },
+  {
+   "fieldname": "dispute_reason",
+   "fieldtype": "Small Text",
+   "label": "Dispute / Return Reason"
+  },
+  {
+   "default": "1",
+   "fieldname": "receipt_count",
+   "fieldtype": "Int",
+   "label": "Receipts Attached"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-06 14:20:37.720633",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Weekly Accounts Audit Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

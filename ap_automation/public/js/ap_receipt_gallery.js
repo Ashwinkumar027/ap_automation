@@ -1,7 +1,7 @@
 /**
  * AP Automation - Universal Receipt & Audit Gallery Manager
  * Provides bank-grade 2-Column In-Tab Modal Lightbox, Date Badges, and ZIP Packaging
- * Active for ALL records across all AP Claim DocTypes.
+ * Active for ALL records across all AP Claim DocTypes (Petty Cash, Reimbursement Claims, Vendor Invoices, Advances).
  */
 
 window.APReceiptGallery = {
@@ -28,39 +28,95 @@ window.APReceiptGallery = {
 
     extractLocalAttachments: function (frm) {
         const atts = [];
-        const child_tables = ['expense_lines', 'lines', 'items', 'instructions'];
-        
-        child_tables.forEach(table_field => {
+
+        // 1. Expense Lines
+        (frm.doc.expense_lines || []).forEach((row, idx) => {
+            const file_url = row.attach_receipt || row.receipt_attachment || row.attachment || row.tax_invoice_attachment || row.bill_attachment;
+            if (file_url && typeof file_url === 'string' && file_url.trim()) {
+                const clean_url = file_url.trim();
+                const file_name = clean_url.split('/').pop();
+                const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
+                const is_img = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext);
+                const is_pdf = ext === '.pdf';
+
+                atts.push({
+                    source: 'row',
+                    row_idx: row.idx || (idx + 1),
+                    merchant: row.merchant_name || row.merchant || row.vendor_name || 'Expense Merchant',
+                    category: row.expense_category || row.category || row.expense_type || 'General Expense',
+                    amount: parseFloat(row.amount || row.claim_amount || 0.0),
+                    date: row.expense_date || row.date || frm.doc.posting_date || '',
+                    bill_no: row.bill_number || row.bill_no || row.invoice_number || '',
+                    file_url: clean_url,
+                    file_name: file_name,
+                    is_image: is_img,
+                    is_pdf: is_pdf,
+                    extension: ext
+                });
+            }
+        });
+
+        // 2. Client Visit Legs
+        (frm.doc.client_visit_legs || []).forEach((leg, idx) => {
+            const file_url = leg.receipt_attachment || leg.attachment;
+            if (file_url && typeof file_url === 'string' && file_url.trim()) {
+                const clean_url = file_url.trim();
+                const file_name = clean_url.split('/').pop();
+                const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
+                const is_img = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext);
+                const is_pdf = ext === '.pdf';
+
+                const travel_title = leg.client_name ? `${leg.client_name} (${leg.mode_of_travel || 'Travel'})` : 'Client Travel';
+                const route_cat = (leg.from_location && leg.to_location) ? `Route: ${leg.from_location} → ${leg.to_location}` : 'Travel Proof';
+
+                atts.push({
+                    source: 'row',
+                    row_idx: leg.idx || (idx + 1),
+                    merchant: travel_title,
+                    category: route_cat,
+                    amount: parseFloat(leg.leg_amount || 0.0) + parseFloat(leg.toll_parking_amount || 0.0),
+                    date: leg.visit_date || leg.travel_date || frm.doc.posting_date || '',
+                    bill_no: String(leg.idx || idx + 1),
+                    file_url: clean_url,
+                    file_name: file_name,
+                    is_image: is_img,
+                    is_pdf: is_pdf,
+                    extension: ext
+                });
+            }
+        });
+
+        // 3. Generic other child tables (lines, items, instructions)
+        ['lines', 'items', 'instructions'].forEach(table_field => {
             const rows = frm.doc[table_field] || [];
             rows.forEach((row, idx) => {
-                const file_url = row.attach_receipt || row.receipt_attachment || row.attachment || row.tax_invoice_attachment || row.bill_attachment;
+                const file_url = row.attach_receipt || row.receipt_attachment || row.attachment;
                 if (file_url && typeof file_url === 'string' && file_url.trim()) {
                     const clean_url = file_url.trim();
                     const file_name = clean_url.split('/').pop();
                     const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
-                    const is_img = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext);
-                    const is_pdf = ext === '.pdf';
-                    
                     atts.push({
                         source: 'row',
                         row_idx: row.idx || (idx + 1),
-                        merchant: row.merchant_name || row.merchant || row.vendor_name || 'Vendor / Merchant',
-                        category: row.expense_category || row.category || row.expense_type || 'General Expense',
-                        amount: parseFloat(row.amount || row.claim_amount || 0.0),
-                        date: row.expense_date || row.date || frm.doc.posting_date || frm.doc.invoice_date || '',
-                        bill_no: row.bill_number || row.bill_no || row.invoice_number || '',
+                        merchant: row.merchant_name || row.merchant || 'Expense Item',
+                        category: row.category || row.expense_type || 'Expense Line',
+                        amount: parseFloat(row.amount || 0.0),
+                        date: row.expense_date || frm.doc.posting_date || '',
+                        bill_no: row.invoice_number || '',
                         file_url: clean_url,
                         file_name: file_name,
-                        is_image: is_img,
-                        is_pdf: is_pdf,
+                        is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext),
+                        is_pdf: ext === '.pdf',
                         extension: ext
                     });
                 }
             });
         });
 
-        // Parent direct attachments
+        // 4. Parent direct attachments
         const parent_fields = [
+            { field: 'activity_photo', label: '📸 Team Activity Photo Proof', cat: 'Team Engagement & Recreation' },
+            { field: 'pre_approval_attachment', label: '📋 Pre-Approval Authorization Screenshot', cat: 'Audit Proof Document' },
             { field: 'tax_invoice_attachment', label: 'Vendor Tax Invoice', cat: 'Vendor Commercial Invoice' },
             { field: 'email_approval_attachment', label: 'Manager Email Approval', cat: 'Audit Approval Proof' },
             { field: 'grn_attachment', label: 'Goods Receipt Note / Delivery Proof', cat: 'Warehouse Receipt' },
@@ -79,8 +135,8 @@ window.APReceiptGallery = {
                     row_idx: null,
                     merchant: pf.label,
                     category: pf.cat,
-                    amount: parseFloat(frm.doc.total_amount || frm.doc.total_invoice_amount || frm.doc.total_claim_amount || 0.0),
-                    date: frm.doc.posting_date || frm.doc.invoice_date || '',
+                    amount: parseFloat(frm.doc.total_claim_amount || frm.doc.total_amount || frm.doc.total_invoice_amount || 0.0),
+                    date: frm.doc.posting_date || frm.doc.activity_date || frm.doc.invoice_date || '',
                     bill_no: frm.doc.invoice_number || frm.doc.name || '',
                     file_url: clean_url,
                     file_name: file_name,
@@ -92,6 +148,10 @@ window.APReceiptGallery = {
         });
 
         return atts;
+    },
+
+    open: function (frm, opts) {
+        this.show(frm, opts);
     },
 
     show: function (frm, opts) {
@@ -112,19 +172,18 @@ window.APReceiptGallery = {
 
     openEmptyModal: function (frm) {
         const d = new frappe.ui.Dialog({
-            title: __('Proof & Receipt Gallery - ') + frm.doc.name,
-            size: 'large',
+            title: __('Proof & Receipt Gallery — ') + frm.doc.name,
             fields: [
                 {
                     fieldtype: 'HTML',
                     fieldname: 'empty_html',
                     options: `
-                        <div style="text-align: center; padding: 60px 20px; color: #64748b;">
-                            <div style="font-size: 48px; margin-bottom: 12px;">🧾</div>
-                            <h4 style="color: #1e293b; font-weight: 700;">No Receipts Attached Yet</h4>
-                            <p style="font-size: 13px; max-width: 400px; margin: 8px auto;">
-                                Use the <b>📷 Add Photo</b> button on each row in the expense grid to upload bill receipts.
-                            </p>
+                        <div style="text-align: center; padding: 60px 20px;">
+                            <div style="font-size: 54px; margin-bottom: 16px;">📂</div>
+                            <div style="font-size: 18px; font-weight: 700; color: #1e293b;">No Proofs or Receipts Attached</div>
+                            <div style="font-size: 14px; color: #64748b; margin-top: 8px;">
+                                This document does not contain any uploaded tax invoices, bill receipts, or photo proofs yet.
+                            </div>
                         </div>
                     `
                 }
@@ -133,13 +192,9 @@ window.APReceiptGallery = {
         d.show();
     },
 
-    openModal: function (frm, attachments, initial_index) {
-        if (!attachments || attachments.length === 0) {
-            this.openEmptyModal(frm);
-            return;
-        }
-
-        let current_index = initial_index >= 0 && initial_index < attachments.length ? initial_index : 0;
+    openModal: function (frm, attachments, start_idx) {
+        start_idx = start_idx || 0;
+        let current_index = Math.min(start_idx, attachments.length - 1);
 
         const d = new frappe.ui.Dialog({
             title: __('Proof & Receipt Gallery — ') + frm.doc.name,
@@ -159,13 +214,13 @@ window.APReceiptGallery = {
             let preview_content = '';
             if (active_att.is_image) {
                 preview_content = `
-                    <div style="height: 520px; display: flex; align-items: center; justify-content: center; background: #0f172a; border-radius: 8px; overflow: hidden; position: relative;">
-                        <img src="${active_att.file_url}" style="max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 4px 20px rgba(0,0,0,0.4);" alt="Receipt Preview" />
+                    <div style="display: flex; justify-content: center; align-items: center; background: #0f172a; border-radius: 8px; overflow: hidden; min-height: 480px; max-height: 600px; padding: 12px;">
+                        <img src="${active_att.file_url}" alt="${active_att.merchant}" style="max-width: 100%; max-height: 570px; object-fit: contain; box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 4px;" />
                     </div>
                 `;
             } else if (active_att.is_pdf) {
                 preview_content = `
-                    <div style="height: 520px; background: #f8fafc; border-radius: 8px; overflow: hidden; border: 1px solid #cbd5e1;">
+                    <div style="background: #0f172a; border-radius: 8px; overflow: hidden; height: 580px;">
                         <iframe src="${active_att.file_url}" style="width: 100%; height: 100%; border: none;" title="PDF Preview"></iframe>
                     </div>
                 `;

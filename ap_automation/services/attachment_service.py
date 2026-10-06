@@ -51,19 +51,69 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
     doc = frappe.get_doc(doctype, docname)
     attachments: List[Dict[str, Any]] = []
 
-    # 1. Scan Child Table Expense Lines
-    child_tables = ["expense_lines", "lines", "items", "instructions"]
-    for table_field in child_tables:
+    # 1. Scan Expense Lines child table
+    for row in getattr(doc, "expense_lines", []) or []:
+        file_url = (
+            getattr(row, "receipt_attachment", None)
+            or getattr(row, "attach_receipt", None)
+            or getattr(row, "attachment", None)
+            or getattr(row, "tax_invoice_attachment", None)
+            or getattr(row, "bill_attachment", None)
+        )
+        if file_url and isinstance(file_url, str) and file_url.strip():
+            file_url = file_url.strip()
+            file_name = file_url.split("/")[-1]
+            ext = os.path.splitext(file_name)[1].lower()
+
+            attachments.append({
+                "source": "row",
+                "row_idx": getattr(row, "idx", len(attachments) + 1),
+                "merchant": getattr(row, "merchant_name", "") or getattr(row, "merchant", "") or getattr(row, "vendor_name", "Expense Merchant"),
+                "category": getattr(row, "expense_type", "") or getattr(row, "category", "General Expense"),
+                "amount": float(getattr(row, "amount", 0.0) or getattr(row, "claim_amount", 0.0) or 0.0),
+                "date": str(getattr(row, "expense_date", "") or getattr(row, "date", "") or doc.get("posting_date", "")),
+                "bill_no": getattr(row, "invoice_number", "") or getattr(row, "bill_number", "") or getattr(row, "bill_no", ""),
+                "file_url": file_url,
+                "file_name": file_name,
+                "is_image": ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
+                "is_pdf": ext == ".pdf",
+                "extension": ext
+            })
+
+    # 2. Scan Client Visit Legs child table
+    for leg in getattr(doc, "client_visit_legs", []) or []:
+        file_url = getattr(leg, "receipt_attachment", None) or getattr(leg, "attachment", None)
+        if file_url and isinstance(file_url, str) and file_url.strip():
+            file_url = file_url.strip()
+            file_name = file_url.split("/")[-1]
+            ext = os.path.splitext(file_name)[1].lower()
+
+            travel_desc = f"{getattr(leg, 'client_name', 'Client Visit')} ({getattr(leg, 'mode_of_travel', 'Travel')})"
+            attachments.append({
+                "source": "row",
+                "row_idx": getattr(leg, "idx", len(attachments) + 1),
+                "merchant": travel_desc,
+                "category": f"Travel: {getattr(leg, 'from_location', '')} → {getattr(leg, 'to_location', '')}",
+                "amount": float(getattr(leg, "leg_amount", 0.0) or 0.0) + float(getattr(leg, "toll_parking_amount", 0.0) or 0.0),
+                "date": str(getattr(leg, "visit_date", "") or getattr(leg, "travel_date", "") or doc.get("posting_date", "")),
+                "bill_no": str(getattr(leg, "idx", "")),
+                "file_url": file_url,
+                "file_name": file_name,
+                "is_image": ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
+                "is_pdf": ext == ".pdf",
+                "extension": ext
+            })
+
+    # 3. Scan Generic other child tables (e.g. lines, items, instructions)
+    other_child_tables = ["lines", "items", "instructions"]
+    for table_field in other_child_tables:
         rows = getattr(doc, table_field, []) or []
         for row in rows:
             file_url = (
                 getattr(row, "receipt_attachment", None)
                 or getattr(row, "attach_receipt", None)
                 or getattr(row, "attachment", None)
-                or getattr(row, "tax_invoice_attachment", None)
-                or getattr(row, "bill_attachment", None)
             )
-
             if file_url and isinstance(file_url, str) and file_url.strip():
                 file_url = file_url.strip()
                 file_name = file_url.split("/")[-1]
@@ -72,11 +122,11 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 attachments.append({
                     "source": "row",
                     "row_idx": getattr(row, "idx", len(attachments) + 1),
-                    "merchant": getattr(row, "merchant_name", "") or getattr(row, "merchant", "") or getattr(row, "vendor_name", "Vendor / Merchant"),
-                    "category": getattr(row, "category", "") or getattr(row, "expense_type", "General Expense"),
-                    "amount": float(getattr(row, "amount", 0.0) or getattr(row, "claim_amount", 0.0) or 0.0),
-                    "date": str(getattr(row, "expense_date", "") or getattr(row, "date", "") or doc.get("posting_date", "")),
-                    "bill_no": getattr(row, "bill_number", "") or getattr(row, "bill_no", "") or getattr(row, "invoice_number", ""),
+                    "merchant": getattr(row, "merchant_name", "") or getattr(row, "merchant", "Expense Item"),
+                    "category": getattr(row, "category", "") or getattr(row, "expense_type", "Expense Line"),
+                    "amount": float(getattr(row, "amount", 0.0) or 0.0),
+                    "date": str(getattr(row, "expense_date", "") or doc.get("posting_date", "")),
+                    "bill_no": getattr(row, "invoice_number", ""),
                     "file_url": file_url,
                     "file_name": file_name,
                     "is_image": ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
@@ -84,17 +134,18 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                     "extension": ext
                 })
 
-    # 2. Scan Parent-Level Direct Attachment Fields
+    # 4. Scan Parent-Level Direct Attachment Fields
     parent_fields = [
-        ("tax_invoice_attachment", "Vendor Tax Invoice"),
-        ("pre_approval_attachment", "Pre-Approval Attachment / Screenshot"),
-        ("email_approval_attachment", "Manager Email Approval"),
-        ("grn_attachment", "Goods Receipt Note / Delivery Proof"),
-        ("advance_receipt_attachment", "Advance Payment Proof"),
-        ("settlement_statement", "Event Settlement Statement")
+        ("activity_photo", "📸 Team Activity Photo Proof", "Team Engagement & Recreation"),
+        ("pre_approval_attachment", "📋 Pre-Approval Authorization Screenshot", "Audit Proof Document"),
+        ("tax_invoice_attachment", "Vendor Tax Invoice", "Audit Proof Document"),
+        ("email_approval_attachment", "Manager Email Approval", "Audit Proof Document"),
+        ("grn_attachment", "Goods Receipt Note / Delivery Proof", "Audit Proof Document"),
+        ("advance_receipt_attachment", "Advance Payment Proof", "Audit Proof Document"),
+        ("settlement_statement", "Event Settlement Statement", "Audit Proof Document")
     ]
 
-    for fieldname, label in parent_fields:
+    for fieldname, label, cat_label in parent_fields:
         file_url = getattr(doc, fieldname, None)
         if file_url and isinstance(file_url, str) and file_url.strip():
             file_url = file_url.strip()
@@ -105,10 +156,10 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 "source": "parent",
                 "row_idx": None,
                 "merchant": label,
-                "category": "Audit Proof Document",
-                "amount": float(getattr(doc, "total_amount", 0.0) or getattr(doc, "total_invoice_amount", 0.0) or 0.0),
-                "date": str(doc.get("posting_date", "") or doc.get("invoice_date", "")),
-                "bill_no": str(doc.get("invoice_number", "") or doc.get("name", "")),
+                "category": cat_label,
+                "amount": float(getattr(doc, "total_claim_amount", 0.0) or getattr(doc, "total_amount", 0.0) or 0.0),
+                "date": str(doc.get("posting_date", "") or doc.get("activity_date", "") or doc.get("invoice_date", "")),
+                "bill_no": str(doc.get("name", "")),
                 "file_url": file_url,
                 "file_name": file_name,
                 "is_image": ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
@@ -137,7 +188,7 @@ def download_all_claim_attachments_zip(doctype: str, docname: str) -> None:
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         for idx, att in enumerate(attachments, start=1):
             raw_url = att["file_url"]
-            
+
             # Resolve physical file path on disk
             if raw_url.startswith("/private/files/"):
                 file_rel = raw_url.replace("/private/files/", "private/files/")
@@ -154,11 +205,10 @@ def download_all_claim_attachments_zip(doctype: str, docname: str) -> None:
                 continue  # Path traversal protection
 
             if os.path.exists(norm_path) and os.path.isfile(norm_path):
-                # Construct clean human-readable archive filename
                 ext = att["extension"] or ".png"
                 clean_merchant = "".join(c for c in (att["merchant"] or "Expense") if c.isalnum() or c in (" ", "-", "_")).strip()
                 clean_cat = "".join(c for c in (att["category"] or "Receipt") if c.isalnum() or c in (" ", "-", "_")).strip()
-                
+
                 if att["row_idx"]:
                     archive_name = f"Row-{att['row_idx']}_{clean_cat}_{clean_merchant}_{int(att['amount'])}INR{ext}"
                 else:
@@ -178,3 +228,26 @@ def download_all_claim_attachments_zip(doctype: str, docname: str) -> None:
     frappe.response["filename"] = download_filename
     frappe.response["filecontent"] = zip_bytes
     frappe.response["type"] = "download"
+
+
+@frappe.whitelist()
+def download_voucher_receipts_zip(voucher_type: Optional[str] = None, voucher_name: Optional[str] = None, doctype: Optional[str] = None, docname: Optional[str] = None) -> None:
+    """
+    Direct endpoint called from Desk Form: Downloads ZIP containing all receipts for a claim/voucher.
+    Accepts both (voucher_type, voucher_name) and (doctype, docname).
+    """
+    dt = voucher_type or doctype
+    dn = voucher_name or docname
+    if not dt or not dn:
+        frappe.throw(_("Document Type and Document Name are required."))
+    return download_all_claim_attachments_zip(dt, dn)
+
+@frappe.whitelist()
+def get_claim_receipt_summary(claim_name: str, doctype: str = "Employee Reimbursement Claim"):
+    """Returns structured list of attachments and receipts for a claim to populate audit modals."""
+    attachments = get_all_claim_attachments(doctype=doctype, docname=claim_name)
+    return {
+        "claim_name": claim_name,
+        "total_receipts": len(attachments),
+        "attachments": attachments
+    }
