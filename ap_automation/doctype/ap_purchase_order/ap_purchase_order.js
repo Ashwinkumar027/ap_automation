@@ -79,7 +79,7 @@ frappe.ui.form.on('AP Purchase Order', {
             frm.set_value('cgst_amount', half);
             frm.set_value('sgst_amount', half);
             frm.set_value('igst_amount', 0.0);
-            frm.set_value('gst_type', `Intra-State (CGST 9% + SGST 9% - State ${comp_state || 'Local'})`);
+            frm.set_value('gst_type', `Intra-State (CGST 9% + SGST 9% - State ${comp_state || '27'})`);
         } else {
             frm.set_value('cgst_amount', 0.0);
             frm.set_value('sgst_amount', 0.0);
@@ -138,6 +138,8 @@ function render_entity_letterhead_banner(frm) {
 }
 
 function update_dynamic_commercial_pills(frm) {
+    if (!frm.dashboard) return;
+    
     let grand = flt(frm.doc.grand_total) || 0.0;
     let adv = flt(frm.doc.advance_amount) || 0.0;
     let bal = flt(frm.doc.balance_due_on_completion) || 0.0;
@@ -149,30 +151,34 @@ function update_dynamic_commercial_pills(frm) {
     if (sign_status === "Sent to Vendor") sign_badge = `<span class="badge badge-warning" style="background-color: #E8A838; color: #1B365D;">📩 Awaiting Signature</span>`;
 
     let dashboard_html = `
-    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0;">
-        <div style="background: #F8FAFC; border-left: 4px solid #1B365D; padding: 12px; border-radius: 4px;">
-            <div style="font-size: 11px; color: #64748B; font-weight: 600;">GRAND TOTAL (INC GST)</div>
-            <div style="font-size: 18px; font-weight: 700; color: #1B365D;">₹ ${format_currency(grand)}</div>
-            <div style="font-size: 11px; color: #475569;">${gst_label}</div>
+    <div class="custom-po-dashboard" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 5px 0;">
+        <div style="background: #F8FAFC; border-left: 4px solid #1B365D; padding: 10px 14px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size: 11px; color: #64748B; font-weight: 700; text-transform: uppercase;">Grand Total (inc GST)</div>
+            <div style="font-size: 17px; font-weight: 800; color: #1B365D; margin: 2px 0;">₹ ${format_number(grand, null, 2)}</div>
+            <div style="font-size: 11px; color: #475569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${gst_label}</div>
         </div>
-        <div style="background: #F8FAFC; border-left: 4px solid #E8A838; padding: 12px; border-radius: 4px;">
-            <div style="font-size: 11px; color: #64748B; font-weight: 600;">ADVANCE PAYABLE NOW</div>
-            <div style="font-size: 18px; font-weight: 700; color: #D97706;">₹ ${format_currency(adv)}</div>
+        <div style="background: #F8FAFC; border-left: 4px solid #D97706; padding: 10px 14px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size: 11px; color: #64748B; font-weight: 700; text-transform: uppercase;">Advance Payable Now</div>
+            <div style="font-size: 17px; font-weight: 800; color: #D97706; margin: 2px 0;">₹ ${format_number(adv, null, 2)}</div>
             <div style="font-size: 11px; color: #475569;">Rate: ${frm.doc.advance_percentage || '0%'}</div>
         </div>
-        <div style="background: #F8FAFC; border-left: 4px solid #107C41; padding: 12px; border-radius: 4px;">
-            <div style="font-size: 11px; color: #64748B; font-weight: 600;">BALANCE ON COMPLETION</div>
-            <div style="font-size: 18px; font-weight: 700; color: #107C41;">₹ ${format_currency(bal)}</div>
+        <div style="background: #F8FAFC; border-left: 4px solid #107C41; padding: 10px 14px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size: 11px; color: #64748B; font-weight: 700; text-transform: uppercase;">Balance on Completion</div>
+            <div style="font-size: 17px; font-weight: 800; color: #107C41; margin: 2px 0;">₹ ${format_number(bal, null, 2)}</div>
             <div style="font-size: 11px; color: #475569;">Terms: ${frm.doc.payment_terms || 'Net 30'}</div>
         </div>
-        <div style="background: #F8FAFC; border-left: 4px solid #6366F1; padding: 12px; border-radius: 4px;">
-            <div style="font-size: 11px; color: #64748B; font-weight: 600;">VENDOR E-SIGN STATUS</div>
+        <div style="background: #F8FAFC; border-left: 4px solid #6366F1; padding: 10px 14px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size: 11px; color: #64748B; font-weight: 700; text-transform: uppercase;">Vendor E-Sign Status</div>
             <div style="margin-top: 4px;">${sign_badge}</div>
-            <div style="font-size: 11px; color: #475569; margin-top: 2px;">SPOC: ${frm.doc.spoc_name || 'Assigned'}</div>
+            <div style="font-size: 11px; color: #475569; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">SPOC: ${frm.doc.spoc_name || 'Assigned'}</div>
         </div>
     </div>
     `;
 
+    // Clear previous custom headline to prevent duplicates
+    if (frm.dashboard.headline && frm.dashboard.headline.length) {
+        frm.dashboard.headline.empty();
+    }
     frm.dashboard.set_headline(dashboard_html);
 }
 
