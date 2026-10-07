@@ -1,31 +1,24 @@
 // Copyright (c) 2026, Quanti and contributors
-// Production-grade Vendor Invoice Claim UI controller with live 3-Way Match & TDS Calculator
-
-window.APReceiptGallery = window.APReceiptGallery || {
-    formatINR: function(amount) {
-        if (isNaN(amount) || amount === null || amount === undefined) return "₹0.00";
-        return new Intl.NumberFormat('en-IN', {
-            style: 'currency',
-            currency: 'INR',
-            maximumFractionDigits: 2
-        }).format(amount);
-    },
-
-    setup: function(frm) {
-        // Setup top interactive headline
-        render_vendor_invoice_header(frm);
-    }
-};
+// Production-grade Vendor Invoice Claim UI controller with live 3-Way Match, TDS Calculator & Receipt Gallery
 
 frappe.ui.form.on("Vendor Invoice Claim", {
     refresh: function(frm) {
         frm.trigger("toggle_route_fields");
         render_vendor_invoice_header(frm);
+        setup_receipt_gallery_button(frm);
     },
 
     invoice_type: function(frm) {
         frm.trigger("toggle_route_fields");
         render_vendor_invoice_header(frm);
+    },
+
+    tax_invoice_attachment: function(frm) {
+        setup_receipt_gallery_button(frm);
+    },
+
+    email_approval_attachment: function(frm) {
+        setup_receipt_gallery_button(frm);
     },
 
     purchase_order: function(frm) {
@@ -124,6 +117,25 @@ frappe.ui.form.on("Vendor Invoice Claim", {
         frm.toggle_reqd("email_approval_attachment", !is_po);
     }
 });
+
+function setup_receipt_gallery_button(frm) {
+    if (window.APReceiptGallery && typeof window.APReceiptGallery.setup === "function") {
+        window.APReceiptGallery.setup(frm);
+    } else {
+        // Fallback dedicated button
+        let has_files = frm.doc.tax_invoice_attachment || frm.doc.email_approval_attachment;
+        if (has_files) {
+            frm.add_custom_button(__("🖼️ View Attached Receipts"), function () {
+                let url = frm.doc.tax_invoice_attachment || frm.doc.email_approval_attachment;
+                window.open(url, "_blank");
+            }).addClass("btn-primary").css({
+                "background": "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+                "color": "#ffffff",
+                "font-weight": "600"
+            });
+        }
+    }
+}
 
 function calculate_vendor_totals(frm) {
     let base = parseFloat(frm.doc.base_amount || 0.0);
