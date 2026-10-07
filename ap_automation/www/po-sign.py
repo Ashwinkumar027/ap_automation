@@ -16,7 +16,6 @@ def is_token_matching(stored_token: str, input_token: str) -> bool:
     i = str(input_token).strip()
     if s == i:
         return True
-    # Check normalized visual ambiguity (I vs l vs 1)
     return normalize_token(s) == normalize_token(i)
 
 def get_context(context):
@@ -38,7 +37,6 @@ def get_context(context):
 
     po = frappe.get_doc("AP Purchase Order", po_name)
 
-    # Validate token from direct field or vendor_sign_url
     token_in_doc = getattr(po, "vendor_sign_token", None)
     if not token_in_doc and getattr(po, "vendor_sign_url", None):
         parsed = urllib.parse.urlparse(po.vendor_sign_url)
@@ -98,6 +96,14 @@ def submit_vendor_esign(po_name: str = None, token: str = None, signer_name: str
         po.vendor_signature_image = signature_data
     po.save(ignore_permissions=True)
     frappe.db.commit()
+
+    # Trigger Automated Multi-Party Notifications
+    try:
+        from ap_automation.services import notification_service
+        if hasattr(notification_service, "notify_on_vendor_po_signed"):
+            notification_service.notify_on_vendor_po_signed(po.name)
+    except Exception as e:
+        frappe.log_error(f"Failed to dispatch post-signature notification: {e}")
 
     return {
         "status": "success",

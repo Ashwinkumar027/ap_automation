@@ -1160,3 +1160,136 @@ def check_and_escalate_accounts_l1_slas() -> Dict[str, Any]:
         "escalated_count": escalated_count
     }
 
+import frappe
+
+def notify_on_vendor_po_signed(po_name: str) -> None:
+    """
+    Dispatches automated post-signature notifications to both parties:
+    1. Vendor (Email Confirmation with Signed Certificate link).
+    2. Internal SPOC & Finance Team (Email + Desk Realtime Alert).
+    3. Document Timeline Audit Stamp.
+    """
+    if not frappe.db.exists("AP Purchase Order", po_name):
+        return
+
+    po = frappe.get_doc("AP Purchase Order", po_name)
+    company = po.company_entity
+    vendor_name = po.vendor_name
+    grand_total = float(po.grand_total or 0.0)
+    signed_by = po.vendor_signed_by or "Authorized Signatory"
+    signed_time = frappe.utils.format_datetime(po.vendor_signed_timestamp, "dd-MM-yyyy hh:mm a") if po.vendor_signed_timestamp else "Just now"
+    ip = po.vendor_signed_ip or "Remote IP"
+
+    base_url = frappe.utils.get_url()
+    desk_url = f"{base_url}/desk/ap-purchase-order/{po.name}"
+    portal_url = po.vendor_sign_url or f"{base_url}/po-sign?po={po.name}"
+
+    # 1. Internal SPOC & Accounts Alert
+    recipients = []
+    if po.spoc_email and po.spoc_email not in recipients:
+        recipients.append(po.spoc_email)
+    if po.company_contact_email and po.company_contact_email not in recipients:
+        recipients.append(po.company_contact_email)
+
+    if not recipients:
+        recipients = ["admin@example.com"]
+
+    internal_subject = f"✅ [PO Signed & Active] #{po.name} - {vendor_name} (₹ {grand_total:,.2f})"
+    internal_html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bbf7d0; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #16a34a; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #16a34a; font-weight: 700;">🎉 Contract Executed • Vendor Signature Complete</span>
+            <h2 style="margin: 4px 0 0 0; color: #14532d; font-size: 20px;">Purchase Order #{po.name} is now ACTIVE</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Vendor representative <b>{signed_by}</b> from <b>{vendor_name}</b> has accepted and digitally signed Purchase Order <b>#{po.name}</b>.
+        </p>
+        <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 14px; margin: 16px 0;">
+            <div style="font-size: 13px; color: #166534;">Contracted Value: <b style="font-size: 18px; color: #0f172a;">₹ {grand_total:,.2f}</b></div>
+            <div style="font-size: 13px; color: #166534; margin-top: 4px;">Advance Obligation: <b>₹ {float(po.advance_amount or 0.0):,.2f} ({po.advance_percentage or '0%'})</b></div>
+            <div style="font-size: 12px; color: #475569; margin-top: 6px; padding-top: 6px; border-top: 1px solid #bbf7d0;">
+                Signed Timestamp: <b>{signed_time}</b> | IP Address: <code>{ip}</code>
+            </div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{desk_url}" style="background: #16a34a; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Open Purchase Order in AP Desk &rarr;
+            </a>
+        </div>
+    </div>
+    """
+
+    try:
+        frappe.sendmail(
+            recipients=recipients,
+            subject=internal_subject,
+            message=internal_html,
+            reference_doctype="AP Purchase Order",
+            reference_name=po.name,
+            now=False
+        )
+    except Exception as e:
+        frappe.log_error(f"Internal PO signed alert: {e}")
+
+    # 2. Vendor Confirmation Email
+    if po.vendor_email:
+        vendor_subject = f"📄 Executed Purchase Order #{po.name} - {company}"
+        vendor_html = f"""
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 10px; padding: 24px; background: #ffffff;">
+            <div style="border-bottom: 2px solid #1e3a8a; padding-bottom: 12px; margin-bottom: 16px;">
+                <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #1e3a8a; font-weight: 700;">Digital Signature Confirmation</span>
+                <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 20px;">Thank You for Executing PO #{po.name}</h2>
+            </div>
+            <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+                Dear {po.vendor_contact_person or vendor_name},<br><br>
+                This confirms that Purchase Order <strong>#{po.name}</strong> from <strong>{company}</strong> for <strong>₹ {grand_total:,.2f}</strong> has been successfully signed and validated on {signed_time}.
+            </p>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin: 16px 0;">
+                <div style="font-size: 13px; color: #475569;">Company SPOC: <b>{po.spoc_name} ({po.spoc_email})</b></div>
+                <div style="font-size: 13px; color: #475569; margin-top: 4px;">Signer: <b>{signed_by}</b></div>
+                <div style="font-size: 12px; color: #0284c7; margin-top: 6px; font-family: monospace;">SHA-256 Hash: {po.signatory_signature_hash}</div>
+            </div>
+            <p style="color: #64748b; font-size: 13px;">
+                You can review or download your digitally signed certificate copy anytime using the link below:
+            </p>
+            <div style="text-align: center; margin-top: 20px;">
+                <a href="{portal_url}" style="background: #1e3a8a; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 13.5px; display: inline-block;">
+                    View Executed Certificate &rarr;
+                </a>
+            </div>
+        </div>
+        """
+        try:
+            frappe.sendmail(
+                recipients=[po.vendor_email],
+                subject=vendor_subject,
+                message=vendor_html,
+                reference_doctype="AP Purchase Order",
+                reference_name=po.name,
+                now=False
+            )
+        except Exception as e:
+            frappe.log_error(f"Vendor PO executed confirmation email: {e}")
+
+    # 3. Add Document Timeline Audit Stamp
+    try:
+        po.add_comment(
+            "Comment",
+            text=f"🖋️ <b>Digital E-Signature Confirmed & Verified</b><br>"
+                 f"Signed by: <b>{signed_by}</b><br>"
+                 f"IP Address: <code>{ip}</code><br>"
+                 f"Timestamp: <code>{signed_time}</code><br>"
+                 f"Status transitioned to: <span class='indicator-pill green'>Active PO</span>"
+        )
+    except Exception as e:
+        frappe.log_error(f"PO timeline stamp error: {e}")
+
+    # 4. Real-time in-app Desk alert
+    try:
+        frappe.publish_realtime(
+            event="msgprint",
+            message=f"🎉 Purchase Order #{po.name} was just digitally signed by {vendor_name} ({signed_by})!",
+            user=po.spoc_email
+        )
+    except Exception:
+        pass
