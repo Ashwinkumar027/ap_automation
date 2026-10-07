@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ po.company_entity if po else "Purchase Order" }} — Digital E-Sign Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        body { background: #f1f5f9; color: #1e293b; line-height: 1.5; padding: 24px 12px; }
+        .container { max-width: 960px; margin: 0 auto; background: #ffffff; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); overflow: hidden; border: 1px solid #e2e8f0; }
+        
+        .header-banner { background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); color: #ffffff; padding: 28px 32px; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; }
+        .company-title { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 4px; }
+        .company-sub { font-size: 13px; color: #cbd5e1; max-width: 500px; line-height: 1.4; }
+        .po-badge { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); padding: 8px 16px; border-radius: 8px; text-align: right; }
+        .po-badge-num { font-size: 16px; font-weight: 800; color: #ffffff; }
+        .po-badge-lbl { font-size: 11px; text-transform: uppercase; color: #93c5fd; letter-spacing: 0.05em; }
+
+        .content { padding: 32px; }
+
+        .status-alert { padding: 14px 18px; border-radius: 8px; margin-bottom: 24px; display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 600; }
+        .alert-signed { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; }
+        .alert-pending { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+        .alert-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 28px; }
+        @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
+
+        .info-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; }
+        .info-card-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; color: #64748b; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
+        .info-row { font-size: 13.5px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+        .info-label { color: #64748b; }
+        .info-val { font-weight: 600; color: #0f172a; text-align: right; }
+
+        table.items-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 13.5px; }
+        table.items-table th { background: #f1f5f9; color: #334155; font-weight: 700; text-align: left; padding: 10px 12px; border-bottom: 2px solid #cbd5e1; }
+        table.items-table td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
+        table.items-table tr:hover { background: #f8fafc; }
+
+        .totals-section { display: flex; justify-content: flex-end; margin: 20px 0; }
+        .totals-box { width: 340px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; font-size: 13.5px; }
+        .totals-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+        .totals-row.grand { border-top: 2px solid #cbd5e1; padding-top: 8px; margin-top: 8px; font-size: 16px; font-weight: 800; color: #0f172a; }
+
+        .terms-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; font-size: 12px; color: #475569; margin: 24px 0; max-height: 140px; overflow-y: auto; }
+
+        /* Signature Section */
+        .sign-section { background: #faf5ff; border: 2px dashed #c084fc; border-radius: 12px; padding: 24px; margin-top: 32px; }
+        .sign-title { font-size: 16px; font-weight: 700; color: #6b21a8; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+        
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+        @media (max-width: 640px) { .form-row { grid-template-columns: 1fr; } }
+        
+        .form-group label { display: block; font-size: 12.5px; font-weight: 600; color: #374151; margin-bottom: 4px; }
+        .form-group input { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+        .form-group input:focus { outline: none; border-color: #9333ea; box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.15); }
+
+        .canvas-container { background: #ffffff; border: 1px solid #d1d5db; border-radius: 8px; margin-bottom: 16px; position: relative; }
+        canvas { width: 100%; height: 160px; display: block; cursor: crosshair; }
+        .canvas-clear-btn { position: absolute; top: 8px; right: 8px; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; font-weight: 600; }
+
+        .btn-submit { background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); color: #ffffff; border: none; padding: 14px 28px; font-size: 15px; font-weight: 700; border-radius: 8px; cursor: pointer; width: 100%; transition: all 0.15s ease; box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3); }
+        .btn-submit:hover { opacity: 0.95; transform: translateY(-1px); }
+        .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .footer { text-align: center; font-size: 12px; color: #94a3b8; margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        {% if error_message %}
+            <div class="header-banner">
+                <div>
+                    <div class="company-title">Digital Signature Gateway</div>
+                    <div class="company-sub">Accounts Payable & Procurement System</div>
+                </div>
+            </div>
+            <div class="content">
+                <div class="status-alert alert-error">
+                    <span>🚨</span>
+                    <div>{{ error_message }}</div>
+                </div>
+                <div style="text-align: center; margin-top: 20px;">
+                    <a href="/" style="color: #2563eb; text-decoration: none; font-weight: 600;">← Return to Home</a>
+                </div>
+            </div>
+        {% elif po %}
+            <!-- Header Banner -->
+            <div class="header-banner">
+                <div>
+                    <div class="company-title">{{ po.company_entity }}</div>
+                    <div class="company-sub">{{ po.company_registered_address }}</div>
+                    <div style="font-size: 12px; color: #93c5fd; margin-top: 4px;">
+                        CIN/LLPIN: {{ po.company_cin }} | GSTIN: {{ po.company_gstin }}
+                    </div>
+                </div>
+                <div class="po-badge">
+                    <div class="po-badge-lbl">Purchase Order</div>
+                    <div class="po-badge-num">#{{ po.name }}</div>
+                    <div style="font-size: 11px; color: #cbd5e1; margin-top: 2px;">Dated: {{ po.date_of_issue }}</div>
+                </div>
+            </div>
+
+            <div class="content">
+                <!-- Status Banner -->
+                {% if is_signed %}
+                    <div class="status-alert alert-signed">
+                        <span>✅</span>
+                        <div>
+                            <strong>Digitally Signed & Accepted</strong><br>
+                            Signed by <strong>{{ po.vendor_signed_by }}</strong> on <strong>{{ po.vendor_signed_timestamp }}</strong> (IP: {{ po.vendor_signed_ip }}).
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="status-alert alert-pending">
+                        <span>🖋️</span>
+                        <div>
+                            <strong>Action Required: Review & Sign Purchase Order</strong><br>
+                            Please inspect the contracted scope of work, commercials, and terms below before applying your digital signature.
+                        </div>
+                    </div>
+                {% endif %}
+
+                <!-- Commercials Overview -->
+                <div class="grid-2">
+                    <div class="info-card">
+                        <div class="info-card-title">Vendor / Contractor Details</div>
+                        <div class="info-row">
+                            <span class="info-label">Vendor Name:</span>
+                            <span class="info-val">{{ po.vendor_name }}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Vendor GSTIN:</span>
+                            <span class="info-val">{{ po.vendor_gstin or "Unregistered" }}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Contact Person:</span>
+                            <span class="info-val">{{ po.vendor_contact_person or "Finance Dept" }}</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-card-title">Contract & SPOC Details</div>
+                        <div class="info-row">
+                            <span class="info-label">Company SPOC:</span>
+                            <span class="info-val">{{ po.spoc_name }}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">SPOC Email:</span>
+                            <span class="info-val">{{ po.spoc_email }}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Tax Type:</span>
+                            <span class="info-val">{{ po.gst_type }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Items Table -->
+                <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 8px;">Scope of Work / Line Items</div>
+                <table class="items-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 5%;">#</th>
+                            <th style="width: 45%;">Service / Item Description</th>
+                            <th style="width: 15%; text-align: right;">Qty (UOM)</th>
+                            <th style="width: 15%; text-align: right;">Rate (₹)</th>
+                            <th style="width: 20%; text-align: right;">Total (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>
+                                <strong>{{ item.item_name }}</strong>
+                                {% if item.description %}
+                                    <div style="font-size: 11.5px; color: #64748b;">{{ item.description }}</div>
+                                {% endif %}
+                            </td>
+                            <td style="text-align: right;">{{ item.qty }} {{ item.uom or "Units" }}</td>
+                            <td style="text-align: right;">{{ "{:,.2f}".format(item.rate) }}</td>
+                            <td style="text-align: right; font-weight: 600;">{{ "{:,.2f}".format(item.total_amount or item.taxable_amount) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+
+                <!-- Totals Section -->
+                <div class="totals-section">
+                    <div class="totals-box">
+                        <div class="totals-row">
+                            <span>Net Taxable Value:</span>
+                            <span style="font-weight: 600;">₹ {{ "{:,.2f}".format(po.net_taxable_value or 0) }}</span>
+                        </div>
+                        {% if po.cgst_amount > 0 %}
+                        <div class="totals-row">
+                            <span>CGST (9%):</span>
+                            <span>₹ {{ "{:,.2f}".format(po.cgst_amount) }}</span>
+                        </div>
+                        <div class="totals-row">
+                            <span>SGST (9%):</span>
+                            <span>₹ {{ "{:,.2f}".format(po.sgst_amount) }}</span>
+                        </div>
+                        {% elif po.igst_amount > 0 %}
+                        <div class="totals-row">
+                            <span>IGST (18%):</span>
+                            <span>₹ {{ "{:,.2f}".format(po.igst_amount) }}</span>
+                        </div>
+                        {% endif %}
+                        <div class="totals-row grand">
+                            <span>Grand Total:</span>
+                            <span>₹ {{ "{:,.2f}".format(po.grand_total or 0) }}</span>
+                        </div>
+                        {% if po.advance_amount > 0 %}
+                        <div class="totals-row" style="color: #b45309; font-size: 12.5px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #e2e8f0;">
+                            <span>Advance Tagged ({{ po.advance_percentage }}):</span>
+                            <span>₹ {{ "{:,.2f}".format(po.advance_amount) }}</span>
+                        </div>
+                        <div class="totals-row" style="color: #047857; font-size: 12.5px; font-weight: 700;">
+                            <span>Balance Due on Milestone:</span>
+                            <span>₹ {{ "{:,.2f}".format(po.balance_due_on_completion or 0) }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Terms -->
+                <div style="font-size: 13px; font-weight: 700; color: #475569; margin-bottom: 6px;">Terms & Conditions & Cryptographic Hash</div>
+                <div class="terms-box">
+                    <div style="font-family: monospace; font-size: 11px; margin-bottom: 8px; color: #0284c7; background: #e0f2fe; padding: 4px 8px; border-radius: 4px;">
+                        SHA-256 Signatory Hash: {{ po.signatory_signature_hash or "PENDING" }}
+                    </div>
+                    {{ po.terms_and_conditions or "Standard payment terms apply within 30 days of tax invoice submission." }}
+                </div>
+
+                <!-- Digital Signature Block -->
+                {% if not is_signed %}
+                    <div class="sign-section" id="signing-block">
+                        <div class="sign-title">
+                            <span>🖋️</span>
+                            <span>Authorized Vendor Representative Digital Acceptance</span>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="signer_name">Full Name of Signatory *</label>
+                                <input type="text" id="signer_name" placeholder="e.g. Rajesh Sharma" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="signer_designation">Official Designation *</label>
+                                <input type="text" id="signer_designation" placeholder="e.g. Managing Director / Partner" required>
+                            </div>
+                        </div>
+
+                        <div style="font-size: 12.5px; font-weight: 600; color: #374151; margin-bottom: 6px;">Draw Signature Below:</div>
+                        <div class="canvas-container">
+                            <canvas id="sig-canvas"></canvas>
+                            <button type="button" class="canvas-clear-btn" id="sig-clear-btn">Clear Canvas</button>
+                        </div>
+
+                        <button type="button" class="btn-submit" id="btn-submit-sign">
+                            ✍️ Accept & Digitally Sign Purchase Order #{{ po.name }}
+                        </button>
+                    </div>
+                {% endif %}
+
+                <div class="footer">
+                    Powered by <strong>AP Automation</strong> • Aionion Group & Quanticus Software • Bank-Grade Cryptographic Signature Gateway
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const canvas = document.getElementById('sig-canvas');
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            let drawing = false;
+
+            function resizeCanvas() {
+                canvas.width = canvas.parentElement.clientWidth;
+                canvas.height = 160;
+                ctx.lineWidth = 2.5;
+                ctx.lineCap = 'round';
+                ctx.strokeStyle = '#1e3a8a';
+            }
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+
+            function getPos(e) {
+                const rect = canvas.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                return { x: clientX - rect.left, y: clientY - rect.top };
+            }
+
+            function startDraw(e) {
+                drawing = true;
+                const pos = getPos(e);
+                ctx.beginPath();
+                ctx.moveTo(pos.x, pos.y);
+                if (e.cancelable && e.type.startsWith('touch')) e.preventDefault();
+            }
+
+            function draw(e) {
+                if (!drawing) return;
+                const pos = getPos(e);
+                ctx.lineTo(pos.x, pos.y);
+                ctx.stroke();
+                if (e.cancelable && e.type.startsWith('touch')) e.preventDefault();
+            }
+
+            function stopDraw() {
+                drawing = false;
+            }
+
+            canvas.addEventListener('mousedown', startDraw);
+            canvas.addEventListener('mousemove', draw);
+            window.addEventListener('mouseup', stopDraw);
+
+            canvas.addEventListener('touchstart', startDraw, { passive: false });
+            canvas.addEventListener('touchmove', draw, { passive: false });
+            window.addEventListener('touchend', stopDraw);
+
+            document.getElementById('sig-clear-btn').addEventListener('click', function() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            });
+
+            // Submit Handler
+            const btnSubmit = document.getElementById('btn-submit-sign');
+            if (btnSubmit) {
+                btnSubmit.addEventListener('click', function() {
+                    const signerName = document.getElementById('signer_name').value.trim();
+                    const signerDesig = document.getElementById('signer_designation').value.trim();
+
+                    if (!signerName) {
+                        alert('Please enter the Full Name of the Signatory.');
+                        document.getElementById('signer_name').focus();
+                        return;
+                    }
+
+                    btnSubmit.disabled = true;
+                    btnSubmit.innerText = 'Submitting Digital Signature...';
+
+                    const sigData = canvas.toDataURL();
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const poName = urlParams.get('po') || '';
+                    const token = urlParams.get('token') || '';
+
+                    fetch('/api/method/ap_automation.www.po_sign.submit_vendor_esign', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            po_name: poName,
+                            token: token,
+                            signer_name: signerName,
+                            signer_designation: signerDesig,
+                            signature_data: sigData
+                        })
+                    })
+                    .then(r => r.json())
+                    .then(res => {
+                        if (res.message && res.message.status === 'success') {
+                            alert('🎉 Purchase Order #' + poName + ' successfully digitally signed and confirmed!');
+                            window.location.reload();
+                        } else if (res.exc) {
+                            alert('Error recording signature: ' + (res._server_messages || res.exc));
+                            btnSubmit.disabled = false;
+                            btnSubmit.innerText = '✍️ Accept & Digitally Sign Purchase Order';
+                        } else {
+                            window.location.reload();
+                        }
+                    })
+                    .catch(err => {
+                        alert('Submission error: ' + err);
+                        btnSubmit.disabled = false;
+                        btnSubmit.innerText = '✍️ Accept & Digitally Sign Purchase Order';
+                    });
+                });
+            }
+        });
+    </script>
+</body>
+</html>
