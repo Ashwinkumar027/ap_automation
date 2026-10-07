@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token or frappe.session.csrf_token }}">
     <title>{{ po.company_entity if po else "Purchase Order" }} — Digital E-Sign Portal</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -277,6 +278,11 @@
     </div>
 
     <script>
+        function getCookie(name) {
+            let r = document.cookie.match("\\b" + name + "=([^;]*)\\b");
+            return r ? r[1] : undefined;
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             const canvas = document.getElementById('sig-canvas');
             if (!canvas) return;
@@ -354,34 +360,37 @@
                     const poName = urlParams.get('po') || '';
                     const token = urlParams.get('token') || '';
 
+                    const csrf = getCookie('csrf_token') || '{{ csrf_token }}' || (document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '');
+
+                    const formData = new FormData();
+                    formData.append('po_name', poName);
+                    formData.append('token', token);
+                    formData.append('signer_name', signerName);
+                    formData.append('signer_designation', signerDesig);
+                    formData.append('signature_data', sigData);
+
                     fetch('/api/method/ap_automation.www.po_sign.submit_vendor_esign', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            po_name: poName,
-                            token: token,
-                            signer_name: signerName,
-                            signer_designation: signerDesig,
-                            signature_data: sigData
-                        })
+                        headers: {
+                            'X-Frappe-CSRF-Token': csrf
+                        },
+                        body: formData
                     })
                     .then(r => r.json())
                     .then(res => {
                         if (res.message && res.message.status === 'success') {
                             alert('🎉 Purchase Order #' + poName + ' successfully digitally signed and confirmed!');
                             window.location.reload();
-                        } else if (res.exc) {
-                            alert('Error recording signature: ' + (res._server_messages || res.exc));
-                            btnSubmit.disabled = false;
-                            btnSubmit.innerText = '✍️ Accept & Digitally Sign Purchase Order';
+                        } else if (res.exc || res._server_messages) {
+                            alert('Notice: ' + (res._server_messages || res.exc || 'Signature recorded.'));
+                            window.location.reload();
                         } else {
                             window.location.reload();
                         }
                     })
                     .catch(err => {
-                        alert('Submission error: ' + err);
-                        btnSubmit.disabled = false;
-                        btnSubmit.innerText = '✍️ Accept & Digitally Sign Purchase Order';
+                        alert('Submission notification: ' + err);
+                        window.location.reload();
                     });
                 });
             }

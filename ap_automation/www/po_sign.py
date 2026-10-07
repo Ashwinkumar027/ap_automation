@@ -3,7 +3,6 @@ import urllib.parse
 import frappe
 
 no_cache = 1
-base_template_path = None
 
 def get_context(context):
     po_name = frappe.form_dict.get("po") or frappe.form_dict.get("name")
@@ -12,6 +11,7 @@ def get_context(context):
     context.no_cache = 1
     context.show_sidebar = False
     context.title = "Purchase Order Digital Signature Portal"
+    context.csrf_token = frappe.session.csrf_token if hasattr(frappe, "session") else ""
 
     if not po_name or not token:
         context.error_message = "Invalid link parameters. Purchase Order # and Token are required."
@@ -41,10 +41,16 @@ def get_context(context):
 
 
 @frappe.whitelist(allow_guest=True)
-def submit_vendor_esign(po_name: str, token: str, signer_name: str, signer_designation: str, signature_data: str = None):
+def submit_vendor_esign(po_name: str = None, token: str = None, signer_name: str = None, signer_designation: str = None, signature_data: str = None):
     """Whitelisted endpoint to record vendor e-signature securely from public portal."""
+    po_name = po_name or frappe.form_dict.get("po_name") or frappe.form_dict.get("po")
+    token = token or frappe.form_dict.get("token")
+    signer_name = signer_name or frappe.form_dict.get("signer_name")
+    signer_designation = signer_designation or frappe.form_dict.get("signer_designation") or "Authorized Signatory"
+    signature_data = signature_data or frappe.form_dict.get("signature_data")
+
     if not po_name or not token or not signer_name:
-        frappe.throw("Signer Name and verification credentials are strictly mandatory.")
+        frappe.throw("Signer Name, Purchase Order #, and Security Token are strictly mandatory.")
 
     if not frappe.db.exists("AP Purchase Order", po_name):
         frappe.throw(f"Purchase Order '{po_name}' not found.")
