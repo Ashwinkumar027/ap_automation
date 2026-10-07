@@ -24,7 +24,8 @@ app_include_js = [
 doctype_js = {
     "AP IDFC Settings": "public/js/ap_idfc_settings.js",
     "Employee Reimbursement Claim": "public/js/employee_reimbursement_claim.js",
-    "Weekly Accounts Audit Batch": "public/js/weekly_accounts_audit_batch.js"
+    "Weekly Accounts Audit Batch": "public/js/weekly_accounts_audit_batch.js",
+    "Vendor Invoice Claim": "public/js/vendor_invoice_claim.js"
 }
 
 # --------------------------------------------------------------------------------------
