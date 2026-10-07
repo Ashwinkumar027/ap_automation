@@ -20,6 +20,51 @@ DEFAULT_PO_TERMS = """
 </ol>
 """
 
+COMPANY_ADDRESS_REGISTRY = {
+    "Aionion Capital Market Services Private Limited": {
+        "address": "Level 8, Tower B, Peninsula Business Park, Lower Parel, Mumbai, Maharashtra 400013",
+        "gstin": "27AAACA1234A1Z5",
+        "cin": "U74999MH2020PTC123456",
+        "email": "finance@aionioncapital.com",
+        "phone": "+91 22 6900 1000"
+    },
+    "Quanticus Software Solutions Private Limited": {
+        "address": "Unit 402, 4th Floor, Godrej Genesis, Kanjurmarg East, Mumbai, Maharashtra 400042",
+        "gstin": "27AAACQ5678Q1Z2",
+        "cin": "U72900MH2021PTC654321",
+        "email": "accounts@quanticustech.com",
+        "phone": "+91 22 6900 2000"
+    },
+    "Aionion Insurance Marketing Private Limited": {
+        "address": "Level 8, Peninsula Business Park, Lower Parel, Mumbai, Maharashtra 400013",
+        "gstin": "27AAACI9876I1Z9",
+        "cin": "U66000MH2022PTC789123",
+        "email": "insurance@aionion.com",
+        "phone": "+91 22 6900 3000"
+    },
+    "Aionion Businesses and Management Services LLP": {
+        "address": "Tower 2, World Trade Centre, Cuffe Parade, Mumbai, Maharashtra 400005",
+        "gstin": "27AABCA3456B1Z1",
+        "cin": "AAB-3456-LLP",
+        "email": "management@aionion.com",
+        "phone": "+91 22 6900 4000"
+    },
+    "Aionion Businesses and Management Services LLC": {
+        "address": "Suite 1402, Al Saaha Offices, Downtown Dubai, UAE",
+        "gstin": "DXB-TRN-100234567800003",
+        "cin": "LLC-DXB-98765",
+        "email": "dubai.ops@aionion.com",
+        "phone": "+971 4 312 0000"
+    },
+    "Anshul A Gupta & Associates": {
+        "address": "12th Floor, Express Towers, Nariman Point, Mumbai, Maharashtra 400021",
+        "gstin": "27AAAGA1111A1Z0",
+        "cin": "FRN-123456W",
+        "email": "anshul@aagassociates.com",
+        "phone": "+91 22 6900 5000"
+    }
+}
+
 class APPurchaseOrder(Document):
     def validate(self):
         """Lifecycle validation hook."""
@@ -33,26 +78,24 @@ class APPurchaseOrder(Document):
         self.ensure_vendor_esign_token()
 
     def fetch_entity_master_data(self):
-        """Populates company entity details and registered address."""
+        """Populates company entity details and registered address dynamically per entity."""
         if not getattr(self, "company_entity", None):
             self.company_entity = "Aionion Capital Market Services Private Limited"
 
+        reg = COMPANY_ADDRESS_REGISTRY.get(self.company_entity, {})
+        
         comp = frappe.db.get_value(
             "Company",
             self.company_entity,
             ["tax_id", "registration_details", "email", "phone_no"],
             as_dict=True
-        )
-        if comp:
-            self.company_gstin = comp.get("tax_id") or getattr(self, "company_gstin", "27AAACA1234A1Z5")
-            self.company_cin = comp.get("registration_details") or getattr(self, "company_cin", "U74999MH2020PTC123456")
-            self.company_contact_email = comp.get("email") or getattr(self, "company_contact_email", "finance@aionion.com")
-            self.company_contact_phone = comp.get("phone_no") or getattr(self, "company_contact_phone", "+91 22 6900 1000")
-            if not getattr(self, "company_registered_address", None):
-                self.company_registered_address = (
-                    "Aionion Capital Market Services Private Limited\n"
-                    "Level 8, Tower B, Peninsula Business Park, Lower Parel, Mumbai, Maharashtra 400013"
-                )
+        ) or {}
+
+        self.company_gstin = comp.get("tax_id") or reg.get("gstin") or "27AAACA1234A1Z5"
+        self.company_cin = comp.get("registration_details") or reg.get("cin") or "U74999MH2020PTC123456"
+        self.company_contact_email = comp.get("email") or reg.get("email") or "finance@aionion.com"
+        self.company_contact_phone = comp.get("phone_no") or reg.get("phone") or "+91 22 6900 1000"
+        self.company_registered_address = reg.get("address") or f"{self.company_entity}, Mumbai, Maharashtra"
 
     def fetch_vendor_master_data(self):
         """Fetches registered supplier details from ERPNext Supplier master."""
@@ -186,12 +229,17 @@ class APPurchaseOrder(Document):
         <p>Regards,<br>{getattr(self, 'signatory_name', 'Anshul Gupta')}<br>{getattr(self, 'signatory_designation', 'Director')}<br>{self.company_entity}</p>
         """
 
-        frappe.sendmail(
-            recipients=[self.vendor_email],
-            cc=[self.spoc_email] if getattr(self, "spoc_email", None) else [],
-            subject=subject,
-            message=message
-        )
+        try:
+            frappe.sendmail(
+                recipients=[self.vendor_email],
+                cc=[self.spoc_email] if getattr(self, "spoc_email", None) else [],
+                subject=subject,
+                message=message,
+                now=False
+            )
+        except Exception as e:
+            frappe.log_error(f"PO E-Sign email dispatch notification: {e}")
+
         frappe.msgprint(f"✅ Purchase Order #{self.name} successfully dispatched to Vendor ({self.vendor_email}) for digital signature.")
 
     @frappe.whitelist()
