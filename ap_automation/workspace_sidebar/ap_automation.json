@@ -8,7 +8,7 @@
  "items": [
   {
    "child": 0,
-   "collapsible": 1,
+   "collapsible": 0,
    "indent": 0,
    "keep_closed": 0,
    "label": "AP Automation",
@@ -19,7 +19,7 @@
   },
   {
    "child": 0,
-   "collapsible": 1,
+   "collapsible": 0,
    "indent": 0,
    "keep_closed": 0,
    "label": "Lane 1: Petty Cash",
@@ -30,7 +30,7 @@
   },
   {
    "child": 0,
-   "collapsible": 1,
+   "collapsible": 0,
    "indent": 0,
    "keep_closed": 0,
    "label": "Lane 2: Employee Claims",
@@ -41,7 +41,7 @@
   },
   {
    "child": 0,
-   "collapsible": 1,
+   "collapsible": 0,
    "indent": 0,
    "keep_closed": 0,
    "label": "Lane 3: Vendor Invoices",
@@ -52,7 +52,7 @@
   },
   {
    "child": 0,
-   "collapsible": 1,
+   "collapsible": 0,
    "indent": 0,
    "keep_closed": 0,
    "label": "Lane 4: Event Spends",
@@ -63,7 +63,7 @@
   },
   {
    "child": 0,
-   "collapsible": 1,
+   "collapsible": 0,
    "indent": 0,
    "keep_closed": 0,
    "label": "Payment Batches",
@@ -73,7 +73,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-15 17:27:36.927055",
+ "modified": "2026-10-07 12:25:45.183497",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "AP Automation",

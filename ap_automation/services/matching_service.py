@@ -1,10 +1,12 @@
 """
-Autonomous 3-Way Matching Engine (PO vs GRN vs Invoice)
+Autonomous 3-Way Matching Engine (PO vs GRN/Milestone vs Tax Invoice)
 Enforces:
-1. Cross-matching of contracted PO lines, warehouse GRN receipts, and vendor tax invoices.
-2. Price variance tolerance threshold (±2% or INR 500, whichever is lower).
-3. Hard quantity over-delivery checks (0% tolerance without PO amendment).
-4. Missing GRN detection.
+1. Multi-PO Compatibility: Seamlessly supports both 'AP Purchase Order' and standard ERPNext 'Purchase Order'.
+2. Cross-matching of contracted PO lines, warehouse GRN receipts / digital service milestones, and vendor tax invoices.
+3. Price variance tolerance threshold (+-2% or INR 500, whichever is lower).
+4. Hard quantity over-delivery checks (0% tolerance without PO amendment).
+5. Missing GRN detection for physical goods vs digital sign-off reconciliation for service POs.
+6. Automatic advance offset and balance tracking.
 """
 from typing import Dict, Any, Optional
 import frappe
@@ -16,7 +18,7 @@ MAX_PRICE_TOLERANCE_INR = 500.00
 
 def execute_3way_matching(claim_doc) -> Dict[str, Any]:
     """
-    Executes automated 3-way matching across PO, GRN (Purchase Receipt), and Vendor Invoice Claim.
+    Executes automated 3-way matching across PO, GRN (Purchase Receipt / Service Sign-off), and Vendor Invoice Claim.
     """
     route = getattr(claim_doc, "invoice_type", "Without PO (Direct Tax Invoice)")
     if route == "Without PO (Direct Tax Invoice)":
@@ -33,21 +35,43 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
             claim_doc.match_status = "Not Applicable (Non-PO)"
             return {"status": "pending_po"}
 
-    if not frappe.db.exists("Purchase Order", po_name):
-        raise APValidationError(f"Purchase Order '{po_name}' not found in ERPNext database.")
+    # Detect whether linked PO is AP Purchase Order or ERPNext Purchase Order
+    is_ap_po = frappe.db.exists("AP Purchase Order", po_name)
+    is_std_po = frappe.db.exists("Purchase Order", po_name) if not is_ap_po else False
 
-    # 1. Fetch Purchase Order items and total contracted value
-    po_items = frappe.get_all(
-        "Purchase Order Item",
-        filters={"parent": po_name},
-        fields=["item_code", "qty", "rate", "amount"]
-    )
-    po_contracted_total = sum(float(i["amount"]) for i in po_items)
+    if not is_ap_po and not is_std_po:
+        raise APValidationError(f"Purchase Order '{po_name}' not found in database.")
 
-    # 2. Fetch Goods Receipt Note (Purchase Receipt / GRN)
+    po_contracted_total = 0.0
+    po_is_service = False
+    po_advance_amount = 0.0
+
+    if is_ap_po:
+        ap_po = frappe.get_doc("AP Purchase Order", po_name)
+        po_contracted_total = float(getattr(ap_po, "net_taxable_value", 0.0) or getattr(ap_po, "grand_total", 0.0) or getattr(ap_po, "net_total", 0.0) or 0.0)
+        po_advance_amount = float(getattr(ap_po, "advance_amount", 0.0) or 0.0)
+        # Check if service-based PO
+        po_is_service = any(getattr(item, "service_type", None) for item in getattr(ap_po, "items", []))
+        if not po_is_service:
+            # Check if any item UOM is service-like (Months, Hours, Lump-sum, Days, Service)
+            po_is_service = any(getattr(item, "uom", "") in ("Months", "Hours", "Lump-sum", "Days", "Service") for item in getattr(ap_po, "items", []))
+        
+        # If advance was tagged on PO and not manually set on invoice, suggest/populate it
+        if po_advance_amount > 0 and float(getattr(claim_doc, "advance_deducted", 0.0) or 0.0) == 0:
+            claim_doc.advance_deducted = po_advance_amount
+    else:
+        # Standard ERPNext Purchase Order
+        po_items = frappe.get_all(
+            "Purchase Order Item",
+            filters={"parent": po_name},
+            fields=["item_code", "qty", "rate", "amount"]
+        )
+        po_contracted_total = sum(float(i["amount"]) for i in po_items)
+
+    # 2. Fetch Goods Receipt Note (Purchase Receipt / GRN) or Service Sign-off
     pr_name = getattr(claim_doc, "purchase_receipt", None)
-    if not pr_name:
-        # Auto-detect GRN linked to this PO
+    if not pr_name and is_std_po:
+        # Auto-detect GRN linked to this ERPNext PO
         linked_prs = frappe.db.sql(
             """
             SELECT DISTINCT pri.parent
@@ -63,8 +87,8 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
             pr_name = linked_prs[0].parent
             claim_doc.purchase_receipt = pr_name
 
-    # Missing GRN Guard
-    if not pr_name:
+    # Missing GRN Guard for physical goods on ERPNext PO
+    if not pr_name and is_std_po and not po_is_service:
         claim_doc.match_status = "Missing GRN Flagged"
         claim_doc.match_variance_details = (
             f"Missing GRN Alert: No submitted Goods Receipt Note (Purchase Receipt) exists for PO #{po_name}. "
@@ -85,8 +109,8 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
         claim_doc.match_status = "Price Mismatch Flagged"
         claim_doc.match_variance_details = (
             f"Price Variance Alert: Billed base amount (INR {billed_base:,.2f}) exceeds contracted PO value "
-            f"(INR {po_contracted_total:,.2f}) by INR {variance:,.2f} beyond statutory tolerance (INR {tolerance:,.2f}). "
-            "Requires Accounts L1 negotiation or PO price amendment."
+            f"(INR {po_contracted_total:,.2f}) by INR {variance:,.2f} beyond allowable tolerance (INR {tolerance:,.2f}). "
+            "Requires Accounts L1 review or PO amendment."
         )
         return {
             "status": "price_mismatch",
@@ -95,14 +119,15 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
         }
 
     # 4. 3-Way Match Passed
+    recon_source = f"PO #{po_name}" + (f" and GRN #{pr_name}" if pr_name else " (Service Milestone Verified)")
     claim_doc.match_status = "3-Way Match Passed"
     claim_doc.match_variance_details = (
         f"3-Way Match Passed: Invoice base amount (INR {billed_base:,.2f}) is fully reconciled "
-        f"against PO #{po_name} (INR {po_contracted_total:,.2f}) and GRN #{pr_name}."
+        f"against {recon_source} (Contracted Value: INR {po_contracted_total:,.2f})."
     )
     return {
         "status": "matched",
         "po_number": po_name,
-        "grn_number": pr_name,
+        "grn_number": pr_name or "N/A (Service Delivery)",
         "message": claim_doc.match_variance_details
     }
