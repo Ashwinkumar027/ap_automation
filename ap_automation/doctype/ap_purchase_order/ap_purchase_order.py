@@ -203,9 +203,17 @@ class APPurchaseOrder(Document):
         self.signatory_signature_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def ensure_vendor_esign_token(self):
-        """Generates secure token and public signing URL for vendor."""
+        """Generates secure token and public signing URL for vendor once, keeping it immutable."""
+        if getattr(self, "vendor_sign_url", None):
+            import urllib.parse
+            parsed = urllib.parse.urlparse(self.vendor_sign_url)
+            existing_token = urllib.parse.parse_qs(parsed.query).get("token", [None])[0]
+            if existing_token:
+                self.vendor_sign_token = existing_token
+                return
+
         if not getattr(self, "vendor_sign_token", None):
-            self.vendor_sign_token = secrets.token_urlsafe(32)
+            self.vendor_sign_token = secrets.token_hex(20)
         
         base_url = get_url()
         self.vendor_sign_url = f"{base_url}/po-sign?token={self.vendor_sign_token}&po={self.name or 'DRAFT'}"
