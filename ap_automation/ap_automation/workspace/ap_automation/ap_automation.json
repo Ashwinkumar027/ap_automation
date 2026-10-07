@@ -84,9 +84,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Vendor PO Request",
+   "label": "AP Purchase Order",
    "link_count": 0,
-   "link_to": "Vendor PO Request",
+   "link_to": "AP Purchase Order",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -104,9 +104,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Purchase Order",
+   "label": "AP Purchase Order",
    "link_count": 0,
-   "link_to": "Purchase Order",
+   "link_to": "AP Purchase Order",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -249,7 +249,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-22 14:37:03.828574",
+ "modified": "2026-10-07 12:21:56.663514",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "AP Automation",
@@ -279,6 +279,12 @@
   },
   {
    "role": "Payment Releaser"
+  },
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "Employee"
   }
  ],
  "sequence_id": 1.0,

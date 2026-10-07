@@ -36,9 +36,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Vendor PO Request",
+   "label": "AP Purchase Order",
    "link_count": 0,
-   "link_to": "Vendor PO Request",
+   "link_to": "AP Purchase Order",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -56,21 +56,21 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Purchase Order",
+   "label": "AP Purchase Order",
    "link_count": 0,
-   "link_to": "Purchase Order",
+   "link_to": "AP Purchase Order",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
   }
  ],
- "modified": "2026-09-15 15:03:21.075684",
+ "modified": "2026-10-07 12:21:56.117267",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Lane 3: Vendor Invoices",
  "number_cards": [],
  "owner": "Administrator",
- "parent_page": "",
+ "parent_page": "AP Automation",
  "public": 1,
  "quick_lists": [],
  "roles": [
@@ -103,6 +103,9 @@
   },
   {
    "role": "Payment Releaser"
+  },
+  {
+   "role": "Accounts L1 Auditor"
   }
  ],
  "sequence_id": 1.3,
@@ -115,8 +118,8 @@
   },
   {
    "color": "Green",
-   "label": "Vendor PO Requests",
-   "link_to": "Vendor PO Request",
+   "label": "AP Purchase Orders",
+   "link_to": "AP Purchase Order",
    "type": "DocType"
   }
  ],
