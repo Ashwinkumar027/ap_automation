@@ -1,79 +1,63 @@
 """
-================================================================================
-AP AUTOMATION - 4-TIER ORGANIZATIONAL PERMISSION SERVICE
-================================================================================
-Implements production-grade, multi-tier scoping across all AP Automation workflows:
-  - Tier 1: Standard Employees (Strict Self-Isolation: Own employee ID / Own claims only)
-            * Employees can view and edit their own documents in Draft & Returned states.
-  - Tier 2: Reporting Managers (Subordinate Scope: Self + direct/indirect reportees)
-            * NOTE: Managers ONLY see subordinate requests/claims AFTER submission
-                    (Status != 'Draft' AND Status != 'Returned to Employee').
-  - Tier 3: Global Approvers (Reception, Admin L1/L2, Accounts L1/Director, Payment Releaser)
-            * Full organization-wide view for review, audit, and sanctioning.
-  - Tier 4: System Managers (Global administrative control)
-================================================================================
+Enterprise Multi-Tier Permission Engine for Employee Reimbursements & Pre-Travel.
+Implements:
+1. Dynamic ORM SQL Query Conditions (Desk List, Report, and API isolation).
+2. Document-Level Fine-Grained Permissions (Read/Write/Approval security).
+3. 4-Tier Organizational Scoping (Claimant, Reporting Manager, SPOC, Global Approver).
 """
-
+from typing import Optional, List, Set, Union, Any
 import frappe
-from typing import List, Optional, Set
+from frappe.model.document import Document
 
+# Roles that bypass document-level user restrictions and have organization-wide visibility
 GLOBAL_VIEW_ROLES = {
     "System Manager",
     "Administrator",
-    "Admin L1 Approver",
-    "Admin L2 Approver",
     "Accounts L1 Auditor",
     "Accounts Director",
-    "Accounts Manager",
     "Payment Releaser",
-    "Receptionist"
+    "Accounts Manager"
 }
 
-EMPLOYEE_EDITABLE_STATUSES = {"Draft", "Returned to Employee", "Returned for Correction", "Rejected"}
+EMPLOYEE_EDITABLE_STATUSES = {"Draft", "Returned for Correction", "Rejected", None, ""}
 
 
 def is_global_view_user(user: Optional[str] = None) -> bool:
-    """
-    Checks if the user has any organization-wide governance/approver role.
-    """
+    """Checks if the user possesses any corporate-wide audit or approval roles."""
     if not user:
         user = frappe.session.user
-
-    if user in ("Administrator", "admin@example.com"):
+    if user == "Administrator":
         return True
-
     user_roles = set(frappe.get_roles(user))
     return bool(user_roles.intersection(GLOBAL_VIEW_ROLES))
 
 
 def get_subordinate_employees_for_user(user: Optional[str] = None) -> List[str]:
     """
-    Fetches the current user's Employee ID and all direct and indirect reportee Employee IDs.
-    Performs fast O(1) indexed recursive lookup.
+    Returns a list of Employee document names that report directly or indirectly to the user.
     """
     if not user:
         user = frappe.session.user
 
-    own_emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
-    if not own_emp:
+    manager_emp_names = frappe.db.get_all(
+        "Employee",
+        filters={"user_id": user, "status": "Active"},
+        pluck="name"
+    )
+
+    if not manager_emp_names:
         return []
 
-    subordinates: Set[str] = {own_emp}
-    to_process = [own_emp]
+    subordinates = frappe.db.get_all(
+        "Employee",
+        filters={
+            "reports_to": ["in", manager_emp_names],
+            "status": "Active"
+        },
+        pluck="name"
+    )
 
-    while to_process:
-        current_manager = to_process.pop(0)
-        direct_reportees = frappe.get_all(
-            "Employee",
-            filters={"reports_to": current_manager, "status": "Active"},
-            pluck="name"
-        )
-        for r in direct_reportees:
-            if r not in subordinates:
-                subordinates.add(r)
-                to_process.append(r)
-
-    return list(subordinates)
+    return list(set(manager_emp_names + subordinates))
 
 
 # ==============================================================================
@@ -83,9 +67,6 @@ def get_subordinate_employees_for_user(user: Optional[str] = None) -> List[str]:
 def get_reimbursement_permission_query_conditions(user: Optional[str] = None) -> str:
     """
     Injected into Frappe ORM queries for 'Employee Reimbursement Claim'.
-    - Global Approvers: View all claims.
-    - Standard Employee: View only own claims.
-    - Reporting Manager: View own claims + subordinate claims (ONLY when active in approval pipeline).
     """
     if not user:
         user = frappe.session.user
@@ -114,23 +95,19 @@ def get_reimbursement_permission_query_conditions(user: Optional[str] = None) ->
         return f"(`tabEmployee Reimbursement Claim`.`owner` = {escaped_user} {emp_match})"
 
 
-def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "read") -> bool:
+def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "read") -> Optional[bool]:
     """
     Document-level permission evaluator for 'Employee Reimbursement Claim'.
     """
     if not user:
         user = frappe.session.user
 
-    # Allow create/write on new/unsaved docs - standard DocPerm handles it
-    if ptype in ("create", "write") and (
-        not doc
-        or getattr(doc, "__islocal", False)
-        or (hasattr(doc, "is_new") and doc.is_new())
-        or not getattr(doc, "name", None)
-    ):
-        return True
+    # If doc is None or a string (doctype-level check), let standard DocPerm decide
+    if not doc or isinstance(doc, str):
+        return None
 
-    if not doc or getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()):
+    # Allow create/write on new/unsaved docs
+    if getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()) or not getattr(doc, "name", None) or str(getattr(doc, "name", "")).startswith("new-"):
         return True
 
     if is_global_view_user(user):
@@ -141,24 +118,31 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
 
     doc_status = getattr(doc, "status", None)
 
-    # 1. Draft & Returned states are strictly editable by the claimant
-    if doc_status in EMPLOYEE_EDITABLE_STATUSES:
-        if is_owner:
-            return True
-        return False
-
-    # 2. Claimant always has read access to their submitted claims
+    # 1. Draft & Returned states are editable by the claimant
     if is_owner:
+        if ptype in ("read", "select", "email", "print"):
+            return True
+        if ptype in ("write", "create", "delete"):
+            return doc_status in EMPLOYEE_EDITABLE_STATUSES
         return True
 
-    # 3. Manager & Approver authorization
-    if getattr(doc, "manager_user_id", None) == user:
+    # 2. Manager authorization
+    mgr_uid = getattr(doc, "manager_user_id", None) or (doc.get("manager_user_id") if hasattr(doc, "get") else None)
+    if mgr_uid == user:
+        if ptype in ("read", "select", "email", "print"):
+            return True
+        if ptype == "write":
+            return doc_status == "Pending Manager Approval"
         return True
 
     doc_emp = getattr(doc, "employee", None)
     if doc_emp:
         subordinate_emps = get_subordinate_employees_for_user(user)
         if doc_emp in subordinate_emps:
+            if ptype in ("read", "select", "email", "print"):
+                return True
+            if ptype == "write":
+                return doc_status == "Pending Manager Approval"
             return True
 
     return False
@@ -199,23 +183,19 @@ def get_pre_travel_permission_query_conditions(user: Optional[str] = None) -> st
         return f"(`tabPre Travel Request`.`owner` = {escaped_user} {emp_match})"
 
 
-def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "read") -> bool:
+def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "read") -> Optional[bool]:
     """
     Document-level permission evaluator for 'Pre Travel Request'.
     """
     if not user:
         user = frappe.session.user
 
-    # Allow create/write on new/unsaved docs - standard DocPerm handles it
-    if ptype in ("create", "write") and (
-        not doc
-        or getattr(doc, "__islocal", False)
-        or (hasattr(doc, "is_new") and doc.is_new())
-        or not getattr(doc, "name", None)
-    ):
-        return True
+    # If doc is None or a string (doctype-level check), let standard DocPerm decide
+    if not doc or isinstance(doc, str):
+        return None
 
-    if not doc or getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()):
+    # Allow create/write on new/unsaved docs
+    if getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()) or not getattr(doc, "name", None) or str(getattr(doc, "name", "")).startswith("new-"):
         return True
 
     if is_global_view_user(user):
@@ -226,25 +206,31 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
 
     doc_status = getattr(doc, "status", None) or ""
 
-    # 1. Draft & Rejected status are editable by the claimant
-    if doc_status in EMPLOYEE_EDITABLE_STATUSES:
-        if is_owner:
-            return True
-        return False
-
-    # 2. Claimant always has read access
+    # 1. Claimant permissions
     if is_owner:
+        if ptype in ("read", "select", "email", "print"):
+            return True
+        if ptype in ("write", "create", "delete"):
+            return doc_status in EMPLOYEE_EDITABLE_STATUSES
         return True
 
-    # 3. Manager authorization (use .get() safe accessor)
+    # 2. Manager authorization
     mgr_uid = getattr(doc, "manager_user_id", None) or (doc.get("manager_user_id") if hasattr(doc, "get") else None)
     if mgr_uid == user:
+        if ptype in ("read", "select", "email", "print"):
+            return True
+        if ptype == "write":
+            return doc_status == "Pending Manager Approval"
         return True
 
     doc_emp = getattr(doc, "employee", None)
     if doc_emp:
         subordinate_emps = get_subordinate_employees_for_user(user)
         if doc_emp in subordinate_emps:
+            if ptype in ("read", "select", "email", "print"):
+                return True
+            if ptype == "write":
+                return doc_status == "Pending Manager Approval"
             return True
 
     return False
