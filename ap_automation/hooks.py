@@ -24,8 +24,22 @@ app_include_js = [
 doctype_js = {
     "AP IDFC Settings": "public/js/ap_idfc_settings.js",
     "Employee Reimbursement Claim": "public/js/employee_reimbursement_claim.js",
+    "Pre Travel Request": "doctype/pre_travel_request/pre_travel_request.js",
     "Weekly Accounts Audit Batch": "public/js/weekly_accounts_audit_batch.js",
     "Vendor Invoice Claim": "public/js/vendor_invoice_claim.js"
+}
+
+# --------------------------------------------------------------------------------------
+# PERMISSION QUERY CONDITIONS & HAS_PERMISSION HOOKS
+# --------------------------------------------------------------------------------------
+permission_query_conditions = {
+    "Employee Reimbursement Claim": "ap_automation.services.employee_reimbursement_permission_service.get_reimbursement_permission_query_conditions",
+    "Pre Travel Request": "ap_automation.services.employee_reimbursement_permission_service.get_pre_travel_permission_query_conditions"
+}
+
+has_permission = {
+    "Employee Reimbursement Claim": "ap_automation.services.employee_reimbursement_permission_service.has_reimbursement_permission",
+    "Pre Travel Request": "ap_automation.services.employee_reimbursement_permission_service.has_pre_travel_permission"
 }
 
 # --------------------------------------------------------------------------------------

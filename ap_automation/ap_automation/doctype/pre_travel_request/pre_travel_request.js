@@ -3,6 +3,12 @@
 
 /**
  * Pre Travel Request Form Controller (Stage A: Multi-Client Visit Pre-Approval)
+ * Features:
+ * 1. 4-Tier Scope: Restricts employee dropdown to permitted tier.
+ * 2. Auto-populates employee on new form.
+ * 3. Enforces read-only status and zero-advance policy.
+ * 4. Action buttons for Submission, Manager Approval, and Rejection.
+ * 5. Dynamic Client Visit Itinerary with Client Code support for Existing Clients.
  */
 frappe.ui.form.on('Pre Travel Request', {
     setup: function(frm) {
@@ -15,15 +21,34 @@ frappe.ui.form.on('Pre Travel Request', {
 
     onload: function(frm) {
         if (frm.is_new() && !frm.doc.employee) {
-            frappe.db.get_value('Employee', { user_id: frappe.session.user }, 'name', (r) => {
-                if (r && r.name) {
-                    frm.set_value('employee', r.name);
+            frappe.db.get_value('Employee', { user_id: frappe.session.user }, [
+                'name', 'employee_name', 'company', 'department', 'reports_to'
+            ]).then(r => {
+                if (r && r.message) {
+                    frm.set_value('employee', r.message.name);
+                    if (r.message.employee_name) frm.set_value('employee_name', r.message.employee_name);
+                    if (r.message.company) frm.set_value('company', r.message.company);
+                    if (r.message.department) frm.set_value('department', r.message.department);
+                    if (r.message.reports_to) frm.set_value('reporting_manager', r.message.reports_to);
                 }
             });
         }
     },
 
     refresh: function(frm) {
+        frm.set_df_property('status', 'read_only', 1);
+        frm.set_df_property('advance_requested', 'hidden', 1);
+        frm.set_df_property('disbursed_advance_amount', 'hidden', 1);
+
+        const is_editable = frm.is_new() || ['Draft', 'Returned for Correction'].includes(frm.doc.status);
+        frm.set_df_property('employee', 'read_only', !is_editable);
+        frm.set_df_property('trip_purpose', 'read_only', !is_editable);
+        frm.set_df_property('destination_city', 'read_only', !is_editable);
+        frm.set_df_property('departure_date', 'read_only', !is_editable);
+        frm.set_df_property('return_date', 'read_only', !is_editable);
+        frm.set_df_property('estimated_budget', 'read_only', !is_editable);
+        frm.set_df_property('planned_client_visits', 'read_only', !is_editable);
+
         frm.trigger('setup_ui_state');
         frm.trigger('render_action_buttons');
     },
@@ -53,6 +78,10 @@ frappe.ui.form.on('Pre Travel Request', {
         } else if (frm.doc.status === 'Pending Manager Approval') {
             frm.dashboard.set_headline_alert(
                 __('<span class="indicator orange">⏳ Pending Approval from Reporting Manager: {0}</span>', [frm.doc.reporting_manager || 'Manager'])
+            );
+        } else if (frm.doc.status === 'Claim Linked') {
+            frm.dashboard.set_headline_alert(
+                __('<span class="indicator blue">🔗 Pre-Travel Request Linked to Expense Claim: {0}</span>', [frm.doc.linked_claim || ''])
             );
         }
     },
@@ -143,21 +172,10 @@ frappe.ui.form.on('Pre Travel Request', {
 
 // Child Table Event Handlers for Pre Travel Client Visit
 frappe.ui.form.on('Pre Travel Client Visit', {
-    customer: function(frm, cdt, cdn) {
-        const row = locals[cdt][cdn];
-        if (row.customer) {
-            frappe.db.get_value('Customer', row.customer, ['customer_name', 'mobile_no', 'primary_address'], (r) => {
-                if (r) {
-                    if (r.customer_name) frappe.model.set_value(cdt, cdn, 'client_name', r.customer_name);
-                    if (r.mobile_no && !row.client_phone) frappe.model.set_value(cdt, cdn, 'client_phone', r.mobile_no);
-                }
-            });
-        }
-    },
     client_type: function(frm, cdt, cdn) {
         const row = locals[cdt][cdn];
         if (row.client_type === 'New Prospect / Lead') {
-            frappe.model.set_value(cdt, cdn, 'customer', '');
+            frappe.model.set_value(cdt, cdn, 'client_code', '');
         }
     }
 });

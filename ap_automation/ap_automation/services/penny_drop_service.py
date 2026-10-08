@@ -25,24 +25,31 @@ def clean_legal_name(name: str) -> str:
         return ""
 
     n = name.upper().strip()
-    stopwords = [
-        "PRIVATE LIMITED", "PVT LTD", "PVT. LTD.", "PVT.LTD.",
-        "LIMITED", "LTD", "LTD.",
-        "LLP", "L.L.P.",
-        "INCORPORATED", "INC", "INC.",
-        "SERVICES", "SOLUTIONS", "ENTERPRISES", "INDIA", "CORP",
-        "AND", "&"
+    
+    # Remove common multi-word suffixes first
+    multi_word_stopwords = [
+        "PRIVATE LIMITED", "PVT LTD", "PVT. LTD.", "PVT.LTD.", "PVT LIMITED",
+        "PUBLIC LIMITED", "LIMITED LIABILITY PARTNERSHIP", "LLP INDIA"
     ]
+    for m in multi_word_stopwords:
+        n = n.replace(m, " ")
+
     # Replace special characters with spaces
     n = re.sub(r"[^A-Z0-9\s]", " ", n)
-    tokens = [t for t in n.split() if t and t not in stopwords]
+
+    single_word_stopwords = {
+        "PRIVATE", "PVT", "LIMITED", "LTD", "LLP", "INC", "INCORPORATED",
+        "SERVICES", "SOLUTIONS", "ENTERPRISES", "INDIA", "CORP", "CORPORATION",
+        "AND", "&", "THE", "OF", "CO", "COMPANY"
+    }
+    
+    tokens = [t for t in n.split() if t and t not in single_word_stopwords]
     return " ".join(tokens)
 
 
 def calculate_name_similarity(name1: str, name2: str) -> float:
     """
-    Calculates multi-dimensional string similarity score (0.0 to 100.0%) between
-    ERPNext Supplier name and NPCI Bank Account registered name.
+    Calculates fuzzy similarity score (0.0 to 100.0) between two legal names after sanitization.
     """
     c1 = clean_legal_name(name1)
     c2 = clean_legal_name(name2)
@@ -50,123 +57,68 @@ def calculate_name_similarity(name1: str, name2: str) -> float:
     if not c1 or not c2:
         return 0.0
 
+    # Exact cleaned match
     if c1 == c2:
         return 100.0
 
-    # 1. Direct sequence matching
-    seq_ratio = SequenceMatcher(None, c1, c2).ratio()
+    # Sequence matcher ratio
+    matcher = SequenceMatcher(None, c1, c2)
+    score = matcher.ratio() * 100.0
 
-    # 2. Token-sort sequence matching (handles inverted name order)
-    t1 = " ".join(sorted(c1.split()))
-    t2 = " ".join(sorted(c2.split()))
-    token_ratio = SequenceMatcher(None, t1, t2).ratio()
+    # Subset matching bonus (e.g., 'QUANTICUS SOFTWARE' inside 'QUANTICUS SOFTWARE PRIVATE LIMITED')
+    if c1 in c2 or c2 in c1:
+        score = max(score, 90.0)
 
-    # 3. Token-set Jaccard overlap
-    s1 = set(c1.split())
-    s2 = set(c2.split())
-    intersection = s1.intersection(s2)
-    set_ratio = (2.0 * len(intersection)) / (len(s1) + len(s2)) if (len(s1) + len(s2)) > 0 else 0.0
-
-    score = max(seq_ratio, token_ratio, set_ratio) * 100.0
     return round(score, 2)
 
 
 def verify_vendor_bank_account(
     bank_account_name: str,
-    mock_npci_name: Optional[str] = None
+    vendor_master_name: str,
+    mock_beneficiary_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Executes Penny Drop verification against NPCI/IDFC API and updates Bank Account status.
-    If score < 80%, hard-locks the bank account immediately.
+    Executes simulated/live IDFC Penny Drop API check against NPCI IMPS.
+    Locks the bank account if match score < 80%.
     """
     if not frappe.db.exists("Bank Account", bank_account_name):
-        raise APValidationError(f"Bank Account '{bank_account_name}' not found.")
+        raise APValidationError(f"Bank Account '{bank_account_name}' does not exist.")
 
-    ba = frappe.get_doc("Bank Account", bank_account_name)
-    supplier_name = ""
+    bank_doc = frappe.get_doc("Bank Account", bank_account_name)
+    registered_acc_name = bank_doc.account_name or bank_doc.party_name or vendor_master_name
 
-    if ba.party_type == "Supplier" and ba.party:
-        supp = frappe.db.get_value("Supplier", ba.party, ["supplier_name"], as_dict=True)
-        if supp:
-            supplier_name = supp.supplier_name
+    # Simulated NPCI IMPS return name
+    npci_returned_name = mock_beneficiary_name or registered_acc_name
 
-    if not supplier_name:
-        supplier_name = ba.account_name or ba.party or ""
+    score = calculate_name_similarity(registered_acc_name, npci_returned_name)
+    passed = score >= PENNY_DROP_MATCH_THRESHOLD
 
-    # Fetch registered name from IDFC/NPCI (or mock in sandbox)
-    npci_name = mock_npci_name or supplier_name
-    score = calculate_name_similarity(supplier_name, npci_name)
-
-    rrn = f"IDFC-PD-{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S')}"
-
-    if score >= PENNY_DROP_MATCH_THRESHOLD:
-        ba.penny_drop_status = "VERIFIED"
-        ba.penny_drop_score = score
-        ba.npci_registered_name = npci_name
-        ba.penny_drop_rrn = rrn
-        ba.locked_reason = ""
-        ba.save(ignore_permissions=True)
+    if passed:
+        frappe.db.set_value("Bank Account", bank_account_name, {
+            "penny_drop_status": "VERIFIED_ACTIVE",
+            "penny_drop_score": score,
+            "penny_drop_beneficiary_name": npci_returned_name,
+            "penny_drop_verification_date": frappe.utils.now()
+        })
         frappe.db.commit()
         return {
             "status": "VERIFIED",
-            "score": score,
-            "npci_name": npci_name,
-            "message": f"Penny Drop Verified successfully (Score: {score}%)."
+            "match_score": score,
+            "bank_account": bank_account_name,
+            "beneficiary_name": npci_returned_name,
+            "message": f"Penny Drop Verified successfully! Name Match: {score}%."
         }
     else:
         # HARD LOCKOUT
-        lock_msg = (
-            f"🚨 HARD LOCKOUT: NPCI Beneficiary Name Mismatch! ERPNext Name: '{supplier_name}' vs "
-            f"NPCI Registered Name: '{npci_name}' (Match Score: {score}% < {PENNY_DROP_MATCH_THRESHOLD}% threshold). "
-            "Bank account is hard-locked against all AP invoice filings and payouts."
-        )
-        ba.penny_drop_status = "LOCKED_PENNY_DROP_MISMATCH"
-        ba.penny_drop_score = score
-        ba.npci_registered_name = npci_name
-        ba.penny_drop_rrn = rrn
-        ba.locked_reason = lock_msg
-        ba.save(ignore_permissions=True)
+        frappe.db.set_value("Bank Account", bank_account_name, {
+            "penny_drop_status": "LOCKED_PENNY_DROP_MISMATCH",
+            "penny_drop_score": score,
+            "penny_drop_beneficiary_name": npci_returned_name,
+            "penny_drop_verification_date": frappe.utils.now()
+        })
         frappe.db.commit()
-        return {
-            "status": "LOCKED_PENNY_DROP_MISMATCH",
-            "score": score,
-            "npci_name": npci_name,
-            "message": lock_msg
-        }
-
-
-@frappe.whitelist()
-def unlock_vendor_bank_account(
-    bank_account_name: str,
-    justification: str,
-    user: Optional[str] = None
-) -> Dict[str, Any]:
-    """
-    Whitelisted gateway allowing only Accounts Managers to unlock a hard-locked vendor account.
-    Enforces mandatory >= 20-char justification and logs audit record.
-    """
-    acting_user = user or frappe.session.user
-    roles = frappe.get_roles(acting_user)
-
-    if "Accounts Manager" not in roles and "System Manager" not in roles:
-        raise APSecurityError("Unauthorized: Only Accounts Managers or System Managers can unlock a hard-locked bank account.")
-
-    if not justification or len(justification.strip()) < 20:
-        raise APValidationError("Justification is mandatory and must be at least 20 characters describing manual due diligence.")
-
-    if not frappe.db.exists("Bank Account", bank_account_name):
-        raise APValidationError(f"Bank Account '{bank_account_name}' not found.")
-
-    ba = frappe.get_doc("Bank Account", bank_account_name)
-    ba.penny_drop_status = "MANUALLY_OVERRIDDEN"
-    ba.unlocked_by = acting_user
-    ba.unlocked_reason = justification.strip()
-    ba.locked_reason = f"Override Applied by {acting_user}: {justification.strip()}"
-    ba.save(ignore_permissions=True)
-    frappe.db.commit()
-
-    return {
-        "status": "MANUALLY_OVERRIDDEN",
-        "unlocked_by": acting_user,
-        "message": f"Bank Account '{bank_account_name}' unlocked successfully by {acting_user}."
-    }
+        raise APSecurityError(
+            f"🚨 PENNY DROP MISMATCH HARD LOCKOUT: Bank Beneficiary Name '{npci_returned_name}' "
+            f"only matches {score}% with registered Vendor Name '{registered_acc_name}' "
+            f"(Threshold: {PENNY_DROP_MATCH_THRESHOLD}%). Bank Account has been locked to prevent fraud."
+        )

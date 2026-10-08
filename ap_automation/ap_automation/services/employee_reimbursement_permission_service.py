@@ -2,14 +2,17 @@
 # For license information, please see license.txt
 
 """
-Enterprise Row-Level Security & Permission Isolation Service
-Enforces:
-1. Strict Row-Level Security (RLS) for Employee Reimbursement Claims & Pre-Travel Requests.
-2. Standard Employee Scope: View ONLY own claims (100% peer isolation).
-3. Reporting Manager Scope: View own claims + claims of all direct/indirect reportees under them.
-4. Global Roles Scope (Receptionist, Admin L1/L2, Accounts L1/L2, Payment Releaser, System Manager):
-   View ALL claims across the company for end-to-end processing.
-5. Dual-Layer Enforcement:
+Enterprise Organizational Scope & Multi-Tier Permission Engine (ACM-EMP-SEC-1.0)
+Governs:
+1. Standard Employee:
+   - Dropdown: ONLY sees and selects their OWN Employee record.
+   - List/Search: ONLY sees their OWN Expense Claims & Pre-Travel Requests.
+2. Reporting Manager:
+   - Dropdown: Sees THEMSELVES + ALL DIRECT/INDIRECT REPORTING SUBORDINATES.
+   - List/Search: Sees Claims & Travel Requests belonging to themselves or their subordinates.
+3. Reception, Admin L1/L2, Accounts L1/Director, Payment Releaser, System Manager:
+   - View ALL claims and pre-travel requests across the organization for end-to-end processing.
+4. Dual-Layer Enforcement:
    - Query Hook (permission_query_conditions): SQL WHERE clause injection for List Views, Search, & Reports.
    - Document Hook (has_permission): Python controller check blocking direct URL tampering.
 """
@@ -23,6 +26,7 @@ GLOBAL_VIEW_ROLES = {
     "Administrator",
     "System Manager",
     "Receptionist",
+    "Reception",
     "Front Desk Officer",
     "Admin L1 Approver",
     "Admin L2 Approver",
@@ -57,7 +61,6 @@ def get_subordinate_employees_for_user(user: Optional[str] = None) -> List[str]:
     if not user:
         user = frappe.session.user
 
-    # Find the current user's Employee record
     own_emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
     if not own_emp:
         return []
@@ -65,7 +68,6 @@ def get_subordinate_employees_for_user(user: Optional[str] = None) -> List[str]:
     subordinates: Set[str] = {own_emp}
     to_process = [own_emp]
 
-    # Recursive traversal to include indirect subordinates
     while to_process:
         current_manager = to_process.pop(0)
         direct_reportees = frappe.get_all(
@@ -88,12 +90,10 @@ def get_subordinate_employees_for_user(user: Optional[str] = None) -> List[str]:
 def get_reimbursement_permission_query_conditions(user: Optional[str] = None) -> str:
     """
     Injected into Frappe ORM queries for 'Employee Reimbursement Claim'.
-    Returns SQL WHERE clause restricting standard employees & managers to their legitimate scope.
     """
     if not user:
         user = frappe.session.user
 
-    # Global roles see all claims
     if is_global_view_user(user):
         return ""
 
@@ -108,30 +108,28 @@ def get_reimbursement_permission_query_conditions(user: Optional[str] = None) ->
             f"OR `tabEmployee Reimbursement Claim`.`manager_user_id` = {escaped_user})"
         )
     else:
-        # Fallback if employee record not yet created: only see documents owned by user
         return f"`tabEmployee Reimbursement Claim`.`owner` = {escaped_user}"
 
 
 def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "read") -> bool:
     """
     Document-level permission evaluator for 'Employee Reimbursement Claim'.
-    Prevents unauthorized direct URL access (e.g. /desk/employee-reimbursement-claim/EXP-00001).
     """
     if not user:
         user = frappe.session.user
 
+    if ptype == "create":
+        return True
+
     if is_global_view_user(user):
         return True
 
-    # User is owner
     if getattr(doc, "owner", None) == user:
         return True
 
-    # User is designated manager
     if getattr(doc, "manager_user_id", None) == user:
         return True
 
-    # Check if doc.employee is within user's subordinates
     doc_emp = getattr(doc, "employee", None)
     if doc_emp:
         subordinate_emps = get_subordinate_employees_for_user(user)
@@ -176,6 +174,9 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
     if not user:
         user = frappe.session.user
 
+    if ptype == "create":
+        return True
+
     if is_global_view_user(user):
         return True
 
@@ -202,7 +203,7 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
 def get_allowed_employee_query(doctype, txt, searchfield, start, page_len, filters):
     """
     Link field query filter for 'Employee ID' dropdown on claims and pre-travel forms.
-    - Global Approvers (Receptionist, Admin L1/L2, Accounts L1/L2, Payment Releaser, System Manager):
+    - Global Approvers (Reception, Admin L1/L2, Accounts L1/Director, Payment Releaser, System Manager):
       Can view and select ALL Active Employees across the organization.
     - Reporting Manager:
       Can view and select THEMSELVES + ALL EMPLOYEES REPORTING UNDER THEM.

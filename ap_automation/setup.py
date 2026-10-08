@@ -1,6 +1,6 @@
 """
 AP Automation System Setup & Auto-Provisioning
-Automatically seeds standard roles, workspaces, reports, and desktop icons upon app install or migration.
+Automatically seeds standard roles, workspaces, reports, desktop icons, and doctype permissions.
 """
 import frappe
 
@@ -91,7 +91,6 @@ def setup_desktop_icons():
         ("Payment Batches", "Payment Batches", "Payment Batches", "purple", "credit-card")
     ]
 
-    # 1. Ensure Workspace Sidebars
     for sidebar_name, ws_name, label, color, icon in lanes:
         if not frappe.db.exists("Workspace Sidebar", sidebar_name):
             sb = frappe.new_doc("Workspace Sidebar")
@@ -113,7 +112,6 @@ def setup_desktop_icons():
         sb.flags.ignore_permissions = True
         sb.save(ignore_permissions=True)
 
-    # 2. Ensure Desktop Icons
     for sidebar_name, ws_name, label, color, icon in lanes:
         if not frappe.db.exists("Desktop Icon", sidebar_name):
             d = frappe.new_doc("Desktop Icon")
@@ -140,7 +138,6 @@ def setup_desktop_icons():
         else:
             d.save(ignore_permissions=True)
 
-    # 3. Main AP Automation App Icon
     if not frappe.db.exists("Desktop Icon", "AP Automation"):
         ap = frappe.new_doc("Desktop Icon")
         ap.name = "AP Automation"
@@ -167,12 +164,22 @@ def setup_desktop_icons():
 
 def reload_doctype_permissions():
     """Force reloads doctypes to ensure latest permissions from JSON are active."""
-    for dt in ["petty_cash_entry", "petty_cash_line_item", "payment_batch", "payment_instruction"]:
-        if frappe.db.exists("DocType", dt.replace("_", " ").title()):
-            try:
-                frappe.reload_doc("ap_automation", "doctype", dt, force=True)
-            except Exception:
-                pass
+    doctypes_to_reload = [
+        "petty_cash_entry",
+        "petty_cash_line_item",
+        "pre_travel_request",
+        "pre_travel_client_visit",
+        "employee_client_visit_leg",
+        "employee_reimbursement_claim",
+        "vendor_invoice_claim",
+        "payment_batch",
+        "payment_instruction"
+    ]
+    for dt in doctypes_to_reload:
+        try:
+            frappe.reload_doc("ap_automation", "doctype", dt, force=True)
+        except Exception:
+            pass
 
 
 def after_install():

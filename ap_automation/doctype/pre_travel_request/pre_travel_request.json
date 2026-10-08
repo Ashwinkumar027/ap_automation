@@ -115,7 +115,7 @@
   {
    "fieldname": "sb_budget",
    "fieldtype": "Section Break",
-   "label": "Estimated Budget & Advance"
+   "label": "Estimated Travel Budget"
   },
   {
    "fieldname": "estimated_budget",
@@ -128,6 +128,8 @@
    "default": "0",
    "fieldname": "advance_requested",
    "fieldtype": "Currency",
+   "hidden": 1,
+   "read_only": 1,
    "label": "Cash Advance Requested (INR)"
   },
   {
@@ -138,6 +140,7 @@
    "default": "0",
    "fieldname": "disbursed_advance_amount",
    "fieldtype": "Currency",
+   "hidden": 1,
    "label": "Disbursed Advance (INR)",
    "read_only": 1
   },
@@ -147,6 +150,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
+   "read_only": 1,
    "options": "Draft\nPending Manager Approval\nApproved\nRejected\nClaim Linked\nClosed"
   },
   {
@@ -160,7 +164,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-03 14:05:38.625445",
+ "modified": "2026-10-08 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Pre Travel Request",
@@ -169,6 +173,7 @@
  "permissions": [
   {
    "create": 1,
+   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
@@ -176,8 +181,7 @@
    "report": 1,
    "role": "System Manager",
    "share": 1,
-   "write": 1,
-   "delete": 1
+   "write": 1
   },
   {
    "create": 1,
@@ -197,9 +201,79 @@
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Petty Cash User",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Admin L1 Approver",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Admin L2 Approver",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts L1 Auditor",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Director",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
    "role": "Accounts Manager",
    "share": 1,
    "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Payment Releaser",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "All"
   }
  ],
  "row_format": "Dynamic",

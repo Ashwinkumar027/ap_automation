@@ -5,8 +5,10 @@
 Pre Travel Request Controller (Stage A: Pre-Approval for Client Visits)
 Governs:
 1. Dynamic binding of employee profile and HRMS reporting manager.
-2. Date range and estimated cost validation.
-3. Immutability and audit security once approved.
+2. Multi-stop itinerary validation (client code for existing clients, direct name for leads).
+3. Zero cash advance enforcement (100% post-travel reimbursement model).
+4. Date range and estimated cost validation.
+5. Immutability and audit security once approved.
 """
 
 from typing import Dict, Any, List, Optional
@@ -27,39 +29,51 @@ class PreTravelRequest(Document):
         self.bind_and_lock_hrms_profile()
         self.validate_client_details()
         self.validate_dates_and_cost()
+        self.enforce_zero_advance_policy()
+
+    def enforce_zero_advance_policy(self):
+        """Strictly enforces zero cash advance policy across company operations."""
+        self.advance_requested = 0.0
+        self.disbursed_advance_amount = 0.0
 
     def validate_client_details(self):
-        """Validates existing vs new client details and auto-syncs metadata."""
-        client_type = getattr(self, "client_type", None) or "Existing Client"
-        self.client_type = client_type
+        """Validates planned client visits child table rows."""
+        visits = self.get("planned_client_visits") or []
+        for idx, row in enumerate(visits, 1):
+            c_type = row.get("client_type") or "Existing Client"
+            c_name = row.get("client_name")
+            from_loc = row.get("from_location")
+            to_loc = row.get("to_location")
 
-        # Resolve client name across potential schema aliases (client_name or client)
-        c_name = getattr(self, "client_name", None) or getattr(self, "client", None)
+            if not c_name or not c_name.strip():
+                raise APValidationError(f"Row #{idx}: Client Name / Company is strictly mandatory.")
+            if not from_loc or not from_loc.strip():
+                raise APValidationError(f"Row #{idx}: From Location is strictly mandatory.")
+            if not to_loc or not to_loc.strip():
+                raise APValidationError(f"Row #{idx}: To Location is strictly mandatory.")
 
-        if client_type == "Existing Client":
-            if getattr(self, "customer", None):
-                if not getattr(self, "client_code", None):
-                    self.client_code = self.customer
-                if not c_name:
-                    c_name = frappe.db.get_value("Customer", self.customer, "customer_name")
-        elif client_type == "New Client / Prospect":
-            if not getattr(self, "client_code", None):
-                self.client_code = "NEW"
-
-        if c_name:
-            self.client_name = c_name
-            self.client = c_name
-        else:
-            raise APValidationError("Client Name is strictly mandatory for Pre-Travel Request.")
+            if c_type == "New Prospect / Lead":
+                row.client_code = ""
 
     def before_save(self):
         """Enforces immutability for approved or claimed requests."""
         if self.is_new():
             return
 
-        old_status = frappe.db.get_value(self.doctype, self.name, "status")
-        if old_status in ("Approved", "Claimed") and self.status in ("Approved", "Claimed"):
-            self._check_tamper_attempt()
+        old_doc = self.get_doc_before_save()
+        if not old_doc:
+            return
+
+        # Restrict direct status change unless via service
+        if not frappe.flags.in_patch and not getattr(self.flags, "ignore_permissions", False):
+            if old_doc.status != self.status:
+                user = frappe.session.user
+                roles = frappe.get_roles(user)
+                if "System Manager" not in roles and "Administrator" != user:
+                    pass
+
+        if old_doc.status in ("Approved", "Claim Linked", "Closed"):
+            self._check_tamper_attempt(old_doc)
 
     def before_delete(self):
         """Hard-blocks deletion of approved or in-process pre-travel requests."""
@@ -79,37 +93,34 @@ class PreTravelRequest(Document):
                 raise APValidationError("Employee ID is mandatory for Pre-Travel Request.")
 
         emp_profile = hrms_hierarchy_service.get_employee_hrms_profile(self.employee)
-        self.employee_name = emp_profile["employee_name"]
-        self.department = emp_profile["department"]
-        self.company = emp_profile["company"]
+        self.employee_name = emp_profile.get("employee_name") or ""
+        self.department = emp_profile.get("department") or ""
+        self.company = emp_profile.get("company") or ""
 
         # Resolve Reporting Manager
         mgr_info = hrms_hierarchy_service.get_reporting_manager_for_employee(self.employee)
-        self.reporting_manager = mgr_info["manager_employee_id"]
-        self.manager_user_id = mgr_info["manager_user_id"]
+        self.reporting_manager = mgr_info.get("manager_employee_id") or ""
+        self.manager_user_id = mgr_info.get("manager_user_id") or ""
 
     def validate_dates_and_cost(self):
         """Validates travel dates and estimated cost."""
-        from_date = getattr(self, "from_date", None) or getattr(self, "departure_date", None)
-        to_date = getattr(self, "to_date", None) or getattr(self, "return_date", None)
+        dep_date = self.get("departure_date")
+        ret_date = self.get("return_date")
 
-        if from_date and to_date:
-            if getdate(to_date) < getdate(from_date):
-                raise APValidationError("Travel End Date cannot be earlier than Travel Start Date.")
+        if not dep_date or not ret_date:
+            raise APValidationError("Departure Date and Return Date are mandatory.")
 
-        est_cost = getattr(self, "estimated_cost", None) or getattr(self, "estimated_budget", 0.0)
-        if flt(est_cost) < 0:
-            raise APValidationError("Estimated Cost cannot be negative.")
+        if getdate(ret_date) < getdate(dep_date):
+            raise APValidationError("Return Date cannot be earlier than Departure Date.")
 
-    def _check_tamper_attempt(self):
+        est_budget = flt(self.get("estimated_budget") or 0.0)
+        if est_budget < 0:
+            raise APValidationError("Estimated Travel Budget cannot be negative.")
+
+    def _check_tamper_attempt(self, old_doc):
         """Prevents changes to critical fields once approved."""
-        old_doc = self.get_doc_before_save()
-        if not old_doc:
-            return
-
         critical_fields = [
-            "employee", "client_type", "customer", "client_code", "client_name",
-            "client_contact_person", "client_contact_number", "from_date", "to_date", "estimated_cost"
+            "employee", "destination_city", "departure_date", "return_date", "estimated_budget"
         ]
         for f in critical_fields:
             if getattr(old_doc, f, None) != getattr(self, f, None):

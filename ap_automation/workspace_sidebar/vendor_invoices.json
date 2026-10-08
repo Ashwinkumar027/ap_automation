@@ -7,72 +7,17 @@
  "items": [
   {
    "child": 0,
-   "collapsible": 0,
+   "collapsible": 1,
    "indent": 0,
    "keep_closed": 0,
-   "label": "AP Automation",
-   "link_to": "AP Automation",
-   "link_type": "Workspace",
-   "show_arrow": 0,
-   "type": "Link"
-  },
-  {
-   "child": 0,
-   "collapsible": 0,
-   "indent": 0,
-   "keep_closed": 0,
-   "label": "Lane 1: Petty Cash",
-   "link_to": "Lane 1: Petty Cash",
-   "link_type": "Workspace",
-   "show_arrow": 0,
-   "type": "Link"
-  },
-  {
-   "child": 0,
-   "collapsible": 0,
-   "indent": 0,
-   "keep_closed": 0,
-   "label": "Lane 2: Employee Claims",
-   "link_to": "Lane 2: Employee Claims",
-   "link_type": "Workspace",
-   "show_arrow": 0,
-   "type": "Link"
-  },
-  {
-   "child": 0,
-   "collapsible": 0,
-   "indent": 0,
-   "keep_closed": 0,
-   "label": "Lane 3: Vendor Invoices",
+   "label": "Vendor Invoices",
    "link_to": "Lane 3: Vendor Invoices",
-   "link_type": "Workspace",
-   "show_arrow": 0,
-   "type": "Link"
-  },
-  {
-   "child": 0,
-   "collapsible": 0,
-   "indent": 0,
-   "keep_closed": 0,
-   "label": "Lane 4: Event Spends",
-   "link_to": "Lane 4: Event Spends",
-   "link_type": "Workspace",
-   "show_arrow": 0,
-   "type": "Link"
-  },
-  {
-   "child": 0,
-   "collapsible": 0,
-   "indent": 0,
-   "keep_closed": 0,
-   "label": "Payment Batches",
-   "link_to": "Payment Batches",
    "link_type": "Workspace",
    "show_arrow": 0,
    "type": "Link"
   }
  ],
- "modified": "2026-10-07 12:25:45.703427",
+ "modified": "2026-10-08 12:17:21.469446",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Vendor Invoices",
