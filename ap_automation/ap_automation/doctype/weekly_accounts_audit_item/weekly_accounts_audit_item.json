@@ -44,7 +44,8 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Employee ID",
-   "options": "Employee"
+   "options": "Employee",
+   "ignore_user_permissions": 1
   },
   {
    "columns": 2,

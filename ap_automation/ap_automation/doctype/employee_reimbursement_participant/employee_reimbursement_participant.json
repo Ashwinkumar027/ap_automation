@@ -24,7 +24,8 @@
    "label": "Employee ID",
    "options": "Employee",
    "reqd": 1,
-   "columns": 2
+   "columns": 2,
+   "ignore_user_permissions": 1
   },
   {
    "fieldname": "employee_name",
