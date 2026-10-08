@@ -112,6 +112,9 @@ class EmployeeReimbursementClaim(APDocument):
         for idx, (o_row, n_row) in enumerate(zip(old_lines, new_lines), 1):
             for lf in ("amount", "merchant_name", "receipt_attachment", "invoice_number", "expense_date"):
                 if getattr(o_row, lf, None) != getattr(n_row, lf, None):
+                    # Allow attachment updates by Receptionist when returned for receipt correction
+                    if lf == "receipt_attachment" and self.status == "Pending Receptionist" and getattr(self, "is_resubmission", 0) == 1:
+                        continue
                     raise APSecurityError(
                         f"Tamper Alert: Row {idx} ({lf}) cannot be modified on document '{self.name}' "
                         f"in status '{self.status}'."
