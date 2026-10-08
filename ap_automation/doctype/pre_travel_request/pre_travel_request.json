@@ -80,7 +80,8 @@
    "in_list_view": 1,
    "label": "Reporting Manager ID",
    "options": "Employee",
-   "read_only": 1
+   "read_only": 1,
+   "ignore_user_permissions": 1
   },
   {
    "fieldname": "reporting_manager_name",
