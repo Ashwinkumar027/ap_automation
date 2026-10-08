@@ -4,9 +4,10 @@ AP AUTOMATION - 4-TIER ORGANIZATIONAL PERMISSION SERVICE
 ================================================================================
 Implements production-grade, multi-tier scoping across all AP Automation workflows:
   - Tier 1: Standard Employees (Strict Self-Isolation: Own employee ID / Own claims only)
+            * Employees can view and edit their own documents in Draft & Returned states.
   - Tier 2: Reporting Managers (Subordinate Scope: Self + direct/indirect reportees)
             * NOTE: Managers ONLY see subordinate requests/claims AFTER submission
-                    (Status != 'Draft'). Drafts remain strictly private to the employee.
+                    (Status != 'Draft' AND Status != 'Returned to Employee').
   - Tier 3: Global Approvers (Reception, Admin L1/L2, Accounts L1/Director, Payment Releaser)
             * Full organization-wide view for review, audit, and sanctioning.
   - Tier 4: System Managers (Global administrative control)
@@ -27,6 +28,8 @@ GLOBAL_VIEW_ROLES = {
     "Payment Releaser",
     "Receptionist"
 }
+
+EMPLOYEE_EDITABLE_STATUSES = {"Draft", "Returned to Employee", "Returned for Correction", "Rejected"}
 
 
 def is_global_view_user(user: Optional[str] = None) -> bool:
@@ -82,7 +85,7 @@ def get_reimbursement_permission_query_conditions(user: Optional[str] = None) ->
     Injected into Frappe ORM queries for 'Employee Reimbursement Claim'.
     - Global Approvers: View all claims.
     - Standard Employee: View only own claims.
-    - Reporting Manager: View own claims (including drafts) + subordinate claims (ONLY when status != 'Draft').
+    - Reporting Manager: View own claims + subordinate claims (ONLY when active in approval pipeline).
     """
     if not user:
         user = frappe.session.user
@@ -103,8 +106,8 @@ def get_reimbursement_permission_query_conditions(user: Optional[str] = None) ->
         return f"""(
             `tabEmployee Reimbursement Claim`.`owner` = {escaped_user}
             OR {emp_match}
-            OR (`tabEmployee Reimbursement Claim`.`employee` IN ({formatted_sub_ids}) AND `tabEmployee Reimbursement Claim`.`status` != 'Draft')
-            OR (`tabEmployee Reimbursement Claim`.`manager_user_id` = {escaped_user} AND `tabEmployee Reimbursement Claim`.`status` != 'Draft')
+            OR (`tabEmployee Reimbursement Claim`.`employee` IN ({formatted_sub_ids}) AND `tabEmployee Reimbursement Claim`.`status` NOT IN ('Draft'))
+            OR (`tabEmployee Reimbursement Claim`.`manager_user_id` = {escaped_user} AND `tabEmployee Reimbursement Claim`.`status` NOT IN ('Draft'))
         )"""
     else:
         emp_match = f"OR `tabEmployee Reimbursement Claim`.`employee` = {escaped_own_emp}" if escaped_own_emp else ""
@@ -118,26 +121,28 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
     if not user:
         user = frappe.session.user
 
-    if ptype in ("create", "write") or not doc or getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()):
+    if not doc or getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()):
         return True
 
     if is_global_view_user(user):
         return True
 
     own_emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
+    is_owner = (getattr(doc, "owner", None) == user) or (own_emp and getattr(doc, "employee", None) == own_emp)
 
-    # Drafts are strictly accessible only to the owner/claimant
-    if getattr(doc, "status", None) == "Draft":
-        if getattr(doc, "owner", None) == user or (own_emp and getattr(doc, "employee", None) == own_emp):
+    doc_status = getattr(doc, "status", None)
+
+    # 1. Draft & Returned states are strictly editable by the claimant
+    if doc_status in EMPLOYEE_EDITABLE_STATUSES:
+        if is_owner:
             return True
         return False
 
-    if getattr(doc, "owner", None) == user:
+    # 2. Claimant always has read access to their submitted claims
+    if is_owner:
         return True
 
-    if own_emp and getattr(doc, "employee", None) == own_emp:
-        return True
-
+    # 3. Manager & Approver authorization
     if getattr(doc, "manager_user_id", None) == user:
         return True
 
@@ -147,7 +152,7 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
         if doc_emp in subordinate_emps:
             return True
 
-    return True
+    return False
 
 
 # ==============================================================================
@@ -157,9 +162,6 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
 def get_pre_travel_permission_query_conditions(user: Optional[str] = None) -> str:
     """
     Injected into Frappe ORM queries for 'Pre Travel Request'.
-    - Global Approvers: View all requests.
-    - Standard Employee: View only own requests.
-    - Reporting Manager: View own requests (including drafts) + subordinate requests (ONLY when status != 'Draft').
     """
     if not user:
         user = frappe.session.user
@@ -180,8 +182,8 @@ def get_pre_travel_permission_query_conditions(user: Optional[str] = None) -> st
         return f"""(
             `tabPre Travel Request`.`owner` = {escaped_user}
             OR {emp_match}
-            OR (`tabPre Travel Request`.`employee` IN ({formatted_sub_ids}) AND `tabPre Travel Request`.`status` != 'Draft')
-            OR (`tabPre Travel Request`.`manager_user_id` = {escaped_user} AND `tabPre Travel Request`.`status` != 'Draft')
+            OR (`tabPre Travel Request`.`employee` IN ({formatted_sub_ids}) AND `tabPre Travel Request`.`status` NOT IN ('Draft'))
+            OR (`tabPre Travel Request`.`manager_user_id` = {escaped_user} AND `tabPre Travel Request`.`status` NOT IN ('Draft'))
         )"""
     else:
         emp_match = f"OR `tabPre Travel Request`.`employee` = {escaped_own_emp}" if escaped_own_emp else ""
@@ -195,26 +197,28 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
     if not user:
         user = frappe.session.user
 
-    if ptype in ("create", "write") or not doc or getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()):
+    if not doc or getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()):
         return True
 
     if is_global_view_user(user):
         return True
 
     own_emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
+    is_owner = (getattr(doc, "owner", None) == user) or (own_emp and getattr(doc, "employee", None) == own_emp)
 
-    # Drafts are strictly accessible only to the owner/creator
-    if getattr(doc, "status", None) == "Draft":
-        if getattr(doc, "owner", None) == user or (own_emp and getattr(doc, "employee", None) == own_emp):
+    doc_status = getattr(doc, "status", None)
+
+    # 1. Draft & Rejected states are strictly editable by the claimant
+    if doc_status in EMPLOYEE_EDITABLE_STATUSES:
+        if is_owner:
             return True
         return False
 
-    if getattr(doc, "owner", None) == user:
+    # 2. Claimant always has read access
+    if is_owner:
         return True
 
-    if own_emp and getattr(doc, "employee", None) == own_emp:
-        return True
-
+    # 3. Manager authorization
     if getattr(doc, "manager_user_id", None) == user:
         return True
 
@@ -224,7 +228,7 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
         if doc_emp in subordinate_emps:
             return True
 
-    return True
+    return False
 
 
 # ==============================================================================
@@ -235,16 +239,12 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
 def get_allowed_employee_query(doctype, txt, searchfield, start, page_len, filters):
     """
     Link field query filter for 'Employee ID' dropdown on claims and pre-travel forms.
-    - Global Approvers (Reception, Admin L1/L2, Accounts L1/Director, Payment Releaser, System Manager):
-      Can view and select ALL Active Employees across the organization.
-    - Reporting Manager:
-      Can view and select THEMSELVES + ALL EMPLOYEES REPORTING UNDER THEM.
-    - Standard Employee:
-      Can ONLY view and select THEIR OWN Employee ID.
+    - Global Approvers: View and select ALL Active Employees across the organization.
+    - Reporting Manager: View and select THEMSELVES + ALL EMPLOYEES REPORTING UNDER THEM.
+    - Standard Employee: View and select THEIR OWN Employee ID ONLY.
     """
     user = frappe.session.user
 
-    # 1. Global View Roles -> Organization-Wide Access
     if is_global_view_user(user):
         return frappe.db.sql("""
             SELECT name, employee_name, department, company
@@ -259,7 +259,6 @@ def get_allowed_employee_query(doctype, txt, searchfield, start, page_len, filte
             "page_len": int(page_len or 20)
         })
 
-    # 2. Standard Employee & Reporting Manager -> Subordinate Hierarchy Scope
     subordinate_emps = get_subordinate_employees_for_user(user)
 
     if not subordinate_emps:

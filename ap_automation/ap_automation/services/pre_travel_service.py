@@ -40,11 +40,12 @@ def _append_trail(doc, user: str, action: str, remarks: str):
 def submit_pre_travel_request(docname: str) -> Dict[str, Any]:
     """
     Submits Pre-Travel Request and routes directly to HRMS Reporting Manager.
+    Allows submission from Draft, Returned for Correction, or Rejected states.
     """
     user = frappe.session.user
     doc = frappe.get_doc("Pre Travel Request", docname)
 
-    if doc.status not in ("Draft", "Returned for Correction"):
+    if doc.status not in ("Draft", "Returned for Correction", "Rejected"):
         raise APValidationError(f"Cannot submit Pre-Travel Request '{docname}' with status '{doc.status}'.")
 
     # Enforce mandatory fields
