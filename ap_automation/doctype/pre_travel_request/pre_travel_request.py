@@ -98,9 +98,18 @@ class PreTravelRequest(Document):
         self.company = emp_profile.get("company") or ""
 
         # Resolve Reporting Manager
-        mgr_info = hrms_hierarchy_service.get_reporting_manager_for_employee(self.employee)
-        self.reporting_manager = mgr_info.get("manager_employee_id") or ""
-        self.manager_user_id = mgr_info.get("manager_user_id") or ""
+        try:
+            mgr_info = hrms_hierarchy_service.get_reporting_manager_for_employee(self.employee)
+            self.reporting_manager = mgr_info.get("manager_employee_id") or ""
+            self.reporting_manager_name = mgr_info.get("manager_name") or ""
+            self.manager_user_id = mgr_info.get("manager_user_id") or ""
+        except Exception:
+            # Fallback if reports_to is unassigned
+            reports_to = frappe.db.get_value("Employee", self.employee, "reports_to")
+            self.reporting_manager = reports_to or ""
+            if reports_to:
+                self.reporting_manager_name = frappe.db.get_value("Employee", reports_to, "employee_name") or ""
+                self.manager_user_id = frappe.db.get_value("Employee", reports_to, "user_id") or ""
 
     def validate_dates_and_cost(self):
         """Validates travel dates and estimated cost."""

@@ -4,6 +4,7 @@ Comprehensive E2E Verification Test Suite for:
 2. Zero Cash Advance Policy Enforcement.
 3. Read-Only Status & Workflow Transition Controls.
 4. 4-Tier Organizational Scope & Dynamic Employee Dropdown Hierarchy.
+5. Auto-fetch of Reporting Manager ID and Reporting Manager Name.
 """
 import frappe
 from frappe.utils import today, add_days, nowdate
@@ -88,15 +89,17 @@ def run_tests():
         frappe.set_user("Administrator")
 
     # -----------------------------------------------------------------
-    # Test 2: Create Pre Travel Request with Client Code & Zero Advance
+    # Test 2: Create Pre Travel Request with Auto-Fetched Reporting Manager
     # -----------------------------------------------------------------
-    print("\n--- TEST 2: Pre-Travel Request Creation & Policy Verification ---")
+    print("\n--- TEST 2: Pre-Travel Request Creation & Reporting Manager Auto-Fetch ---")
     
     # Pick an active employee with reporting manager
     emp = frappe.get_all("Employee", filters={"reports_to": ["is", "set"], "status": "Active"}, limit=1)
     if not emp:
         emp = frappe.get_all("Employee", filters={"status": "Active"}, limit=1)
     test_emp_id = emp[0].name
+    expected_mgr_id = frappe.db.get_value("Employee", test_emp_id, "reports_to")
+    expected_mgr_name = frappe.db.get_value("Employee", expected_mgr_id, "employee_name") if expected_mgr_id else ""
     
     req = frappe.new_doc("Pre Travel Request")
     req.employee = test_emp_id
@@ -133,8 +136,14 @@ def run_tests():
     frappe.db.commit()
     print(f"✅ Created Pre-Travel Request: {req.name}")
 
-    # Verify Zero Advance Policy
+    # Verify Reporting Manager Auto-Fetch
     req.reload()
+    print(f"✅ Auto-Fetched Reporting Manager ID: {req.reporting_manager}")
+    print(f"✅ Auto-Fetched Reporting Manager Name: {req.reporting_manager_name}")
+    assert req.reporting_manager == expected_mgr_id, f"Expected {expected_mgr_id}, got {req.reporting_manager}"
+    assert req.reporting_manager_name == expected_mgr_name, f"Expected {expected_mgr_name}, got {req.reporting_manager_name}"
+
+    # Verify Zero Advance Policy
     assert req.advance_requested == 0.0, f"Advance requested must be 0.0, got {req.advance_requested}"
     assert req.disbursed_advance_amount == 0.0, f"Disbursed advance must be 0.0, got {req.disbursed_advance_amount}"
     print(f"✅ Zero Advance Policy Enforced: advance_requested={req.advance_requested}, disbursed_advance_amount={req.disbursed_advance_amount}")
@@ -156,7 +165,7 @@ def run_tests():
     # Submit Request
     res_submit = travel_svc.submit_pre_travel_request(req.name)
     req.reload()
-    print(f"✅ Submitted to Manager: {req.reporting_manager} (Status: {req.status})")
+    print(f"✅ Submitted to Manager: {req.reporting_manager} ({req.reporting_manager_name}) (Status: {req.status})")
     assert req.status == "Pending Manager Approval"
 
     # Approve Request

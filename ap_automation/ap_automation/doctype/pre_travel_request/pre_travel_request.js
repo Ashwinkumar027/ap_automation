@@ -5,7 +5,7 @@
  * Pre Travel Request Form Controller (Stage A: Multi-Client Visit Pre-Approval)
  * Features:
  * 1. 4-Tier Scope: Restricts employee dropdown to permitted tier.
- * 2. Auto-populates employee on new form.
+ * 2. Auto-populates employee and reporting manager on new form and employee change.
  * 3. Enforces read-only status and zero-advance policy.
  * 4. Action buttons for Submission, Manager Approval, and Rejection.
  * 5. Dynamic Client Visit Itinerary with Client Code support for Existing Clients.
@@ -21,15 +21,9 @@ frappe.ui.form.on('Pre Travel Request', {
 
     onload: function(frm) {
         if (frm.is_new() && !frm.doc.employee) {
-            frappe.db.get_value('Employee', { user_id: frappe.session.user }, [
-                'name', 'employee_name', 'company', 'department', 'reports_to'
-            ]).then(r => {
-                if (r && r.message) {
+            frappe.db.get_value('Employee', { user_id: frappe.session.user }, 'name').then(r => {
+                if (r && r.message && r.message.name) {
                     frm.set_value('employee', r.message.name);
-                    if (r.message.employee_name) frm.set_value('employee_name', r.message.employee_name);
-                    if (r.message.company) frm.set_value('company', r.message.company);
-                    if (r.message.department) frm.set_value('department', r.message.department);
-                    if (r.message.reports_to) frm.set_value('reporting_manager', r.message.reports_to);
                 }
             });
         }
@@ -60,13 +54,29 @@ frappe.ui.form.on('Pre Travel Request', {
                     if (r.employee_name) frm.set_value('employee_name', r.employee_name);
                     if (r.department) frm.set_value('department', r.department);
                     if (r.company) frm.set_value('company', r.company);
-                    if (r.reports_to) frm.set_value('reporting_manager', r.reports_to);
+                    if (r.reports_to) {
+                        frm.set_value('reporting_manager', r.reports_to);
+                        frappe.db.get_value('Employee', r.reports_to, ['employee_name', 'user_id'], (mgr) => {
+                            if (mgr) {
+                                if (mgr.employee_name) frm.set_value('reporting_manager_name', mgr.employee_name);
+                                if (mgr.user_id) frm.set_value('manager_user_id', mgr.user_id);
+                            }
+                        });
+                    } else {
+                        frm.set_value('reporting_manager', '');
+                        frm.set_value('reporting_manager_name', '');
+                        frm.set_value('manager_user_id', '');
+                    }
                 }
             });
         }
     },
 
     setup_ui_state: function(frm) {
+        const mgr_display = frm.doc.reporting_manager_name 
+            ? `${frm.doc.reporting_manager_name} (${frm.doc.reporting_manager})` 
+            : (frm.doc.reporting_manager || 'Reporting Manager');
+
         if (frm.doc.status === 'Approved') {
             frm.dashboard.set_headline_alert(
                 __('<span class="indicator green">✅ Pre-Travel Request Approved by Reporting Manager. Ready to Link in Expense Claim.</span>')
@@ -77,7 +87,7 @@ frappe.ui.form.on('Pre Travel Request', {
             );
         } else if (frm.doc.status === 'Pending Manager Approval') {
             frm.dashboard.set_headline_alert(
-                __('<span class="indicator orange">⏳ Pending Approval from Reporting Manager: {0}</span>', [frm.doc.reporting_manager || 'Manager'])
+                __('<span class="indicator orange">⏳ Pending Approval from Reporting Manager: {0}</span>', [mgr_display])
             );
         } else if (frm.doc.status === 'Claim Linked') {
             frm.dashboard.set_headline_alert(
