@@ -155,7 +155,8 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nSubmitted\nPending Manager Approval\nApproved by Manager\nPending Receptionist Verification\nPending Admin L1 Review\nPending Admin L2 Sign-Off\nPending Accounts L1 Audit\nPending Accounts L1\nPending Accounts L2\nPending Director L2 Sanction\nApproved for Payment\nReady for Payment Batch\nQueued in Batch\nPaid via Bank Transfer\nPaid\nReturned to Employee\nPending Receptionist\nPending Manager\nPending Admin L1\nDisputed\nRejected\nCancelled\nPending Admin L2\nPending Employee Resubmission"
+   "options": "Draft\nSubmitted\nPending Manager Approval\nApproved by Manager\nPending Receptionist Verification\nPending Admin L1 Review\nPending Admin L2 Sign-Off\nPending Accounts L1 Audit\nPending Accounts L1\nPending Accounts L2\nPending Director L2 Sanction\nApproved for Payment\nReady for Payment Batch\nQueued in Batch\nPaid via Bank Transfer\nPaid\nReturned to Employee\nPending Receptionist\nPending Manager\nPending Admin L1\nDisputed\nRejected\nCancelled\nPending Admin L2\nPending Employee Resubmission",
+   "read_only": 1
   },
   {
    "fieldname": "sb_bank",

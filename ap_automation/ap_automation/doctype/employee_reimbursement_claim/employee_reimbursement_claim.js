@@ -2,14 +2,13 @@
 // For license information, please see license.txt
 
 /**
- * Enterprise Employee Business Expense & Reimbursement Claim Form Controller
- * Clean, intuitive Top-to-Bottom UX:
- * 1. Category Switcher & Employee Profile at Top.
- * 2. Pre-Travel Authorization right above Multi-Stop Client Visits Table.
- * 3. 1 Table per Category (Zero duplicate tables).
- * 4. Travel Summary (KM, Mileage, Tolls, Per Diem) right below Itinerary Table.
- * 5. Team Bonding Live Wallet Ledger Engine (Policy ACM-QTB-1.0).
- * 6. Auto-collapsed / hidden audit fields on new documents.
+ * Enterprise Employee Business Expense & Reimbursement Claim Client Controller
+ * Comprehensive UX supporting:
+ * 1. Category-Aware Dynamic UI (Client Travel, Team Lunch, Dinner, Branch, General).
+ * 2. Visual Multi-Stage Progress Stepper.
+ * 3. Immediate, Non-Lagging Grid Controls.
+ * 4. Non-Dirtying Total Calculations (Clean Save & Immediate Excel Export).
+ * 5. Multi-Stage Workflow Action Buttons (Manager, Receptionist, Admin L1/L2, Accounts L1/L2).
  */
 
 frappe.ui.form.on('Employee Reimbursement Claim', {
@@ -25,7 +24,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
         frm.set_query('pre_travel_request', function() {
             return {
                 filters: {
-                    employee: frm.doc.employee || frappe.session.user,
+                    employee: frm.doc.employee || '',
                     status: 'Approved'
                 }
             };
@@ -33,18 +32,12 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     },
 
     onload: function(frm) {
-        if (frappe.route_options && frappe.route_options.claim_category) {
-            frm.set_value('claim_category', frappe.route_options.claim_category);
-        } else if (!frm.doc.claim_category) {
-            frm.set_value('claim_category', 'General Expense');
-        }
-
         if (frm.is_new() && !frm.doc.employee) {
             frappe.db.get_value('Employee', { user_id: frappe.session.user }, [
                 'name', 'employee_name', 'company', 'department', 'bank_name', 'bank_ac_no', 'ifsc_code', 'reports_to'
             ]).then(r => {
                 if (r && r.message) {
-                    frm.set_value('employee', r.message.name);
+                    if (r.message.name) frm.set_value('employee', r.message.name);
                     if (r.message.employee_name) frm.set_value('employee_name', r.message.employee_name);
                     if (r.message.company) frm.set_value('company', r.message.company);
                     if (r.message.department) frm.set_value('department', r.message.department);
@@ -74,31 +67,14 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     setup_form_immutability: function(frm) {
         const is_editable = frm.is_new() || !frm.doc.status || ['Draft', 'Returned to Employee'].includes(frm.doc.status);
 
-        frm.set_df_property('claim_category', 'hidden', 0);
         frm.set_df_property('claim_category', 'read_only', !is_editable);
-
         frm.set_df_property('employee', 'read_only', !is_editable);
         frm.set_df_property('pre_travel_request', 'read_only', !is_editable);
         frm.set_df_property('pre_approval_attachment', 'read_only', !is_editable);
         frm.set_df_property('expense_lines', 'read_only', !is_editable);
-
-        if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].grid) {
-            frm.fields_dict['expense_lines'].grid.cannot_add_rows = !is_editable;
-            frm.fields_dict['expense_lines'].grid.wrapper.find('.grid-add-row').toggle(is_editable);
-            frm.fields_dict['expense_lines'].grid.wrapper.find('.grid-remove-rows').toggle(is_editable);
-        }
-
-        if (frm.fields_dict['client_visit_legs'] && frm.fields_dict['client_visit_legs'].grid) {
-            frm.fields_dict['client_visit_legs'].grid.cannot_add_rows = !is_editable;
-            frm.fields_dict['client_visit_legs'].grid.wrapper.find('.grid-add-row').toggle(is_editable);
-            frm.fields_dict['client_visit_legs'].grid.wrapper.find('.grid-remove-rows').toggle(is_editable);
-        }
-
-        if (frm.fields_dict['participants'] && frm.fields_dict['participants'].grid) {
-            frm.fields_dict['participants'].grid.cannot_add_rows = !is_editable;
-            frm.fields_dict['participants'].grid.wrapper.find('.grid-add-row').toggle(is_editable);
-            frm.fields_dict['participants'].grid.wrapper.find('.grid-remove-rows').toggle(is_editable);
-        }
+        frm.set_df_property('client_visit_legs', 'read_only', !is_editable);
+        frm.set_df_property('participants', 'read_only', !is_editable);
+        frm.set_df_property('status', 'read_only', 1);
     },
 
     employee: function(frm) {
@@ -116,10 +92,6 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
                     if (r.message.reports_to) {
                         frm.set_value('reporting_manager', r.message.reports_to);
                     }
-                    frappe.show_alert({
-                        message: `👤 Profile loaded for: <b>${r.message.employee_name || frm.doc.employee}</b>`,
-                        indicator: 'green'
-                    }, 3);
                 }
             });
         } else {
@@ -204,9 +176,15 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     render_stage_action_buttons: function(frm) {
         if (frm.is_new()) return;
 
-        const status = frm.doc.status;
+        const status = frm.doc.status || 'Draft';
+        const current_user = frappe.session.user;
+        const user_roles = frappe.user_roles || [];
+        const is_owner = (frm.doc.owner === current_user);
+        const is_system_mgr = user_roles.includes('System Manager') || user_roles.includes('Administrator') || current_user === 'Administrator';
+        const is_manager = (frm.doc.manager_user_id === current_user) || is_system_mgr;
 
-        if (status === 'Draft' || status === 'Returned to Employee') {
+        // 1. Submit for Verification (Owner / Claimant in Draft)
+        if (['Draft'].includes(status) && (is_owner || is_system_mgr)) {
             frm.add_custom_button(__('🚀 Submit for Verification'), function() {
                 frappe.confirm(__('Are you sure you want to submit this claim for approval?'), function() {
                     frappe.call({
@@ -225,16 +203,15 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
             }).addClass('btn-primary');
         }
 
-        if (status === 'Pending Receptionist Verification') {
-            frm.add_custom_button(__('📋 Verify Physical Invoices (Reception)'), function() {
-                frappe.prompt([
-                    { fieldname: 'comments', fieldtype: 'Small Text', label: __('Verification Remarks (Optional)') }
-                ], function(values) {
+        // 1b. Smart Resubmit (When Returned to Employee)
+        if (['Returned to Employee', 'Pending Employee Resubmission'].includes(status) && (is_owner || is_system_mgr)) {
+            frm.add_custom_button(__('⚡ Resubmit Corrected Claim'), function() {
+                frappe.confirm(__('Resubmit this corrected claim? (If amounts remain unchanged, it will fast-track back to your reviewer).'), function() {
                     frappe.call({
-                        method: 'ap_automation.services.employee_expense_approval_service.verify_receptionist',
-                        args: { voucher_name: frm.doc.name, comments: values.comments },
+                        method: 'ap_automation.services.employee_expense_approval_service.resubmit_claim_smart',
+                        args: { voucher_name: frm.doc.name },
                         freeze: true,
-                        freeze_message: __('Verifying Physical Proofs...'),
+                        freeze_message: __('Resubmitting Claim...'),
                         callback: function(r) {
                             if (r.message && r.message.status === 'SUCCESS') {
                                 frappe.show_alert({ message: r.message.message, indicator: 'green' });
@@ -242,175 +219,224 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
                             }
                         }
                     });
-                }, __('Receptionist Verification'), __('Mark Invoices Received'));
+                });
             }).addClass('btn-primary');
-
-            frm.trigger('add_reject_button');
         }
 
-        if (status === 'Pending Manager Approval') {
-            frm.add_custom_button(__('✅ Manager Approve'), function() {
-                frappe.prompt([
-                    { fieldname: 'comments', fieldtype: 'Small Text', label: __('Manager Remarks (Optional)') }
-                ], function(values) {
-                    frappe.call({
-                        method: 'ap_automation.services.employee_expense_approval_service.approve_manager',
-                        args: { voucher_name: frm.doc.name, comments: values.comments },
-                        freeze: true,
-                        freeze_message: __('Approving Claim...'),
-                        callback: function(r) {
-                            if (r.message && r.message.status === 'SUCCESS') {
-                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                                frm.reload_doc();
+        // 2. Manager Approval Stage
+        if (['Pending Manager', 'Pending Manager Approval'].includes(status)) {
+            if (is_manager || is_system_mgr || !is_owner) {
+                frm.add_custom_button(__('✅ Manager Approve'), function() {
+                    frappe.prompt([
+                        { fieldname: 'comments', fieldtype: 'Small Text', label: __('Manager Remarks (Optional)') }
+                    ], function(values) {
+                        frappe.call({
+                            method: 'ap_automation.services.employee_expense_approval_service.approve_reporting_manager',
+                            args: { voucher_name: frm.doc.name, comments: values.comments },
+                            freeze: true,
+                            freeze_message: __('Approving Claim...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                    frm.reload_doc();
+                                }
                             }
-                        }
-                    });
-                }, __('Manager Approval'), __('Approve'));
-            }).addClass('btn-success');
+                        });
+                    }, __('Manager Approval'), __('Approve'));
+                }).addClass('btn-success');
 
-            frm.trigger('add_reject_button');
+                frm.trigger('add_reject_button');
+            }
         }
 
-        if (status === 'Pending Admin L1 Review') {
-            frm.add_custom_button(__('🔍 Admin L1 Sign-Off'), function() {
-                frappe.prompt([
-                    { fieldname: 'comments', fieldtype: 'Small Text', label: __('Admin L1 Notes (Optional)') }
-                ], function(values) {
-                    frappe.call({
-                        method: 'ap_automation.services.employee_expense_approval_service.review_admin_l1',
-                        args: { voucher_name: frm.doc.name, comments: values.comments },
-                        freeze: true,
-                        freeze_message: __('Signing Off Admin L1...'),
-                        callback: function(r) {
-                            if (r.message && r.message.status === 'SUCCESS') {
-                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                                frm.reload_doc();
+        // 3. Receptionist Verification Stage
+        if (['Pending Receptionist', 'Pending Receptionist Verification'].includes(status)) {
+            if (user_roles.includes('Receptionist') || is_system_mgr || !is_owner) {
+                frm.add_custom_button(__('📋 Verify Physical Invoices (Reception)'), function() {
+                    frappe.prompt([
+                        { fieldname: 'comments', fieldtype: 'Small Text', label: __('Verification Remarks (Optional)') }
+                    ], function(values) {
+                        frappe.call({
+                            method: 'ap_automation.services.employee_expense_approval_service.verify_receptionist',
+                            args: { voucher_name: frm.doc.name, comments: values.comments },
+                            freeze: true,
+                            freeze_message: __('Verifying Physical Proofs...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                    frm.reload_doc();
+                                }
                             }
-                        }
-                    });
-                }, __('Admin L1 Review'), __('Sign Off'));
-            }).addClass('btn-primary');
+                        });
+                    }, __('Receptionist Verification'), __('Mark Invoices Received'));
+                }).addClass('btn-primary');
 
-            frm.trigger('add_reject_button');
+                frm.trigger('add_reject_button');
+            }
         }
 
-        if (status === 'Pending Admin L2 Sign-Off') {
-            frm.add_custom_button(__('🛡️ Admin L2 Authorization'), function() {
-                frappe.prompt([
-                    { fieldname: 'comments', fieldtype: 'Small Text', label: __('Admin L2 Notes (Optional)') }
-                ], function(values) {
-                    frappe.call({
-                        method: 'ap_automation.services.employee_expense_approval_service.signoff_admin_l2',
-                        args: { voucher_name: frm.doc.name, comments: values.comments },
-                        freeze: true,
-                        freeze_message: __('Authorizing Admin L2...'),
-                        callback: function(r) {
-                            if (r.message && r.message.status === 'SUCCESS') {
-                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                                frm.reload_doc();
+        // 4. Admin L1 Review Stage
+        if (['Pending Admin L1', 'Pending Admin L1 Review'].includes(status)) {
+            if (user_roles.includes('Admin L1 Approver') || is_system_mgr || !is_owner) {
+                frm.add_custom_button(__('🔍 Admin L1 Sign-Off'), function() {
+                    frappe.prompt([
+                        { fieldname: 'comments', fieldtype: 'Small Text', label: __('Admin L1 Notes (Optional)') }
+                    ], function(values) {
+                        frappe.call({
+                            method: 'ap_automation.services.employee_expense_approval_service.approve_admin_l1',
+                            args: { voucher_name: frm.doc.name, comments: values.comments },
+                            freeze: true,
+                            freeze_message: __('Signing Off Admin L1...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                    frm.reload_doc();
+                                }
                             }
-                        }
-                    });
-                }, __('Admin L2 Sign-Off'), __('Sign Off'));
-            }).addClass('btn-primary');
+                        });
+                    }, __('Admin L1 Review'), __('Sign Off'));
+                }).addClass('btn-primary');
 
-            frm.trigger('add_reject_button');
+                frm.trigger('add_reject_button');
+            }
         }
 
-        if (status === 'Pending Accounts L1' || status === 'Pending Accounts L1 Audit') {
-            frm.add_custom_button(__('📊 Audit & Sanction (Accounts L1)'), function() {
-                frappe.prompt([
-                    {
-                        fieldname: 'sanctioned_amount',
-                        fieldtype: 'Currency',
-                        label: __('Sanctioned Amount (INR)'),
-                        default: frm.doc.total_claim_amount,
-                        reqd: 1
-                    },
-                    { fieldname: 'comments', fieldtype: 'Small Text', label: __('Audit Findings / Deductions (Optional)') }
-                ], function(values) {
-                    frappe.call({
-                        method: 'ap_automation.services.employee_expense_approval_service.audit_accounts_l1',
-                        args: {
-                            voucher_name: frm.doc.name,
-                            sanctioned_amount: values.sanctioned_amount,
-                            comments: values.comments
+        // 5. Admin L2 Authorization Stage
+        if (['Pending Admin L2', 'Pending Admin L2 Sign-Off'].includes(status)) {
+            if (user_roles.includes('Admin L2 Approver') || is_system_mgr || !is_owner) {
+                frm.add_custom_button(__('🛡️ Admin L2 Authorization'), function() {
+                    frappe.prompt([
+                        { fieldname: 'comments', fieldtype: 'Small Text', label: __('Admin L2 Notes (Optional)') }
+                    ], function(values) {
+                        frappe.call({
+                            method: 'ap_automation.services.employee_expense_approval_service.approve_admin_l2',
+                            args: { voucher_name: frm.doc.name, comments: values.comments },
+                            freeze: true,
+                            freeze_message: __('Authorizing Admin L2...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }, __('Admin L2 Sign-Off'), __('Sign Off'));
+                }).addClass('btn-primary');
+
+                frm.trigger('add_reject_button');
+            }
+        }
+
+        // 6. Accounts L1 Audit Stage
+        if (['Pending Accounts L1', 'Pending Accounts L1 Audit'].includes(status)) {
+            if (user_roles.includes('Accounts L1 Auditor') || is_system_mgr || !is_owner) {
+                frm.add_custom_button(__('📊 Audit & Sanction (Accounts L1)'), function() {
+                    frappe.prompt([
+                        {
+                            fieldname: 'sanctioned_amount',
+                            fieldtype: 'Currency',
+                            label: __('Sanctioned Amount (INR)'),
+                            default: frm.doc.total_claim_amount,
+                            reqd: 1
                         },
-                        freeze: true,
-                        freeze_message: __('Auditing & Passing to Accounts L2...'),
-                        callback: function(r) {
-                            if (r.message && r.message.status === 'SUCCESS') {
-                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                                frm.reload_doc();
+                        { fieldname: 'comments', fieldtype: 'Small Text', label: __('Audit Findings / Deductions (Optional)') }
+                    ], function(values) {
+                        frappe.call({
+                            method: 'ap_automation.services.employee_expense_approval_service.audit_accounts_l1',
+                            args: {
+                                voucher_name: frm.doc.name,
+                                sanctioned_amount: values.sanctioned_amount,
+                                comments: values.comments
+                            },
+                            freeze: true,
+                            freeze_message: __('Auditing & Passing to Accounts L2...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                    frm.reload_doc();
+                                }
                             }
-                        }
-                    });
-                }, __('Accounts L1 Audit'), __('Audit & Pass'));
-            }).addClass('btn-warning');
+                        });
+                    }, __('Accounts L1 Audit'), __('Audit & Pass'));
+                }).addClass('btn-warning');
 
-            frm.trigger('add_reject_button');
+                frm.trigger('add_reject_button');
+            }
         }
 
-        if (status === 'Pending Accounts L2' || status === 'Pending Director L2 Sanction') {
-            frm.add_custom_button(__('💰 Final Sanction (Director / L2)'), function() {
-                frappe.prompt([
-                    { fieldname: 'comments', fieldtype: 'Small Text', label: __('Sanction Remarks (Optional)') }
-                ], function(values) {
-                    frappe.call({
-                        method: 'ap_automation.services.employee_expense_approval_service.sanction_accounts_l2',
-                        args: { voucher_name: frm.doc.name, comments: values.comments },
-                        freeze: true,
-                        freeze_message: __('Final Sanction in Progress...'),
-                        callback: function(r) {
-                            if (r.message && r.message.status === 'SUCCESS') {
-                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                                frm.reload_doc();
+        // 7. Accounts L2 Verification Stage
+        if (['Pending Accounts L2', 'Pending Director L2 Sanction'].includes(status)) {
+            if (user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || is_system_mgr || !is_owner) {
+                frm.add_custom_button(__('🏦 Final Sanction (Accounts L2)'), function() {
+                    frappe.prompt([
+                        { fieldname: 'comments', fieldtype: 'Small Text', label: __('Sanction Notes (Optional)') }
+                    ], function(values) {
+                        frappe.call({
+                            method: 'ap_automation.services.employee_expense_approval_service.sanction_accounts_l2',
+                            args: { voucher_name: frm.doc.name, comments: values.comments },
+                            freeze: true,
+                            freeze_message: __('Finalizing Approval for Payment...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                    frm.reload_doc();
+                                }
                             }
-                        }
-                    });
-                }, __('Accounts L2 Sanction'), __('Authorize Payment'));
-            }).addClass('btn-success');
+                        });
+                    }, __('Accounts L2 Final Sanction'), __('Authorize Payment'));
+                }).addClass('btn-success');
 
-            frm.trigger('add_reject_button');
+                frm.trigger('add_reject_button');
+            }
         }
+    },
 
-        if (status === 'Approved for Payment' || status === 'Ready for Payment Batch') {
-            frm.add_custom_button(__('💵 Release Payment'), function() {
-                frappe.prompt([
-                    {
-                        fieldname: 'payment_reference',
-                        fieldtype: 'Data',
-                        label: __('Bank / UTR Reference No.'),
-                        reqd: 1,
-                        default: 'REIMB-PAY-' + frappe.datetime.now_date()
+    add_reject_button: function(frm) {
+        frm.add_custom_button(__('❌ Reject / Return Claim'), function() {
+            frappe.prompt([
+                {
+                    fieldname: 'action_type',
+                    fieldtype: 'Select',
+                    label: __('Review Action'),
+                    options: 'Return to Employee for Correction\nReject Claim Completely',
+                    default: 'Return to Employee for Correction',
+                    reqd: 1
+                },
+                {
+                    fieldname: 'reason',
+                    fieldtype: 'Small Text',
+                    label: __('Reason / Clarification Needed'),
+                    reqd: 1
+                }
+            ], function(values) {
+                const return_to = (values.action_type === 'Return to Employee for Correction') ? 'Employee' : 'REJECT';
+
+                frappe.call({
+                    method: 'ap_automation.services.employee_expense_approval_service.reject_claim_flexible',
+                    args: {
+                        voucher_name: frm.doc.name,
+                        reason: values.reason,
+                        return_to: return_to
                     },
-                    { fieldname: 'comments', fieldtype: 'Small Text', label: __('Disbursal Comments (Optional)') }
-                ], function(values) {
-                    frappe.call({
-                        method: 'ap_automation.services.employee_expense_approval_service.release_payment',
-                        args: {
-                            voucher_name: frm.doc.name,
-                            payment_reference: values.payment_reference,
-                            comments: values.comments
-                        },
-                        freeze: true,
-                        freeze_message: __('Releasing Payment & Generating Accounting Records...'),
-                        callback: function(r) {
-                            if (r.message && r.message.status === 'SUCCESS') {
-                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                                frm.reload_doc();
-                            }
+                    freeze: true,
+                    freeze_message: (return_to === 'Employee') ? __('Returning Claim...') : __('Rejecting Claim...'),
+                    callback: function(r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({ message: r.message.message, indicator: 'orange' });
+                            frm.reload_doc();
                         }
-                    });
-                }, __('Payment Release'), __('Disburse & Complete'));
-            }).addClass('btn-success');
+                    }
+                });
+            }, __('Reject / Return Decision'), __('Confirm Decision'));
+        }).addClass('btn-danger');
+    },
 
-            frm.trigger('add_reject_button');
-        }
+    setup_receipt_gallery_and_tools: function(frm) {
+        if (frm.is_new()) return;
 
-        // Universal Aionion Excel Voucher Export
+        // Download Voucher Excel Button
         frm.add_custom_button(__('📥 Download Voucher (Excel)'), function() {
-            if (frm.is_new() || frm.is_dirty()) {
+            if (frm.is_new()) {
                 frappe.msgprint(__('Please save the claim first before downloading the Excel voucher.'));
                 return;
             }
@@ -419,127 +445,30 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
         });
     },
 
-    add_reject_button: function(frm) {
-        frm.add_custom_button(__('↩️ Reject / Return'), function() {
-            frappe.prompt([
-                {
-                    fieldname: 'return_to',
-                    fieldtype: 'Select',
-                    label: __('Return To Target'),
-                    options: [
-                        'Employee',
-                        'Receptionist',
-                        'Reporting Manager',
-                        'Admin L1'
-                    ],
-                    default: 'Employee',
-                    reqd: 1,
-                    description: __('Select target recipient. Returning to Employee enables Fast-Track bypass upon resubmission.')
-                },
-                {
-                    fieldname: 'reason',
-                    fieldtype: 'Small Text',
-                    label: __('Rejection / Return Reason (Mandatory)'),
-                    reqd: 1,
-                    description: __('Detailed explanation of what needs correction or why claim was rejected.')
-                }
-            ], function(values) {
-                frappe.call({
-                    method: 'ap_automation.services.employee_expense_approval_service.reject_claim_flexible',
-                    args: {
-                        voucher_name: frm.doc.name,
-                        reason: values.reason,
-                        return_to: values.return_to
-                    },
-                    freeze: true,
-                    freeze_message: __('Returning Claim to ' + values.return_to + '...'),
-                    callback: function(r) {
-                        if (r.message && r.message.status === 'SUCCESS') {
-                            frappe.show_alert({ message: r.message.message, indicator: 'orange' });
-                            frm.reload_doc();
-                        }
-                    }
-                });
-            }, __('Reject / Return Claim'), __('Return Claim'));
-        }).addClass('btn-danger');
-    },
-
-    setup_receipt_gallery_and_tools: function(frm) {
-        if (frm.is_new()) return;
-
-        // Calculate total proofs attached
-        const proofs = [];
-        (frm.doc.expense_lines || []).forEach(r => {
-            if (r.receipt_attachment) proofs.push(r.receipt_attachment);
-        });
-        (frm.doc.client_visit_legs || []).forEach(leg => {
-            if (leg.receipt_attachment) proofs.push(leg.receipt_attachment);
-        });
-        if (frm.doc.activity_photo) proofs.push(frm.doc.activity_photo);
-        if (frm.doc.pre_approval_attachment) proofs.push(frm.doc.pre_approval_attachment);
-
-        const proof_count = proofs.length;
-
-        // 1. Primary Top-Level Custom Button for Instant Access
-        if (proof_count > 0) {
-            frm.add_custom_button(__(`👁️ View Receipts (${proof_count})`), function() {
-                if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.open === 'function') {
-                    window.APReceiptGallery.open(frm);
-                } else if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.show === 'function') {
-                    window.APReceiptGallery.show(frm, { active_index: 0 });
-                }
-            });
-
-            frm.add_custom_button(__('📦 Download ZIP'), function() {
-                const url = `/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
-                window.open(url, '_blank');
-            });
-        }
-
-        // 2. Tools Menu Items
-        frm.add_custom_button(__('👁️ Proof & Receipt Gallery'), function() {
-            if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.open === 'function') {
-                window.APReceiptGallery.open(frm);
-            } else if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.show === 'function') {
-                window.APReceiptGallery.show(frm, { active_index: 0 });
-            }
-        }, __('Tools ▾'));
-
-        frm.add_custom_button(__('📦 Download All Receipts (.ZIP)'), function() {
-            window.open(`/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`);
-        }, __('Tools ▾'));
-
-        frm.add_custom_button(__('📊 Export Tally XML'), function() {
-            window.open(`/api/method/ap_automation.services.tally_export_service.export_employee_claim_xml?claim_name=${frm.doc.name}`);
-        }, __('Tools ▾'));
-    },
-
     calculate_totals: function(frm) {
-        const cat = frm.doc.claim_category || 'General Expense';
         let total = 0.0;
+        const cat = frm.doc.claim_category;
 
         if (cat === 'Client Visit Travel') {
-            const legs = frm.doc.client_visit_legs || [];
-            if (legs.length > 0 || parseFloat(frm.doc.travel_calculated_amount || 0.0) > 0) {
-                total = parseFloat(frm.doc.travel_calculated_amount || 0.0);
-            } else {
-                (frm.doc.expense_lines || []).forEach(row => {
-                    total += parseFloat(row.amount || 0.0);
-                });
+            const mileage = parseFloat(frm.doc.total_leg_mileage_amount || 0.0);
+            const tolls = parseFloat(frm.doc.total_toll_parking_amount || 0.0);
+            let per_diem = 0.0;
+            if (frm.doc.is_per_diem_claimed) {
+                const days = parseInt(frm.doc.per_diem_days || 1, 10);
+                const rate = parseFloat(frm.doc.per_diem_amount || 500.0);
+                per_diem = days * rate;
             }
+            total = mileage + tolls + per_diem;
         } else if (cat === 'Team Lunch / Outing') {
-            let bill = 0.0;
+            let bill_amount = 0.0;
             (frm.doc.expense_lines || []).forEach(row => {
-                bill += parseFloat(row.amount || 0.0);
+                bill_amount += parseFloat(row.amount || 0.0);
             });
-            const rem_wallet = parseFloat(frm.doc.remaining_quarter_budget || 0.0);
-            total = (rem_wallet > 0 && bill > rem_wallet) ? rem_wallet : bill;
-        } else if (cat === 'Dinner Allowance') {
-            total = parseFloat(frm.doc.dinner_allowance_amount || 0.0);
-            if (total === 0.0) {
-                (frm.doc.expense_lines || []).forEach(row => {
-                    total += parseFloat(row.amount || 0.0);
-                });
+            const capped = parseFloat(frm.doc.capped_claim_amount || 0.0);
+            if (frm.doc.participants && frm.doc.participants.length > 0 && capped > 0) {
+                total = Math.min(bill_amount, capped);
+            } else {
+                total = bill_amount;
             }
         } else {
             (frm.doc.expense_lines || []).forEach(row => {
@@ -547,53 +476,32 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
             });
         }
 
-        frm.set_value('total_claim_amount', Math.round(total * 100) / 100);
-
-        if (!frm.doc.sanctioned_amount || parseFloat(frm.doc.sanctioned_amount) <= 0) {
-            frm.set_value('sanctioned_amount', Math.round(total * 100) / 100);
+        const rounded_total = Math.round(total * 100) / 100;
+        
+        // Guard against marking the form dirty on load if values are already equal
+        if (Math.abs(parseFloat(frm.doc.total_claim_amount || 0.0) - rounded_total) > 0.001) {
+            frm.set_value('total_claim_amount', rounded_total);
         }
-
-        const net = Math.max(total - parseFloat(frm.doc.advance_amount || 0.0), 0.0);
-        frm.set_value('net_payable_amount', Math.round(net * 100) / 100);
+        if (Math.abs(parseFloat(frm.doc.net_payable_amount || 0.0) - rounded_total) > 0.001) {
+            frm.set_value('net_payable_amount', rounded_total);
+        }
     }
 });
 
-frappe.ui.form.on('Business Expense Item', {
-    amount: function(frm) {
+// Child Table Event Handlers for Expense Lines
+frappe.ui.form.on('Employee Reimbursement Line', {
+    amount: function(frm, cdt, cdn) {
         frm.trigger('calculate_totals');
-        if (frm.doc.claim_category === 'Team Lunch / Outing') {
-            update_team_lunch_calculations(frm);
-        }
     },
     expense_lines_remove: function(frm) {
         frm.trigger('calculate_totals');
-        if (frm.doc.claim_category === 'Team Lunch / Outing') {
-            update_team_lunch_calculations(frm);
-        }
-    }
-});
-
-frappe.ui.form.on('Employee Reimbursement Line', {
-    amount: function(frm) {
-        frm.trigger('calculate_totals');
-        if (frm.doc.claim_category === 'Team Lunch / Outing') {
-            update_team_lunch_calculations(frm);
-        }
     },
     expense_lines_add: function(frm) {
         frm.trigger('calculate_totals');
-        if (frm.doc.claim_category === 'Team Lunch / Outing') {
-            update_team_lunch_calculations(frm);
-        }
-    },
-    expense_lines_remove: function(frm) {
-        frm.trigger('calculate_totals');
-        if (frm.doc.claim_category === 'Team Lunch / Outing') {
-            update_team_lunch_calculations(frm);
-        }
     }
 });
 
+// Child Table Event Handlers for Client Visit Legs
 frappe.ui.form.on('Employee Client Visit Leg', {
     distance_km: function(frm, cdt, cdn) {
         calculate_single_leg_mileage(frm, cdt, cdn);
@@ -605,180 +513,131 @@ frappe.ui.form.on('Employee Client Visit Leg', {
         calculate_single_leg_mileage(frm, cdt, cdn);
     },
     toll_parking_amount: function(frm, cdt, cdn) {
-        calculate_single_leg_mileage(frm, cdt, cdn);
-    },
-    client_visit_legs_add: function(frm) {
         update_multi_leg_travel_calculations(frm);
     },
     client_visit_legs_remove: function(frm) {
         update_multi_leg_travel_calculations(frm);
+    },
+    client_visit_legs_add: function(frm) {
+        update_multi_leg_travel_calculations(frm);
     }
 });
 
-// Live Individual Employee Quarterly Wallet Ledger Handler
+// Child Table Event Handlers for Participants
 frappe.ui.form.on('Employee Reimbursement Participant', {
     employee_id: function(frm, cdt, cdn) {
         const row = locals[cdt][cdn];
         if (row.employee_id) {
             frappe.call({
-                method: 'ap_automation.services.team_bonding_wallet_service.get_employee_quarterly_wallet_status',
+                method: 'ap_automation.services.team_lunch_budget_service.get_employee_team_lunch_wallet',
                 args: {
                     employee_id: row.employee_id,
-                    posting_date: frm.doc.posting_date,
-                    activity_date: frm.doc.activity_date,
-                    exclude_claim: frm.doc.name
+                    activity_date: frm.doc.activity_date || frappe.datetime.get_today()
                 },
                 callback: function(r) {
-                    if (r.message) {
-                        frappe.model.set_value(cdt, cdn, 'branch_location', r.message.branch_location || 'Bangalore');
-                        frappe.model.set_value(cdt, cdn, 'quarterly_cap', r.message.quarterly_cap || 1250.0);
-                        frappe.model.set_value(cdt, cdn, 'utilized_in_quarter', r.message.utilized_in_quarter || 0.0);
-                        frappe.model.set_value(cdt, cdn, 'available_balance', r.message.available_balance || 0.0);
-                        frappe.model.set_value(cdt, cdn, 'wallet_status', r.message.wallet_status || '✅ Active');
-
-                        frappe.db.get_value('Employee', row.employee_id, ['employee_name', 'department'], (emp_res) => {
-                            if (emp_res) {
-                                frappe.model.set_value(cdt, cdn, 'employee_name', emp_res.employee_name || '');
-                                frappe.model.set_value(cdt, cdn, 'department', emp_res.department || '');
-                            }
-                            update_team_lunch_calculations(frm);
-                        });
-                    }
-                }
-            });
-        }
-    },
-    participants_add: function(frm) {
-        update_team_lunch_calculations(frm);
-    },
-    participants_remove: function(frm) {
-        update_team_lunch_calculations(frm);
-    }
-});
-
-function refresh_all_participant_wallets(frm) {
-    const participants = frm.doc.participants || [];
-    if (participants.length === 0) return;
-
-    participants.forEach(row => {
-        if (row.employee_id) {
-            frappe.call({
-                method: 'ap_automation.services.team_bonding_wallet_service.get_employee_quarterly_wallet_status',
-                args: {
-                    employee_id: row.employee_id,
-                    posting_date: frm.doc.posting_date,
-                    activity_date: frm.doc.activity_date,
-                    exclude_claim: frm.doc.name
-                },
-                callback: function(r) {
-                    if (r.message) {
-                        frappe.model.set_value(row.doctype, row.name, 'branch_location', r.message.branch_location || 'Bangalore');
-                        frappe.model.set_value(row.doctype, row.name, 'quarterly_cap', r.message.quarterly_cap || 1250.0);
-                        frappe.model.set_value(row.doctype, row.name, 'utilized_in_quarter', r.message.utilized_in_quarter || 0.0);
-                        frappe.model.set_value(row.doctype, row.name, 'available_balance', r.message.available_balance || 0.0);
-                        frappe.model.set_value(row.doctype, row.name, 'wallet_status', r.message.wallet_status || '✅ Active');
+                    if (r.message && r.message.status === 'SUCCESS') {
+                        const data = r.message.data;
+                        frappe.model.set_value(cdt, cdn, 'employee_name', data.employee_name);
+                        frappe.model.set_value(cdt, cdn, 'quarterly_cap', data.quarterly_cap);
+                        frappe.model.set_value(cdt, cdn, 'utilized_in_quarter', data.utilized_in_quarter);
+                        frappe.model.set_value(cdt, cdn, 'available_balance', data.available_balance);
                         update_team_lunch_calculations(frm);
                     }
                 }
             });
         }
-    });
-}
+    },
+    participants_remove: function(frm) {
+        update_team_lunch_calculations(frm);
+    },
+    participants_add: function(frm) {
+        update_team_lunch_calculations(frm);
+    }
+});
 
 function render_unified_claim_header(frm) {
-    if (!frm.fields_dict['sb_emp'] || !frm.fields_dict['sb_emp'].wrapper) return;
-
-    let container = document.getElementById('ap-claim-unified-header');
-    if (!container) {
-        container = document.createElement('div');
-        container.id = 'ap-claim-unified-header';
-        $(frm.fields_dict['sb_emp'].wrapper).prepend(container);
-    }
+    const wrapper = frm.fields_dict['claim_visual_header_html'] && frm.fields_dict['claim_visual_header_html'].wrapper;
+    if (!wrapper) return;
 
     const current_cat = frm.doc.claim_category || 'General Expense';
+    const is_editable = frm.is_new() || !frm.doc.status || ['Draft', 'Returned to Employee'].includes(frm.doc.status);
+
     const categories = [
-        { key: 'General Expense', label: 'General Expense', icon: '📦', desc: 'Itemized Bill Proofs' },
-        { key: 'Client Visit Travel', label: 'Client Visit Travel', icon: '🚗', desc: 'Multi-Client Route & Mileage' },
-        { key: 'Team Lunch / Outing', label: 'Team Bonding', icon: '🍕', desc: 'Individual Wallet Ledger' },
-        { key: 'Dinner Allowance', label: 'Dinner Allowance', icon: '🌙', desc: 'Late Shift Cutoff' },
-        { key: 'Branch Expense & Maintenance', label: 'Branch Expense', icon: '🏢', desc: 'Repairs & Operations' }
+        { id: 'General Expense', title: 'General Expense', desc: 'Itemized Bill Proofs', icon: '📦' },
+        { id: 'Client Visit Travel', title: 'Client Visit Travel', desc: 'Multi-Client Route & Mileage', icon: '🚗' },
+        { id: 'Team Lunch / Outing', title: 'Team Bonding', desc: 'Individual Wallet Ledger', icon: '🍕' },
+        { id: 'Dinner Allowance', title: 'Dinner Allowance', desc: 'Late Shift Cutoff', icon: '🌙' },
+        { id: 'Branch Expense & Maintenance', title: 'Branch Expense', desc: 'Repairs & Operations', icon: '🏢' }
     ];
 
-    let tabs_html = `<div class="ap-category-tabs-container">`;
+    let tabs_html = '<div class="ap-category-tabs-container">';
     categories.forEach(cat => {
-        const is_active = (current_cat === cat.key);
+        const is_active = (cat.id === current_cat);
+        const active_cls = is_active ? 'tab-active' : '';
         tabs_html += `
-            <div class="ap-category-tab-btn ${is_active ? 'tab-active' : ''}" data-cat="${cat.key}">
-                <div class="tab-icon">${cat.icon}</div>
-                <div class="tab-text">
-                    <div class="tab-title">${cat.label}</div>
+            <div class="ap-category-tab-btn ${active_cls}" data-category="${cat.id}">
+                <span class="tab-icon">${cat.icon}</span>
+                <div>
+                    <div class="tab-title">${cat.title}</div>
                     <div class="tab-desc">${cat.desc}</div>
                 </div>
             </div>
         `;
     });
-    tabs_html += `</div>`;
+    tabs_html += '</div>';
 
+    // Multi-Stage Progress Stepper
     const status = frm.doc.status || 'Draft';
-    const steps = [
-        { label: '1. Draft / Submitted', state: ['Draft', 'Submitted', 'Pending Receptionist Verification'] },
-        { label: '2. Manager Review', state: ['Pending Manager Approval'] },
-        { label: '3. Admin L1/L2', state: ['Pending Admin L1 Review', 'Pending Admin L2 Sign-Off'] },
-        { label: '4. Accounts Audit', state: ['Pending Accounts L1', 'Pending Accounts L1 Audit'] },
-        { label: '5. Director Sanction', state: ['Pending Accounts L2', 'Pending Director L2 Sanction'] },
-        { label: '6. Bank Disbursal', state: ['Approved for Payment', 'Ready for Payment Batch', 'Paid via Bank Transfer'] }
+    const stages = [
+        { key: 'draft', label: '1. Draft / Submitted' },
+        { key: 'manager', label: '2. Manager Review' },
+        { key: 'admin', label: '3. Admin L1/L2' },
+        { key: 'accounts', label: '4. Accounts Audit' },
+        { key: 'director', label: '5. Director Sanction' },
+        { key: 'disbursed', label: '6. Bank Disbursal' }
     ];
 
-    let current_step_idx = 0;
-    if (['Pending Receptionist Verification'].includes(status)) current_step_idx = 0;
-    else if (['Pending Manager Approval'].includes(status)) current_step_idx = 1;
-    else if (['Pending Admin L1 Review', 'Pending Admin L2 Sign-Off'].includes(status)) current_step_idx = 2;
-    else if (['Pending Accounts L1', 'Pending Accounts L1 Audit'].includes(status)) current_step_idx = 3;
-    else if (['Pending Accounts L2', 'Pending Director L2 Sanction'].includes(status)) current_step_idx = 4;
-    else if (['Approved for Payment', 'Ready for Payment Batch', 'Paid via Bank Transfer'].includes(status)) current_step_idx = 5;
+    let current_step = 1;
+    if (['Pending Manager', 'Pending Manager Approval'].includes(status)) current_step = 2;
+    else if (['Pending Receptionist', 'Pending Admin L1', 'Pending Admin L2'].includes(status)) current_step = 3;
+    else if (['Pending Accounts L1'].includes(status)) current_step = 4;
+    else if (['Pending Accounts L2', 'Pending Director L2 Sanction'].includes(status)) current_step = 5;
+    else if (['Approved for Payment', 'Paid'].includes(status)) current_step = 6;
 
-    let stepper_html = `
-        <div class="ap-stepper-wrapper">
-            <div class="ap-stepper-trail">
-    `;
-
-    steps.forEach((s, idx) => {
-        let step_class = 'step-pending';
-        let badge_icon = idx + 1;
-
+    let stepper_html = '<div class="ap-stepper-wrapper"><div class="ap-stepper-trail">';
+    stages.forEach((stg, idx) => {
+        const step_num = idx + 1;
+        let step_state_cls = '';
         if (status === 'Rejected') {
-            step_class = 'step-rejected';
-            badge_icon = '✖';
+            step_state_cls = (step_num === current_step) ? 'step-rejected' : '';
         } else if (status === 'Returned to Employee') {
-            step_class = 'step-returned';
-            badge_icon = '↩';
-        } else if (idx < current_step_idx) {
-            step_class = 'step-completed';
-            badge_icon = '✓';
-        } else if (idx === current_step_idx) {
-            step_class = 'step-active';
+            step_state_cls = (step_num === current_step) ? 'step-returned' : '';
+        } else {
+            if (step_num < current_step) step_state_cls = 'step-completed';
+            else if (step_num === current_step) step_state_cls = 'step-active';
         }
 
         stepper_html += `
-            <div class="ap-step-item ${step_class}">
-                <div class="ap-step-node">${badge_icon}</div>
-                <div class="ap-step-label">${s.label}</div>
+            <div class="ap-step-item ${step_state_cls}">
+                <div class="ap-step-node">${step_num < current_step ? '✓' : step_num}</div>
+                <div class="ap-step-label">${stg.label}</div>
             </div>
         `;
     });
+    stepper_html += '</div></div>';
 
-    stepper_html += `</div></div>`;
+    wrapper.innerHTML = tabs_html + stepper_html;
 
-    container.innerHTML = tabs_html + stepper_html;
-
-    $(container).find('.ap-category-tab-btn').off('click').on('click', function () {
-        const is_editable = frm.is_new() || !frm.doc.status || ['Draft', 'Returned to Employee'].includes(frm.doc.status);
+    // Attach click listeners for category buttons
+    $(wrapper).find('.ap-category-tab-btn').on('click', function() {
         if (!is_editable) {
-            frappe.show_alert({ message: __('Claim category cannot be modified after submission.'), indicator: 'orange' }, 3);
+            frappe.show_alert({ message: __('Claim category cannot be modified while locked in workflow.'), indicator: 'orange' }, 3);
             return;
         }
-        const selected_cat = $(this).attr('data-cat');
-        frm.set_value('claim_category', selected_cat);
+        const selected_cat = $(this).attr('data-category');
+        if (frm.doc.claim_category !== selected_cat) {
+            frm.set_value('claim_category', selected_cat);
+        }
     });
 }
 
@@ -804,31 +663,12 @@ function toggle_category_sections(frm, should_scroll) {
     // 4. Branch Expense: Show Branch Section
     frm.toggle_display('sb_branch_expense', is_branch);
 
-    // 5. Expense Lines Table: Show ONLY for General Expense, Team Lunch (Restaurant Bill), and Branch
+    // 5. Expense Lines Table: Show for General Expense, Team Lunch, Branch, and Dinner
     frm.toggle_display('sb_lines', (is_general || is_team_lunch || is_branch || is_dinner || (frm.doc.expense_lines && frm.doc.expense_lines.length > 0)));
 
     // 6. Clean UI: Hide audit trail & voucher relationships on new/draft claims
     const show_audit = !frm.is_new() && !['Draft'].includes(frm.doc.status);
     frm.toggle_display('sb_audit', show_audit);
-    frm.toggle_display('sb_fork', show_audit);
-
-    if (should_scroll) {
-        const section_field_map = {
-            'Client Visit Travel': 'sb_client_travel',
-            'Team Lunch / Outing': 'sb_team_lunch',
-            'Dinner Allowance': 'sb_dinner',
-            'Branch Expense & Maintenance': 'sb_branch_expense',
-            'General Expense': 'sb_lines'
-        };
-        const target_section = section_field_map[cat];
-        if (target_section && frm.fields_dict[target_section] && frm.fields_dict[target_section].wrapper) {
-            setTimeout(() => {
-                $('html, body').animate({
-                    scrollTop: $(frm.fields_dict[target_section].wrapper).offset().top - 90
-                }, 300);
-            }, 100);
-        }
-    }
 }
 
 function calculate_single_leg_mileage(frm, cdt, cdn) {
@@ -874,16 +714,26 @@ function update_multi_leg_travel_calculations(frm) {
     }
 
     const total_entitlement = Math.round((total_mileage + total_tolls + per_diem) * 100) / 100;
+    const r_km = Math.round(total_km * 100) / 100;
+    const r_mileage = Math.round(total_mileage * 100) / 100;
+    const r_tolls = Math.round(total_tolls * 100) / 100;
 
-    frm.set_value('total_trip_distance_km', Math.round(total_km * 100) / 100);
-    frm.set_value('total_leg_mileage_amount', Math.round(total_mileage * 100) / 100);
-    frm.set_value('total_toll_parking_amount', Math.round(total_tolls * 100) / 100);
-    frm.set_value('travel_calculated_amount', total_entitlement);
+    if (Math.abs(parseFloat(frm.doc.total_trip_distance_km || 0.0) - r_km) > 0.001) {
+        frm.set_value('total_trip_distance_km', r_km);
+    }
+    if (Math.abs(parseFloat(frm.doc.total_leg_mileage_amount || 0.0) - r_mileage) > 0.001) {
+        frm.set_value('total_leg_mileage_amount', r_mileage);
+    }
+    if (Math.abs(parseFloat(frm.doc.total_toll_parking_amount || 0.0) - r_tolls) > 0.001) {
+        frm.set_value('total_toll_parking_amount', r_tolls);
+    }
+    if (Math.abs(parseFloat(frm.doc.travel_calculated_amount || 0.0) - total_entitlement) > 0.001) {
+        frm.set_value('travel_calculated_amount', total_entitlement);
+    }
 
     frm.trigger('calculate_totals');
 }
 
-// Live Multi-Participant Wallet Ledger & Split Engine
 function update_team_lunch_calculations(frm) {
     if (frm.doc.claim_category !== 'Team Lunch / Outing') return;
 
@@ -905,13 +755,27 @@ function update_team_lunch_calculations(frm) {
 
     const reimbursable = Math.min(bill_amount, total_available);
 
-    frm.set_value('participant_count', participants.length);
-    frm.set_value('total_team_entitlement', Math.round(gross_cap * 100) / 100);
-    frm.set_value('prior_quarter_claimed', Math.round(prior_claimed * 100) / 100);
-    frm.set_value('remaining_quarter_budget', Math.round(total_available * 100) / 100);
-    frm.set_value('capped_claim_amount', Math.round(reimbursable * 100) / 100);
+    const r_cap = Math.round(gross_cap * 100) / 100;
+    const r_claimed = Math.round(prior_claimed * 100) / 100;
+    const r_avail = Math.round(total_available * 100) / 100;
+    const r_capped = Math.round(reimbursable * 100) / 100;
 
-    // Calculate pro-rata allocated share for each participant
+    if (frm.doc.participant_count !== participants.length) {
+        frm.set_value('participant_count', participants.length);
+    }
+    if (Math.abs(parseFloat(frm.doc.total_team_entitlement || 0.0) - r_cap) > 0.001) {
+        frm.set_value('total_team_entitlement', r_cap);
+    }
+    if (Math.abs(parseFloat(frm.doc.prior_quarter_claimed || 0.0) - r_claimed) > 0.001) {
+        frm.set_value('prior_quarter_claimed', r_claimed);
+    }
+    if (Math.abs(parseFloat(frm.doc.remaining_quarter_budget || 0.0) - r_avail) > 0.001) {
+        frm.set_value('remaining_quarter_budget', r_avail);
+    }
+    if (Math.abs(parseFloat(frm.doc.capped_claim_amount || 0.0) - r_capped) > 0.001) {
+        frm.set_value('capped_claim_amount', r_capped);
+    }
+
     if (reimbursable > 0 && total_available > 0) {
         const ratio = reimbursable / total_available;
         participants.forEach(row => {
@@ -922,6 +786,35 @@ function update_team_lunch_calculations(frm) {
     }
 
     frm.trigger('calculate_totals');
+}
+
+function refresh_all_participant_wallets(frm) {
+    const participants = frm.doc.participants || [];
+    if (participants.length === 0 || !frm.doc.activity_date) return;
+
+    participants.forEach((row, idx) => {
+        if (row.employee_id) {
+            frappe.call({
+                method: 'ap_automation.services.team_lunch_budget_service.get_employee_team_lunch_wallet',
+                args: {
+                    employee_id: row.employee_id,
+                    activity_date: frm.doc.activity_date
+                },
+                callback: function(r) {
+                    if (r.message && r.message.status === 'SUCCESS') {
+                        const data = r.message.data;
+                        row.quarterly_cap = data.quarterly_cap;
+                        row.utilized_in_quarter = data.utilized_in_quarter;
+                        row.available_balance = data.available_balance;
+                        if (idx === participants.length - 1) {
+                            frm.refresh_field('participants');
+                            update_team_lunch_calculations(frm);
+                        }
+                    }
+                }
+            });
+        }
+    });
 }
 
 function apply_claim_flow_styles() {
