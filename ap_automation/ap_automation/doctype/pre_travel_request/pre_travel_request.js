@@ -1,17 +1,9 @@
 // Copyright (c) 2026, Quanti and contributors
 // For license information, please see license.txt
 
-/**
- * Pre Travel Request Form Controller (Stage A: Multi-Client Visit Pre-Approval)
- * Features:
- * 1. 4-Tier Scope: Restricts employee dropdown to permitted tier.
- * 2. Auto-populates employee and reporting manager on new form and employee change.
- * 3. Enforces read-only status and zero-advance policy.
- * 4. Action buttons for Submission, Manager Approval, and Rejection.
- * 5. Dynamic Client Visit Itinerary with Client Code support for Existing Clients.
- */
 frappe.ui.form.on('Pre Travel Request', {
     setup: function(frm) {
+        // Enforce 4-Tier organizational employee query scoping
         frm.set_query('employee', function() {
             return {
                 query: 'ap_automation.services.employee_reimbursement_permission_service.get_allowed_employee_query'
@@ -99,8 +91,13 @@ frappe.ui.form.on('Pre Travel Request', {
     render_action_buttons: function(frm) {
         if (frm.is_new()) return;
 
-        // 1. Submit for Approval (Employee)
-        if (['Draft', 'Returned for Correction'].includes(frm.doc.status)) {
+        const current_user = frappe.session.user;
+        const is_owner = (frm.doc.owner === current_user);
+        const is_system_mgr = frappe.user_roles.includes('System Manager') || frappe.user_roles.includes('Administrator') || current_user === 'Administrator';
+        const is_manager = (frm.doc.manager_user_id === current_user) || is_system_mgr;
+
+        // 1. Submit for Approval (Only for Owner / Employee in Draft)
+        if (['Draft', 'Returned for Correction'].includes(frm.doc.status) && (is_owner || is_system_mgr)) {
             frm.add_custom_button(__('✈️ Submit Pre-Travel Request'), function() {
                 frappe.confirm(
                     __('Submit Pre-Travel Request to your HRMS Reporting Manager?'),
@@ -122,60 +119,67 @@ frappe.ui.form.on('Pre Travel Request', {
             }).addClass('btn-primary');
         }
 
-        // 2. Manager Approval & Rejection Actions
+        // 2. Manager Approval & Rejection Actions (STRICTLY for Reporting Manager / System Manager, NEVER claimant)
         if (frm.doc.status === 'Pending Manager Approval') {
-            frm.add_custom_button(__('✅ Approve Request'), function() {
-                frappe.prompt([
-                    {
-                        fieldname: 'comments',
-                        fieldtype: 'Small Text',
-                        label: __('Approval Comments (Optional)')
-                    }
-                ], function(values) {
-                    frappe.call({
-                        method: 'ap_automation.services.pre_travel_service.approve_pre_travel_request',
-                        args: {
-                            docname: frm.doc.name,
-                            comments: values.comments
-                        },
-                        freeze: true,
-                        freeze_message: __('Approving Pre-Travel Request...'),
-                        callback: function(r) {
-                            if (r.message && r.message.status === 'SUCCESS') {
-                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                                frm.reload_doc();
-                            }
-                        }
-                    });
-                }, __('Approve Pre-Travel Request'), __('Approve'));
-            }).addClass('btn-success');
+            // If claimant employee is viewing, show waiting state and DO NOT show approve/reject buttons
+            if (is_owner && !is_system_mgr && frm.doc.manager_user_id !== current_user) {
+                return;
+            }
 
-            frm.add_custom_button(__('❌ Reject Request'), function() {
-                frappe.prompt([
-                    {
-                        fieldname: 'reason',
-                        fieldtype: 'Small Text',
-                        label: __('Rejection Reason (Mandatory)'),
-                        reqd: 1
-                    }
-                ], function(values) {
-                    frappe.call({
-                        method: 'ap_automation.services.pre_travel_service.reject_pre_travel_request',
-                        args: {
-                            docname: frm.doc.name,
-                            reason: values.reason
-                        },
-                        freeze: true,
-                        freeze_message: __('Rejecting Pre-Travel Request...'),
-                        callback: function(r) {
-                            if (r.message && r.message.status === 'SUCCESS') {
-                                frappe.show_alert({ message: r.message.message, indicator: 'red' });
-                                frm.reload_doc();
-                            }
+            if (is_manager) {
+                frm.add_custom_button(__('✅ Approve Request'), function() {
+                    frappe.prompt([
+                        {
+                            fieldname: 'comments',
+                            fieldtype: 'Small Text',
+                            label: __('Approval Comments (Optional)')
                         }
-                    });
-                }, __('Reject Pre-Travel Request'), __('Reject'));
-            }).addClass('btn-danger');
+                    ], function(values) {
+                        frappe.call({
+                            method: 'ap_automation.services.pre_travel_service.approve_pre_travel_request',
+                            args: {
+                                docname: frm.doc.name,
+                                comments: values.comments
+                            },
+                            freeze: true,
+                            freeze_message: __('Approving Pre-Travel Request...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }, __('Approve Pre-Travel Request'), __('Approve'));
+                }).addClass('btn-success');
+
+                frm.add_custom_button(__('❌ Reject Request'), function() {
+                    frappe.prompt([
+                        {
+                            fieldname: 'reason',
+                            fieldtype: 'Small Text',
+                            label: __('Rejection Reason (Mandatory)'),
+                            reqd: 1
+                        }
+                    ], function(values) {
+                        frappe.call({
+                            method: 'ap_automation.services.pre_travel_service.reject_pre_travel_request',
+                            args: {
+                                docname: frm.doc.name,
+                                reason: values.reason
+                            },
+                            freeze: true,
+                            freeze_message: __('Rejecting Pre-Travel Request...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'red' });
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }, __('Reject Pre-Travel Request'), __('Reject'));
+                }).addClass('btn-danger');
+            }
         }
     }
 });

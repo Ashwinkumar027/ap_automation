@@ -21,13 +21,7 @@ app_include_js = [
     "/assets/ap_automation/js/ap_workspace_dashboard.js"
 ]
 
-doctype_js = {
-    "AP IDFC Settings": "public/js/ap_idfc_settings.js",
-    "Employee Reimbursement Claim": "public/js/employee_reimbursement_claim.js",
-    "Pre Travel Request": "doctype/pre_travel_request/pre_travel_request.js",
-    "Weekly Accounts Audit Batch": "public/js/weekly_accounts_audit_batch.js",
-    "Vendor Invoice Claim": "public/js/vendor_invoice_claim.js"
-}
+doctype_js = {}
 
 # --------------------------------------------------------------------------------------
 # PERMISSION QUERY CONDITIONS & HAS_PERMISSION HOOKS
@@ -53,10 +47,7 @@ scheduler_events = {
         "0 12 * * 5": [
             "ap_automation.services.weekly_accounts_batch_service.generate_all_weekly_accounts_batches"
         ]
-    },
-    "weekly": [
-        "ap_automation.services.notification_service.send_pending_petty_cash_reminders"
-    ]
+    }
 }
 
 # --------------------------------------------------------------------------------------

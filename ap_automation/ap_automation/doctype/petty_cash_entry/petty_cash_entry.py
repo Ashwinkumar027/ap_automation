@@ -265,15 +265,13 @@ class PettyCashEntry(Document):
 
     def validate_immutability(self):
         """Submitted bills must be locked, allowing edits only on drafts."""
-        if self.is_new() or getattr(self.flags, "ignore_validate_immutability", False) or frappe.flags.in_approval or frappe.flags.in_dispute_split or frappe.flags.in_test:
+        if self.is_new():
             return
         old_doc = self.get_doc_before_save()
         if old_doc:
             old_status = old_doc.status or "Draft"
-            if old_status not in ("Draft", "Returned to Reception"):
-                old_lines = [(r.idx, r.merchant_name, flt(r.amount), r.bill_number, r.expense_type) for r in getattr(old_doc, "expense_lines", []) or []]
-                new_lines = [(r.idx, r.merchant_name, flt(r.amount), r.bill_number, r.expense_type) for r in getattr(self, "expense_lines", []) or []]
-                if old_lines != new_lines:
+            if old_status not in ("Draft", "Returned to Reception") and self.has_value_changed("expense_lines"):
+                if not getattr(frappe.flags, "in_dispute_split", False):
                     frappe.throw(
                         f"🔒 Locked Document: Petty Cash Voucher '{self.name}' is in status '{old_status}'. "
                         f"Line items on submitted vouchers cannot be modified directly.",

@@ -30,14 +30,6 @@ class PaymentBatch(Document):
         except Exception as e:
             frappe.log_error(f"Error notifying releaser for batch {self.name}: {str(e)}", "AP Notification Error")
 
-    def on_update(self):
-        """Notify releaser if status transitions to Pending 2FA Approval."""
-        if self.has_value_changed("status") and self.status == "Pending 2FA Approval":
-            try:
-                notification_service.notify_releaser_on_batch_ready(self.name)
-            except Exception as e:
-                frappe.log_error(f"Error notifying releaser for batch {self.name}: {str(e)}", "AP Notification Error")
-
 
 @frappe.whitelist()
 def fetch_approved_claims_for_batch(batch_name=None, company=None):

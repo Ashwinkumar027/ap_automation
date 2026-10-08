@@ -226,12 +226,10 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
 
     doc_status = getattr(doc, "status", None) or ""
 
-    # 1. Draft & Rejected & None status are editable by the claimant
-    if not doc_status or doc_status in EMPLOYEE_EDITABLE_STATUSES:
+    # 1. Draft & Rejected status are editable by the claimant
+    if doc_status in EMPLOYEE_EDITABLE_STATUSES:
         if is_owner:
             return True
-        if not doc_status:
-            return True  # New doc with no status - allow
         return False
 
     # 2. Claimant always has read access
