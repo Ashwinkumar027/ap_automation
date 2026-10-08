@@ -433,14 +433,16 @@
    "fieldtype": "Link",
    "label": "Admin L1 Approver",
    "options": "User",
-   "read_only": 1
+   "read_only": 1,
+   "ignore_user_permissions": 1
   },
   {
    "fieldname": "admin_l2_approver",
    "fieldtype": "Link",
    "label": "Admin L2 Approver",
    "options": "User",
-   "read_only": 1
+   "read_only": 1,
+   "ignore_user_permissions": 1
   },
   {
    "fieldname": "cb_audit_2",
