@@ -29,6 +29,7 @@ class PreTravelRequest(Document):
         self.bind_and_lock_hrms_profile()
         self.validate_client_details()
         self.validate_dates_and_cost()
+        self.validate_no_overlapping_travel()
         self.enforce_zero_advance_policy()
 
     def enforce_zero_advance_policy(self):
@@ -102,6 +103,33 @@ class PreTravelRequest(Document):
             if reports_to:
                 self.reporting_manager_name = frappe.db.get_value("Employee", reports_to, "employee_name") or ""
                 self.manager_user_id = frappe.db.get_value("Employee", reports_to, "user_id") or ""
+
+    def validate_no_overlapping_travel(self):
+        """Prevents an employee from creating multiple concurrent Pre-Travel Requests for overlapping dates."""
+        dep_date = self.get("departure_date")
+        ret_date = self.get("return_date")
+        emp_id = self.get("employee")
+
+        if not (dep_date and ret_date and emp_id):
+            return
+
+        overlapping = frappe.db.sql("""
+            SELECT name, departure_date, return_date, status
+            FROM `tabPre Travel Request`
+            WHERE employee = %s
+              AND name != %s
+              AND status IN ('Pending Manager Approval', 'Approved')
+              AND NOT (return_date < %s OR departure_date > %s)
+            LIMIT 1
+        """, (emp_id, self.name or "", dep_date, ret_date), as_dict=True)
+
+        if overlapping:
+            overlap_doc = overlapping[0]
+            raise APValidationError(
+                f"Overlapping Travel Conflict: You already have an active Pre-Travel Request #{overlap_doc.name} "
+                f"(Status: {overlap_doc.status}) spanning {overlap_doc.departure_date} to {overlap_doc.return_date}. "
+                f"Cannot create conflicting travel dates."
+            )
 
     def validate_dates_and_cost(self):
         """Validates travel dates and estimated cost."""

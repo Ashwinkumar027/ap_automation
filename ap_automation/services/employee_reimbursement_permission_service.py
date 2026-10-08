@@ -121,6 +121,15 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
     if not user:
         user = frappe.session.user
 
+    # Allow create/write on new/unsaved docs - standard DocPerm handles it
+    if ptype in ("create", "write") and (
+        not doc
+        or getattr(doc, "__islocal", False)
+        or (hasattr(doc, "is_new") and doc.is_new())
+        or not getattr(doc, "name", None)
+    ):
+        return True
+
     if not doc or getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()):
         return True
 
@@ -197,6 +206,15 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
     if not user:
         user = frappe.session.user
 
+    # Allow create/write on new/unsaved docs - standard DocPerm handles it
+    if ptype in ("create", "write") and (
+        not doc
+        or getattr(doc, "__islocal", False)
+        or (hasattr(doc, "is_new") and doc.is_new())
+        or not getattr(doc, "name", None)
+    ):
+        return True
+
     if not doc or getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()):
         return True
 
@@ -206,20 +224,23 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
     own_emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
     is_owner = (getattr(doc, "owner", None) == user) or (own_emp and getattr(doc, "employee", None) == own_emp)
 
-    doc_status = getattr(doc, "status", None)
+    doc_status = getattr(doc, "status", None) or ""
 
-    # 1. Draft & Rejected states are strictly editable by the claimant
-    if doc_status in EMPLOYEE_EDITABLE_STATUSES:
+    # 1. Draft & Rejected & None status are editable by the claimant
+    if not doc_status or doc_status in EMPLOYEE_EDITABLE_STATUSES:
         if is_owner:
             return True
+        if not doc_status:
+            return True  # New doc with no status - allow
         return False
 
     # 2. Claimant always has read access
     if is_owner:
         return True
 
-    # 3. Manager authorization
-    if getattr(doc, "manager_user_id", None) == user:
+    # 3. Manager authorization (use .get() safe accessor)
+    mgr_uid = getattr(doc, "manager_user_id", None) or (doc.get("manager_user_id") if hasattr(doc, "get") else None)
+    if mgr_uid == user:
         return True
 
     doc_emp = getattr(doc, "employee", None)

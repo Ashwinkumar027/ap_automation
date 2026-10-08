@@ -305,7 +305,7 @@ def _build_html_template(
 def notify_manager_on_pre_travel_submitted(docname: str) -> None:
     """1. Triggered when Employee submits Pre-Travel Request to Reporting Manager."""
     doc = frappe.get_doc("Pre Travel Request", docname)
-    mgr_email = _resolve_email_address(doc.manager_user_id or doc.reporting_manager)
+    mgr_email = _resolve_email_address((doc.get("manager_user_id") or getattr(doc, "manager_user_id", None)) or doc.reporting_manager)
     if not mgr_email:
         return
 
@@ -403,7 +403,7 @@ def notify_employee_on_pre_travel_rejected(docname: str, reason: str) -> None:
 def notify_manager_on_claim_submitted(docname: str) -> None:
     """4. Step 1: Employee submits Expense Claim to Reporting Manager."""
     doc = frappe.get_doc("Employee Reimbursement Claim", docname)
-    mgr_email = _resolve_email_address(doc.manager_user_id or doc.reporting_manager)
+    mgr_email = _resolve_email_address((doc.get("manager_user_id") or getattr(doc, "manager_user_id", None)) or doc.reporting_manager)
     if not mgr_email:
         return
 
@@ -599,7 +599,7 @@ def notify_employee_on_payment_released(docname: str, payment_reference: str) ->
     if not emp_email:
         return
 
-    mgr_email = _resolve_email_address(doc.manager_user_id or doc.reporting_manager)
+    mgr_email = _resolve_email_address((doc.get("manager_user_id") or getattr(doc, "manager_user_id", None)) or doc.reporting_manager)
     doc_url = _get_form_url("Employee Reimbursement Claim", docname)
     amount = flt(doc.sanctioned_amount or doc.total_claim_amount)
 
@@ -669,7 +669,7 @@ def notify_internal_stage_on_claim_returned(docname: str, target_stage: str, app
 
     recipients = []
     if target_stage in ("Reporting Manager", "Manager"):
-        recipients = [_resolve_email_address(doc.manager_user_id or doc.reporting_manager)]
+        recipients = [_resolve_email_address((doc.get("manager_user_id") or getattr(doc, "manager_user_id", None)) or doc.reporting_manager)]
     elif target_stage == "Receptionist":
         recipients = _get_role_recipients(["Receptionist"])
     elif target_stage == "Admin L1":
@@ -735,7 +735,7 @@ def notify_approver_on_fast_track_resubmitted(docname: str, rejecting_user: str,
 def notify_manager_on_cost_increased_resubmitted(docname: str, old_amount: float, new_amount: float) -> None:
     """15. Triggered when employee resubmits with an increased amount, resetting to Stage 1."""
     doc = frappe.get_doc("Employee Reimbursement Claim", docname)
-    mgr_email = _resolve_email_address(doc.manager_user_id or doc.reporting_manager)
+    mgr_email = _resolve_email_address((doc.get("manager_user_id") or getattr(doc, "manager_user_id", None)) or doc.reporting_manager)
     if not mgr_email:
         return
 
