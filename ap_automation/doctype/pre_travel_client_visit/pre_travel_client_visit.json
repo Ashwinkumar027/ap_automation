@@ -40,9 +40,9 @@
    "fieldname": "client_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Client Name / Company",
+   "label": "Client / Lead Name",
    "columns": 2,
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fieldname": "client_code",
@@ -89,7 +89,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-10-08 12:35:00.000000",
+ "modified": "2026-10-08 13:20:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Pre Travel Client Visit",
