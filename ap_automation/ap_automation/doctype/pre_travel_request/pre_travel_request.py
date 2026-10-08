@@ -125,10 +125,12 @@ class PreTravelRequest(Document):
 
         if overlapping:
             overlap_doc = overlapping[0]
-            raise APValidationError(
-                f"Overlapping Travel Conflict: You already have an active Pre-Travel Request #{overlap_doc.name} "
+            frappe.throw(
+                f"⚠️ Overlapping Travel Conflict: You already have an active Pre-Travel Request #{overlap_doc.name} "
                 f"(Status: {overlap_doc.status}) spanning {overlap_doc.departure_date} to {overlap_doc.return_date}. "
-                f"Cannot create conflicting travel dates."
+                f"Please choose non-conflicting travel dates.",
+                title="Overlapping Travel Conflict",
+                exc=APValidationError
             )
 
     def validate_dates_and_cost(self):
@@ -137,14 +139,14 @@ class PreTravelRequest(Document):
         ret_date = self.get("return_date")
 
         if not dep_date or not ret_date:
-            raise APValidationError("Departure Date and Return Date are mandatory.")
+            frappe.throw("Departure Date and Return Date are mandatory.", exc=APValidationError)
 
         if getdate(ret_date) < getdate(dep_date):
-            raise APValidationError("Return Date cannot be earlier than Departure Date.")
+            frappe.throw("Return Date cannot be earlier than Departure Date.", exc=APValidationError)
 
         est_budget = flt(self.get("estimated_budget") or 0.0)
         if est_budget < 0:
-            raise APValidationError("Estimated Travel Budget cannot be negative.")
+            frappe.throw("Estimated Travel Budget cannot be negative.", exc=APValidationError)
 
     def _check_tamper_attempt(self, old_doc):
         """Prevents changes to critical fields once approved."""
