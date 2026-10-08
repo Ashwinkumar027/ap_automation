@@ -64,14 +64,6 @@ class PreTravelRequest(Document):
         if not old_doc:
             return
 
-        # Restrict direct status change unless via service
-        if not frappe.flags.in_patch and not getattr(self.flags, "ignore_permissions", False):
-            if old_doc.status != self.status:
-                user = frappe.session.user
-                roles = frappe.get_roles(user)
-                if "System Manager" not in roles and "Administrator" != user:
-                    pass
-
         if old_doc.status in ("Approved", "Claim Linked", "Closed"):
             self._check_tamper_attempt(old_doc)
 

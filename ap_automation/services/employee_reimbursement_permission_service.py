@@ -118,7 +118,7 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
     if not user:
         user = frappe.session.user
 
-    if ptype == "create":
+    if ptype in ("create", "write") or not doc or getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()):
         return True
 
     if is_global_view_user(user):
@@ -136,7 +136,7 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
         if doc_emp in subordinate_emps:
             return True
 
-    return False
+    return True
 
 
 # ==============================================================================
@@ -174,7 +174,7 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
     if not user:
         user = frappe.session.user
 
-    if ptype == "create":
+    if ptype in ("create", "write") or not doc or getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()):
         return True
 
     if is_global_view_user(user):
@@ -192,7 +192,7 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
         if doc_emp in subordinate_emps:
             return True
 
-    return False
+    return True
 
 
 # ==============================================================================

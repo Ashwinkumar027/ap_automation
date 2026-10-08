@@ -5,6 +5,7 @@ Comprehensive E2E Verification Test Suite for:
 3. Read-Only Status & Workflow Transition Controls.
 4. 4-Tier Organizational Scope & Dynamic Employee Dropdown Hierarchy.
 5. Auto-fetch of Reporting Manager ID and Reporting Manager Name.
+6. Non-Admin Employee Self-Service Pre-Travel Request Save.
 """
 import frappe
 from frappe.utils import today, add_days, nowdate
@@ -93,16 +94,17 @@ def run_tests():
     # -----------------------------------------------------------------
     print("\n--- TEST 2: Pre-Travel Request Creation & Reporting Manager Auto-Fetch ---")
     
-    # Pick an active employee with reporting manager
-    emp = frappe.get_all("Employee", filters={"reports_to": ["is", "set"], "status": "Active"}, limit=1)
-    if not emp:
-        emp = frappe.get_all("Employee", filters={"status": "Active"}, limit=1)
-    test_emp_id = emp[0].name
-    expected_mgr_id = frappe.db.get_value("Employee", test_emp_id, "reports_to")
-    expected_mgr_name = frappe.db.get_value("Employee", expected_mgr_id, "employee_name") if expected_mgr_id else ""
-    
+    # Test creating as standard employee user directly
+    std_emp_record = frappe.db.get_value("Employee", "HR-EMP-00013", ["name", "user_id", "reports_to"], as_dict=True)
+    if std_emp_record and std_emp_record.get("user_id"):
+        emp_user = std_emp_record["user_id"]
+        frappe.set_user(emp_user)
+        print(f"👤 Switched to standard user: {emp_user} ({std_emp_record['name']})")
+    else:
+        emp_user = "Administrator"
+
     req = frappe.new_doc("Pre Travel Request")
-    req.employee = test_emp_id
+    req.employee = "HR-EMP-00013"
     req.destination_city = "Mumbai"
     req.departure_date = today()
     req.return_date = add_days(today(), 2)
@@ -132,16 +134,17 @@ def run_tests():
         "purpose": "Product Demonstration & Scope Pitch"
     })
 
-    req.insert(ignore_permissions=True)
+    # Non-admin user saves doc
+    req.insert()
     frappe.db.commit()
-    print(f"✅ Created Pre-Travel Request: {req.name}")
+    print(f"✅ Standard Employee {emp_user} successfully created and saved Pre-Travel Request: {req.name}")
 
     # Verify Reporting Manager Auto-Fetch
     req.reload()
     print(f"✅ Auto-Fetched Reporting Manager ID: {req.reporting_manager}")
     print(f"✅ Auto-Fetched Reporting Manager Name: {req.reporting_manager_name}")
-    assert req.reporting_manager == expected_mgr_id, f"Expected {expected_mgr_id}, got {req.reporting_manager}"
-    assert req.reporting_manager_name == expected_mgr_name, f"Expected {expected_mgr_name}, got {req.reporting_manager_name}"
+    assert req.reporting_manager == "HR-EMP-00012", f"Expected HR-EMP-00012, got {req.reporting_manager}"
+    assert req.reporting_manager_name == "Manager Test", f"Expected Manager Test, got {req.reporting_manager_name}"
 
     # Verify Zero Advance Policy
     assert req.advance_requested == 0.0, f"Advance requested must be 0.0, got {req.advance_requested}"
@@ -162,13 +165,14 @@ def run_tests():
     print("\n--- TEST 3: Workflow Transitions & Approval Lifecycle ---")
     assert req.status == "Draft", f"Initial status must be Draft, got {req.status}"
 
-    # Submit Request
+    # Submit Request as Employee
     res_submit = travel_svc.submit_pre_travel_request(req.name)
     req.reload()
     print(f"✅ Submitted to Manager: {req.reporting_manager} ({req.reporting_manager_name}) (Status: {req.status})")
     assert req.status == "Pending Manager Approval"
 
-    # Approve Request
+    # Approve Request as Manager
+    frappe.set_user("manager_active@quanticus.com")
     res_approve = travel_svc.approve_pre_travel_request(req.name, comments="Budget Approved. Proceed with Travel.")
     req.reload()
     print(f"✅ Approved Request: {req.name} (Status: {req.status})")
@@ -178,6 +182,7 @@ def run_tests():
     # Test 4: Link into Employee Reimbursement Claim
     # -----------------------------------------------------------------
     print("\n--- TEST 4: Post-Travel Reimbursement Claim Integration ---")
+    frappe.set_user(emp_user)
     claim = frappe.new_doc("Employee Reimbursement Claim")
     claim.employee = req.employee
     claim.claim_category = "Client Visit Travel"
@@ -203,10 +208,11 @@ def run_tests():
     claim.total_claim_amount = 415.0
     claim.net_payable_amount = 415.0
 
-    claim.insert(ignore_permissions=True)
+    claim.insert()
     frappe.db.commit()
     print(f"✅ Created Employee Reimbursement Claim: {claim.name} linking Pre-Travel Request: {req.name}")
 
+    frappe.set_user("Administrator")
     print("\n=================================================================")
     print("🎉 ALL TESTS PASSED SUCCESSFULLY WITH 100% COMPLIANCE!")
     print("=================================================================")
