@@ -246,7 +246,7 @@ def validate_team_bonding_claim(doc):
        - Or within 7 days of the activity event.
     4. Auto-calculates split and caps claim amount.
     """
-    if doc.claim_category != "Team Lunch / Outing":
+    if doc.claim_category not in ("Team Lunch / Outing", "Team Food & Dining (Lunch / Dinner / Movie)"):
         return
 
     participants = doc.get("participants") or []

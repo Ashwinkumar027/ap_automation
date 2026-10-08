@@ -226,16 +226,16 @@ class EmployeeReimbursementClaim(APDocument):
                     if ptr_doc.status not in ("Approved", "Claimed"):
                         raise APValidationError(f"Pre-Travel Request '{ptr_name}' cannot be used: status is '{ptr_doc.status}', expected 'Approved'.")
 
-        elif cat == "Team Lunch / Outing":
-            self.claim_category = "Team Lunch / Outing"
+        elif cat in ("Team Lunch / Outing", "Team Food & Dining (Lunch / Dinner / Movie)"):
+            self.claim_category = "Team Food & Dining (Lunch / Dinner / Movie)"
             from ap_automation.services import team_bonding_wallet_service
             team_bonding_wallet_service.validate_team_bonding_claim(self)
 
-        elif cat == "Dinner Allowance":
+        elif cat in ("Dinner Allowance", "Late Night Dinner Allowance"):
             self.claim_category = "Dinner Allowance"
 
-        elif cat == "Branch Expense & Maintenance":
-            self.claim_category = "Branch Expense & Maintenance"
+        elif cat in ("Branch Expense & Maintenance", "Branch Expenses"):
+            self.claim_category = "Branch Expenses"
 
         else:
             self.claim_category = "General Expense"
@@ -243,7 +243,7 @@ class EmployeeReimbursementClaim(APDocument):
     def validate_expense_lines(self):
         """Enforces line-level policy rules and bill proof attachment requirements."""
         is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved", "Returned to Employee")
-        if getattr(self, "claim_category", "") == "Client Visit Travel" or getattr(self, "expense_category", "") == "Client Visit Travel":
+        if getattr(self, "claim_category", "") == "Client Visit Travel":
             legs = getattr(self, "client_visit_legs", []) or []
             if is_submitting and not legs:
                 raise APValidationError("Client Visit Travel claim must list at least one client visit travel leg.")
@@ -316,7 +316,7 @@ class EmployeeReimbursementClaim(APDocument):
 
     def calculate_settlement_totals(self):
         """Calculates total claimed amount and net payable amount (100% direct reimbursement, no advance)."""
-        if getattr(self, "claim_category", "") == "Client Visit Travel" or getattr(self, "expense_category", "") == "Client Visit Travel":
+        if getattr(self, "claim_category", "") == "Client Visit Travel":
             legs = getattr(self, "client_visit_legs", []) or []
             total_km = sum(flt(getattr(r, "distance_km", 0.0) or 0.0) for r in legs)
             total_mileage = sum(flt(getattr(r, "leg_amount", 0.0) or 0.0) for r in legs)

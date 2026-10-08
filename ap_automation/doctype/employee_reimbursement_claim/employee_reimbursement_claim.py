@@ -226,16 +226,16 @@ class EmployeeReimbursementClaim(APDocument):
                     if ptr_doc.status not in ("Approved", "Claimed"):
                         raise APValidationError(f"Pre-Travel Request '{ptr_name}' cannot be used: status is '{ptr_doc.status}', expected 'Approved'.")
 
-        elif cat == "Team Lunch / Outing":
-            self.claim_category = "Team Lunch / Outing"
+        elif cat in ("Team Lunch / Outing", "Team Food & Dining (Lunch / Dinner / Movie)"):
+            self.claim_category = "Team Food & Dining (Lunch / Dinner / Movie)"
             from ap_automation.services import team_bonding_wallet_service
             team_bonding_wallet_service.validate_team_bonding_claim(self)
 
-        elif cat == "Dinner Allowance":
+        elif cat in ("Dinner Allowance", "Late Night Dinner Allowance"):
             self.claim_category = "Dinner Allowance"
 
-        elif cat == "Branch Expense & Maintenance":
-            self.claim_category = "Branch Expense & Maintenance"
+        elif cat in ("Branch Expense & Maintenance", "Branch Expenses"):
+            self.claim_category = "Branch Expenses"
 
         else:
             self.claim_category = "General Expense"
