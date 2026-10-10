@@ -7,7 +7,7 @@ Enforces:
 4. Total Dispute Handling: If ALL lines are disputed, the parent ticket transitions to Disputed without creating an empty 0-line parent.
 """
 import json
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.exceptions import APValidationError
 from ap_automation.services import notification_service

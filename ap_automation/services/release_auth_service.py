@@ -11,7 +11,7 @@ Enforces:
 8. Auto-generates synchronized Tally Voucher Log for 1-click accounting sync.
 9. Automated Post-Disbursement Email Remittance Advice with Bank UTR.
 """
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import secrets
 import hashlib
 import hmac

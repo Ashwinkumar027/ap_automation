@@ -6,7 +6,7 @@ from __future__ import unicode_literals
 import frappe
 from frappe.utils import getdate, nowdate, flt, cstr, date_diff
 import datetime
-from typing import Dict, Any, Tuple, List
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 URBAN_CAP = 1250.00
 RURAL_CAP = 1000.00
@@ -110,7 +110,7 @@ def get_employee_location_and_cap(employee_id: str) -> Tuple[str, float, bool]:
 
 
 @frappe.whitelist()
-def get_employee_quarterly_wallet_status(employee_id: str, posting_date: str = None, activity_date: str = None, exclude_claim: str = None) -> Dict[str, Any]:
+def get_employee_quarterly_wallet_status(employee_id: str, posting_date: Any = None, activity_date: Any = None, exclude_claim: Optional[str] = None) -> Dict[str, Any]:
     """
     API endpoint: Fetches live quarterly wallet balance for an individual employee.
     Anchored to activity_date (or posting_date if activity_date not yet selected).
@@ -239,26 +239,25 @@ def calculate_team_claim_split(doc) -> Dict[str, Any]:
 def validate_team_bonding_claim(doc):
     """
     Enforces compliance with ACM – QTB & RP - 1.0:
-    1. Mandatory Participant List.
-    2. Mandatory Activity Photograph.
-    3. Flexible SLA Check:
-       - Activity within current quarter can be submitted up to the 7th of the following month (e.g. Q2 ends Sep 30 -> Cutoff Oct 07).
-       - Or within 7 days of the activity event.
+    1. Mandatory Participant List (on submission).
+    2. Mandatory Activity Photograph (on submission).
+    3. Flexible SLA Check.
     4. Auto-calculates split and caps claim amount.
     """
     if doc.claim_category not in ("Team Lunch / Outing", "Team Food & Dining (Lunch / Dinner / Movie)"):
         return
 
     participants = doc.get("participants") or []
-    if not participants:
-        frappe.throw(
-            "⚠️ <b>Team Bonding Policy Violation (ACM-QTB-1.0)</b>:<br>"
-            "Please add at least one participating employee to the <b>Team Participants Table</b>.",
-            frappe.ValidationError
-        )
+    is_submitting = (doc.docstatus == 1) or (doc.status not in ("Draft", "Returned to Employee", None, ""))
 
-    # 1. Mandatory Activity Photo Check on Submit / Non-Draft
-    if doc.status not in ("Draft", "Returned to Employee"):
+    # 1. Mandatory Participant List and Photo Check ONLY on final submission
+    if is_submitting:
+        if not participants:
+            frappe.throw(
+                "⚠️ <b>Team Bonding Policy Violation (ACM-QTB-1.0)</b>:<br>"
+                "Please add at least one participating employee to the <b>Team Participants Table</b>.",
+                frappe.ValidationError
+            )
         if not doc.get("activity_photo"):
             frappe.throw(
                 "📸 <b>Mandatory Policy Requirement</b>:<br>"
@@ -296,3 +295,18 @@ def validate_team_bonding_claim(doc):
     doc.capped_claim_amount = split_info["capped_claim_amount"]
     doc.total_claim_amount = split_info["capped_claim_amount"]
     doc.net_payable_amount = split_info["capped_claim_amount"]
+
+
+@frappe.whitelist()
+def get_employee_team_lunch_wallet(employee_id, activity_date=None, posting_date=None, exclude_claim=None):
+    if not employee_id:
+        return {"status": "ERROR", "data": {"quarterly_cap": 1250.0, "utilized_in_quarter": 0.0, "available_balance": 1250.0}}
+    emp = frappe.db.get_value("Employee", employee_id, ["employee_name", "branch", "department"], as_dict=True) or {}
+    wallet = get_employee_quarterly_wallet_status(
+        employee_id=employee_id,
+        activity_date=activity_date,
+        posting_date=posting_date,
+        exclude_claim=exclude_claim
+    )
+    wallet["employee_name"] = emp.get("employee_name") or employee_id
+    return {"status": "SUCCESS", "data": wallet}

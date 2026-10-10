@@ -5,7 +5,7 @@ Enforces:
 2. 7-Day Rule: Flags OVERDUE_7_DAYS_REMINDER for un-settled events > 7 days.
 3. 14-Day Rule: Flags OVERDUE_14_DAYS_PAYROLL_ALERT and triggers HRMS Payroll Deduction Escalation.
 """
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Optional, Tuple, Union
 import datetime
 import frappe
 

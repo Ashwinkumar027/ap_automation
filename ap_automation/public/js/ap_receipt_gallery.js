@@ -215,13 +215,14 @@ window.APReceiptGallery = {
             if (active_att.is_image) {
                 preview_content = `
                     <div style="display: flex; justify-content: center; align-items: center; background: #0f172a; border-radius: 8px; overflow: hidden; min-height: 480px; max-height: 600px; padding: 12px;">
-                        <img src="${active_att.file_url}" alt="${active_att.merchant}" style="max-width: 100%; max-height: 570px; object-fit: contain; box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 4px;" />
+                        <img src="${active_att.view_url || active_att.file_url}" alt="${active_att.merchant}" style="max-width: 100%; max-height: 570px; object-fit: contain; box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 4px;" 
+                             onerror="this.onerror=null; this.parentElement.innerHTML='<div style=\'text-align: center; color: #f87171; padding: 40px;\'> <div style=\'font-size: 48px; margin-bottom: 12px;\'>⚠️</div> <div style=\'font-size: 16px; font-weight: 700;\'>Receipt Image Not Found on Server</div> <div style=\'font-size: 13px; color: #94a3b8; margin-top: 6px;\'>Path: <code>' + escape('${active_att.file_url}') + '</code></div> <div style=\'font-size: 12px; color: #64748b; margin-top: 8px;\'>The attachment URL was registered on the voucher line, but the physical file was deleted or never uploaded to the server directory.</div> </div>';" />
                     </div>
                 `;
             } else if (active_att.is_pdf) {
                 preview_content = `
                     <div style="background: #0f172a; border-radius: 8px; overflow: hidden; height: 580px;">
-                        <iframe src="${active_att.file_url}" style="width: 100%; height: 100%; border: none;" title="PDF Preview"></iframe>
+                        <iframe src="${active_att.view_url || active_att.file_url}" style="width: 100%; height: 100%; border: none;" title="PDF Preview"></iframe>
                     </div>
                 `;
             } else {
@@ -315,10 +316,10 @@ window.APReceiptGallery = {
                                 </span>
                             </div>
                             <div style="display: flex; gap: 8px;">
-                                <a href="${active_att.file_url}" download="${active_att.file_name}" class="btn btn-sm btn-primary" style="font-weight: 600;">
+                                <a href="${active_att.view_url || active_att.file_url}" download="${active_att.file_name}" class="btn btn-sm btn-primary" style="font-weight: 600;">
                                     ⬇️ Download This (${(active_att.extension || '').toUpperCase()})
                                 </a>
-                                <a href="${active_att.file_url}" target="_blank" class="btn btn-sm btn-default" title="Open Full in New Tab">
+                                <a href="${active_att.view_url || active_att.file_url}" target="_blank" class="btn btn-sm btn-default" title="Open Full in New Tab">
                                     ↗️
                                 </a>
                             </div>

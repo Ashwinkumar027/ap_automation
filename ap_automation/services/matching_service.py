@@ -8,7 +8,7 @@ Enforces:
 5. Missing GRN detection for physical goods vs digital sign-off reconciliation for service POs.
 6. Automatic advance offset and balance tracking.
 """
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.exceptions import APValidationError
 

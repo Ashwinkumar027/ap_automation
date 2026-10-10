@@ -178,9 +178,16 @@ class EmployeeReimbursementClaim(APDocument):
             self.bank_ifsc_code = emp_profile.get("ifsc_code")
 
         # Resolve and bind Reporting Manager
-        mgr_info = hrms_hierarchy_service.get_reporting_manager_for_employee(emp_id)
-        self.reporting_manager = mgr_info["manager_employee_id"]
-        self.manager_user_id = mgr_info["manager_user_id"]
+        try:
+            mgr_info = hrms_hierarchy_service.get_reporting_manager_for_employee(emp_id)
+            self.reporting_manager = mgr_info.get("manager_employee_id")
+            self.manager_user_id = mgr_info.get("manager_user_id")
+        except Exception as e:
+            is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved", "Returned to Employee")
+            if is_submitting:
+                raise
+            self.reporting_manager = None
+            self.manager_user_id = None
 
     def validate_salary_bank_account(self):
         """Ensures verified salary bank account exists in HRMS before allowing submission."""

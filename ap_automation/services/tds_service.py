@@ -5,7 +5,7 @@ Enforces:
 2. CBDT Circular 23/2017 compliance: TDS is strictly calculated on Base Taxable Value (excluding GST).
 3. Complete mathematical conservation: Total = Net Payable + TDS Payable + Advance Offset.
 """
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 TDS_SECTION_RATES = {
     "None / Exempt": 0.0,

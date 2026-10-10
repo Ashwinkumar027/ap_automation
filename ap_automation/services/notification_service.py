@@ -15,7 +15,7 @@ Enforces:
 4. Desk Real-Time Notification synchronization.
 """
 import re
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from frappe.utils import get_url_to_form, fmt_money
 

@@ -7,6 +7,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "claim_visual_header_html",
   "sb_emp",
   "employee",
   "employee_name",
@@ -47,6 +48,7 @@
   "prior_quarter_claimed",
   "remaining_quarter_budget",
   "capped_claim_amount",
+  "sb_team_participants",
   "participants",
   "sb_dinner",
   "swipe_out_time",
@@ -89,6 +91,12 @@
   "approval_trail"
  ],
  "fields": [
+  {
+   "fieldname": "claim_visual_header_html",
+   "fieldtype": "HTML",
+   "label": "Claim Category & Workflow Progress",
+   "hidden": 0
+  },
   {
    "fieldname": "sb_emp",
    "fieldtype": "Section Break",
@@ -297,11 +305,12 @@
    "label": "\ud83d\udcf8 Team Group Photo (Mandatory Participation Proof)"
   },
   {
-   "default": "1000",
+   "default": "1250",
    "fieldname": "per_head_cap",
    "fieldtype": "Currency",
    "label": "Per Head Policy Cap (INR)",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Metro Branches: \u20b91,250 | Non-Metro Branches: \u20b91,000"
   },
   {
    "default": "0",
@@ -341,6 +350,11 @@
    "label": "Policy Capped Claim Amount (INR)",
    "read_only": 1,
    "default": "0"
+  },
+  {
+   "fieldname": "sb_team_participants",
+   "fieldtype": "Section Break",
+   "label": "Team Participants & Wallet Entitlement"
   },
   {
    "fieldname": "participants",

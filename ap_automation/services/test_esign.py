@@ -1,3 +1,4 @@
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.www.po_sign import submit_vendor_esign
 import urllib.parse

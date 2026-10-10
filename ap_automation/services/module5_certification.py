@@ -6,7 +6,7 @@ Verifies:
 3. Bank Account custom fields for Penny Drop.
 4. Director Tier Dual-Signoff threshold & role.
 """
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.services.director_approval_service import DIRECTOR_TIER_THRESHOLD
 

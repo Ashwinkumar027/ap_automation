@@ -122,7 +122,12 @@ function setup_batch_action_buttons(frm) {
         }).addClass('btn-primary');
     }
 
-    // 4. Utility: Re-Fetch Claims
+    // 4. Batch Level Consolidated Excel Export
+    frm.add_custom_button(__('📊 Export Full Batch Excel (.xlsx)'), function() {
+        window.open(`/api/method/ap_automation.services.reimbursement_excel_generator.download_batch_consolidated_excel?batch_name=${encodeURIComponent(frm.doc.name)}`, '_blank');
+    }, __('Actions'));
+
+    // 5. Utility: Re-Fetch Claims
     if (frm.doc.status === 'Pending Accounts L1 Audit' || frm.doc.status === 'Draft') {
         frm.add_custom_button(__('🔄 Refresh Friday Queue'), function() {
             frappe.call({
@@ -142,6 +147,26 @@ function setup_batch_action_buttons(frm) {
             });
         });
     }
+}
+
+function get_vouchers_from_element(el) {
+    let raw = $(el).attr('data-vouchers');
+    if (!raw) raw = $(el).data('vouchers');
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+        try {
+            let parsed = JSON.parse(raw);
+            if (typeof parsed === 'string') {
+                parsed = JSON.parse(parsed);
+            }
+            if (Array.isArray(parsed)) return parsed;
+            return [parsed];
+        } catch (e) {
+            return raw.split(',').map(s => s.trim()).filter(Boolean);
+        }
+    }
+    return [raw];
 }
 
 function render_audit_workstation_view(frm) {
@@ -226,35 +251,80 @@ function render_audit_workstation_view(frm) {
     `;
 
     Object.values(empMap).forEach((emp, empIdx) => {
-        const maskedAcc = emp.bank_account_number.length > 4 ? `****${emp.bank_account_number.slice(-4)}` : emp.bank_account_number;
+        const maskedAcc = emp.bank_account_number && emp.bank_account_number.length > 4 
+            ? `****${emp.bank_account_number.slice(-4)}` 
+            : emp.bank_account_number;
+            
+        const vCount = emp.vouchers.length;
+        const vListStr = emp.vouchers.map(v => v.voucher_no).join(',');
+        const empNameEsc = frappe.utils.escape_html(emp.employee_name);
+
         html += `
             <div style="border-bottom: 1px solid #e2e8f0; background: #fafafa;">
-                <!-- Employee Header Row -->
-                <div style="padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; background: #f1f5f9; border-top: ${empIdx > 0 ? '2px solid #cbd5e1' : 'none'};">
+                <!-- Employee Header Row with Direct Actions -->
+                <div style="padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border-top: ${empIdx > 0 ? '2px solid #cbd5e1' : 'none'}; flex-wrap: wrap; gap: 10px;">
                     <div>
-                        <strong style="font-size: 14px; color: #0f172a;">👤 ${emp.employee_name}</strong>
-                        <span style="color: #64748b; font-size: 12px; margin-left: 8px;">(${emp.employee_id} &bull; ${emp.department})</span>
-                        <div style="font-size: 11px; color: #475569; margin-top: 2px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <strong style="font-size: 14px; color: #0f172a;">👤 ${emp.employee_name}</strong>
+                            <span style="background: #e2e8f0; color: #334155; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 600;">${emp.employee_id}</span>
+                            <span style="color: #64748b; font-size: 12px;">&bull; ${emp.department}</span>
+                        </div>
+                        <div style="font-size: 11px; color: #475569; margin-top: 3px;">
                             🏦 <b>${emp.bank_name}</b> | A/C: <code>${maskedAcc}</code> | IFSC: <code>${emp.bank_ifsc}</code>
                         </div>
                     </div>
-                    <div style="text-align: right;">
-                        <span style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 600;">Employee Total:</span>
-                        <div style="font-size: 15px; font-weight: 700; color: #0f172a;">₹ ${format_currency(emp.total_sanctioned)}</div>
+                    
+                    <!-- Employee Actions and Summary Total -->
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-xs btn-primary btn-view-emp-receipts" 
+                                data-employee="${empNameEsc}" 
+                                data-vouchers="${vListStr}"
+                                style="font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 4px 0 0 4px;"
+                                title="View all digital receipts for this employee in lightbox modal">
+                                👁️ View Receipts (${vCount})
+                            </button>
+                            <button type="button" class="btn btn-xs btn-success btn-download-emp-single-excel" 
+                                data-employee="${empNameEsc}" 
+                                data-vouchers="${vListStr}"
+                                style="font-size: 11px; font-weight: 600; padding: 4px 10px; color: #fff; background: #16a34a; border-color: #16a34a;"
+                                title="Download 1 single consolidated Excel (.xlsx) containing ALL claims and lines for this employee">
+                                📊 Consolidated Excel (${vCount})
+                            </button>
+                            <button type="button" class="btn btn-xs btn-outline-success btn-download-emp-zip-excel" 
+                                data-employee="${empNameEsc}" 
+                                data-vouchers="${vListStr}"
+                                style="font-size: 11px; font-weight: 600; padding: 4px 10px; background: #fff;"
+                                title="Download ZIP archive of individual Excel vouchers">
+                                📁 Individual Excels (ZIP)
+                            </button>
+                            <button type="button" class="btn btn-xs btn-outline-secondary btn-download-emp-zip" 
+                                data-employee="${empNameEsc}" 
+                                data-vouchers="${vListStr}"
+                                style="font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 0 4px 4px 0; background: #fff;"
+                                title="Download all attached receipts as ZIP archive">
+                                📦 Receipts ZIP
+                            </button>
+                        </div>
+                        
+                        <div style="text-align: right; border-left: 1px solid #cbd5e1; padding-left: 12px;">
+                            <span style="font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700;">Sanctioned Total</span>
+                            <div style="font-size: 15px; font-weight: 700; color: #0f172a;">₹ ${format_currency(emp.total_sanctioned)}</div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Vouchers Table Under Employee -->
                 <table class="table table-bordered table-sm" style="margin: 0; background: #ffffff; font-size: 12px;">
                     <thead>
-                        <tr style="background: #f8fafc; color: #475569;">
-                            <th style="width: 16%;">Voucher #</th>
+                        <tr style="background: #f1f5f9; color: #475569;">
+                            <th style="width: 18%;">Voucher #</th>
                             <th style="width: 16%;">Category</th>
-                            <th style="width: 14%;">Claim Date</th>
-                            <th style="width: 14%; text-align: right;">Claimed (INR)</th>
-                            <th style="width: 14%; text-align: right;">Sanctioned (INR)</th>
-                            <th style="width: 14%; text-align: center;">Audit Status</th>
-                            <th style="width: 12%; text-align: center;">Action</th>
+                            <th style="width: 12%;">Claim Date</th>
+                            <th style="width: 13%; text-align: right;">Claimed (INR)</th>
+                            <th style="width: 13%; text-align: right;">Sanctioned (INR)</th>
+                            <th style="width: 12%; text-align: center;">Audit Status</th>
+                            <th style="width: 16%; text-align: center;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -270,12 +340,12 @@ function render_audit_workstation_view(frm) {
             }
 
             const isDisputed = v.status === 'Disputed / Returned';
-            const actionBtn = isDisputed
-                ? `<span style="font-size: 11px; color: #991b1b; font-weight: 500;">Returned</span>`
-                : `<button type="button" class="btn btn-xs btn-outline-danger btn-dispute-voucher" data-voucher="${v.voucher_no}" style="font-size: 11px; padding: 2px 8px;">⚠️ Dispute</button>`;
+            const disputeBtn = isDisputed
+                ? `<span style="font-size: 10px; color: #991b1b; font-weight: 600;">Returned</span>`
+                : `<button type="button" class="btn btn-xs btn-outline-danger btn-dispute-voucher" data-voucher="${v.voucher_no}" style="font-size: 11px; padding: 2px 6px;" title="Dispute & Return to Employee">⚠️</button>`;
 
             html += `
-                <tr style="${isDisputed ? 'background: #fff5f5; opacity: 0.75;' : ''}">
+                <tr style="${isDisputed ? 'background: #fff5f5; opacity: 0.85;' : ''}">
                     <td>
                         <a href="/desk/employee-reimbursement-claim/${v.voucher_no}" target="_blank" style="font-weight: 600; color: #2563eb;">
                             ${v.voucher_no} ↗
@@ -286,9 +356,11 @@ function render_audit_workstation_view(frm) {
                     <td style="text-align: right; font-weight: 500;">₹ ${format_currency(v.claimed_amount)}</td>
                     <td style="text-align: right; font-weight: 700; color: #16a34a;">₹ ${format_currency(v.sanctioned_amount || v.claimed_amount)}</td>
                     <td style="text-align: center;">${statusBadge}</td>
-                    <td style="text-align: center;">
-                        <button type="button" class="btn btn-xs btn-outline-primary btn-view-voucher-receipts" data-voucher="${v.voucher_no}" style="font-size: 11px; padding: 2px 6px; margin-right: 4px;">👁️ Proofs</button>
-                        ${actionBtn}
+                    <td style="text-align: center; white-space: nowrap;">
+                        <button type="button" class="btn btn-xs btn-outline-primary btn-view-voucher-receipts" data-voucher="${v.voucher_no}" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="View Receipts in Lightbox">👁️ Proofs</button>
+                        <a href="/api/method/ap_automation.services.reimbursement_excel_generator.download_reimbursement_excel?voucher_name=${v.voucher_no}" target="_blank" class="btn btn-xs btn-outline-success" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="Download Excel Voucher">📥 Excel</a>
+                        <a href="/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=Employee Reimbursement Claim&docname=${v.voucher_no}" target="_blank" class="btn btn-xs btn-outline-secondary" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="Download Receipts ZIP">📦 ZIP</a>
+                        ${disputeBtn}
                     </td>
                 </tr>
             `;
@@ -308,18 +380,116 @@ function render_audit_workstation_view(frm) {
 
     $(wrapper).html(html);
 
-    // Bind Proofs View Button
+    // 1. Employee-level View Receipts (Aggregate Lightbox Gallery)
+    $(wrapper).find('.btn-view-emp-receipts').on('click', function(e) {
+        e.preventDefault();
+        const empName = $(this).attr('data-employee') || 'Employee';
+        const vouchers = get_vouchers_from_element(this);
+        open_employee_aggregated_receipts(frm, empName, vouchers);
+    });
+
+    // 2. Employee-level SINGLE Consolidated Excel Download
+    $(wrapper).find('.btn-download-emp-single-excel').on('click', function(e) {
+        e.preventDefault();
+        const empName = $(this).attr('data-employee') || 'Employee';
+        const vouchers = get_vouchers_from_element(this);
+        if (!vouchers || vouchers.length === 0) {
+            frappe.msgprint(__('No vouchers found for this employee.'));
+            return;
+        }
+        const encodedVouchers = encodeURIComponent(JSON.stringify(vouchers));
+        const encodedEmp = encodeURIComponent(empName);
+        window.open(`/api/method/ap_automation.services.reimbursement_excel_generator.download_consolidated_employee_excel?claim_names=${encodedVouchers}&employee_name=${encodedEmp}`, '_blank');
+    });
+
+    // 3. Employee-level Individual Excels (ZIP) Download
+    $(wrapper).find('.btn-download-emp-zip-excel').on('click', function(e) {
+        e.preventDefault();
+        const empName = $(this).attr('data-employee') || 'Employee';
+        const vouchers = get_vouchers_from_element(this);
+        if (!vouchers || vouchers.length === 0) {
+            frappe.msgprint(__('No vouchers found for this employee.'));
+            return;
+        }
+        if (vouchers.length === 1) {
+            window.open(`/api/method/ap_automation.services.reimbursement_excel_generator.download_reimbursement_excel?voucher_name=${vouchers[0]}`, '_blank');
+        } else {
+            const encodedVouchers = encodeURIComponent(JSON.stringify(vouchers));
+            const encodedEmp = encodeURIComponent(empName);
+            window.open(`/api/method/ap_automation.services.reimbursement_excel_generator.download_multiple_claims_excel_zip?claim_names=${encodedVouchers}&employee_name=${encodedEmp}`, '_blank');
+        }
+    });
+
+    // 4. Employee-level Receipts ZIP Download
+    $(wrapper).find('.btn-download-emp-zip').on('click', function(e) {
+        e.preventDefault();
+        const empName = $(this).attr('data-employee') || 'Employee';
+        const vouchers = get_vouchers_from_element(this);
+        if (!vouchers || vouchers.length === 0) {
+            frappe.msgprint(__('No vouchers found for this employee.'));
+            return;
+        }
+        if (vouchers.length === 1) {
+            window.open(`/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=Employee Reimbursement Claim&docname=${vouchers[0]}`, '_blank');
+        } else {
+            const encodedVouchers = encodeURIComponent(JSON.stringify(vouchers));
+            const encodedEmp = encodeURIComponent(empName);
+            window.open(`/api/method/ap_automation.services.attachment_service.download_multiple_claims_receipts_zip?claim_names=${encodedVouchers}&label=${encodedEmp}`, '_blank');
+        }
+    });
+
+    // 5. Voucher-level Proofs View Button
     $(wrapper).find('.btn-view-voucher-receipts').on('click', function(e) {
         e.preventDefault();
         const vNo = $(this).data('voucher');
         open_voucher_proofs_modal(vNo);
     });
 
-    // Bind Dispute Button
+    // 6. Voucher-level Dispute Button
     $(wrapper).find('.btn-dispute-voucher').on('click', function(e) {
         e.preventDefault();
         const vNo = $(this).data('voucher');
         prompt_dispute_voucher(frm, vNo);
+    });
+}
+
+function open_employee_aggregated_receipts(frm, emp_name, vouchers) {
+    if (!vouchers || vouchers.length === 0) {
+        frappe.msgprint(__('No vouchers found for {0}', [emp_name]));
+        return;
+    }
+
+    frappe.call({
+        method: 'ap_automation.services.attachment_service.get_multiple_claims_receipt_summary',
+        args: {
+            claim_names: vouchers,
+            doctype: 'Employee Reimbursement Claim'
+        },
+        freeze: true,
+        freeze_message: __('Loading receipts for {0} across {1} vouchers...', [emp_name, vouchers.length]),
+        callback: function(res) {
+            const attachments = (res.message && res.message.attachments) || [];
+            const dummy_frm = {
+                doc: {
+                    doctype: 'Employee Reimbursement Claim',
+                    name: (vouchers && vouchers.length > 0 ? vouchers[0] : 'BATCH-CLAIM'),
+                    employee_name: emp_name
+                }
+            };
+            if (!attachments || attachments.length === 0) {
+                if (window.APReceiptGallery && typeof window.APReceiptGallery.openEmptyModal === 'function') {
+                    window.APReceiptGallery.openEmptyModal(dummy_frm);
+                } else {
+                    frappe.msgprint(__('No digital receipts attached for {0} across the selected vouchers.', [emp_name]));
+                }
+                return;
+            }
+            if (window.APReceiptGallery && typeof window.APReceiptGallery.openModal === 'function') {
+                window.APReceiptGallery.openModal(dummy_frm, attachments, 0);
+            } else {
+                frappe.msgprint(__('Receipt Gallery component is loading, please refresh and try again.'));
+            }
+        }
     });
 }
 

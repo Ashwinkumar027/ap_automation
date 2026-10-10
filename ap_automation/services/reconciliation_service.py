@@ -10,7 +10,7 @@ Enforces:
 4. Automated Payment Advice email notification dispatch.
 5. Automated Tally ERP XML generation via tally_service.
 """
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.services.tally_service import generate_tally_voucher_for_batch
 

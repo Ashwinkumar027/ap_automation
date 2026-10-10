@@ -11,7 +11,7 @@ Governs:
 5. Asynchronous multi-channel notifications.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from frappe.utils import now_datetime, getdate, nowdate, flt
 from ap_automation.exceptions import APValidationError, APSecurityError
@@ -55,11 +55,49 @@ def submit_pre_travel_request(docname: str) -> Dict[str, Any]:
     to_date = doc.get("to_date") or doc.get("return_date")
 
     if not purpose:
-        raise APValidationError("Purpose of Visit / Agenda is mandatory.")
+        raise APValidationError("⚠️ Purpose of Visit / Agenda is strictly mandatory for Pre-Travel authorization.")
     if not from_date or not to_date:
-        raise APValidationError("Travel Start and End dates are mandatory.")
+        raise APValidationError("⚠️ Travel Start Date and End Date are mandatory.")
     if getdate(to_date) < getdate(from_date):
-        raise APValidationError("Travel End Date cannot be earlier than Start Date.")
+        raise APValidationError(f"⚠️ Invalid Travel Chronology: Travel End Date ({to_date}) cannot be earlier than Start Date ({from_date}).")
+
+    # SOP Policy Check 1: 48-Hour Advance Notice Warning
+    start_dt = getdate(from_date)
+    today_dt = getdate(nowdate())
+    days_advance = (start_dt - today_dt).days
+    if days_advance < 2:
+        if days_advance < 0:
+            warning_msg = f"⚠️ Policy Advisory (Backdated Travel): Travel start date ({from_date}) is in the past ({abs(days_advance)} day(s) ago). Flagged for Reporting Manager exception approval."
+        else:
+            warning_msg = f"⚠️ Policy Advisory (48-Hour Advance Notice): Travel start date ({from_date}) is within {days_advance} day(s) of submission (Standard SOP §2.1 requires at least 48-hour prior notice). Flagged for Manager discretion."
+        try:
+            doc.add_comment("Comment", warning_msg)
+            frappe.msgprint(warning_msg, alert=True, indicator="orange")
+        except Exception:
+            pass
+
+    # SOP Policy Check 2: Travel Overlap Guard across Active Requests
+    overlaps = frappe.db.sql("""
+        SELECT name, from_date, to_date, status
+        FROM `tabPre Travel Request`
+        WHERE employee = %s
+          AND name != %s
+          AND status IN ('Pending Manager Approval', 'Approved', 'Claimed')
+          AND (
+              (from_date <= %s AND to_date >= %s)
+              OR (from_date <= %s AND to_date >= %s)
+              OR (from_date >= %s AND to_date <= %s)
+          )
+        LIMIT 1
+    """, (doc.employee, doc.name, to_date, from_date, from_date, from_date, from_date, to_date), as_dict=True)
+
+    if overlaps:
+        ov = overlaps[0]
+        raise APValidationError(
+            f"⚠️ Travel Date Overlap Detected: Employee '{doc.employee}' already has an active Pre-Travel Request #{ov['name']} "
+            f"(Status: '{ov['status']}') covering {ov['from_date']} to {ov['to_date']}. "
+            f"Submitting overlapping travel requests for the same date interval is strictly blocked under SOP Policy §2.1."
+        )
 
     # Dynamic HRMS Manager binding
     mgr_info = hrms_hierarchy_service.get_reporting_manager_for_employee(doc.employee)

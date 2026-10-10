@@ -5,9 +5,10 @@
 """
 Enterprise Weekly Accounts Audit Batch (WAAB) Service
 Consolidates all Admin L2 approved claims into a single Weekly Friday Batch for Accounts L1 & Accounts Director.
+Includes row-level locking, broad status matching, dispute isolation, and full audit tracking.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from frappe.utils import getdate, nowdate, now_datetime, flt, cstr, fmt_money
 import datetime
@@ -26,6 +27,7 @@ def get_current_friday(ref_date=None) -> datetime.date:
 def generate_weekly_accounts_batch(company: str, batch_date: Optional[str] = None) -> Dict[str, Any]:
     """
     Consolidates all Admin L2 approved claims for a company into a single Weekly Accounts Audit Batch.
+    Supports broad status matching across all workflow variations.
     """
     if not company:
         frappe.throw("Company Entity is required to generate a Weekly Accounts Audit Batch.")
@@ -40,14 +42,23 @@ def generate_weekly_accounts_batch(company: str, batch_date: Optional[str] = Non
                bank_name, bank_account_number, bank_ifsc_code AS bank_ifsc
         FROM `tabEmployee Reimbursement Claim`
         WHERE company = %s
-          AND status IN ('Pending Accounts L1', 'Admin L2 Approved', 'Pending Weekly Accounts Batch')
+          AND status IN (
+              'Pending Accounts L1',
+              'Pending Accounts L1 Review',
+              'Pending Accounts L1 Audit',
+              'Admin L2 Approved',
+              'Queued in Accounts Batch',
+              'Friday Accounts Queue',
+              'Queued in Batch',
+              'Pending Weekly Accounts Batch'
+          )
         ORDER BY employee_name ASC, posting_date ASC
     """, (company,), as_dict=True)
 
     if not claims:
         return {
             "status": "NO_CLAIMS",
-            "message": f"No claims currently pending Accounts Audit for {company}."
+            "message": f"No claims currently pending Accounts Audit for {company} on Friday {friday_date}."
         }
 
     # Check if a batch already exists for this Friday in Draft/Pending status
@@ -122,7 +133,7 @@ def generate_weekly_accounts_batch(company: str, batch_date: Optional[str] = Non
         "claims_count": len(claims),
         "employees_count": len(unique_employees),
         "total_amount": round(total_claimed, 2),
-        "message": f"Weekly Accounts Batch {batch.name} generated with {len(claims)} claims for ₹ {total_claimed:,.2f}."
+        "message": f"Weekly Accounts Batch {batch.name} compiled with {len(claims)} claims for ₹ {total_claimed:,.2f}."
     }
 
 
@@ -153,6 +164,9 @@ def dispute_batch_item(batch_name: str, voucher_no: str, dispute_reason: str) ->
     """
     if not batch_name or not voucher_no or not dispute_reason:
         frappe.throw("Batch Name, Voucher Number, and Dispute Reason are mandatory.")
+
+    # Concurrency Lock
+    frappe.db.sql("SELECT name FROM `tabWeekly Accounts Audit Batch` WHERE name = %s FOR UPDATE", (batch_name,))
 
     batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
     found_item = None
@@ -201,8 +215,13 @@ def dispute_batch_item(batch_name: str, voucher_no: str, dispute_reason: str) ->
 def audit_and_sanction_weekly_batch(batch_name: str, remarks: Optional[str] = None) -> Dict[str, Any]:
     """
     Stage: Accounts L1 Auditor audits and sanctions the weekly batch -> Passes to Accounts Director.
+    Includes row-level lock against concurrent modifications.
     """
     user = frappe.session.user
+
+    # Concurrency Lock
+    frappe.db.sql("SELECT name FROM `tabWeekly Accounts Audit Batch` WHERE name = %s FOR UPDATE", (batch_name,))
+
     batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
 
     if batch.status not in ("Draft", "Pending Accounts L1 Audit"):
@@ -245,6 +264,10 @@ def approve_accounts_director_weekly_batch(batch_name: str, remarks: Optional[st
     Stage: Accounts Director (Level 5) signs off on the entire weekly batch -> Queues for Payment Release.
     """
     user = frappe.session.user
+
+    # Concurrency Lock
+    frappe.db.sql("SELECT name FROM `tabWeekly Accounts Audit Batch` WHERE name = %s FOR UPDATE", (batch_name,))
+
     batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
 
     if batch.status != "Pending Accounts Director":
@@ -300,6 +323,10 @@ def release_weekly_payment_batch(batch_name: str, payment_reference: Optional[st
     - Dispatches individual payment confirmation emails with UTR to each employee.
     """
     user = frappe.session.user
+
+    # Concurrency Lock
+    frappe.db.sql("SELECT name FROM `tabWeekly Accounts Audit Batch` WHERE name = %s FOR UPDATE", (batch_name,))
+
     batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
 
     if batch.status != "Approved for Payment":

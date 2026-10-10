@@ -5,7 +5,7 @@ Enforces:
 2. Trip date range validation vs bill receipt dates.
 3. Budget overrun detection (> 15% triggers mandatory justification check).
 """
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.exceptions import APValidationError
 

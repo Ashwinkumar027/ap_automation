@@ -8,7 +8,7 @@ Stress-tests all 6 Duplicate Fraud Scenarios:
 5. Vector 5: Intra-Stream SPOC Bill Duplicate.
 6. Vector 6: Penny Drop Locked Account Payment Gate.
 """
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.controllers.vendor_invoice_claim import VendorInvoiceClaim
 from ap_automation.controllers.event_expense_claim import EventExpenseClaim

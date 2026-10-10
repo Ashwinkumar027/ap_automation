@@ -2,7 +2,7 @@
 Module 4 (Lane 2 - Employee Reimbursement) Diagnostic & Certification Runner
 Executes comprehensive health check on Lane 2 schemas, services, and security rules.
 """
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 
 

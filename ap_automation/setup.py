@@ -6,6 +6,7 @@ import frappe
 
 AP_ROLES = [
     {"role_name": "Petty Cash User", "desk_access": 1},
+    {"role_name": "Receptionist", "desk_access": 1},
     {"role_name": "Admin L1 Approver", "desk_access": 1},
     {"role_name": "Admin L2 Approver", "desk_access": 1},
     {"role_name": "Accounts L1 Auditor", "desk_access": 1},
@@ -16,6 +17,7 @@ AP_ROLES = [
 ALL_AP_ROLES = [
     "System Manager",
     "Petty Cash User",
+    "Receptionist",
     "Admin L1 Approver",
     "Admin L2 Approver",
     "Accounts L1 Auditor",
@@ -23,6 +25,17 @@ ALL_AP_ROLES = [
     "Accounts Director",
     "Payment Releaser",
     "Employee"
+]
+
+REPORT_MANAGEMENT_ROLES = [
+    "System Manager",
+    "Receptionist",
+    "Admin L1 Approver",
+    "Admin L2 Approver",
+    "Accounts L1 Auditor",
+    "Accounts Manager",
+    "Accounts Director",
+    "Payment Releaser"
 ]
 
 
@@ -40,21 +53,49 @@ def setup_roles():
 
 
 def setup_reports():
-    """Ensures Petty Cash Summary Report is registered in the database."""
-    report_name = "Petty Cash Summary Report"
-    if not frappe.db.exists("Report", report_name):
-        doc = frappe.new_doc("Report")
-        doc.report_name = report_name
-        doc.ref_doctype = "Petty Cash Entry"
-        doc.report_type = "Script Report"
-        doc.is_standard = "Yes"
-        doc.module = "AP Automation"
-        doc.add_total_row = 1
-        doc.disabled = 0
-        for role in ALL_AP_ROLES:
-            doc.append("roles", {"role": role})
-        doc.insert(ignore_permissions=True)
-        print(f"[AP Automation] Auto-registered report: {report_name}")
+    """Ensures Reports are registered in the database with strict role-based access control."""
+    reports_to_setup = [
+        {
+            "report_name": "Employee Spend and Pre Travel 360 Report",
+            "ref_doctype": "Employee Reimbursement Claim",
+            "report_type": "Script Report",
+            "roles": REPORT_MANAGEMENT_ROLES
+        },
+        {
+            "report_name": "Petty Cash Summary Report",
+            "ref_doctype": "Petty Cash Entry",
+            "report_type": "Script Report",
+            "roles": ALL_AP_ROLES
+        }
+    ]
+
+    for rep in reports_to_setup:
+        report_name = rep["report_name"]
+        if not frappe.db.exists("Report", report_name):
+            doc = frappe.new_doc("Report")
+            doc.report_name = report_name
+            doc.ref_doctype = rep["ref_doctype"]
+            doc.report_type = rep["report_type"]
+            doc.is_standard = "Yes"
+            doc.module = "AP Automation"
+            doc.add_total_row = 0
+            doc.disabled = 0
+            for role in rep["roles"]:
+                doc.append("roles", {"role": role})
+            doc.insert(ignore_permissions=True)
+            print(f"[AP Automation] Auto-registered report: {report_name}")
+        else:
+            doc = frappe.get_doc("Report", report_name)
+            doc.ref_doctype = rep["ref_doctype"]
+            doc.report_type = rep["report_type"]
+            doc.is_standard = "Yes"
+            doc.module = "AP Automation"
+            doc.disabled = 0
+            doc.set("roles", [])
+            for role in rep["roles"]:
+                doc.append("roles", {"role": role})
+            doc.save(ignore_permissions=True)
+            print(f"[AP Automation] Updated permissions for report: {report_name}")
 
 
 def setup_workspaces():

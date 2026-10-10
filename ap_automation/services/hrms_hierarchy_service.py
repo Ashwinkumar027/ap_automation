@@ -7,7 +7,7 @@ Enterprise-grade, stateless service providing O(1) indexed lookups for employee 
 active profile integrity, and dynamic RBAC security verification.
 """
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.exceptions import APValidationError, APSecurityError
 

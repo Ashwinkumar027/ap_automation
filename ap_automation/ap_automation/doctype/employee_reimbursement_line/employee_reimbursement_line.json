@@ -13,7 +13,6 @@
   "amount",
   "receipt_attachment",
   "payment_mode_used",
-  "company_name",
   "merchant_name",
   "invoice_number",
   "is_b2b",
@@ -59,7 +58,7 @@
    "fieldname": "amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Invoice Amount (₹)",
+   "label": "Invoice Amount (\u20b9)",
    "reqd": 1
   },
   {
@@ -72,18 +71,10 @@
   },
   {
    "columns": 2,
-   "default": "Bill attached",
    "fieldname": "payment_mode_used",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Remarks / Payment Mode"
-  },
-  {
-   "default": "ACM",
-   "fieldname": "company_name",
-   "fieldtype": "Data",
-   "in_list_view": 0,
-   "label": "Company Name"
   },
   {
    "fieldname": "merchant_name",

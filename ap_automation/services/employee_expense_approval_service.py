@@ -14,7 +14,7 @@ Governs:
 """
 
 import hashlib
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from frappe.utils import now_datetime, flt, cstr
 from ap_automation.exceptions import APValidationError, APSecurityError
@@ -167,6 +167,12 @@ def submit_claim(voucher_name: str) -> Dict[str, Any]:
 # ==============================================================================
 # STAGE 2: REPORTING MANAGER APPROVAL (MANAGER -> RECEPTIONIST)
 # ==============================================================================
+
+@frappe.whitelist()
+def approve_manager(voucher_name: str, comments: Optional[str] = None) -> Dict[str, Any]:
+    """Alias for Reporting Manager Approval."""
+    return approve_reporting_manager(voucher_name=voucher_name, comments=comments)
+
 
 @frappe.whitelist()
 def approve_reporting_manager(voucher_name: str, comments: Optional[str] = None) -> Dict[str, Any]:
@@ -393,6 +399,9 @@ def approve_admin_l2(voucher_name: str, comments: Optional[str] = None) -> Dict[
 
     doc.save(ignore_permissions=True)
     frappe.db.commit()
+
+    # Note: Accounts L1 is NOT spammed with individual claim emails.
+    # Accounts L1 receives the single consolidated Weekly Batch Email on Friday when the batch is compiled.
 
     return {
         "status": "SUCCESS",

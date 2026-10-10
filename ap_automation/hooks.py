@@ -65,6 +65,7 @@ fixtures = [
                 "in",
                 [
                     "Petty Cash User",
+                    "Receptionist",
                     "Admin L1 Approver",
                     "Admin L2 Approver",
                     "Accounts L1 Auditor",

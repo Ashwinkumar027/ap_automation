@@ -7,7 +7,7 @@ Enforces:
 4. Case 3 (Delta == 0): ZERO_BALANCE_BALANCED (perfect mathematical closure).
 5. Event Master formal closure upon settlement finalization.
 """
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.exceptions import APValidationError
 

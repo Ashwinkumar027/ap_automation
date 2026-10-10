@@ -6,7 +6,7 @@ Enforces:
 3. Dedicated Director sign-off and rejection endpoints for Executive Directors.
 4. Immutable audit trail recording before payment release.
 """
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.exceptions import APSecurityError, APValidationError
 

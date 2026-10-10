@@ -14,7 +14,7 @@ Enforces:
 8. Safe numeric formatting (_safe_fmt_money) resilient against None values.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import re
 import hashlib
 import frappe

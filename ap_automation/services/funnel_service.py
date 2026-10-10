@@ -8,7 +8,7 @@ Enforces:
 2. Single-Source Payment Instruction generation (PI-YYYY-MM-XXXXX).
 3. Consolidated Payment Batch generation with SHA-256 integrity checksum.
 """
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional, Tuple, Union
 import hashlib
 import json
 import frappe

@@ -1,3 +1,4 @@
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 
 def inspect_po():

@@ -12,7 +12,7 @@ Enforces:
 6. Direct browser download endpoint & XML string generation.
 """
 
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional, Tuple, Union
 import uuid
 import xml.sax.saxutils as saxutils
 import frappe

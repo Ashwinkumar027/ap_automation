@@ -11,7 +11,7 @@ Governs:
 5. Audit trail stamping & RFC 5322 Threaded Email Notifications.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from frappe.utils import now_datetime
 from ap_automation.exceptions import APValidationError, APSecurityError

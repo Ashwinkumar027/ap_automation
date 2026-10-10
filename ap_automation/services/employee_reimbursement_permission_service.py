@@ -5,7 +5,7 @@ Implements:
 2. Document-Level Fine-Grained Permissions (Read/Write/Approval security).
 3. 4-Tier Organizational Scoping (Claimant, Reporting Manager, SPOC, Global Approver).
 """
-from typing import Optional, List, Set, Union, Any
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from frappe.model.document import Document
 

@@ -3,7 +3,7 @@ End-to-End Full Pipeline Simulation Orchestrator (PRD Section 14)
 Executes complete lifecycle across all 4 spend lanes:
 Raiser -> Approvals -> Funnel Hard Gate -> Batch -> 2FA OTP -> IDFC Dispatch -> UTR Stamp -> Tally XML.
 """
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.controllers.vendor_invoice_claim import VendorInvoiceClaim
 from ap_automation.controllers.event_advance_request import EventAdvanceRequest

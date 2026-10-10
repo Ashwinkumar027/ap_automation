@@ -11,7 +11,7 @@ Responsibilities:
 4. Automatic lock release if a parent voucher is cancelled or rejected.
 """
 import hashlib
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.exceptions import APValidationError
 

@@ -2,7 +2,7 @@
 Multi-Entity Security & Delegation Service
 Enforces strict company-level authorization and dynamic HoD/Approver delegations.
 """
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.exceptions import APSecurityError
 

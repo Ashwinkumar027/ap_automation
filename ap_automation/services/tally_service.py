@@ -7,7 +7,7 @@ Enforces:
 4. XML entity escaping for special characters (&, <, >, ', ") to prevent Tally parser crashes.
 5. Multi-line category grouping, claim narration, and unique GUID deduplication.
 """
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional, Tuple, Union
 import uuid
 import xml.sax.saxutils as saxutils
 from collections import defaultdict

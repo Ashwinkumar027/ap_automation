@@ -12,7 +12,7 @@ Stateless, high-performance policy engine enforcing statutory company rules acro
   5. General Expense (Statutory B2B GSTIN & Proof Integrity)
 """
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import datetime, time
 import frappe
 from frappe.utils import flt, getdate

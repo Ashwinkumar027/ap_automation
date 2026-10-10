@@ -9,7 +9,7 @@ Implements:
 4. Immutable Timestamped Audit Trail logging on every stage transition.
 5. Automated Multi-Tier Email & Real-time Desk Notification Dispatch.
 """
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from frappe.utils import now_datetime, get_url_to_form, fmt_money
 from ap_automation.exceptions import APSecurityError, APValidationError

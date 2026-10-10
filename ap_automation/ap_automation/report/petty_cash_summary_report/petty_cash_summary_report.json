@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letter_head": null,
- "modified": "2026-09-15 14:52:40.309234",
+ "modified": "2026-10-09 13:10:03.781964",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Petty Cash Summary Report",
@@ -24,13 +24,10 @@
    "role": "System Manager"
   },
   {
-   "role": "Accounts Manager"
+   "role": "Petty Cash User"
   },
   {
-   "role": "Accounts User"
-  },
-  {
-   "role": "Admin Manager"
+   "role": "Receptionist"
   },
   {
    "role": "Admin L1 Approver"
@@ -39,13 +36,19 @@
    "role": "Admin L2 Approver"
   },
   {
-   "role": "Director Tier"
+   "role": "Accounts L1 Auditor"
   },
   {
-   "role": "Employee"
+   "role": "Accounts Manager"
   },
   {
    "role": "Accounts Director"
+  },
+  {
+   "role": "Payment Releaser"
+  },
+  {
+   "role": "Employee"
   }
  ],
  "timeout": 0

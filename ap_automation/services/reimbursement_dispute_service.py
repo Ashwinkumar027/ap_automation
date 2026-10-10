@@ -6,7 +6,7 @@ Enforces:
 3. Parent claim auto-advances to Level 2 (Accounts L2 - Accounts L2 Head).
 4. Child claim creation in 'Disputed' status with line-level reasons for employee correction.
 """
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
 from ap_automation.exceptions import APValidationError, APSecurityError
 from ap_automation.services.approval_service import advance_approval
