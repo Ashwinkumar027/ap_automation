@@ -264,20 +264,45 @@ class PettyCashEntry(Document):
         self.total_amount = round(total, 2)
 
     def validate_immutability(self):
-        """Submitted bills must be locked, allowing edits only on drafts."""
+        """Submitted bills must be locked, allowing edits only on drafts or returned vouchers."""
         if self.is_new():
             return
-        old_doc = self.get_doc_before_save()
-        if old_doc:
-            old_status = old_doc.status or "Draft"
-            if old_status not in ("Draft", "Returned to Reception") and self.has_value_changed("expense_lines"):
-                if not getattr(frappe.flags, "in_dispute_split", False):
-                    frappe.throw(
-                        f"🔒 Locked Document: Petty Cash Voucher '{self.name}' is in status '{old_status}'. "
-                        f"Line items on submitted vouchers cannot be modified directly.",
-                        exc=APValidationError
-                    )
+        if getattr(frappe.flags, "in_dispute_split", False) or getattr(self.flags, "ignore_validate_immutability", False):
+            return
 
+        old_doc = self.get_doc_before_save()
+        if not old_doc:
+            return
+
+        old_status = old_doc.status or "Draft"
+        if old_status in ("Draft", "Returned to Reception"):
+            return
+
+        # Check if line items have actually been modified
+        old_lines = getattr(old_doc, "expense_lines", []) or []
+        new_lines = getattr(self, "expense_lines", []) or []
+
+        if len(old_lines) != len(new_lines):
+            frappe.throw(
+                f"🔒 Locked Document: Petty Cash Voucher '{self.name}' is in status '{old_status}'. "
+                f"Cannot add or remove line items on submitted vouchers.",
+                exc=APValidationError
+            )
+
+        for idx, (o_row, n_row) in enumerate(zip(old_lines, new_lines), 1):
+            for lf in ("amount", "merchant_name", "bill_number", "expense_category", "expense_date", "receipt_attachment"):
+                if lf == "amount":
+                    if round(flt(getattr(o_row, lf, 0.0)), 2) != round(flt(getattr(n_row, lf, 0.0)), 2):
+                        frappe.throw(
+                            f"🔒 Locked Document: Row {idx} ({lf}) cannot be modified on '{self.name}' in status '{old_status}'.",
+                            exc=APValidationError
+                        )
+                else:
+                    if str(getattr(o_row, lf, "") or "").strip() != str(getattr(n_row, lf, "") or "").strip():
+                        frappe.throw(
+                            f"🔒 Locked Document: Row {idx} ({lf}) cannot be modified on '{self.name}' in status '{old_status}'.",
+                            exc=APValidationError
+                        )
     def on_submit(self):
         """Dispatches automated notification to L1 Admin Reviewer."""
         try:
