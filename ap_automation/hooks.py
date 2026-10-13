@@ -48,8 +48,12 @@ scheduler_events = {
         "0 10 * * 2": [
             "ap_automation.services.notification_service.send_pending_petty_cash_reminders"
         ],
+        "0 10 * * 5": [
+            "ap_automation.services.weekly_accounts_batch_service.generate_all_friday_admin_batches"
+        ],
         "0 12 * * 5": [
-            "ap_automation.services.weekly_accounts_batch_service.generate_all_weekly_accounts_batches"
+            "ap_automation.services.weekly_accounts_batch_service.generate_all_weekly_accounts_batches",
+            "ap_automation.services.weekly_accounts_batch_service.notify_accounts_friday_handoff"
         ]
     }
 }

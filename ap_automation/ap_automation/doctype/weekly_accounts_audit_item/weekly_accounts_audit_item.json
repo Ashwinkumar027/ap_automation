@@ -20,7 +20,9 @@
   "sanctioned_amount",
   "status",
   "dispute_reason",
-  "receipt_count"
+  "receipt_count",
+  "return_to",
+  "returned_by"
  ],
  "fields": [
   {
@@ -107,7 +109,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Audit Status",
-   "options": "Pending Audit\nAudited / Approved\nDisputed / Returned"
+   "options": "Pending Audit\nAudited / Approved\nDisputed / Returned\nReturned to Employee\nReturned to Receptionist"
   },
   {
    "fieldname": "dispute_reason",
@@ -119,6 +121,19 @@
    "fieldname": "receipt_count",
    "fieldtype": "Int",
    "label": "Receipts Attached"
+  },
+  {
+   "fieldname": "return_to",
+   "fieldtype": "Select",
+   "label": "Returned To",
+   "options": "Employee\nReceptionist"
+  },
+  {
+   "fieldname": "returned_by",
+   "fieldtype": "Link",
+   "label": "Returned By",
+   "options": "User",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

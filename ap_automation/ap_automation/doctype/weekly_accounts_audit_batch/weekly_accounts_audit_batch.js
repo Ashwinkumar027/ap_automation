@@ -15,6 +15,72 @@ frappe.ui.form.on('Weekly Accounts Audit Batch', {
 function setup_batch_action_buttons(frm) {
     if (frm.is_new()) return;
 
+    // 0. Admin L1 Action: Approve Admin L1 Batch
+    if (frm.doc.status === 'Pending Admin L1 Review' || (frm.doc.status === 'Draft' && frappe.user.has_role(['Admin L1 Approver', 'System Manager']))) {
+        frm.add_custom_button(__('📋 Approve Admin L1 Batch'), function() {
+            frappe.prompt([
+                {
+                    fieldname: 'remarks',
+                    fieldtype: 'Small Text',
+                    label: __('Admin L1 Review Remarks'),
+                    default: 'Operational compliance and policy limits verified. Approved for Admin L2 sign-off.'
+                }
+            ], function(values) {
+                frappe.call({
+                    method: 'ap_automation.services.weekly_accounts_batch_service.approve_admin_l1_weekly_batch',
+                    args: {
+                        batch_name: frm.doc.name,
+                        remarks: values.remarks
+                    },
+                    freeze: true,
+                    freeze_message: __('Approving Batch and Notifying Admin L2...'),
+                    callback: function(r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({
+                                message: r.message.message,
+                                indicator: 'indigo'
+                            });
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }, __('Admin L1 Batch Approval'), __('Approve & Forward to Admin L2')).addClass('btn-primary');
+        }).addClass('btn-primary');
+    }
+
+    // 0.5. Admin L2 Action: Sign-Off Admin L2 Batch
+    if (frm.doc.status === 'Pending Admin L2 Review') {
+        frm.add_custom_button(__('🏛️ Sign-Off Admin L2 Batch'), function() {
+            frappe.prompt([
+                {
+                    fieldname: 'remarks',
+                    fieldtype: 'Small Text',
+                    label: __('Admin L2 Department Head Remarks'),
+                    default: 'Departmental sign-off completed. Authorized for Friday Accounts Audit.'
+                }
+            ], function(values) {
+                frappe.call({
+                    method: 'ap_automation.services.weekly_accounts_batch_service.approve_admin_l2_weekly_batch',
+                    args: {
+                        batch_name: frm.doc.name,
+                        remarks: values.remarks
+                    },
+                    freeze: true,
+                    freeze_message: __('Signing Off Batch and Forwarding to Accounts...'),
+                    callback: function(r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({
+                                message: r.message.message,
+                                indicator: 'green'
+                            });
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }, __('Admin L2 Department Head Authorization'), __('Approve & Forward to Accounts')).addClass('btn-success');
+        }).addClass('btn-success');
+    }
+
     // 1. Accounts L1 Action: Sanction Batch
     if (frm.doc.status === 'Pending Accounts L1 Audit' || frm.doc.status === 'Draft') {
         frm.add_custom_button(__('📋 Sanction Weekly Batch (Accounts L1)'), function() {
@@ -353,12 +419,16 @@ function render_audit_workstation_view(frm) {
                 statusBadge = `<span class="badge badge-success" style="background: #dcfce7; color: #166534; padding: 4px 8px;">✅ Audited</span>`;
             } else if (v.status === 'Disputed / Returned') {
                 statusBadge = `<span class="badge badge-danger" style="background: #fee2e2; color: #991b1b; padding: 4px 8px;" title="${v.dispute_reason || ''}">⚠️ Disputed</span>`;
+            } else if (v.status === 'Returned to Employee') {
+                statusBadge = `<span class="badge badge-danger" style="background: #fee2e2; color: #991b1b; padding: 4px 8px;" title="${v.dispute_reason || ''}">↩️ Sent Back to Employee</span>`;
+            } else if (v.status === 'Returned to Receptionist') {
+                statusBadge = `<span class="badge badge-warning" style="background: #fef3c7; color: #92400e; padding: 4px 8px;" title="${v.dispute_reason || ''}">↩️ Sent Back to Receptionist</span>`;
             }
 
-            const isDisputed = v.status === 'Disputed / Returned';
-            const disputeBtn = isDisputed
+            const isReturned = (v.status === 'Disputed / Returned' || v.status === 'Returned to Employee' || v.status === 'Returned to Receptionist');
+            const disputeBtn = isReturned
                 ? `<span style="font-size: 10px; color: #991b1b; font-weight: 600;">Returned</span>`
-                : `<button type="button" class="btn btn-xs btn-outline-danger btn-dispute-voucher" data-voucher="${v.voucher_no}" style="font-size: 11px; padding: 2px 6px;" title="Dispute & Return to Employee">⚠️</button>`;
+                : `<button type="button" class="btn btn-xs btn-outline-danger btn-send-back-voucher" data-voucher="${v.voucher_no}" style="font-size: 11px; padding: 2px 6px;" title="Send Back to Employee or Receptionist">↩️ Send Back</button>`;
 
             html += `
                 <tr style="${isDisputed ? 'background: #fff5f5; opacity: 0.85;' : ''}">
@@ -461,11 +531,11 @@ function render_audit_workstation_view(frm) {
         open_voucher_proofs_modal(vNo);
     });
 
-    // 6. Voucher-level Dispute Button
-    $(wrapper).find('.btn-dispute-voucher').on('click', function(e) {
+    // 6. Voucher-level Send Back Button
+    $(wrapper).find('.btn-send-back-voucher, .btn-dispute-voucher').on('click', function(e) {
         e.preventDefault();
         const vNo = $(this).data('voucher');
-        prompt_dispute_voucher(frm, vNo);
+        prompt_send_back_voucher(frm, vNo);
     });
 }
 
@@ -507,6 +577,47 @@ function open_employee_aggregated_receipts(frm, emp_name, vouchers) {
             }
         }
     });
+}
+
+function prompt_send_back_voucher(frm, voucher_no) {
+    frappe.prompt([
+        {
+            fieldname: 'return_to',
+            fieldtype: 'Select',
+            label: __('Send Back To'),
+            options: ['Employee', 'Receptionist'],
+            default: 'Employee',
+            reqd: 1
+        },
+        {
+            fieldname: 'reason',
+            fieldtype: 'Small Text',
+            label: __('Reason for Send Back / Clarification Needed'),
+            reqd: 1,
+            placeholder: __('e.g., GST invoice unclear or missing bill proof. Please upload legible tax bill.')
+        }
+    ], function(values) {
+        frappe.call({
+            method: 'ap_automation.services.weekly_accounts_batch_service.send_back_batch_item',
+            args: {
+                batch_name: frm.doc.name,
+                voucher_no: voucher_no,
+                return_to: values.return_to,
+                reason: values.reason
+            },
+            freeze: true,
+            freeze_message: __('Returning Voucher and Notifying {0}...', [values.return_to]),
+            callback: function(r) {
+                if (r.message && r.message.status === 'SUCCESS') {
+                    frappe.show_alert({
+                        message: r.message.message,
+                        indicator: 'orange'
+                    });
+                    frm.reload_doc();
+                }
+            }
+        });
+    }, __('↩️ Send Back Voucher #{0}', [voucher_no]), __('Send Back for Correction'));
 }
 
 function prompt_dispute_voucher(frm, voucher_no) {

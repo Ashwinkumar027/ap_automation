@@ -378,3 +378,317 @@ def release_weekly_payment_batch(batch_name: str, payment_reference: Optional[st
         "total_disbursed": batch.total_sanctioned_amount,
         "message": f"Weekly Batch #{batch.name} disbursed successfully (INR {batch.total_sanctioned_amount:,.2f}). All vouchers marked as Paid."
     }
+
+
+@frappe.whitelist()
+def generate_friday_admin_batch(company: str, batch_date: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Consolidates all Receptionist-verified claims for a company into a Weekly Admin Batch for Admin L1 & L2.
+    Scheduled every Friday at 10:00 AM.
+    """
+    if not company:
+        frappe.throw("Company Entity is required to generate a Weekly Admin Batch.")
+
+    friday_date = get_current_friday(batch_date)
+    week_str = friday_date.strftime("%Y-W%W")
+
+    # Fetch all claims awaiting Admin review (verified by Receptionist throughout the week)
+    claims = frappe.db.sql("""
+        SELECT name, employee, employee_name, department, claim_category,
+               posting_date, total_claim_amount, sanctioned_amount,
+               bank_name, bank_account_number, bank_ifsc_code AS bank_ifsc
+        FROM `tabEmployee Reimbursement Claim`
+        WHERE company = %s
+          AND status IN (
+              'Queued in Admin Batch',
+              'Pending Admin Batch',
+              'Receptionist Verified',
+              'Pending Admin L1',
+              'Pending Admin L1 Review'
+          )
+        ORDER BY employee_name ASC, posting_date ASC
+    """, (company,), as_dict=True)
+
+    if not claims:
+        return {
+            "status": "NO_CLAIMS",
+            "message": f"No claims currently pending Admin review for {company} on Friday {friday_date}."
+        }
+
+    # Check if a batch already exists for this Friday in Draft/Pending Admin status
+    existing_batch_name = frappe.db.get_value(
+        "Weekly Accounts Audit Batch",
+        {"company": company, "batch_date": friday_date, "status": ["in", ["Draft", "Pending Admin L1 Review", "Pending Admin L2 Review"]]},
+        "name"
+    )
+
+    if existing_batch_name:
+        batch = frappe.get_doc("Weekly Accounts Audit Batch", existing_batch_name)
+        batch.items = []  # Refresh items
+    else:
+        batch = frappe.new_doc("Weekly Accounts Audit Batch")
+        batch.company = company
+        batch.batch_date = friday_date
+        batch.week_number = week_str
+        batch.status = "Pending Admin L1 Review"
+
+    total_claimed = 0.0
+    total_sanctioned = 0.0
+    unique_employees = set()
+
+    for c in claims:
+        claimed = flt(c.total_claim_amount)
+        sanctioned = flt(c.sanctioned_amount or c.total_claim_amount)
+        total_claimed += claimed
+        total_sanctioned += sanctioned
+        unique_employees.add(c.employee)
+
+        receipt_count = frappe.db.count("File", {
+            "attached_to_doctype": "Employee Reimbursement Claim",
+            "attached_to_name": c.name
+        }) or 1
+
+        batch.append("items", {
+            "voucher_type": "Employee Reimbursement Claim",
+            "voucher_no": c.name,
+            "employee_id": c.employee,
+            "employee_name": c.employee_name,
+            "department": c.department or "General",
+            "bank_name": c.bank_name or "Salary Bank",
+            "bank_account_number": c.bank_account_number or "",
+            "bank_ifsc": c.bank_ifsc or "",
+            "claim_category": c.claim_category or "General Expense",
+            "claim_date": c.posting_date,
+            "claimed_amount": claimed,
+            "sanctioned_amount": sanctioned,
+            "status": "Pending Audit",
+            "receipt_count": receipt_count
+        })
+
+    batch.total_claims_count = len(claims)
+    batch.total_employees_count = len(unique_employees)
+    batch.total_claimed_amount = round(total_claimed, 2)
+    batch.total_sanctioned_amount = round(total_sanctioned, 2)
+    batch.total_disputed_amount = 0.0
+
+    batch.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    # Dispatch Single Consolidated Email to Admin L1
+    try:
+        notif.notify_admin_l1_on_weekly_batch_ready(batch.name)
+    except Exception as e:
+        frappe.log_error(f"Failed to send Admin L1 weekly batch notification for {batch.name}: {str(e)}", "AP Batch Error")
+
+    return {
+        "status": "SUCCESS",
+        "batch_name": batch.name,
+        "claims_count": len(claims),
+        "employees_count": len(unique_employees),
+        "total_amount": round(total_claimed, 2),
+        "message": f"Weekly Admin Batch {batch.name} compiled with {len(claims)} claims for ₹ {total_claimed:,.2f}."
+    }
+
+
+@frappe.whitelist()
+def generate_all_friday_admin_batches() -> Dict[str, Any]:
+    """
+    Cron Entrypoint: Scheduled every Friday at 10:00 AM.
+    Generates weekly Admin review batches for all active companies.
+    """
+    companies = frappe.get_all("Company", pluck="name")
+    results = {}
+    for comp in companies:
+        try:
+            res = generate_friday_admin_batch(comp)
+            results[comp] = res
+        except Exception as e:
+            results[comp] = {"status": "ERROR", "message": str(e)}
+            frappe.log_error(f"Error generating Friday Admin batch for {comp}: {str(e)}", "AP Friday Admin Cron Error")
+    return results
+
+
+@frappe.whitelist()
+def approve_admin_l1_weekly_batch(batch_name: str, remarks: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Stage: Admin L1 Approver verifies the weekly batch operational & policy compliance -> Forwards to Admin L2.
+    """
+    user = frappe.session.user
+    user_roles = frappe.get_roles(user) if user else []
+    if "Admin L1 Approver" not in user_roles and "System Manager" not in user_roles and user not in ("Administrator", "administrator@example.com"):
+        frappe.throw("Access Denied: Only Admin L1 Approver or System Manager can approve Admin L1 Batch.", frappe.PermissionError)
+
+    frappe.db.sql("SELECT name FROM `tabWeekly Accounts Audit Batch` WHERE name = %s FOR UPDATE", (batch_name,))
+    batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
+
+    if batch.status not in ("Draft", "Pending Admin L1 Review"):
+        frappe.throw(f"Batch {batch_name} is in status '{batch.status}', expected 'Pending Admin L1 Review'.")
+
+    batch.status = "Pending Admin L2 Review"
+    batch.admin_l1_approver = user
+    batch.admin_l1_approval_date = now_datetime()
+    batch.admin_l1_remarks = remarks or "Admin L1 operational compliance & policy limits verified."
+
+    batch.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    # Notify Admin L2 Department Head
+    try:
+        notif.notify_admin_l2_on_admin_l1_batch_approved(batch.name)
+    except Exception as e:
+        frappe.log_error(f"Failed to notify Admin L2 for batch {batch.name}: {str(e)}", "AP Batch Error")
+
+    return {
+        "status": "SUCCESS",
+        "batch_name": batch.name,
+        "new_status": batch.status,
+        "message": f"Weekly Batch {batch.name} verified by Admin L1 and forwarded to Admin L2 Department Head."
+    }
+
+
+@frappe.whitelist()
+def approve_admin_l2_weekly_batch(batch_name: str, remarks: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Stage: Admin L2 Department Head signs off on the weekly batch -> Forwards to Accounts L1 for Friday 12:00 PM Audit.
+    """
+    user = frappe.session.user
+    user_roles = frappe.get_roles(user) if user else []
+    if "Admin L2 Approver" not in user_roles and "System Manager" not in user_roles and user not in ("Administrator", "administrator@example.com"):
+        frappe.throw("Access Denied: Only Admin L2 Approver or System Manager can sign off Admin L2 Batch.", frappe.PermissionError)
+
+    frappe.db.sql("SELECT name FROM `tabWeekly Accounts Audit Batch` WHERE name = %s FOR UPDATE", (batch_name,))
+    batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
+
+    if batch.status != "Pending Admin L2 Review":
+        frappe.throw(f"Batch {batch_name} is in status '{batch.status}', expected 'Pending Admin L2 Review'.")
+
+    batch.status = "Pending Accounts L1 Audit"
+    batch.admin_l2_approver = user
+    batch.admin_l2_approval_date = now_datetime()
+    batch.admin_l2_remarks = remarks or "Admin L2 Department Head signed off. Forwarded to Accounts Audit."
+
+    # Update all active vouchers in the batch to Admin L2 Approved
+    for it in batch.items:
+        if it.status not in ("Disputed / Returned", "Returned to Employee", "Returned to Receptionist"):
+            try:
+                doc = frappe.get_doc("Employee Reimbursement Claim", it.voucher_no)
+                doc.status = "Admin L2 Approved"
+                doc.workflow_state = "Admin L2 Cleared - Queued for Accounts Audit"
+                doc.admin_l2_approver = user
+                doc.append("approval_trail", {
+                    "level_number": 5,
+                    "level_name": "Admin L2 Head Sign-Off (Weekly Batch)",
+                    "action_taken_by": user,
+                    "action": "APPROVED",
+                    "action_timestamp": now_datetime(),
+                    "remarks": f"Approved via Weekly Batch #{batch.name}. {remarks or ''}"
+                })
+                doc.save(ignore_permissions=True)
+            except Exception as ex:
+                frappe.log_error(f"Error updating voucher {it.voucher_no} on Admin L2 sign-off: {str(ex)}")
+
+    batch.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    # Notify Accounts L1 Auditor
+    try:
+        notif.notify_accounts_l1_on_weekly_batch_ready(batch.name)
+    except Exception as e:
+        frappe.log_error(f"Failed to notify Accounts L1 for batch {batch.name}: {str(e)}", "AP Batch Error")
+
+    return {
+        "status": "SUCCESS",
+        "batch_name": batch.name,
+        "new_status": batch.status,
+        "message": f"Weekly Batch {batch.name} cleared by Admin L2 and forwarded to Accounts Audit."
+    }
+
+
+@frappe.whitelist()
+def send_back_batch_item(batch_name: str, voucher_no: str, return_to: str, reason: str) -> Dict[str, Any]:
+    """
+    Universal Row-Level Send-Back for Admin L1, Admin L2, and Accounts:
+    - Admin L1 / Admin L2 can send back a specific voucher directly to Employee or Receptionist.
+    - Captures exact reason and isolates the row from the batch so healthy claims are not blocked.
+    - Unlocks the claim document so the recipient can edit, correct proofs, and resubmit.
+    """
+    if not batch_name or not voucher_no or not reason or not reason.strip():
+        frappe.throw("Batch Name, Voucher Number, and Return Reason are strictly mandatory.")
+
+    user = frappe.session.user
+    user_roles = frappe.get_roles(user) if user else []
+    allowed_roles = ["Admin L1 Approver", "Admin L2 Approver", "Accounts L1 Auditor", "Accounts Director", "System Manager", "Administrator"]
+    if not any(r in user_roles for r in allowed_roles) and user not in ("Administrator", "administrator@example.com"):
+        frappe.throw("Access Denied: You are not authorized to return batch vouchers.", frappe.PermissionError)
+
+    target = "Receptionist" if str(return_to or "").strip().lower() in ("receptionist", "front desk") else "Employee"
+    reason_clean = reason.strip()
+
+    frappe.db.sql("SELECT name FROM `tabWeekly Accounts Audit Batch` WHERE name = %s FOR UPDATE", (batch_name,))
+    batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
+
+    found_item = None
+    for it in batch.items:
+        if it.voucher_no == voucher_no:
+            found_item = it
+            break
+
+    if not found_item:
+        frappe.throw(f"Voucher #{voucher_no} not found in Batch {batch_name}.")
+
+    item_status = f"Returned to {target}"
+    found_item.status = item_status
+    found_item.dispute_reason = reason_clean
+    found_item.return_to = target
+    found_item.returned_by = user
+
+    # Recalculate batch totals so unreturned claims are not blocked
+    sanctioned_total = 0.0
+    disputed_total = 0.0
+    for it in batch.items:
+        if it.status in ("Disputed / Returned", "Returned to Employee", "Returned to Receptionist"):
+            disputed_total += flt(it.claimed_amount)
+        else:
+            sanctioned_total += flt(it.sanctioned_amount or it.claimed_amount)
+
+    batch.total_sanctioned_amount = round(sanctioned_total, 2)
+    batch.total_disputed_amount = round(disputed_total, 2)
+    batch.save(ignore_permissions=True)
+
+    # Unlock and return the individual claim document
+    from ap_automation.services import employee_expense_approval_service
+    employee_expense_approval_service.reject_claim_flexible(
+        voucher_name=voucher_no,
+        reason=reason_clean,
+        return_to=target
+    )
+
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "voucher_no": voucher_no,
+        "returned_to": target,
+        "message": f"Voucher #{voucher_no} returned to {target} for correction. Remaining batch total: INR {batch.total_sanctioned_amount:,.2f}."
+    }
+
+
+@frappe.whitelist()
+def notify_accounts_friday_handoff() -> Dict[str, Any]:
+    """
+    Cron Entrypoint: Scheduled every Friday at 12:00 PM.
+    Checks all batches awaiting Accounts Audit and ensures notifications are dispatched.
+    """
+    friday_date = get_current_friday()
+    batches = frappe.get_all(
+        "Weekly Accounts Audit Batch",
+        filters={"batch_date": friday_date, "status": "Pending Accounts L1 Audit"},
+        pluck="name"
+    )
+    for b_name in batches:
+        try:
+            notif.notify_accounts_l1_on_weekly_batch_ready(b_name)
+        except Exception as e:
+            frappe.log_error(f"Error in Friday 12 PM Accounts handoff for {b_name}: {str(e)}")
+    return {"status": "SUCCESS", "batches_notified": len(batches)}
+

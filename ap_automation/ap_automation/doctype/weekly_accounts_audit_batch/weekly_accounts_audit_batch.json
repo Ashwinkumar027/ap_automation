@@ -20,6 +20,14 @@
   "sb_workstation",
   "items_summary_html",
   "items",
+  "sb_admin_signoffs",
+  "admin_l1_approver",
+  "admin_l1_approval_date",
+  "admin_l1_remarks",
+  "cb_admin",
+  "admin_l2_approver",
+  "admin_l2_approval_date",
+  "admin_l2_remarks",
   "sb_signoffs",
   "accounts_l1_auditor",
   "accounts_l1_audit_date",
@@ -59,12 +67,12 @@
    "label": "Fiscal Week Label"
   },
   {
-   "default": "Pending Accounts L1 Audit",
+   "default": "Pending Admin L1 Review",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Batch Status",
-   "options": "Draft\nPending Accounts L1 Audit\nPending Accounts Director\nApproved for Payment\nPaid\nCancelled"
+   "options": "Draft\nPending Admin L1 Review\nPending Admin L2 Review\nPending Accounts L1 Audit\nPending Accounts Director\nApproved for Payment\nPaid\nCancelled"
   },
   {
    "fieldname": "cb_metrics",
@@ -119,6 +127,51 @@
    "fieldtype": "Table",
    "label": "Audited Reimbursement Vouchers",
    "options": "Weekly Accounts Audit Item"
+  },
+  {
+   "fieldname": "sb_admin_signoffs",
+   "fieldtype": "Section Break",
+   "label": "Admin Approval & Department Sign-Off"
+  },
+  {
+   "fieldname": "admin_l1_approver",
+   "fieldtype": "Link",
+   "label": "Admin L1 Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "admin_l1_approval_date",
+   "fieldtype": "Datetime",
+   "label": "Admin L1 Approval Timestamp",
+   "read_only": 1
+  },
+  {
+   "fieldname": "admin_l1_remarks",
+   "fieldtype": "Small Text",
+   "label": "Admin L1 Remarks"
+  },
+  {
+   "fieldname": "cb_admin",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "admin_l2_approver",
+   "fieldtype": "Link",
+   "label": "Admin L2 Department Head",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "admin_l2_approval_date",
+   "fieldtype": "Datetime",
+   "label": "Admin L2 Approval Timestamp",
+   "read_only": 1
+  },
+  {
+   "fieldname": "admin_l2_remarks",
+   "fieldtype": "Small Text",
+   "label": "Admin L2 Remarks"
   },
   {
    "fieldname": "sb_signoffs",
@@ -257,7 +310,8 @@
    "read": 1,
    "report": 1,
    "role": "Admin L2 Approver",
-   "share": 1
+   "share": 1,
+   "write": 1
   },
   {
    "delete": 1,
@@ -267,7 +321,8 @@
    "read": 1,
    "report": 1,
    "role": "Admin L1 Approver",
-   "share": 1
+   "share": 1,
+   "write": 1
   },
   {
    "delete": 1,

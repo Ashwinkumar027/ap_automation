@@ -269,9 +269,9 @@ def verify_receptionist(voucher_name: str, comments: Optional[str] = None) -> Di
         doc.is_resubmission = 0
         trail_remarks = f"Receptionist verified receipts and Fast-Tracked directly back to {prior_stage}."
     else:
-        doc.status = "Pending Admin L1"
-        doc.workflow_state = "Pending Admin L1 Review"
-        trail_remarks = comments or "Receptionist verified receipts and registered voucher."
+        doc.status = "Queued in Admin Batch"
+        doc.workflow_state = "Queued for Friday Admin Review"
+        trail_remarks = comments or "Receptionist verified physical & digital receipts. Queued for Friday Admin Consolidated Batch."
 
     doc.receptionist_verifier = user
     doc.flags.in_workflow_transition = True
@@ -288,17 +288,14 @@ def verify_receptionist(voucher_name: str, comments: Optional[str] = None) -> Di
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
-    # Dedicated Admin L1 Notification
-    try:
-        employee_reimbursement_notification_service.notify_admin_l1_on_reception_verified(doc.name)
-    except Exception as e:
-        frappe.log_error(f"Failed to notify Admin L1 for Claim {voucher_name}: {str(e)}")
+    # Note: Admin L1 is not spammed with individual claim emails.
+    # Claims accumulate into the single consolidated Weekly Batch notified on Friday at 10:00 AM.
 
     return {
         "status": "SUCCESS",
         "voucher_name": doc.name,
         "new_status": doc.status,
-        "message": f"Claim #{doc.name} verified by Receptionist and forwarded to {doc.status}."
+        "message": f"Claim #{doc.name} verified by Receptionist and queued for Friday Admin Batch."
     }
 
 

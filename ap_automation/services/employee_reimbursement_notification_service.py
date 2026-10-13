@@ -768,6 +768,68 @@ def notify_manager_on_cost_increased_resubmitted(docname: str, old_amount: float
 # STAGE D: WEEKLY CONSOLIDATED ACCOUNTS AUDIT BATCH NOTIFICATIONS (FRIDAY)
 # ==============================================================================
 
+def notify_admin_l1_on_weekly_batch_ready(batch_name: str) -> None:
+    """Triggered every Friday @ 10:00 AM when Weekly Batch is compiled for Admin L1 Review."""
+    batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
+    admin_users = _get_matrix_or_role_recipients(batch.company, 2, ["Admin L1 Approver"])
+
+    doc_url = _get_form_url("Weekly Accounts Audit Batch", batch_name)
+    amount = flt(batch.total_claimed_amount)
+    claims_count = batch.total_claims_count or len(batch.items or [])
+    emp_count = batch.total_employees_count or len(set(i.employee_id for i in (batch.items or [])))
+
+    subject = f"📅 [Friday 10:00 AM] Weekly Reimbursement Batch #{batch.name}: {claims_count} Claims across {emp_count} Employees (₹ {_safe_fmt_money(amount)})"
+    body = _build_html_template(
+        title="Weekly Friday Admin Review Workstation",
+        subtitle=f"Batch {batch.week_number} &bull; Operational & Policy Audit",
+        greeting_name="Admin Review Team",
+        main_message=(
+            f"The Weekly Consolidated Reimbursement Batch <b>#{batch.name}</b> has been compiled for <b>{batch.company}</b>.<br><br>"
+            f"All claims verified by Front Desk / Receptionist throughout the week are consolidated into your workstation. "
+            f"Please review employee expense lines, verify policy limits, and approve or send back individual items for correction."
+        ),
+        metric_label_1="Total Batch Amount",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="Claims & Employees",
+        metric_val_2=f"{claims_count} claims &bull; {emp_count} employees",
+        doc_url=doc_url,
+        button_text="Open Admin Review Workstation",
+        badge_color="#4f46e5"
+    )
+    _dispatch_reimbursement_email(admin_users, subject, body, "Weekly Accounts Audit Batch", batch_name, alert_color="indigo")
+
+
+def notify_admin_l2_on_admin_l1_batch_approved(batch_name: str) -> None:
+    """Triggered when Admin L1 approves the weekly batch -> Admin L2 Department Head Sign-Off."""
+    batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
+    admin_l2_users = _get_matrix_or_role_recipients(batch.company, 3, ["Admin L2 Approver"])
+
+    doc_url = _get_form_url("Weekly Accounts Audit Batch", batch_name)
+    amount = flt(batch.total_claimed_amount)
+    claims_count = batch.total_claims_count or len(batch.items or [])
+    emp_count = batch.total_employees_count or len(set(i.employee_id for i in (batch.items or [])))
+
+    subject = f"🏛️ [Action Required] Weekly Batch #{batch.name} Approved by Admin L1: Department Head Sign-Off (₹ {_safe_fmt_money(amount)})"
+    body = _build_html_template(
+        title="Admin L2 Department Head Sign-Off",
+        subtitle=f"Stage 3 &bull; Final Administrative Clearance",
+        greeting_name="Admin Department Head",
+        main_message=(
+            f"Admin L1 has reviewed and verified Weekly Batch <b>#{batch.name}</b> for <b>{batch.company}</b>.<br><br>"
+            f"Total of <b>{claims_count}</b> claims across <b>{emp_count}</b> employees (<b>₹ {_safe_fmt_money(amount)}</b>). "
+            f"Please provide Admin L2 sign-off to forward this batch to Accounts for Friday 12:00 PM financial audit."
+        ),
+        metric_label_1="Total Batch Amount",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="Company & Week",
+        metric_val_2=f"{batch.company} &bull; {batch.week_number}",
+        doc_url=doc_url,
+        button_text="Sign-Off Admin Batch",
+        badge_color="#7c3aed"
+    )
+    _dispatch_reimbursement_email(admin_l2_users, subject, body, "Weekly Accounts Audit Batch", batch_name, alert_color="purple")
+
+
 def notify_accounts_l1_on_weekly_batch_ready(batch_name: str) -> None:
     """16. Triggered every Friday @ 12:00 PM when Weekly Accounts Batch is generated."""
     batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
