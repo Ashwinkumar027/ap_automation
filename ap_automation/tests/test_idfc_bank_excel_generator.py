@@ -9,7 +9,8 @@ import frappe
 
 from ap_automation.services.idfc_bank_excel_generator import (
     generate_idfc_bank_excel_bytes,
-    get_company_debit_account
+    get_company_debit_account,
+    download_idfc_petty_cash_excel
 )
 from ap_automation.ap_automation.report.idfc_bank_disbursal_report.idfc_bank_disbursal_report import (
     execute,
@@ -96,3 +97,12 @@ class TestIDFCBankExcelGenerator(unittest.TestCase):
         self.assertIn("ifsc", fieldnames)
         self.assertIn("amount", fieldnames)
         self.assertIn("debit_account_number", fieldnames)
+
+    def test_04_petty_cash_idfc_generator(self):
+        # Create a mock petty cash doc or test with existing doc
+        existing = frappe.db.get_value("Petty Cash Entry", {}, "name")
+        if existing:
+            download_idfc_petty_cash_excel(existing)
+            self.assertIn("filename", frappe.response)
+            self.assertTrue(frappe.response["filename"].endswith(".xlsx"))
+            self.assertIn("filecontent", frappe.response)

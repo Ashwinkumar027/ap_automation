@@ -678,6 +678,18 @@ function render_role_based_action_buttons(frm) {
             'font-weight': '700'
         });
     }
+
+    // 5. POST-DIRECTOR APPROVAL: Official IDFC Bank Bulk Disbursal Template (.xlsx)
+    if (status === 'Approved for Payment' || status === 'Paid') {
+        frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function () {
+            window.open(`/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_petty_cash_excel?voucher_name=${encodeURIComponent(frm.doc.name)}`, '_blank');
+        }).addClass('btn-info').css({
+            'background-color': '#1e3a8a',
+            'border-color': '#172554',
+            'color': '#ffffff',
+            'font-weight': '600'
+        });
+    }
 }
 
 // --------------------------------------------------------------------------------------

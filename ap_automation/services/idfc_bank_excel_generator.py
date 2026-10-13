@@ -371,3 +371,72 @@ def download_idfc_report_excel(filters: Any = None):
     frappe.response["filename"] = filename
     frappe.response["filecontent"] = filebytes
     frappe.response["type"] = "binary"
+
+
+@frappe.whitelist()
+def download_idfc_petty_cash_excel(voucher_name: str):
+    """
+    Direct endpoint: Generates and downloads the official IDFC Bank Bulk Disbursal Excel (.xlsx)
+    for a Petty Cash Entry after Director Approval.
+    """
+    if not voucher_name:
+        frappe.throw(_("Petty cash voucher name is required."))
+
+    doc = frappe.get_doc("Petty Cash Entry", voucher_name)
+    company = doc.company or frappe.defaults.get_user_default("Company")
+    debit_account = get_company_debit_account(company)
+
+    # Format transaction date (DD/MM/YYYY)
+    p_date = getdate(doc.posting_date or nowdate())
+    tx_date_str = p_date.strftime("%d/%m/%Y")
+
+    # Fetch employee email and bank details if missing
+    emp_info = {}
+    if doc.custodian:
+        emp_info = frappe.db.get_value(
+            "Employee",
+            doc.custodian,
+            ["employee_name", "company_email", "personal_email", "bank_ac_no", "ifsc_code"],
+            as_dict=True
+        ) or {}
+
+    b_name = (
+        doc.get("beneficiary_name")
+        or emp_info.get("employee_name")
+        or doc.custodian
+    )
+    b_ac = (
+        doc.get("custodian_bank_account")
+        or emp_info.get("bank_ac_no")
+        or ""
+    )
+    b_ifsc = (
+        doc.get("custodian_ifsc_code")
+        or emp_info.get("ifsc_code")
+        or ""
+    )
+    email = emp_info.get("company_email") or emp_info.get("personal_email") or ""
+
+    payment_row = {
+        "beneficiary_name": str(b_name).strip().upper(),
+        "beneficiary_account_number": str(b_ac).strip(),
+        "ifsc": str(b_ifsc).strip().upper(),
+        "transaction_type": "NEFT",
+        "debit_account_number": debit_account,
+        "transaction_date": tx_date_str,
+        "amount": flt(doc.total_amount or 0.0),
+        "currency": "INR",
+        "beneficiary_email": email,
+        "remarks": f"PETTY CASH {doc.name}",
+    }
+
+    filename, filebytes = generate_idfc_bank_excel_bytes(
+        payment_rows=[payment_row],
+        debit_account_no=debit_account,
+        transaction_date_str=tx_date_str,
+        filename_prefix=f"IDFC_Bank_Petty_Cash_{doc.name}"
+    )
+
+    frappe.response["filename"] = filename
+    frappe.response["filecontent"] = filebytes
+    frappe.response["type"] = "binary"
