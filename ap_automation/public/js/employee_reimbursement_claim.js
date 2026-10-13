@@ -850,7 +850,7 @@ function bind_custom_grid_uploaders(frm) {
                 cell.append(badge);
             } else if (is_editable) {
                 const upload_btn = $(`
-                    <button type="button" class="btn btn-xs btn-default ap-upload-btn" style="border:1px dashed #94a3b8; color:#475569; font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:#f8fafc; cursor:pointer;">
+                    <button type="button" aria-label="Upload Expense Receipt Photo" class="btn btn-xs btn-default ap-upload-btn" style="border:1px dashed #64748b; color:#334155; font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:#f8fafc; cursor:pointer;">
                         📷 Add Photo
                     </button>
                 `);
@@ -973,11 +973,11 @@ function render_unified_claim_header(frm) {
         const is_active = (cat.id === current_cat);
         const active_cls = is_active ? 'tab-active' : '';
         tabs_html += `
-            <div class="ap-category-tab-btn ${active_cls}" data-category="${cat.id}">
-                <span class="tab-icon">${cat.icon}</span>
+            <div role="button" tabindex="0" aria-label="${cat.title} Expense Category" class="ap-category-tab-btn ${active_cls}" data-category="${cat.id}">
+                <span class="tab-icon" aria-hidden="true">${cat.icon}</span>
                 <div>
                     <div class="tab-title">${cat.title}</div>
-                    <div class="tab-desc">${cat.desc}</div>
+                    <div class="tab-desc" style="color: #475569;">${cat.desc}</div>
                 </div>
             </div>
         `;
@@ -1031,9 +1031,9 @@ function render_unified_claim_header(frm) {
         else if (stg.num === cur_num) cls = 'step-active';
 
         stepper_html += `
-            <div class="ap-step-item ${cls}">
-                <div class="ap-step-node">${(stg.num < cur_num) ? '✓' : stg.num}</div>
-                <div class="ap-step-label">${stg.label}</div>
+            <div class="ap-step-item ${cls}" role="listitem" aria-label="Step ${stg.num}: ${stg.label}">
+                <div class="ap-step-node" aria-hidden="true">${(stg.num < cur_num) ? '✓' : stg.num}</div>
+                <div class="ap-step-label" style="color: #334155;">${stg.label}</div>
             </div>
         `;
     });
@@ -1253,6 +1253,10 @@ function apply_claim_flow_styles() {
     if (document.getElementById('ap-claim-flow-styles')) return;
 
     const css = `
+        #ap-claim-header-mount, [data-fieldname="claim_visual_header_html"] {
+            min-height: 175px;
+            contain: layout style;
+        }
         .ap-category-tabs-container {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
