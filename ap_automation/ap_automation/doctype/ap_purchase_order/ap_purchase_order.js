@@ -183,7 +183,27 @@ function update_dynamic_commercial_pills(frm) {
 }
 
 function render_custom_po_actions(frm) {
-    if (!frm.is_new() && frm.doc.docstatus === 0 && frm.doc.grand_total > 0) {
+    if (!frm.is_new() && frm.doc.grand_total > 0) {
+        if (frm.doc.vendor_sign_url) {
+            frm.add_custom_button(__('📋 Copy E-Sign Link'), function() {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(frm.doc.vendor_sign_url).then(() => {
+                        frappe.show_alert({
+                            message: __('📋 Vendor E-Sign Portal URL copied to clipboard!'),
+                            indicator: 'green'
+                        }, 5);
+                    });
+                } else {
+                    frappe.prompt([
+                        { fieldname: 'sign_url', fieldtype: 'Small Text', label: 'Vendor Signing URL', default: frm.doc.vendor_sign_url, read_only: 1 }
+                    ], null, __('Vendor Signing URL'));
+                }
+            }, __('Actions'));
+
+            frm.add_custom_button(__('↗️ Open Signing Portal'), function() {
+                window.open(frm.doc.vendor_sign_url, '_blank');
+            }, __('Actions'));
+        }
         frm.add_custom_button(__('📩 Send to Vendor for E-Sign'), function() {
             frappe.confirm(
                 `Are you sure you want to email Purchase Order <strong>#${frm.doc.name}</strong> to Vendor (${frm.doc.vendor_email}) for digital signature?`,

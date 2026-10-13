@@ -41,6 +41,24 @@ class TestReconciliationAndTally(unittest.TestCase):
         else:
             cls.vendor_id = supp_id
 
+        # 1.5 Ensure Bank Account for Supplier
+        if not frappe.db.exists("Bank Account", {"party": cls.vendor_id}):
+            if not frappe.db.exists("Bank", "IDFC FIRST Bank"):
+                frappe.get_doc({"doctype": "Bank", "bank_name": "IDFC FIRST Bank"}).insert(ignore_permissions=True)
+            ba = frappe.get_doc({
+                "doctype": "Bank Account",
+                "account_name": f"{cls.vendor_name} Current Account",
+                "bank": "IDFC FIRST Bank",
+                "bank_account_no": "987654321012",
+                "branch_code": "IDFB0040101",
+                "party_type": "Supplier",
+                "party": cls.vendor_id,
+                "is_default": 1,
+                "penny_drop_status": "VERIFIED"
+            })
+            ba.flags.ignore_mandatory = True
+            ba.insert(ignore_permissions=True)
+
         # 2. Event Master
         cls.event = frappe.get_doc({
             "doctype": "Event Master",

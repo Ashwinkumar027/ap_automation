@@ -65,6 +65,9 @@ def submit_vendor_esign(po_name: str = None, token: str = None, signer_name: str
     if not po_name or not token or not signer_name:
         frappe.throw("Signer Name, Purchase Order #, and Security Token are strictly mandatory.")
 
+    if not signature_data or not str(signature_data).strip():
+        frappe.throw("Digital signature drawing is strictly mandatory.")
+
     if not frappe.db.exists("AP Purchase Order", po_name):
         frappe.throw(f"Purchase Order '{po_name}' not found.")
 

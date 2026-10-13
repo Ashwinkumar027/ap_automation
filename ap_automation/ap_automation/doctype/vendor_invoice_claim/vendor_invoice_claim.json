@@ -101,7 +101,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Linked Purchase Order",
-   "options": "Purchase Order"
+   "options": "AP Purchase Order"
   },
   {
    "fieldname": "vendor_po_request",
@@ -366,5 +366,30 @@
  "rows_threshold_for_grid_search": 20,
  "sort_field": "creation",
  "sort_order": "DESC",
- "states": []
+ "states": [
+  {
+   "title": "Pending Accounts Review",
+   "color": "Orange"
+  },
+  {
+   "title": "Approved for Payment",
+   "color": "Green"
+  },
+  {
+   "title": "Disputed",
+   "color": "Red"
+  },
+  {
+   "title": "Queued in Batch",
+   "color": "Blue"
+  },
+  {
+   "title": "Paid",
+   "color": "Green"
+  },
+  {
+   "title": "Draft",
+   "color": "Gray"
+  }
+ ]
 }

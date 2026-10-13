@@ -174,8 +174,8 @@ def verify_otp_and_authorize_release(
                     })
                 elif s_dt == "Vendor Invoice Claim":
                     frappe.db.set_value(s_dt, s_v, {
-                        "status": "Disbursed via IDFC",
-                        "payment_batch_id": batch_id
+                        "status": "Paid",
+                        "batch_id": batch_id
                     })
                 elif s_dt == "Employee Reimbursement Claim":
                     frappe.db.set_value(s_dt, s_v, {

@@ -38,6 +38,9 @@ class TestPaymentRelease2FA(unittest.TestCase):
             })
             u.flags.ignore_permissions = True
             u.insert(ignore_permissions=True)
+        else:
+            u = frappe.get_doc("User", cls.releaser_user)
+            u.add_roles("Payment Releaser")
 
         # 2. Create unauthorized user
         if not frappe.db.exists("User", cls.unauthorized_user):
