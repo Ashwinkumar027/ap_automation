@@ -55,8 +55,8 @@ frappe.ui.form.on('Petty Cash Entry', {
             }
         }
 
-        // Apply visual bank account masking
-        apply_bank_account_masking(frm);
+        // Clean up any residual bank account mask toggle button
+        cleanup_bank_account_masking(frm);
 
         // Filter queries
         frm.set_query('custodian', function () {
@@ -99,7 +99,7 @@ frappe.ui.form.on('Petty Cash Entry', {
     },
 
     custodian: function (frm) {
-        setTimeout(() => apply_bank_account_masking(frm), 300);
+        cleanup_bank_account_masking(frm);
     },
 
     validate: function (frm) {
@@ -196,50 +196,23 @@ function validate_client_posting_date(frm) {
 }
 
 // --------------------------------------------------------------------------------------
-// 4. VISUAL BANK ACCOUNT MASKING WITH TOGGLE
+// 4. CLEANUP BANK ACCOUNT MASKING (Standard Unmasked Display)
 // --------------------------------------------------------------------------------------
-function apply_bank_account_masking(frm) {
-    const raw_val = String(frm.doc.custodian_bank_account || '').trim();
-    if (!raw_val || raw_val.length <= 4) return;
-
-    const last4 = raw_val.slice(-4);
-    const masked = '•••• •••• ' + last4;
-
+function cleanup_bank_account_masking(frm) {
     const field = frm.fields_dict['custodian_bank_account'];
     if (field && field.$wrapper) {
         field.$wrapper.find('.bank-mask-toggle-btn').remove();
-        let is_revealed = false;
-
         if (field.input) {
-            $(field.input).val(masked);
+            const raw = frm.doc.custodian_bank_account || '';
+            if (raw) $(field.input).val(raw);
             $(field.input).css({
-                'font-family': 'monospace',
-                'font-weight': '700',
-                'letter-spacing': '1px',
-                'background': '#f8fafc',
-                'color': '#0f172a'
+                'font-family': 'inherit',
+                'font-weight': 'normal',
+                'letter-spacing': 'normal',
+                'background': '',
+                'color': ''
             });
         }
-
-        const toggle_btn = $(`
-            <button type="button" class="btn btn-xs btn-default bank-mask-toggle-btn" style="margin-top:4px; font-size:11px; font-weight:600; border: 1px solid #cbd5e1; border-radius:4px; background:#ffffff;">
-                👁️ Reveal Full Account #
-            </button>
-        `);
-
-        toggle_btn.on('click', function (e) {
-            e.preventDefault();
-            is_revealed = !is_revealed;
-            if (is_revealed) {
-                $(field.input).val(raw_val);
-                toggle_btn.html('🙈 Mask Account #');
-            } else {
-                $(field.input).val(masked);
-                toggle_btn.html('👁️ Reveal Full Account #');
-            }
-        });
-
-        field.$wrapper.append(toggle_btn);
     }
 }
 
@@ -877,43 +850,68 @@ function open_unified_receipt_gallery(frm, start_idx) {
 }
 
 function apply_petty_cash_styles() {
-    if (!document.getElementById('petty-cash-flow-styles')) {
-        const style = document.createElement('style');
+    let style = document.getElementById('petty-cash-flow-styles');
+    if (!style) {
+        style = document.createElement('style');
         style.id = 'petty-cash-flow-styles';
-        style.innerHTML = `
-            .ap-stepper-container { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px; overflow-x: auto; }
-            .ap-step-card { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; flex: 1; transition: all 0.15s ease; }
-            .ap-step-card.step-completed { background: #f0fdf4; border-color: #86efac; }
-            .ap-step-card.step-completed .step-badge { background: #16a34a; color: #ffffff; }
-            .ap-step-card.step-completed .step-title { color: #15803d; }
-            .ap-step-card.step-active { background: #eff6ff; border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
-            .ap-step-card.step-active .step-badge { background: #2563eb; color: #ffffff; }
-            .ap-step-card.step-active .step-title { color: #1d4ed8; }
-            .ap-step-card.step-error { background: #fef2f2; border-color: #fca5a5; }
-            .ap-step-card.step-error .step-badge { background: #dc2626; color: #ffffff; }
-            .ap-step-card.step-pending { opacity: 0.65; }
-            .step-badge { width: 22px; height: 22px; border-radius: 50%; background: #cbd5e1; color: #475569; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
-            .step-title { font-size: 12px; font-weight: 700; color: #334155; line-height: 1.2; }
-            .step-sub { font-size: 10.5px; color: #64748b; line-height: 1.2; }
-            .ap-step-connector { width: 14px; height: 2px; background: #e2e8f0; flex-shrink: 0; }
-            .ap-step-connector.line-completed { background: #86efac; }
-
-            .ap-status-banner { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-radius: 9px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-            .banner-icon { font-size: 24px; flex-shrink: 0; }
-            .banner-content { flex: 1; }
-            .banner-title { font-size: 13.5px; font-weight: 700; margin-bottom: 2px; }
-            .banner-sub { font-size: 12px; opacity: 0.9; }
-            .banner-stat { text-align: right; flex-shrink: 0; }
-            .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; opacity: 0.75; }
-            .stat-val { font-size: 17px; font-weight: 800; font-family: inherit; }
-            .banner-draft { background: #f8fafc; border: 1.5px solid #e2e8f0; color: #334155; }
-            .banner-submitted { background: #eff6ff; border: 1.5px solid #bfdbfe; color: #1e40af; }
-            .banner-approved { background: #f0fdf4; border: 1.5px solid #bbf7d0; color: #166534; }
-            .banner-paid { background: #f0fdf4; border: 1.5px solid #86efac; color: #14532d; }
-            .banner-rejected { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
-        `;
         document.head.appendChild(style);
     }
+    style.innerHTML = `
+        /* Stepper container & cards with responsive horizontal flow */
+        .ap-stepper-container { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; max-width: 100%; }
+        .ap-step-card { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; flex: 1 0 auto; min-width: 135px; transition: all 0.15s ease; }
+        .ap-step-card.step-completed { background: #f0fdf4; border-color: #86efac; }
+        .ap-step-card.step-completed .step-badge { background: #16a34a; color: #ffffff; }
+        .ap-step-card.step-completed .step-title { color: #15803d; }
+        .ap-step-card.step-active { background: #eff6ff; border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
+        .ap-step-card.step-active .step-badge { background: #2563eb; color: #ffffff; }
+        .ap-step-card.step-active .step-title { color: #1d4ed8; }
+        .ap-step-card.step-error { background: #fef2f2; border-color: #fca5a5; }
+        .ap-step-card.step-error .step-badge { background: #dc2626; color: #ffffff; }
+        .ap-step-card.step-pending { opacity: 0.65; }
+        .step-badge { width: 22px; height: 22px; border-radius: 50%; background: #cbd5e1; color: #475569; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+        .step-title { font-size: 12px; font-weight: 700; color: #334155; line-height: 1.2; }
+        .step-sub { font-size: 10.5px; color: #64748b; line-height: 1.2; }
+        .ap-step-connector { width: 14px; height: 2px; background: #e2e8f0; flex-shrink: 0; }
+        .ap-step-connector.line-completed { background: #86efac; }
+
+        /* Responsive Status Banner */
+        .ap-status-banner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 12px 18px; border-radius: 9px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); max-width: 100%; }
+        .banner-icon { font-size: 24px; flex-shrink: 0; }
+        .banner-content { flex: 1 1 260px; min-width: 0; }
+        .banner-title { font-size: 13.5px; font-weight: 700; margin-bottom: 2px; }
+        .banner-sub { font-size: 12px; opacity: 0.9; }
+        .banner-stat { text-align: right; flex: 0 0 auto; }
+        .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; opacity: 0.75; }
+        .stat-val { font-size: 17px; font-weight: 800; font-family: inherit; }
+        .banner-draft { background: #f8fafc; border: 1.5px solid #e2e8f0; color: #334155; }
+        .banner-submitted { background: #eff6ff; border: 1.5px solid #bfdbfe; color: #1e40af; }
+        .banner-approved { background: #f0fdf4; border: 1.5px solid #bbf7d0; color: #166534; }
+        .banner-paid { background: #f0fdf4; border: 1.5px solid #86efac; color: #14532d; }
+        .banner-rejected { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
+
+        /* Responsive Page Header & Actions Bar (Zoom Resilience) */
+        .page-head { height: auto !important; min-height: var(--page-head-height, 46px) !important; }
+        .page-head .page-head-content { height: auto !important; min-height: var(--page-head-height, 46px) !important; display: flex !important; flex-wrap: wrap !important; align-items: center !important; justify-content: space-between !important; gap: 8px !important; padding: 6px 0 !important; }
+        .page-head .page-title, .page-head .title-area { display: flex !important; align-items: center !important; flex-wrap: wrap !important; gap: 6px !important; min-width: 0 !important; max-width: 100% !important; }
+        .page-head .page-actions { display: flex !important; align-items: center !important; flex-wrap: wrap !important; gap: 6px !important; max-width: 100% !important; justify-content: flex-end !important; height: auto !important; }
+        .page-head .custom-actions { display: flex !important; align-items: center !important; flex-wrap: wrap !important; gap: 5px !important; max-width: 100% !important; height: auto !important; }
+        .page-head .custom-actions .btn, .page-head .page-actions .btn { white-space: nowrap !important; font-size: 12px !important; padding: 4px 10px !important; border-radius: 6px !important; display: inline-flex !important; align-items: center !important; gap: 4px !important; margin: 1px 0 !important; flex-shrink: 0 !important; line-height: 1.4 !important; }
+        @media (max-width: 1380px) {
+            .page-head .custom-actions .btn, .page-head .page-actions .btn { padding: 3px 8px !important; font-size: 11.5px !important; }
+        }
+        @media (max-width: 1100px) {
+            .page-head .page-head-content { flex-direction: column !important; align-items: stretch !important; gap: 6px !important; }
+            .page-head .page-title, .page-head .title-area { width: 100% !important; justify-content: flex-start !important; }
+            .page-head .page-actions { width: 100% !important; justify-content: flex-start !important; overflow-x: auto !important; padding-bottom: 3px !important; }
+            .page-head .custom-actions { width: 100% !important; justify-content: flex-start !important; }
+        }
+        @media (max-width: 768px) {
+            .page-head .custom-actions .btn, .page-head .page-actions .btn { padding: 3px 6px !important; font-size: 11px !important; }
+            .ap-status-banner { flex-direction: column !important; align-items: flex-start !important; padding: 10px 14px !important; }
+            .ap-status-banner .banner-stat { text-align: left !important; margin-top: 4px !important; }
+        }
+    `;
 }
 
 function setup_dispute_merge_helper(frm) {
