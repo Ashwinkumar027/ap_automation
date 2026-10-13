@@ -1220,7 +1220,10 @@ function refresh_all_participant_wallets(frm) {
     const participants = frm.doc.participants || [];
     if (participants.length === 0 || !frm.doc.activity_date) return;
 
-    participants.forEach((row, idx) => {
+    let pending = participants.filter(p => p.employee_id).length;
+    if (pending === 0) return;
+
+    participants.forEach((row) => {
         if (row.employee_id) {
             frappe.call({
                 method: 'ap_automation.services.team_lunch_budget_service.get_employee_team_lunch_wallet',
@@ -1234,10 +1237,11 @@ function refresh_all_participant_wallets(frm) {
                         row.quarterly_cap = data.quarterly_cap;
                         row.utilized_in_quarter = data.utilized_in_quarter;
                         row.available_balance = data.available_balance;
-                        if (idx === participants.length - 1) {
-                            frm.refresh_field('participants');
-                            update_team_lunch_calculations(frm);
-                        }
+                    }
+                    pending--;
+                    if (pending <= 0) {
+                        frm.refresh_field('participants');
+                        update_team_lunch_calculations(frm);
                     }
                 }
             });

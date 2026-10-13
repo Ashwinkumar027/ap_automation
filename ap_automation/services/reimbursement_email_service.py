@@ -152,7 +152,7 @@ def send_dispute_notification_email(claim_name, line_idx=None, target_role="Empl
         message=message_html,
         reference_doctype="Employee Reimbursement Claim",
         reference_name=claim.name,
-        now=True
+        now=False
     )
 
     # Log audit comment
@@ -227,5 +227,5 @@ def send_batch_payout_success_email(claim_name, utr_reference=""):
         message=message_html,
         reference_doctype="Employee Reimbursement Claim",
         reference_name=claim.name,
-        now=True
+        now=False
     )

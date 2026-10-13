@@ -112,6 +112,7 @@ def split_disputed_reimbursement(
     parent.net_payable_amount = parent_net
     parent.total_amount = parent_net
     parent.forked_voucher = fork_voucher.name
+    parent.flags.in_workflow_transition = True
     parent.save(ignore_permissions=True)
 
     # 3. Advance Parent Voucher to Accounts L2

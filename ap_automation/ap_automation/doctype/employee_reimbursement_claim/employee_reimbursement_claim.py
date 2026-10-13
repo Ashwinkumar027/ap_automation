@@ -226,7 +226,7 @@ class EmployeeReimbursementClaim(APDocument):
                     ptr_doc = frappe.db.get_value(
                         "Pre Travel Request",
                         ptr_name,
-                        ["employee", "status"],
+                        ["employee", "status", "advance_amount"],
                         as_dict=True
                     )
                     if not ptr_doc:
@@ -235,6 +235,8 @@ class EmployeeReimbursementClaim(APDocument):
                         raise APSecurityError(f"Pre-Travel Request '{ptr_name}' belongs to a different employee ({ptr_doc.employee}).")
                     if ptr_doc.status not in ("Approved", "Claimed"):
                         raise APValidationError(f"Pre-Travel Request '{ptr_name}' cannot be used: status is '{ptr_doc.status}', expected 'Approved'.")
+                    if ptr_doc.advance_amount and (not getattr(self, "advance_amount", None) or flt(self.advance_amount) <= 0):
+                        self.advance_amount = flt(ptr_doc.advance_amount)
 
         elif cat in ("Team Lunch / Outing", "Team Food & Dining (Lunch / Dinner / Movie)"):
             self.claim_category = "Team Lunch / Outing"
@@ -352,7 +354,9 @@ class EmployeeReimbursementClaim(APDocument):
         self.total_claim_amount = round(total_spend, 2)
         if not getattr(self, "sanctioned_amount", None) or flt(self.sanctioned_amount) <= 0:
             self.sanctioned_amount = self.total_claim_amount
-        self.net_payable_amount = round(flt(self.sanctioned_amount), 2)
+        advance = flt(getattr(self, "advance_amount", 0.0) or 0.0)
+        self.net_payable_amount = max(round(flt(self.sanctioned_amount) - advance, 2), 0.0)
+        self.total_amount = self.net_payable_amount
 
     def _mark_linked_pre_travel_claimed(self):
         """Marks linked Pre-Travel Request as Claimed upon final submission."""

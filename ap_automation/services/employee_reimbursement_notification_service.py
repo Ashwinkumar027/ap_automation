@@ -17,6 +17,7 @@ Enforces:
 from typing import Any, Dict, List, Optional, Tuple, Union
 import re
 import hashlib
+import functools
 import frappe
 from frappe.utils import get_url_to_form, fmt_money, cstr, flt
 
@@ -45,6 +46,7 @@ def _get_form_url(doctype: str, docname: str) -> str:
 # CORE EMAIL DISPATCHER & THREADING ENGINE
 # ==============================================================================
 
+@functools.lru_cache(maxsize=1024)
 def _resolve_email_address(user_or_emp_or_email: Optional[str]) -> Optional[str]:
     """
     O(1) cached resolver that maps any User ID, Employee ID, or raw email to a valid sendable address.
@@ -185,7 +187,7 @@ def _dispatch_reimbursement_email(
             "reference_doctype": reference_doctype,
             "reference_name": reference_name,
             "header": ["AP Automation", alert_color],
-            "now": True
+            "now": False  # Asynchronous background queue: Never blocks HTTP request or freezes browser!
         }
         if is_thread_reply:
             email_kwargs["in_reply_to"] = thread_msg_id

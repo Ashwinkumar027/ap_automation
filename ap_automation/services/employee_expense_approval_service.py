@@ -71,15 +71,26 @@ def _validate_segregation_of_duties(doc, user: str, stage_name: str) -> None:
         )
 
 
-def _compute_lines_checksum(lines: List[Any]) -> str:
-    """Calculates deterministic checksum of core line items (category, merchant, amount, invoice)."""
+def _compute_lines_checksum(lines: Optional[List[Any]] = None, legs: Optional[List[Any]] = None) -> str:
+    """Calculates deterministic checksum of core line items and client visit legs."""
     raw_parts = []
     for row in (lines or []):
         merchant = (getattr(row, "merchant_name", "") or "").strip().lower()
         inv = (getattr(row, "invoice_number", "") or "").strip().lower()
         amt = f"{flt(getattr(row, 'amount', 0.0) or 0.0):.2f}"
         cat = (getattr(row, "expense_category", "") or getattr(row, "expense_type", "") or "").strip().lower()
-        raw_parts.append(f"{cat}:{merchant}:{inv}:{amt}")
+        raw_parts.append(f"line:{cat}:{merchant}:{inv}:{amt}")
+
+    for leg in (legs or []):
+        client = (getattr(leg, "client_name", "") or "").strip().lower()
+        from_loc = (getattr(leg, "from_location", "") or "").strip().lower()
+        to_loc = (getattr(leg, "to_location", "") or "").strip().lower()
+        mode = (getattr(leg, "mode_of_travel", "") or "").strip().lower()
+        km = f"{flt(getattr(leg, 'distance_km', 0.0) or 0.0):.2f}"
+        leg_amt = f"{flt(getattr(leg, 'leg_amount', 0.0) or 0.0):.2f}"
+        tolls = f"{flt(getattr(leg, 'toll_parking_amount', 0.0) or 0.0):.2f}"
+        raw_parts.append(f"leg:{client}:{from_loc}:{to_loc}:{mode}:{km}:{leg_amt}:{tolls}")
+
     raw_str = "|".join(sorted(raw_parts))
     return hashlib.sha256(raw_str.encode("utf-8")).hexdigest()
 
@@ -238,8 +249,6 @@ def verify_receptionist(voucher_name: str, comments: Optional[str] = None) -> Di
     _lock_document_row(voucher_name)
     doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
     _enforce_role_or_system_manager(user, ["Receptionist"], "Receptionist Verification", doc=doc, level_number=1)
-    _lock_document_row(voucher_name)
-    doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
 
     if doc.status != "Pending Receptionist":
         raise APValidationError(f"Cannot verify claim #{voucher_name}: status is '{doc.status}', expected 'Pending Receptionist'.")
@@ -307,8 +316,6 @@ def approve_admin_l1(voucher_name: str, comments: Optional[str] = None) -> Dict[
     _lock_document_row(voucher_name)
     doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
     _enforce_role_or_system_manager(user, ["Admin L1 Approver"], "Admin L1 Approval", doc=doc, level_number=2)
-    _lock_document_row(voucher_name)
-    doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
 
     if doc.status != "Pending Admin L1":
         raise APValidationError(f"Cannot approve claim #{voucher_name}: status is '{doc.status}', expected 'Pending Admin L1'.")
@@ -374,8 +381,6 @@ def approve_admin_l2(voucher_name: str, comments: Optional[str] = None) -> Dict[
     _lock_document_row(voucher_name)
     doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
     _enforce_role_or_system_manager(user, ["Admin L2 Approver"], "Admin L2 Approval", doc=doc, level_number=3)
-    _lock_document_row(voucher_name)
-    doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
 
     if doc.status != "Pending Admin L2":
         raise APValidationError(f"Cannot approve claim #{voucher_name}: status is '{doc.status}', expected 'Pending Admin L2'.")
@@ -424,8 +429,6 @@ def audit_accounts_l1(voucher_name: str, sanctioned_amount: Optional[float] = No
     _lock_document_row(voucher_name)
     doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
     _enforce_role_or_system_manager(user, ["Accounts L1 Auditor"], "Accounts L1 Audit", doc=doc, level_number=4)
-    _lock_document_row(voucher_name)
-    doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
 
     if doc.status != "Pending Accounts L1":
         raise APValidationError(f"Cannot audit claim #{voucher_name}: status is '{doc.status}', expected 'Pending Accounts L1'.")
@@ -483,8 +486,6 @@ def sanction_accounts_l2(voucher_name: str, comments: Optional[str] = None) -> D
     _lock_document_row(voucher_name)
     doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
     _enforce_role_or_system_manager(user, ["Accounts Director"], "Accounts Director Sanction", doc=doc, level_number=5)
-    _lock_document_row(voucher_name)
-    doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
 
     if doc.status != "Pending Accounts L2":
         raise APValidationError(f"Cannot sanction claim #{voucher_name}: status is '{doc.status}', expected 'Pending Accounts L2'.")
@@ -536,8 +537,6 @@ def release_payment(voucher_name: str, payment_reference: Optional[str] = None, 
     _lock_document_row(voucher_name)
     doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
     _enforce_role_or_system_manager(user, ["Payment Releaser"], "Payment Release", doc=doc, level_number=6)
-    _lock_document_row(voucher_name)
-    doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
 
     if doc.status != "Approved for Payment":
         raise APValidationError(f"Cannot release payment for claim #{voucher_name}: status is '{doc.status}', expected 'Approved for Payment'.")
@@ -614,7 +613,7 @@ def reject_claim_flexible(voucher_name: str, reason: str, return_to: str = "Empl
     doc.rejected_by_user = user
     doc.rejected_by_role = _get_primary_user_role(user)
     doc.baseline_amount_at_rejection = flt(doc.total_claim_amount)
-    doc.baseline_lines_hash = _compute_lines_checksum(doc.expense_lines)
+    doc.baseline_lines_hash = _compute_lines_checksum(doc.expense_lines, getattr(doc, "client_visit_legs", None))
     doc.target_return_to = target
     doc.rejection_reason = reason_clean
     doc.is_resubmission = 1
@@ -710,7 +709,7 @@ def resubmit_claim_smart(voucher_name: str) -> Dict[str, Any]:
     baseline_amt = flt(doc.baseline_amount_at_rejection or 0.0)
     current_amt = flt(doc.total_claim_amount)
     rejecting_user = doc.rejected_by_user
-    lines_hash = _compute_lines_checksum(doc.expense_lines)
+    lines_hash = _compute_lines_checksum(doc.expense_lines, getattr(doc, "client_visit_legs", None))
     baseline_hash = getattr(doc, "baseline_lines_hash", None)
 
     # Content Tamper Check: Did employee swap merchants or expense categories?

@@ -20,8 +20,10 @@ class TestEmployeeReimbursement(unittest.TestCase):
 
         # Check if an existing employee exists
         existing_emp = frappe.db.get_value("Employee", {"company": cls.company}, ["name", "bank_ac_no"], as_dict=True)
-        if existing_emp and existing_emp.bank_ac_no:
+        if existing_emp:
             cls.emp_id = existing_emp.name
+        elif frappe.db.exists("Employee", "EMP-9999"):
+            cls.emp_id = "EMP-9999"
         else:
             emp = frappe.get_doc({
                 "doctype": "Employee",
@@ -44,13 +46,31 @@ class TestEmployeeReimbursement(unittest.TestCase):
             cls.emp_id = emp.name
             frappe.db.commit()
 
+        # Ensure active manager
+        mgr = frappe.db.get_value("Employee", {"name": ["!=", cls.emp_id], "user_id": ["is", "set"]}, "name")
+        if not mgr:
+            mgr = frappe.db.get_value("Employee", {"name": ["!=", cls.emp_id]}, "name")
+        if not mgr:
+            mgr_doc = frappe.get_doc({
+                "doctype": "Employee",
+                "first_name": "Manager",
+                "employee_name": "Test Manager",
+                "company": cls.company,
+                "status": "Active",
+                "user_id": "administrator"
+            })
+            mgr_doc.flags.ignore_mandatory = True
+            mgr_doc.insert(ignore_permissions=True)
+            mgr = mgr_doc.name
+
         # Ensure active status and bank details
         frappe.db.set_value("Employee", cls.emp_id, {
             "bank_name": "HDFC Bank",
             "bank_ac_no": "50100234567890",
             "ifsc_code": "HDFC0001234",
             "company": cls.company,
-            "status": "Active"
+            "status": "Active",
+            "reports_to": mgr
         })
         frappe.db.commit()
 
