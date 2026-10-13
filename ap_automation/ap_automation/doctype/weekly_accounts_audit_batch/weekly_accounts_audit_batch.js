@@ -122,9 +122,25 @@ function setup_batch_action_buttons(frm) {
         }).addClass('btn-primary');
     }
 
-    // 4. Batch Level Consolidated Excel Export
+    // 4. IDFC Official Bank Bulk Disbursal Template (.xlsx) - Available after Director Sign-Off
+    if (['Approved for Payment', 'Paid'].includes(frm.doc.status)) {
+        frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
+            window.open(`/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_bank_batch_excel?batch_name=${encodeURIComponent(frm.doc.name)}`, '_blank');
+        }).addClass('btn-info').css({
+            'background-color': '#1e3a8a',
+            'border-color': '#172554',
+            'color': '#ffffff',
+            'font-weight': '600'
+        });
+    }
+
+    // 5. Batch Level Consolidated Excel Export & IDFC Template in Actions
     frm.add_custom_button(__('📊 Export Full Batch Excel (.xlsx)'), function() {
         window.open(`/api/method/ap_automation.services.reimbursement_excel_generator.download_batch_consolidated_excel?batch_name=${encodeURIComponent(frm.doc.name)}`, '_blank');
+    }, __('Actions'));
+
+    frm.add_custom_button(__('🏛️ IDFC Bank Template (.xlsx)'), function() {
+        window.open(`/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_bank_batch_excel?batch_name=${encodeURIComponent(frm.doc.name)}`, '_blank');
     }, __('Actions'));
 
     // 5. Utility: Re-Fetch Claims
