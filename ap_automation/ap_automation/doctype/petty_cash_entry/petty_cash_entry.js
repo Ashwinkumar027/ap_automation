@@ -76,7 +76,6 @@ frappe.ui.form.on('Petty Cash Entry', {
         });
 
         frm.set_df_property('status', 'read_only', 1);
-        const is_accounts = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Director', 'System Manager']) || frappe.session.user === 'Administrator';
         if (is_accounts && ['Submitted', 'L1 Verified', 'Approved for Payment', 'Paid'].includes(frm.doc.status)) {
             frm.set_df_property('jv_number', 'read_only', 0);
         } else {
