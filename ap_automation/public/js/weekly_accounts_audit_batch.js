@@ -2,17 +2,226 @@
 // For license information, please see license.txt
 
 frappe.ui.form.on('Weekly Accounts Audit Batch', {
-    refresh: function(frm) {
+    onload: function (frm) {
+        apply_batch_styles();
         render_audit_workstation_view(frm);
-        setup_batch_action_buttons(frm);
     },
 
-    onload: function(frm) {
+    refresh: function (frm) {
+        apply_batch_styles();
+        render_batch_stepper(frm);
+        render_status_guidance_banner(frm);
         render_audit_workstation_view(frm);
+        setup_batch_action_buttons(frm);
     }
 });
 
+// --------------------------------------------------------------------------------------
+// 1. FORMATTERS & STYLING ENGINE
+// --------------------------------------------------------------------------------------
+function format_inr(val) {
+    return Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function format_currency(val) {
+    return format_inr(val);
+}
+
+function apply_batch_styles() {
+    if (document.getElementById('weekly-batch-flow-styles')) return;
+
+    const style = document.createElement('style');
+    style.id = 'weekly-batch-flow-styles';
+    style.innerHTML = `
+        .ap-stepper-container { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px; overflow-x: auto; }
+        .ap-step-card { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; flex: 1; transition: all 0.15s ease; min-width: 140px; }
+        .ap-step-card.step-completed { background: #f0fdf4; border-color: #86efac; }
+        .ap-step-card.step-completed .step-badge { background: #16a34a; color: #ffffff; }
+        .ap-step-card.step-completed .step-title { color: #15803d; }
+        .ap-step-card.step-active { background: #eff6ff; border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
+        .ap-step-card.step-active .step-badge { background: #2563eb; color: #ffffff; }
+        .ap-step-card.step-active .step-title { color: #1d4ed8; }
+        .ap-step-card.step-error { background: #fef2f2; border-color: #fca5a5; }
+        .ap-step-card.step-error .step-badge { background: #dc2626; color: #ffffff; }
+        .ap-step-card.step-pending { opacity: 0.65; }
+        .step-badge { width: 22px; height: 22px; border-radius: 50%; background: #cbd5e1; color: #475569; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+        .step-title { font-size: 12px; font-weight: 700; color: #334155; line-height: 1.2; }
+        .step-sub { font-size: 10.5px; color: #64748b; line-height: 1.2; }
+        .ap-step-connector { width: 14px; height: 2px; background: #e2e8f0; flex-shrink: 0; }
+        .ap-step-connector.line-completed { background: #86efac; }
+
+        .ap-status-banner { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-radius: 9px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .banner-icon { font-size: 24px; flex-shrink: 0; }
+        .banner-content { flex: 1; }
+        .banner-title { font-size: 13.5px; font-weight: 700; margin-bottom: 2px; }
+        .banner-sub { font-size: 12px; opacity: 0.9; }
+        .banner-stat { text-align: right; flex-shrink: 0; }
+        .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; opacity: 0.75; }
+        .stat-val { font-size: 17px; font-weight: 800; font-family: inherit; }
+        .banner-draft { background: #f8fafc; border: 1.5px solid #e2e8f0; color: #334155; }
+        .banner-submitted { background: #eff6ff; border: 1.5px solid #bfdbfe; color: #1e40af; }
+        .banner-approved { background: #f0fdf4; border: 1.5px solid #bbf7d0; color: #166534; }
+        .banner-paid { background: #f0fdf4; border: 1.5px solid #86efac; color: #14532d; }
+        .banner-rejected { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
+    `;
+    document.head.appendChild(style);
+}
+
+// --------------------------------------------------------------------------------------
+// 2. 6-STAGE VISUAL STEPPER (REIMBURSEMENT BATCH LIFECYCLE)
+// --------------------------------------------------------------------------------------
+function render_batch_stepper(frm) {
+    if (!frm.fields_dict['sb_header'] || !frm.fields_dict['sb_header'].wrapper) return;
+
+    const existing = document.getElementById('weekly-batch-flow-stepper');
+    if (existing) existing.remove();
+
+    const status = frm.doc.status || 'Draft';
+    let active_step = 1;
+
+    if (status === 'Pending Admin L1 Review') active_step = 2;
+    else if (status === 'Pending Admin L2 Review') active_step = 3;
+    else if (status === 'Pending Accounts L1 Audit') active_step = 4;
+    else if (status === 'Pending Accounts Director' || status === 'Approved for Payment') active_step = 5;
+    else if (status === 'Paid') active_step = 6;
+
+    const is_cancelled = status === 'Cancelled';
+
+    const steps = [
+        { num: 1, title: 'Intake Queue', icon: '📝', desc: 'Friday 10:00 AM' },
+        { num: 2, title: 'Admin L1', icon: '👤', desc: 'Policy Lead' },
+        { num: 3, title: 'Admin L2', icon: '👥', desc: 'Dept Head' },
+        { num: 4, title: 'Accounts L1', icon: '🔍', desc: 'Finance Audit' },
+        { num: 5, title: 'Director', icon: '⭐', desc: 'Payout Sanction' },
+        { num: 6, title: 'Paid', icon: '🎉', desc: 'Disbursed / UTR' }
+    ];
+
+    let html = `<div id="weekly-batch-flow-stepper" class="ap-stepper-container">`;
+
+    steps.forEach((step, idx) => {
+        let state_class = 'step-pending';
+        if (step.num < active_step) state_class = 'step-completed';
+        else if (step.num === active_step) state_class = is_cancelled ? 'step-error' : 'step-active';
+
+        html += `
+            <div class="ap-step-card ${state_class}">
+                <div class="step-badge">${step.num < active_step ? '✓' : step.num}</div>
+                <div class="step-info">
+                    <div class="step-title">${step.icon} ${step.title}</div>
+                    <div class="step-sub">${step.desc}</div>
+                </div>
+            </div>
+        `;
+        if (idx < steps.length - 1) {
+            html += `<div class="ap-step-connector ${step.num < active_step ? 'line-completed' : ''}"></div>`;
+        }
+    });
+
+    html += `</div>`;
+    $(frm.fields_dict['sb_header'].wrapper).prepend(html);
+}
+
+// --------------------------------------------------------------------------------------
+// 3. STATUS GUIDANCE & BATCH SUMMARY BANNERS
+// --------------------------------------------------------------------------------------
+function render_status_guidance_banner(frm) {
+    if (!frm.fields_dict['sb_header'] || !frm.fields_dict['sb_header'].wrapper) return;
+
+    const existing = document.getElementById('weekly-batch-status-banner');
+    if (existing) existing.remove();
+
+    const status = frm.doc.status || 'Draft';
+    const amount_str = format_inr(frm.doc.total_sanctioned_amount || frm.doc.total_claimed_amount);
+    const count = frm.doc.total_claims_count || (frm.doc.items || []).length;
+    let cfg = null;
+
+    if (status === 'Draft') {
+        cfg = {
+            class: 'banner-draft',
+            icon: '📝',
+            title: 'Weekly Reimbursement Batch (Compilation / Draft)',
+            message: `Consolidating verified employee reimbursement vouchers. Total <b>₹ ${amount_str}</b> across <b>${count} claims</b>.`
+        };
+    } else if (status === 'Pending Admin L1 Review') {
+        cfg = {
+            class: 'banner-submitted',
+            icon: '⏳',
+            title: 'Stage 1: Awaiting Admin Team Lead (L1) Review',
+            message: `Weekly batch for <b>₹ ${amount_str}</b> (${count} vouchers) generated at 10:00 AM. Admin L1 verifies policy limits and claims.`
+        };
+    } else if (status === 'Pending Admin L2 Review') {
+        cfg = {
+            class: 'banner-submitted',
+            icon: '👥',
+            title: 'Stage 2: Awaiting Admin Department Head (L2) Sign-Off',
+            message: `Admin L1 (<b>${frm.doc.admin_l1_approver || 'Lead'}</b>) approved. Awaiting Head of Administration sign-off before 12:00 PM Accounts handoff.`
+        };
+    } else if (status === 'Pending Accounts L1 Audit') {
+        cfg = {
+            class: 'banner-submitted',
+            icon: '🔍',
+            title: 'Stage 3: Accounts & Tax Audit (Finance Review @ 12:00 PM)',
+            message: `Admin sign-offs complete. Accounts team is auditing GST compliance, original tax invoices, and bank account credentials.`
+        };
+    } else if (status === 'Pending Accounts Director') {
+        cfg = {
+            class: 'banner-approved',
+            icon: '⭐',
+            title: 'Stage 4: Audited & Awaiting Accounts Director Sanction',
+            message: `Accounts L1 (<b>${frm.doc.accounts_l1_auditor || 'Auditor'}</b>) audited <b>₹ ${amount_str}</b>. Ready for Executive Director sanction.`
+        };
+    } else if (status === 'Approved for Payment') {
+        cfg = {
+            class: 'banner-approved',
+            icon: '🔐',
+            title: 'Stage 5: Sanctioned & Ready for Bank Disbursal',
+            message: `Accounts Director authorized payout. Official IDFC Bank disbursal template ready for Payment Releaser.`
+        };
+    } else if (status === 'Paid') {
+        cfg = {
+            class: 'banner-paid',
+            icon: '💳',
+            title: 'Payout Settled & Disbursed via Bank Gateway',
+            message: `Bulk bank payment disbursed successfully. Reference / UTR: <b>${frm.doc.payment_reference || 'Settled'}</b>.`
+        };
+    } else if (status === 'Cancelled') {
+        cfg = {
+            class: 'banner-rejected',
+            icon: '❌',
+            title: 'Batch Cancelled',
+            message: 'This weekly reimbursement batch has been cancelled.'
+        };
+    }
+
+    if (cfg) {
+        const banner_html = `
+            <div id="weekly-batch-status-banner" class="ap-status-banner ${cfg.class}">
+                <div class="banner-icon">${cfg.icon}</div>
+                <div class="banner-content">
+                    <div class="banner-title">${cfg.title}</div>
+                    <div class="banner-sub">${cfg.message}</div>
+                </div>
+                <div class="banner-stat">
+                    <div class="stat-label">Total Sanctioned</div>
+                    <div class="stat-val">₹ ${amount_str}</div>
+                </div>
+            </div>
+        `;
+        $(frm.fields_dict['sb_header'].wrapper).prepend(banner_html);
+    }
+}
+
+// --------------------------------------------------------------------------------------
+// 4. ACTION BUTTONS & WORKFLOW ACTIONS
+// --------------------------------------------------------------------------------------
 function setup_batch_action_buttons(frm) {
+    // Toggle Raw Items Table in Actions menu
+    frm.add_custom_button(__('Toggle Raw Items Table'), function() {
+        const isHidden = frm.fields_dict['items'] && frm.fields_dict['items'].df.hidden;
+        frm.set_df_property('items', 'hidden', isHidden ? 0 : 1);
+    }, __('Actions'));
+
+
     if (frm.is_new()) return;
 
     // 0. Admin L1 Action: Approve Admin L1 Batch
@@ -252,6 +461,7 @@ function get_vouchers_from_element(el) {
 }
 
 function render_audit_workstation_view(frm) {
+    frm.set_df_property('items', 'hidden', 1);
     const wrapper = frm.fields_dict['items_summary_html'] && frm.fields_dict['items_summary_html'].wrapper;
     if (!wrapper) return;
 
@@ -431,7 +641,7 @@ function render_audit_workstation_view(frm) {
                 : `<button type="button" class="btn btn-xs btn-outline-danger btn-send-back-voucher" data-voucher="${v.voucher_no}" style="font-size: 11px; padding: 2px 6px;" title="Send Back to Employee or Receptionist">↩️ Send Back</button>`;
 
             html += `
-                <tr style="${isDisputed ? 'background: #fff5f5; opacity: 0.85;' : ''}">
+                <tr style="${isReturned ? 'background: #fff5f5; opacity: 0.85;' : ''}">
                     <td>
                         <a href="${v.voucher_no ? '/desk/employee-reimbursement-claim/' + encodeURIComponent(v.voucher_no) : '#'}" target="_blank" rel="noopener noreferrer" style="font-weight: 600; color: #2563eb;">
                             ${v.voucher_no} ↗
