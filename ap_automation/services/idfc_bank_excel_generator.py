@@ -238,7 +238,7 @@ def download_idfc_bank_batch_excel(batch_name: str):
     b_date = getdate(batch.batch_date or nowdate())
     tx_date_str = b_date.strftime("%d/%m/%Y")
 
-    items = [it for it in (batch.items or []) if it.voucher_no and not it.is_disputed]
+    items = [it for it in (batch.items or []) if it.voucher_no and it.status not in ("Disputed / Returned", "Returned to Employee", "Returned to Receptionist")]
     if not items:
         frappe.throw(_("No approved, non-disputed vouchers found in this batch."))
 
@@ -252,7 +252,7 @@ def download_idfc_bank_batch_excel(batch_name: str):
         except Exception:
             continue
 
-        emp_id = claim.employee or it.employee
+        emp_id = claim.employee or getattr(it, "employee_id", None) or getattr(it, "employee", None)
         if not emp_id:
             continue
 

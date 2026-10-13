@@ -226,7 +226,7 @@ class EmployeeReimbursementClaim(APDocument):
                     ptr_doc = frappe.db.get_value(
                         "Pre Travel Request",
                         ptr_name,
-                        ["employee", "status", "advance_amount"],
+                        ["employee", "status", "disbursed_advance_amount", "advance_requested"],
                         as_dict=True
                     )
                     if not ptr_doc:
@@ -235,8 +235,9 @@ class EmployeeReimbursementClaim(APDocument):
                         raise APSecurityError(f"Pre-Travel Request '{ptr_name}' belongs to a different employee ({ptr_doc.employee}).")
                     if ptr_doc.status not in ("Approved", "Claimed"):
                         raise APValidationError(f"Pre-Travel Request '{ptr_name}' cannot be used: status is '{ptr_doc.status}', expected 'Approved'.")
-                    if ptr_doc.advance_amount and (not getattr(self, "advance_amount", None) or flt(self.advance_amount) <= 0):
-                        self.advance_amount = flt(ptr_doc.advance_amount)
+                    ptr_adv = ptr_doc.disbursed_advance_amount or ptr_doc.advance_requested
+                    if ptr_adv and (not getattr(self, "advance_amount", None) or flt(self.advance_amount) <= 0):
+                        self.advance_amount = flt(ptr_adv)
 
         elif cat in ("Team Lunch / Outing", "Team Food & Dining (Lunch / Dinner / Movie)"):
             self.claim_category = "Team Lunch / Outing"

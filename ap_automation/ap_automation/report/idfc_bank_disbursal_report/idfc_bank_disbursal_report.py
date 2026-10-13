@@ -140,8 +140,8 @@ def get_data(filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     # Query items for these batches
     items = frappe.get_all(
         "Weekly Accounts Audit Item",
-        filters={"parent": ["in", batch_names], "is_disputed": 0},
-        fields=["parent", "voucher_no", "employee", "claimed_amount"]
+        filters={"parent": ["in", batch_names], "status": ["not in", ["Disputed / Returned", "Returned to Employee", "Returned to Receptionist"]]},
+        fields=["parent", "voucher_no", "employee_id", "claimed_amount", "sanctioned_amount", "status"]
     )
 
     emp_groups: Dict[str, Dict[str, Any]] = OrderedDict()
