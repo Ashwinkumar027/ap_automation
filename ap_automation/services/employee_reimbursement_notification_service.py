@@ -203,10 +203,11 @@ def _dispatch_reimbursement_email(
     # 2. Desk Real-time Notification
     for user_email in clean_recipients:
         try:
+            ref_link = f"<br><a href='/desk/{reference_doctype.lower().replace(' ', '-')}/{reference_name}'>Open #{reference_name}</a>" if reference_name else ""
             frappe.publish_realtime(
                 event="msgprint",
                 message={
-                    "message": f"<b>{subject}</b><br><a href='/desk/{reference_doctype.lower().replace(' ', '-')}/{reference_name}'>Open #{reference_name}</a>",
+                    "message": f"<b>{subject}</b>{ref_link}",
                     "indicator": alert_color,
                     "title": "Expense Alert"
                 },

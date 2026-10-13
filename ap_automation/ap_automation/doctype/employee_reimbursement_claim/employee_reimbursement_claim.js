@@ -832,7 +832,7 @@ function bind_custom_grid_uploaders(frm) {
 
                 const badge = $(`
                     <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:6px; background:#ecfdf5; border:1px solid #10b981; border-radius:5px; padding:2px 8px; cursor:pointer;" title="Click to view full receipt">
-                        <img src="${current_val}" style="width:20px; height:20px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />
+                        <img src="${current_val}" width="20" height="20" alt="Receipt preview" loading="lazy" style="width:20px; height:20px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />
                         <span style="font-size:11px; font-weight:700; color:#065f46;">🧾 Attached</span>
                         ${remove_btn_html}
                     </div>
@@ -850,7 +850,7 @@ function bind_custom_grid_uploaders(frm) {
                 cell.append(badge);
             } else if (is_editable) {
                 const upload_btn = $(`
-                    <button type="button" class="btn btn-xs btn-default ap-upload-btn" style="border:1px dashed #94a3b8; color:#475569; font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:#f8fafc; cursor:pointer;">
+                    <button type="button" aria-label="Upload Expense Receipt Photo" class="btn btn-xs btn-default ap-upload-btn" style="border:1px dashed #64748b; color:#334155; font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:#f8fafc; cursor:pointer;">
                         📷 Add Photo
                     </button>
                 `);
@@ -973,11 +973,11 @@ function render_unified_claim_header(frm) {
         const is_active = (cat.id === current_cat);
         const active_cls = is_active ? 'tab-active' : '';
         tabs_html += `
-            <div class="ap-category-tab-btn ${active_cls}" data-category="${cat.id}">
-                <span class="tab-icon">${cat.icon}</span>
+            <div role="button" tabindex="0" aria-label="${cat.title} Expense Category" class="ap-category-tab-btn ${active_cls}" data-category="${cat.id}">
+                <span class="tab-icon" aria-hidden="true">${cat.icon}</span>
                 <div>
                     <div class="tab-title">${cat.title}</div>
-                    <div class="tab-desc">${cat.desc}</div>
+                    <div class="tab-desc" style="color: #334155;">${cat.desc}</div>
                 </div>
             </div>
         `;
@@ -1022,7 +1022,7 @@ function render_unified_claim_header(frm) {
     const is_rejected = (status === 'Rejected');
     const is_returned = (status === 'Returned to Employee');
 
-    let stepper_html = '<div class="ap-stepper-wrapper"><div class="ap-stepper-trail">';
+    let stepper_html = '<div class="ap-stepper-wrapper"><div class="ap-stepper-trail" role="list" aria-label="Claim Approval Progress">';
     stages.forEach((stg, i) => {
         let cls = '';
         if (is_rejected && i === cur_num - 1) cls = 'step-rejected';
@@ -1031,9 +1031,9 @@ function render_unified_claim_header(frm) {
         else if (stg.num === cur_num) cls = 'step-active';
 
         stepper_html += `
-            <div class="ap-step-item ${cls}">
-                <div class="ap-step-node">${(stg.num < cur_num) ? '✓' : stg.num}</div>
-                <div class="ap-step-label">${stg.label}</div>
+            <div class="ap-step-item ${cls}" role="listitem" aria-label="Step ${stg.num}: ${stg.label}">
+                <div class="ap-step-node" aria-hidden="true">${(stg.num < cur_num) ? '✓' : stg.num}</div>
+                <div class="ap-step-label" style="color: #334155;">${stg.label}</div>
             </div>
         `;
     });
@@ -1049,6 +1049,11 @@ function render_unified_claim_header(frm) {
         const selected_cat = $(this).attr('data-category');
         if (selected_cat && selected_cat !== frm.doc.claim_category) {
             frm.set_value('claim_category', selected_cat);
+        }
+    }).on('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            $(this).click();
         }
     });
 }
@@ -1220,7 +1225,10 @@ function refresh_all_participant_wallets(frm) {
     const participants = frm.doc.participants || [];
     if (participants.length === 0 || !frm.doc.activity_date) return;
 
-    participants.forEach((row, idx) => {
+    let pending = participants.filter(p => p.employee_id).length;
+    if (pending === 0) return;
+
+    participants.forEach((row) => {
         if (row.employee_id) {
             frappe.call({
                 method: 'ap_automation.services.team_lunch_budget_service.get_employee_team_lunch_wallet',
@@ -1234,10 +1242,11 @@ function refresh_all_participant_wallets(frm) {
                         row.quarterly_cap = data.quarterly_cap;
                         row.utilized_in_quarter = data.utilized_in_quarter;
                         row.available_balance = data.available_balance;
-                        if (idx === participants.length - 1) {
-                            frm.refresh_field('participants');
-                            update_team_lunch_calculations(frm);
-                        }
+                    }
+                    pending--;
+                    if (pending <= 0) {
+                        frm.refresh_field('participants');
+                        update_team_lunch_calculations(frm);
                     }
                 }
             });
@@ -1249,6 +1258,10 @@ function apply_claim_flow_styles() {
     if (document.getElementById('ap-claim-flow-styles')) return;
 
     const css = `
+        #ap-claim-header-mount, [data-fieldname="claim_visual_header_html"] {
+            min-height: 175px;
+            contain: layout style;
+        }
         .ap-category-tabs-container {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -1311,6 +1324,8 @@ function apply_claim_flow_styles() {
             border-radius: 10px;
             padding: 12px 18px;
             margin-bottom: 18px;
+            min-height: 70px;
+            contain: layout;
         }
         .ap-stepper-trail {
             display: flex;

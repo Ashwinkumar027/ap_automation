@@ -235,10 +235,11 @@ def _send_email_and_desk_alert(
     # 2. Desk Real-time Notification
     for user in desk_users:
         try:
+            ref_link = f"<br><a href='/desk/{reference_doctype.lower().replace(' ', '-')}/{reference_name}'>View {reference_name}</a>" if reference_name else ""
             frappe.publish_realtime(
                 event="msgprint",
                 message={
-                    "message": f"<b>{subject}</b><br><a href='/desk/{reference_doctype.lower().replace(' ', '-')}/{reference_name}'>View {reference_name}</a>",
+                    "message": f"<b>{subject}</b>{ref_link}",
                     "indicator": alert_type,
                     "title": "AP Automation Alert"
                 },

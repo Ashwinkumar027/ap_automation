@@ -832,7 +832,7 @@ function bind_custom_grid_uploaders(frm) {
 
                 const badge = $(`
                     <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:6px; background:#ecfdf5; border:1px solid #10b981; border-radius:5px; padding:2px 8px; cursor:pointer;" title="Click to view full receipt">
-                        <img src="${current_val}" style="width:20px; height:20px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />
+                        <img src="${current_val}" width="20" height="20" alt="Receipt preview" loading="lazy" style="width:20px; height:20px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />
                         <span style="font-size:11px; font-weight:700; color:#065f46;">🧾 Attached</span>
                         ${remove_btn_html}
                     </div>
@@ -977,7 +977,7 @@ function render_unified_claim_header(frm) {
                 <span class="tab-icon" aria-hidden="true">${cat.icon}</span>
                 <div>
                     <div class="tab-title">${cat.title}</div>
-                    <div class="tab-desc" style="color: #475569;">${cat.desc}</div>
+                    <div class="tab-desc" style="color: #334155;">${cat.desc}</div>
                 </div>
             </div>
         `;
@@ -1022,7 +1022,7 @@ function render_unified_claim_header(frm) {
     const is_rejected = (status === 'Rejected');
     const is_returned = (status === 'Returned to Employee');
 
-    let stepper_html = '<div class="ap-stepper-wrapper"><div class="ap-stepper-trail">';
+    let stepper_html = '<div class="ap-stepper-wrapper"><div class="ap-stepper-trail" role="list" aria-label="Claim Approval Progress">';
     stages.forEach((stg, i) => {
         let cls = '';
         if (is_rejected && i === cur_num - 1) cls = 'step-rejected';
@@ -1049,6 +1049,11 @@ function render_unified_claim_header(frm) {
         const selected_cat = $(this).attr('data-category');
         if (selected_cat && selected_cat !== frm.doc.claim_category) {
             frm.set_value('claim_category', selected_cat);
+        }
+    }).on('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            $(this).click();
         }
     });
 }
@@ -1319,6 +1324,8 @@ function apply_claim_flow_styles() {
             border-radius: 10px;
             padding: 12px 18px;
             margin-bottom: 18px;
+            min-height: 70px;
+            contain: layout;
         }
         .ap-stepper-trail {
             display: flex;

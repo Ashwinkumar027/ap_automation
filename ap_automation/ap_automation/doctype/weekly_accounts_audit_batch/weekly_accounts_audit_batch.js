@@ -347,7 +347,7 @@ function render_audit_workstation_view(frm) {
             html += `
                 <tr style="${isDisputed ? 'background: #fff5f5; opacity: 0.85;' : ''}">
                     <td>
-                        <a href="/desk/employee-reimbursement-claim/${v.voucher_no}" target="_blank" style="font-weight: 600; color: #2563eb;">
+                        <a href="${v.voucher_no ? '/desk/employee-reimbursement-claim/' + encodeURIComponent(v.voucher_no) : '#'}" target="_blank" rel="noopener noreferrer" style="font-weight: 600; color: #2563eb;">
                             ${v.voucher_no} ↗
                         </a>
                     </td>
@@ -358,8 +358,8 @@ function render_audit_workstation_view(frm) {
                     <td style="text-align: center;">${statusBadge}</td>
                     <td style="text-align: center; white-space: nowrap;">
                         <button type="button" class="btn btn-xs btn-outline-primary btn-view-voucher-receipts" data-voucher="${v.voucher_no}" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="View Receipts in Lightbox">👁️ Proofs</button>
-                        <a href="/api/method/ap_automation.services.reimbursement_excel_generator.download_reimbursement_excel?voucher_name=${v.voucher_no}" target="_blank" class="btn btn-xs btn-outline-success" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="Download Excel Voucher">📥 Excel</a>
-                        <a href="/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=Employee Reimbursement Claim&docname=${v.voucher_no}" target="_blank" class="btn btn-xs btn-outline-secondary" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="Download Receipts ZIP">📦 ZIP</a>
+                        <a href="/api/method/ap_automation.services.reimbursement_excel_generator.download_reimbursement_excel?voucher_name=${v.voucher_no ? encodeURIComponent(v.voucher_no) : ''}" target="_blank" class="btn btn-xs btn-outline-success" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="Download Excel Voucher">📥 Excel</a>
+                        <a href="/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=Employee Reimbursement Claim&docname=${v.voucher_no ? encodeURIComponent(v.voucher_no) : ''}" target="_blank" class="btn btn-xs btn-outline-secondary" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="Download Receipts ZIP">📦 ZIP</a>
                         ${disputeBtn}
                     </td>
                 </tr>

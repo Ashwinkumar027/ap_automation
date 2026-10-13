@@ -21,6 +21,10 @@ app_include_js = [
     "/assets/ap_automation/js/ap_workspace_dashboard.js"
 ]
 
+app_include_css = [
+    "/assets/ap_automation/css/ap_automation.css"
+]
+
 doctype_js = {}
 
 # --------------------------------------------------------------------------------------

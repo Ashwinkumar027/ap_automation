@@ -1,0 +1,162 @@
+/* AP Automation Global Optimizations & Zero-CLS Layout Rules */
+
+[data-fieldname="claim_visual_header_html"],
+#ap-claim-header-mount {
+    min-height: 175px !important;
+    contain: layout style;
+    display: block;
+    margin-bottom: 15px;
+}
+
+.ap-category-tabs-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-top: 6px;
+    margin-bottom: 16px;
+    padding: 8px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    min-height: 85px;
+    contain: layout;
+}
+
+.ap-category-tab-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    background: #ffffff;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    user-select: none;
+}
+
+.ap-category-tab-btn:hover {
+    border-color: #3b82f6;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px -1px rgba(59, 130, 246, 0.15);
+}
+
+.ap-category-tab-btn.tab-active {
+    background: #eff6ff;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+}
+
+.tab-icon {
+    font-size: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+}
+
+.tab-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.tab-active .tab-title {
+    color: #1d4ed8;
+}
+
+.tab-desc {
+    font-size: 11px;
+    color: #334155;
+    margin-top: 2px;
+    line-height: 1.2;
+}
+
+.ap-stepper-wrapper {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 12px 18px;
+    margin-bottom: 18px;
+    min-height: 70px;
+    contain: layout;
+}
+
+.ap-stepper-trail {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+}
+
+.ap-step-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    position: relative;
+    z-index: 1;
+}
+
+.ap-step-node {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    background: #f1f5f9;
+    color: #475569;
+    border: 2px solid #94a3b8;
+    margin-bottom: 6px;
+}
+
+.ap-step-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #334155;
+    text-align: center;
+}
+
+.step-completed .ap-step-node {
+    background: #059669;
+    border-color: #059669;
+    color: #ffffff;
+}
+
+.step-completed .ap-step-label {
+    color: #065f46;
+}
+
+.step-active .ap-step-node {
+    background: #2563eb;
+    border-color: #1d4ed8;
+    color: #ffffff;
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2);
+}
+
+.step-active .ap-step-label {
+    color: #1e40af;
+    font-weight: 700;
+}
+
+.step-rejected .ap-step-node {
+    background: #dc2626;
+    border-color: #b91c1c;
+    color: #ffffff;
+}
+
+.step-returned .ap-step-node {
+    background: #d97706;
+    border-color: #b45309;
+    color: #ffffff;
+}
+
+[data-fieldname="client_visit_legs"] .grid-heading-row,
+[data-fieldname="participants"] .grid-heading-row {
+    background-color: #f1f5f9;
+    font-weight: 600;
+}
