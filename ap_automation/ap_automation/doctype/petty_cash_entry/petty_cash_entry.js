@@ -11,16 +11,48 @@ frappe.ui.form.on('Petty Cash Entry', {
         // Auto update claim title
         auto_update_claim_title(frm);
 
-        // Lock expense grid if not draft
-        if (frm.doc.status && frm.doc.status !== 'Draft' && frm.doc.status !== 'Rejected' && frm.doc.status !== 'Returned to Reception') {
-            frm.set_df_property('expense_lines', 'read_only', 1);
-        } else {
+        // Grid permissions & edit rights
+        const is_director = frappe.user.has_role([
+            'Accounts Director',
+            'Director Tier',
+            'Dileep Director',
+            'Payment Releaser',
+            'System Manager'
+        ]) || frappe.session.user === 'Administrator';
+
+        const is_accounts = frappe.user.has_role([
+            'Accounts L1 Auditor',
+            'Accounts User',
+            'Accounts Manager',
+            'Accounts Director',
+            'System Manager'
+        ]) || frappe.session.user === 'Administrator';
+
+        const is_draft = !frm.doc.status || ['Draft', 'Rejected', 'Returned to Reception'].includes(frm.doc.status);
+        const can_director_edit = is_director && frm.doc.status === 'L1 Verified';
+
+        if (is_draft) {
             frm.set_df_property('expense_lines', 'read_only', 0);
-        // Only Accounts L1 can edit expense_head once in Accounts stage
-        if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].grid) {
-            const allow_head_edit = is_accounts && ['Submitted', 'L1 Verified', 'Approved for Payment'].includes(frm.doc.status);
-            frm.fields_dict['expense_lines'].grid.toggle_enable('expense_head', allow_head_edit);
-        }
+        } else if (can_director_edit) {
+            // Accounts Director can edit line item amounts and expense heads during L1 Verified review
+            frm.set_df_property('expense_lines', 'read_only', 0);
+            if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].grid) {
+                frm.fields_dict['expense_lines'].grid.toggle_enable('amount', true);
+                frm.fields_dict['expense_lines'].grid.toggle_enable('expense_head', true);
+                frm.fields_dict['expense_lines'].grid.toggle_enable('remarks', true);
+                frm.fields_dict['expense_lines'].grid.toggle_enable('expense_date', false);
+                frm.fields_dict['expense_lines'].grid.toggle_enable('merchant_name', false);
+                frm.fields_dict['expense_lines'].grid.toggle_enable('bill_number', false);
+                frm.fields_dict['expense_lines'].grid.toggle_enable('expense_category', false);
+                frm.fields_dict['expense_lines'].grid.cannot_add_rows = true;
+                frm.fields_dict['expense_lines'].grid.cannot_delete_rows = true;
+            }
+        } else {
+            frm.set_df_property('expense_lines', 'read_only', 1);
+            if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].grid) {
+                const allow_head_edit = is_accounts && ['Submitted', 'L1 Verified', 'Approved for Payment'].includes(frm.doc.status);
+                frm.fields_dict['expense_lines'].grid.toggle_enable('expense_head', allow_head_edit);
+            }
         }
 
         // Apply visual bank account masking
@@ -602,26 +634,47 @@ function render_role_based_action_buttons(frm) {
 
     if (status === 'L1 Verified' && can_sanction_or_reject) {
         frm.add_custom_button(__('✅ Sanction Payment'), function () {
-            frappe.confirm(__(`Sanction payment of <b>₹${format_inr_clean(frm.doc.total_amount)}</b> for IDFC corporate batch release?`), function () {
-                frappe.call({
-                    method: 'ap_automation.services.director_approval_service.sanction_accounts_director',
-                    args: {
-                        voucher_doctype: frm.doc.doctype,
-                        voucher_name: frm.doc.name
-                    },
-                    freeze: true,
-                    freeze_message: __('Sanctioning payment release...'),
-                    callback: function (r) {
-                        if (!r.exc) {
-                            frappe.show_alert({ message: __('✅ Sanctioned for Payment Release! Alert sent to Payment Releaser.'), indicator: 'green' }, 5);
-                            frm.reload_doc();
+            const execute_sanction = function() {
+                frappe.confirm(__(`Sanction payment of <b>₹${format_inr_clean(frm.doc.total_amount)}</b> for IDFC corporate batch release?`), function () {
+                    frappe.call({
+                        method: 'ap_automation.services.director_approval_service.sanction_accounts_director',
+                        args: {
+                            voucher_doctype: frm.doc.doctype,
+                            voucher_name: frm.doc.name
+                        },
+                        freeze: true,
+                        freeze_message: __('Sanctioning payment release...'),
+                        callback: function (r) {
+                            if (!r.exc) {
+                                frappe.show_alert({ message: __('✅ Sanctioned for Payment Release! Alert sent to Payment Releaser.'), indicator: 'green' }, 5);
+                                frm.reload_doc();
+                            }
                         }
-                    }
+                    });
                 });
-            });
+            };
+
+            // If Director modified amount, automatically persist changes first
+            if (frm.is_dirty()) {
+                frm.save().then(() => {
+                    execute_sanction();
+                });
+            } else {
+                execute_sanction();
+            }
         }).addClass('btn-primary').css({
             'background-color': '#16a34a',
             'border-color': '#15803d',
+            'color': '#ffffff',
+            'font-weight': '700'
+        });
+
+        // ⚠️ Dispute Lines Function for Accounts Director
+        frm.add_custom_button(__('⚠️ Dispute Lines'), function () {
+            open_dispute_split_dialog(frm);
+        }).addClass('btn-secondary').css({
+            'background-color': '#f59e0b',
+            'border-color': '#d97706',
             'color': '#ffffff',
             'font-weight': '700'
         });
@@ -957,5 +1010,107 @@ function open_dispute_merge_dialog(frm, vouchers) {
             });
         }
     });
+    d.show();
+}
+
+// --------------------------------------------------------------------------------------
+// LINE ITEM DISPUTE & FORKING ENGINE (For Accounts L1 & Accounts Director)
+// --------------------------------------------------------------------------------------
+function open_dispute_split_dialog(frm) {
+    const lines = frm.doc.expense_lines || [];
+    if (lines.length === 0) {
+        frappe.msgprint(__('No line items found to dispute.'));
+        return;
+    }
+
+    let fields = [
+        {
+            fieldtype: 'HTML',
+            fieldname: 'dispute_instructions',
+            options: `
+                <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; font-size: 13px; color: #92400e; line-height: 1.5;">
+                    <b>⚠️ Dispute & Forking Engine</b><br>
+                    Select the line item(s) you wish to dispute.<br>
+                    • Disputed lines will fork into a child ticket returned to the Admin / Custodian with your itemized reasons.<br>
+                    • Clean approved lines will remain in this voucher ready for Sanction.
+                </div>
+            `
+        }
+    ];
+
+    lines.forEach((line, idx) => {
+        const row_label = `Row #${idx + 1}: ${line.merchant_name || line.expense_category || 'Item'} — ₹${(line.amount || 0).toLocaleString('en-IN')}`;
+        fields.push({
+            fieldtype: 'Check',
+            fieldname: `dispute_row_${idx}`,
+            label: row_label
+        });
+        fields.push({
+            fieldtype: 'Small Text',
+            fieldname: `reason_row_${idx}`,
+            label: `Dispute Reason for Row #${idx + 1}`,
+            depends_on: `eval:doc.dispute_row_${idx}==1`
+        });
+    });
+
+    const is_director = frappe.user.has_role(['Accounts Director', 'Director Tier', 'Dileep Director', 'System Manager']) || frappe.session.user === 'Administrator';
+    const primary_btn_label = frm.doc.status === 'L1 Verified'
+        ? __('Fork Disputed Lines & Retain Approved')
+        : __('Split & Move Approved to L2');
+
+    const d = new frappe.ui.Dialog({
+        title: __('Dispute Line Items — ' + frm.doc.name),
+        fields: fields,
+        primary_action_label: primary_btn_label,
+        primary_action: function (values) {
+            let disputed_indices = [];
+            let dispute_reasons = {};
+
+            lines.forEach((line, idx) => {
+                if (values[`dispute_row_${idx}`]) {
+                    disputed_indices.push(idx);
+                    const default_reason = is_director ? 'Disputed by Accounts Director' : 'Disputed during Accounts L1 audit';
+                    dispute_reasons[idx] = (values[`reason_row_${idx}`] || '').trim() || default_reason;
+                }
+            });
+
+            if (disputed_indices.length === 0) {
+                frappe.msgprint({
+                    title: __('Selection Required'),
+                    message: __('⚠️ Please select at least one line item to dispute.'),
+                    indicator: 'orange'
+                });
+                return;
+            }
+
+            d.hide();
+            frappe.call({
+                method: 'ap_automation.services.dispute_service.api_dispute_split',
+                args: {
+                    parent_docname: frm.doc.name,
+                    disputed_indices: JSON.stringify(disputed_indices),
+                    dispute_reasons: JSON.stringify(dispute_reasons)
+                },
+                freeze: true,
+                freeze_message: __('Splitting and forking disputed line items...'),
+                callback: function (r) {
+                    if (r.message && (r.message.status === 'split_success' || r.message.status === 'SUCCESS')) {
+                        frappe.msgprint({
+                            title: __('Dispute Split Completed'),
+                            indicator: 'green',
+                            message: `
+                                <b>✅ ${r.message.approved_line_count || 0} Clean Lines</b> (₹${format_inr_clean(r.message.approved_amount)}) retained in <b>${frm.doc.name}</b>.<br>
+                                <b>⚠️ ${r.message.disputed_line_count || disputed_indices.length} Disputed Lines</b> (₹${format_inr_clean(r.message.disputed_amount)}) forked to linked voucher <b>${r.message.forked_voucher}</b>.
+                            `
+                        });
+                        frm.reload_doc();
+                    } else {
+                        frm.reload_doc();
+                    }
+                }
+            });
+        }
+    });
+
     d.show();
 }

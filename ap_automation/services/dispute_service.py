@@ -107,12 +107,15 @@ def dispute_and_fork_petty_cash_lines(
     # CASE A: ALL LINES DISPUTED (Total Dispute - No Clean Lines to Forward)
     # ----------------------------------------------------------------------------------
     if not verified_lines:
+        frappe.flags.in_dispute_split = True
+        parent.flags.ignore_validate_immutability = True
         parent.status = "Disputed"
         for line in parent.expense_lines:
             line.is_disputed = 1
-            line.dispute_reason = dispute_reasons.get(line.name) or line.dispute_reason or "Disputed by Accounts L1"
+            line.dispute_reason = dispute_reasons.get(line.name) or line.dispute_reason or "Disputed"
         parent.calculate_totals()
         parent.save(ignore_permissions=True)
+        frappe.flags.in_dispute_split = False
         frappe.db.commit()
 
         # Dispatch Automated Dispute Alert to Custodian/Admin
@@ -141,9 +144,15 @@ def dispute_and_fork_petty_cash_lines(
     # ----------------------------------------------------------------------------------
     # CASE B: PARTIAL DISPUTE (Split into Clean Parent + Disputed Child)
     # ----------------------------------------------------------------------------------
+    frappe.flags.in_dispute_split = True
+    parent.flags.ignore_validate_immutability = True
+
     # 1. Update Parent Voucher to retain only verified lines first
     parent.expense_lines = verified_lines
     parent.calculate_totals()
+    if parent.status in ("Submitted", "Admin Approved") or parent.current_approval_level == 1:
+        parent.current_approval_level = 2
+        parent.status = "L1 Verified"
     parent.save(ignore_permissions=True)
 
     # 2. Create Child Disputed Voucher for Admin
@@ -153,6 +162,8 @@ def dispute_and_fork_petty_cash_lines(
         "company": parent.company,
         "posting_date": frappe.utils.today(),
         "custodian": parent.custodian,
+        "beneficiary_name": getattr(parent, "beneficiary_name", "") or "",
+        "bank_name": getattr(parent, "bank_name", "") or "",
         "custodian_bank_account": parent.custodian_bank_account,
         "custodian_ifsc_code": parent.custodian_ifsc_code,
         "status": "Disputed",
@@ -163,9 +174,11 @@ def dispute_and_fork_petty_cash_lines(
                 "expense_date": d.expense_date,
                 "expense_category": d.expense_category,
                 "merchant_name": d.merchant_name,
-                "bill_number": d.bill_number,
+                "bill_number": getattr(d, "bill_number", "") or "",
                 "amount": d.amount,
-                "receipt_attachment": d.receipt_attachment,
+                "receipt_attachment": getattr(d, "receipt_attachment", "") or "",
+                "branch": getattr(d, "branch", "") or "",
+                "expense_head": getattr(d, "expense_head", "") or "",
                 "is_disputed": 1,
                 "dispute_reason": d.dispute_reason
             }
@@ -177,6 +190,7 @@ def dispute_and_fork_petty_cash_lines(
     # 3. Link child voucher to parent
     parent.forked_voucher = forked_voucher.name
     parent.save(ignore_permissions=True)
+    frappe.flags.in_dispute_split = False
     frappe.db.commit()
 
     # Dispatch Automated Dispute Alert to Custodian/Admin

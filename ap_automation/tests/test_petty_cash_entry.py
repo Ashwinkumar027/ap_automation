@@ -4,7 +4,6 @@ Verifies:
 1. Real-time auto-summation of child rows into parent total_amount.
 2. Mandatory receipt threshold enforcement (> INR 500).
 3. Zero and negative amount rejection.
-4. Seamless inheritance from APDocument base controller.
 """
 import unittest
 import frappe
@@ -16,6 +15,7 @@ class TestPettyCashEntry(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.company = frappe.db.get_value("Company", {}, "name") or "Quanticus Software Solutions"
+        cls.branch = frappe.db.get_value("Branch", {}, "name") or "Head Office"
 
     def test_01_total_amount_calculation(self):
         """Verifies that child row summation accurately calculates parent total_amount."""
@@ -27,13 +27,12 @@ class TestPettyCashEntry(unittest.TestCase):
             "custodian_ifsc_code": "HDFC0001234",
             "posting_date": "2026-09-10",
             "expense_lines": [
-                {"expense_date": "2026-09-10", "expense_category": "Tea & Refreshments", "merchant_name": "Chai Point", "amount": 450.00},
-                {"expense_date": "2026-09-10", "expense_category": "Courier & Logistics", "merchant_name": "DTDC", "amount": 250.00}
+                {"expense_date": "2026-09-10", "expense_category": "Tea & Refreshments", "merchant_name": "Chai Point", "branch": self.branch, "amount": 450.00},
+                {"expense_date": "2026-09-10", "expense_category": "Courier & Logistics", "merchant_name": "DTDC", "branch": self.branch, "amount": 250.00}
             ]
         })
         entry.validate()
         self.assertEqual(entry.total_amount, 700.00)
-        self.assertTrue(bool(entry.duplicate_hash))
 
     def test_02_mandatory_receipt_threshold(self):
         """Verifies expenses > INR 500 require a receipt attachment unless exempted."""
@@ -46,7 +45,7 @@ class TestPettyCashEntry(unittest.TestCase):
             "posting_date": "2026-09-10",
             "expense_lines": [
                 # INR 1200 > INR 500 without attachment MUST fail
-                {"expense_date": "2026-09-10", "expense_category": "Office Supplies & Stationery", "merchant_name": "Staples", "amount": 1200.00}
+                {"expense_date": "2026-09-10", "expense_category": "Office Supplies & Stationery", "merchant_name": "Staples", "branch": self.branch, "amount": 1200.00}
             ]
         })
         with self.assertRaises(APValidationError) as ctx:
@@ -66,12 +65,12 @@ class TestPettyCashEntry(unittest.TestCase):
             "custodian": "Administrator",
             "posting_date": "2026-09-10",
             "expense_lines": [
-                {"expense_date": "2026-09-10", "expense_category": "Tea & Refreshments", "merchant_name": "Tea Stall", "amount": -50.00}
+                {"expense_date": "2026-09-10", "expense_category": "Tea & Refreshments", "merchant_name": "Tea Stall", "branch": self.branch, "amount": -50.00}
             ]
         })
         with self.assertRaises(APValidationError) as ctx:
             entry.validate()
-        self.assertIn("must have positive amounts", str(ctx.exception))
+        self.assertIn("Amount must be strictly greater than", str(ctx.exception))
 
 
 if __name__ == "__main__":

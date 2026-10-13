@@ -302,10 +302,19 @@ class PettyCashEntry(Document):
                 exc=APValidationError
             )
 
+        user = frappe.session.user
+        user_roles = frappe.get_roles(user) if user else []
+        is_director = any(r in user_roles for r in [
+            "Accounts Director", "Director Tier", "Dileep Director", "Payment Releaser", "System Manager"
+        ]) or user in ("Administrator", "administrator@example.com")
+
         for idx, (o_row, n_row) in enumerate(zip(old_lines, new_lines), 1):
             for lf in ("amount", "merchant_name", "bill_number", "expense_category", "expense_date", "receipt_attachment"):
                 if lf == "amount":
                     if round(flt(getattr(o_row, lf, 0.0)), 2) != round(flt(getattr(n_row, lf, 0.0)), 2):
+                        # Accounts Director is authorized to adjust/edit line amounts during L1 Verified review
+                        if is_director and old_status in ("L1 Verified", "Submitted", "Admin Approved"):
+                            continue
                         frappe.throw(
                             f"🔒 Locked Document: Row {idx} ({lf}) cannot be modified on '{self.name}' in status '{old_status}'.",
                             exc=APValidationError
