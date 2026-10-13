@@ -46,7 +46,9 @@ def generate_tally_journal_voucher_for_petty_cash(voucher_name: str) -> str:
     # 1. Group expenses by Category
     category_totals = defaultdict(float)
     for row in lines:
-        cat = row.expense_category or "Office Expenses"
+        cat = getattr(row, "expense_head", None) or getattr(row, "expense_category", None) or "Office Expenses"
+        if cat == "OTHER / VENDOR LEDGER" and getattr(row, "custom_ledger_name", None):
+            cat = getattr(row, "custom_ledger_name", "Office Expenses")
         category_totals[cat] += float(row.amount or 0.0)
 
     total_amount = sum(category_totals.values())
@@ -125,6 +127,7 @@ def generate_tally_journal_voucher_for_petty_cash(voucher_name: str) -> str:
             <GUID>{tally_guid}</GUID>
             <NARRATION>{narration_text}</NARRATION>
             <VOUCHERTYPENAME>Journal</VOUCHERTYPENAME>
+            <VOUCHERNUMBER>{clean_xml_text(getattr(doc, 'jv_number', None) or doc.name)}</VOUCHERNUMBER>
             {''.join(debit_entries_xml)}
             {credit_entry_xml}
           </VOUCHER>

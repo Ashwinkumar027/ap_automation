@@ -52,19 +52,39 @@ class PettyCashEntry(APDocument):
         """Enforces line-level policy rules."""
         lines = getattr(self, "expense_lines", []) or []
         for idx, row in enumerate(lines, start=1):
+            if not getattr(row, "branch", None):
+                msg = f"Row #{idx}: 'Branch' is mandatory for every row. Please select a branch from the dropdown."
+                frappe.log_error(f"Validation Error on {self.name}: {msg}", "Petty Cash Validation")
+                raise APValidationError(msg)
+
+            if not getattr(row, "expense_head", None):
+                msg = f"Row #{idx}: 'Expenses of Head' is mandatory for every row. Please select an expense category."
+                frappe.log_error(f"Validation Error on {self.name}: {msg}", "Petty Cash Validation")
+                raise APValidationError(msg)
+
             if not getattr(row, "expense_date", None):
-                raise APValidationError(f"Row {idx}: Expense Date is mandatory.")
+                msg = f"Row #{idx}: Expense Date is mandatory."
+                frappe.log_error(f"Validation Error on {self.name}: {msg}", "Petty Cash Validation")
+                raise APValidationError(msg)
 
             if not getattr(row, "merchant_name", None):
-                raise APValidationError(f"Row {idx}: Merchant / Vendor name is mandatory.")
+                msg = f"Row #{idx}: Merchant / Vendor name is mandatory."
+                frappe.log_error(f"Validation Error on {self.name}: {msg}", "Petty Cash Validation")
+                raise APValidationError(msg)
 
             amt = float(getattr(row, "amount", 0.0) or 0.0)
+            if amt <= 0:
+                msg = f"Row #{idx}: Amount must be strictly greater than ₹ 0.00."
+                frappe.log_error(f"Validation Error on {self.name}: {msg}", "Petty Cash Validation")
+                raise APValidationError(msg)
+
             # Enforce receipt attachment if expense exceeds threshold
             if amt > self.RECEIPT_THRESHOLD and not getattr(row, "receipt_attachment", None):
-                # We allow an admin override if explicitly marked in description, otherwise enforce
                 desc = (getattr(row, "description", "") or "").lower()
                 if "no receipt" not in desc and "exempt" not in desc:
-                    raise APValidationError(
-                        f"Row {idx} ({getattr(row, 'merchant_name', 'Expense')} - INR {amt:,.2f}): "
+                    msg = (
+                        f"Row #{idx} ({getattr(row, 'merchant_name', 'Expense')} - INR {amt:,.2f}): "
                         f"Receipt attachment is mandatory for expenses exceeding INR {self.RECEIPT_THRESHOLD:,.2f}."
                     )
+                    frappe.log_error(f"Validation Error on {self.name}: {msg}", "Petty Cash Validation")
+                    raise APValidationError(msg)

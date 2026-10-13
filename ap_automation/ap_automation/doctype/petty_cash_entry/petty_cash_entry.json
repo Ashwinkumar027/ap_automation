@@ -16,6 +16,7 @@
   "status",
   "total_amount",
   "batch_id",
+  "jv_number",
   "sb_admin_audit",
   "admin_l1_approver",
   "admin_l1_approval_date",
@@ -246,6 +247,14 @@
    "label": "Disputed Fork Voucher",
    "options": "Petty Cash Entry",
    "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "jv_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "JV Number",
+   "description": "Journal Voucher Number entered by Accounts Team (e.g. JV 743)"
   }
  ],
  "grid_page_length": 50,

@@ -212,7 +212,7 @@ def reject_accounts_director(
         doc.status = "Submitted"
         doc.workflow_state = "Returned to Accounts L1 by Accounts Director"
     else:
-        doc.status = "Draft"
+        doc.status = "Rejected"
         doc.workflow_state = "Returned to Reception by Accounts Director"
 
     doc.append("approval_trail", {

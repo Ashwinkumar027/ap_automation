@@ -50,8 +50,15 @@ def submit_to_admin_l1(voucher_name: str) -> Dict[str, Any]:
         raise APValidationError("Cannot submit an empty Petty Cash voucher. Please add at least one expense line.")
 
     for idx, row in enumerate(doc.expense_lines, 1):
+        if not getattr(row, "branch", None):
+            err_msg = f"Row #{idx}: 'Branch' is mandatory for every row. Please select a branch."
+            frappe.log_error(f"Petty Cash Submission Validation Error for {voucher_name}: {err_msg}", "Petty Cash Validation")
+            raise APValidationError(err_msg)
+
         if not row.amount or float(row.amount) <= 0:
-            raise APValidationError(f"Row #{idx}: Amount must be strictly greater than ₹ 0.00.")
+            err_msg = f"Row #{idx}: Amount must be strictly greater than ₹ 0.00."
+            frappe.log_error(f"Petty Cash Submission Validation Error for {voucher_name}: {err_msg}", "Petty Cash Validation")
+            raise APValidationError(err_msg)
 
     doc.status = "Pending Admin L1"
     doc.workflow_state = "Pending Admin L1 Supervisor Review"
@@ -161,7 +168,7 @@ def return_admin_l1(voucher_name: str, reason: str) -> Dict[str, Any]:
             f"Cannot return voucher #{voucher_name}: current status is '{doc.status}', expected 'Pending Admin L1'."
         )
 
-    doc.status = "Draft"
+    doc.status = "Rejected"
     doc.workflow_state = "Returned to Reception by Admin L1"
     doc.admin_rejection_reason = reason.strip()
 
@@ -269,7 +276,7 @@ def return_admin_l2(voucher_name: str, reason: str, return_to: str = "Reception"
         )
 
     is_return_to_l1 = "Admin L1" in str(return_to)
-    target_status = "Pending Admin L1" if is_return_to_l1 else "Draft"
+    target_status = "Pending Admin L1" if is_return_to_l1 else "Rejected"
     destination_label = "Admin L1 Supervisor" if is_return_to_l1 else "Reception (Front Desk)"
 
     doc.status = target_status
@@ -383,8 +390,15 @@ def submit_to_accounts_direct(voucher_name: str, comments: Optional[str] = None)
         raise APValidationError("Cannot submit an empty Petty Cash voucher. Please add at least one expense line.")
 
     for idx, row in enumerate(doc.expense_lines, 1):
+        if not getattr(row, "branch", None):
+            err_msg = f"Row #{idx}: 'Branch' is mandatory for every row. Please select a branch."
+            frappe.log_error(f"Petty Cash Submission Validation Error for {voucher_name}: {err_msg}", "Petty Cash Validation")
+            raise APValidationError(err_msg)
+
         if not row.amount or float(row.amount) <= 0:
-            raise APValidationError(f"Row #{idx}: Amount must be strictly greater than ₹ 0.00.")
+            err_msg = f"Row #{idx}: Amount must be strictly greater than ₹ 0.00."
+            frappe.log_error(f"Petty Cash Submission Validation Error for {voucher_name}: {err_msg}", "Petty Cash Validation")
+            raise APValidationError(err_msg)
 
     now = frappe.utils.now_datetime()
     doc.status = "Submitted"

@@ -92,8 +92,8 @@ def _get_matrix_or_role_approvers(
         if stage_keyword:
             kw = stage_keyword.lower()
             for lvl in matrix.approval_levels:
-                title = (lvl.level_title or "").lower()
-                if kw in title and lvl.designated_approver:
+                lvl_title = (getattr(lvl, "level_name", None) or getattr(lvl, "level_title", None) or "").lower()
+                if kw in lvl_title and lvl.designated_approver:
                     recipients.append(lvl.designated_approver)
         
         # Try matching by level_number if not found
@@ -104,9 +104,12 @@ def _get_matrix_or_role_approvers(
 
     # 2. Fallback to Role-Based Lookup
     if not recipients and fallback_roles:
+        roles_to_query = list(fallback_roles)
+        if "Admin L1 Approver" in roles_to_query and "Admin Manager" not in roles_to_query:
+            roles_to_query.append("Admin Manager")
         role_users = frappe.get_all(
             "Has Role",
-            filters={"role": ["in", fallback_roles], "parenttype": "User"},
+            filters={"role": ["in", roles_to_query], "parenttype": "User"},
             pluck="parent"
         )
         recipients.extend(role_users)
@@ -268,7 +271,7 @@ def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> N
         company=company,
         document_lane=voucher_doctype,
         level_number=1,
-        fallback_roles=["Admin L1 Approver"], stage_keyword="Admin L1"
+        fallback_roles=["Admin L1 Approver", "Admin Manager"], stage_keyword="Admin L1"
     )
 
     cc_users = [custodian, getattr(doc, "owner", None)]

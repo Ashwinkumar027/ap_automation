@@ -21,7 +21,10 @@
   "remarks",
   "description",
   "is_disputed",
-  "dispute_reason"
+  "dispute_reason",
+  "branch",
+  "expense_head",
+  "custom_ledger_name"
  ],
  "fields": [
   {
@@ -150,6 +153,31 @@
    "read_only": 1,
    "hidden": 1,
    "in_list_view": 0
+  },
+  {
+   "columns": 1,
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Branch",
+   "options": "Branch",
+   "ignore_user_permissions": 1,
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "expense_head",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Expenses of Head",
+   "options": "\nSTAFF WELFARE\nFOOD EXPENSES\nOFFICE EXPENSES\nOFFICE EXPENSES - GROCERY\nOFFICE EXPENSES - POOJA\nPRINTING & STATIONARY\nCOURIER CHARGES\nPOWER & FUEL EXPENSES\nOTHER EXPENSES\nLogiminds Technolab Llp\nOTHER / VENDOR LEDGER",
+   "reqd": 0
+  },
+  {
+   "fieldname": "custom_ledger_name",
+   "fieldtype": "Data",
+   "label": "Vendor / Custom Ledger Name",
+   "depends_on": "eval:doc.expense_head=='OTHER / VENDOR LEDGER'"
   }
  ],
  "grid_page_length": 50,

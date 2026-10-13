@@ -12,10 +12,15 @@ frappe.ui.form.on('Petty Cash Entry', {
         auto_update_claim_title(frm);
 
         // Lock expense grid if not draft
-        if (frm.doc.status && frm.doc.status !== 'Draft' && frm.doc.status !== 'Returned to Reception') {
+        if (frm.doc.status && frm.doc.status !== 'Draft' && frm.doc.status !== 'Rejected' && frm.doc.status !== 'Returned to Reception') {
             frm.set_df_property('expense_lines', 'read_only', 1);
         } else {
             frm.set_df_property('expense_lines', 'read_only', 0);
+        // Only Accounts L1 can edit expense_head once in Accounts stage
+        if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].grid) {
+            const allow_head_edit = is_accounts && ['Submitted', 'L1 Verified', 'Approved for Payment'].includes(frm.doc.status);
+            frm.fields_dict['expense_lines'].grid.toggle_enable('expense_head', allow_head_edit);
+        }
         }
 
         // Apply visual bank account masking
@@ -39,6 +44,12 @@ frappe.ui.form.on('Petty Cash Entry', {
         });
 
         frm.set_df_property('status', 'read_only', 1);
+        const is_accounts = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Director', 'System Manager']) || frappe.session.user === 'Administrator';
+        if (is_accounts && ['Submitted', 'L1 Verified', 'Approved for Payment', 'Paid'].includes(frm.doc.status)) {
+            frm.set_df_property('jv_number', 'read_only', 0);
+        } else {
+            frm.set_df_property('jv_number', 'read_only', 1);
+        }
         apply_petty_cash_styles();
         render_petty_cash_stepper(frm);
         render_status_guidance_banner(frm);
@@ -269,7 +280,7 @@ function render_status_guidance_banner(frm) {
     const amount_formatted = format_inr_clean(frm.doc.total_amount);
     let banner_config = null;
 
-    if (frm.doc.admin_rejection_reason && (status === 'Draft' || status === 'Pending Admin L1')) {
+    if (status === 'Rejected' || (frm.doc.admin_rejection_reason && (status === 'Draft' || status === 'Pending Admin L1'))) {
         banner_config = {
             class: 'banner-rejected',
             icon: '↩️',
@@ -363,13 +374,8 @@ function render_role_based_action_buttons(frm) {
 
     // 1-Click Tally Journal Voucher XML Export
     const is_accounts_or_director = frappe.user.has_role([
-        'Accounts User',
-        'Accounts Auditor',
-        'Accounts Manager',
+        'Accounts L1 Auditor',
         'Accounts Director',
-        'Director Tier',
-        'Dileep Director',
-        'Payment Releaser',
         'System Manager'
     ]) || frappe.session.user === 'Administrator';
 
@@ -411,11 +417,28 @@ function render_role_based_action_buttons(frm) {
     }
 
     // 1. RECEPTION / DRAFT SUBMISSION TO ADMIN L1
-    if (status === 'Draft' || status === 'Returned to Reception') {
+    if (status === 'Draft' || status === 'Rejected' || status === 'Returned to Reception') {
         frm.add_custom_button(__('📤 Submit to Admin Lead'), function () {
             if (!lines || lines.length === 0) {
-                frappe.msgprint(__('Please add at least one expense line before submitting.'));
+                frappe.msgprint({
+                    title: __('Missing Lines Error'),
+                    indicator: 'red',
+                    message: __('Please add at least one expense line before submitting.')
+                });
                 return;
+            }
+            // Check mandatory fields in all rows
+            for (let i = 0; i < lines.length; i++) {
+                const r = lines[i];
+                if (!r.branch) {
+                    frappe.msgprint({
+                        title: __('Missing Mandatory Field'),
+                        indicator: 'red',
+                        message: __(`<b>Row #${i + 1}:</b> 'Branch' is required. Please select a branch for all rows before submitting.`)
+                    });
+                    return;
+                }
+
             }
             frappe.confirm(__('Submit this Petty Cash Envelope to Admin Team Lead for review?'), function () {
                 frappe.call({

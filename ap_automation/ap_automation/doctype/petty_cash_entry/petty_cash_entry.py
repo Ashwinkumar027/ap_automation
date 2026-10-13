@@ -40,6 +40,7 @@ class PettyCashEntry(Document):
         self.validate_duplicate_lines()
         self.calculate_totals()
         self.validate_immutability()
+        self.validate_jv_number_permissions()
 
     def set_claim_title(self):
         """Auto-computes Claim Title based on Posting Date week number and Company abbreviation (e.g. 'Week 38 - ACM')."""
@@ -79,16 +80,17 @@ class PettyCashEntry(Document):
         if post_date >= first_of_current_month:
             return
 
-        # Preceding month bills: valid only up to 10th of current month
+        # Preceding month bills: valid with extended grace period up to the 25th of current month
         if prev_month_first_day <= post_date <= prev_month_last_day:
-            if today.day > 10:
+            if today.day > 25:
                 month_name = prev_month_first_day.strftime("%B %Y")
                 current_month_name = today.strftime("%B %Y")
-                frappe.throw(
-                    f"⏰ Submission Cut-off Expired: Claims for {month_name} were only accepted until the 10th of {current_month_name}. "
-                    f"Please contact the Accounts Director for special audit approval.",
-                    exc=APValidationError
+                msg = (
+                    f"⏰ Submission Cut-off Expired: Claims for {month_name} were only accepted until the 25th of {current_month_name}. "
+                    f"Please set Posting Date to current month or contact Accounts Director for special audit approval."
                 )
+                frappe.log_error(f"Submission Cutoff on {self.name}: {msg}", "Petty Cash Policy")
+                frappe.throw(msg, exc=APValidationError)
             return
 
         # Older than preceding month
@@ -127,10 +129,21 @@ class PettyCashEntry(Document):
         for idx, row in enumerate(self.expense_lines, 1):
             amt = flt(row.amount or 0.0)
             if amt <= 0:
-                frappe.throw(
-                    f"Row #{idx} ({row.expense_category or 'Expense Line'}): Amount must be strictly greater than ₹ 0.00.",
-                    exc=APValidationError
-                )
+                msg = f"Row #{idx} ({row.expense_category or 'Expense Line'}): Amount must be strictly greater than ₹ 0.00."
+                frappe.log_error(f"Validation Error on {self.name}: {msg}", "Petty Cash Validation")
+                frappe.throw(msg, exc=APValidationError)
+
+            if not getattr(row, "branch", None):
+                msg = f"Row #{idx}: 'Branch' is mandatory for every row. Please select a branch from the dropdown."
+                frappe.log_error(f"Validation Error on {self.name}: {msg}", "Petty Cash Validation")
+                frappe.throw(msg, exc=APValidationError)
+
+            # Expenses of Head is classified by Accounts during/after Accounts stage
+            if self.status in ("L1 Verified", "Approved for Payment", "Paid"):
+                if not getattr(row, "expense_head", None):
+                    msg = f"Row #{idx}: 'Expenses of Head' is mandatory. Accounts must assign an expense category for all rows."
+                    frappe.log_error(f"Validation Error on {self.name}: {msg}", "Petty Cash Validation")
+                    frappe.throw(msg, exc=APValidationError)
             if not row.expense_category:
                 frappe.throw(f"Row #{idx}: Expense Category is required.", exc=APValidationError)
             if not row.merchant_name:
@@ -325,6 +338,42 @@ class PettyCashEntry(Document):
                 f"Cannot delete Petty Cash Entry '{self.name}' because it is linked to Payment Batch '{self.batch_id}' or already disbursed.",
                 exc=APValidationError
             )
+
+    def validate_jv_number_permissions(self):
+        """Enforces that only Accounts L1 Auditor, Accounts Director, or System Manager can set or update JV Number."""
+        if self.is_new() and not getattr(self, "jv_number", None):
+            return
+
+        # Check if jv_number is being modified or set
+        if not self.is_new():
+            old_jv = frappe.db.get_value("Petty Cash Entry", self.name, "jv_number")
+            if old_jv == self.jv_number:
+                return
+        elif not getattr(self, "jv_number", None):
+            return
+
+        # 1. Enforce workflow stage: JV Number can only be assigned at Accounts stage or beyond
+        if getattr(self, "jv_number", None) and self.status in ("Draft", "Pending Admin L1", "Pending Admin L2", "Rejected"):
+            msg = f"JV Number can only be assigned once the claim reaches the Accounts stage (current status: '{self.status}')."
+            frappe.log_error(f"Premature JV Assignment on {self.name}: {msg}", "Petty Cash Validation")
+            frappe.throw(msg, exc=APValidationError)
+
+        # 2. Enforce strict RBAC: Only Accounts L1 Auditor, Accounts Director, or System Manager
+        user = frappe.session.user
+        if user in ("Administrator", "administrator@example.com"):
+            return
+
+        user_roles = frappe.get_roles(user)
+        allowed_roles = ["Accounts L1 Auditor", "Accounts Director", "System Manager"]
+        if not any(r in user_roles for r in allowed_roles):
+            msg = (
+                f"Unauthorized: User '{user}' is not authorized to edit JV Number. "
+                f"Only Accounts L1 Auditor, Accounts Director, or System Manager can assign or modify the JV Number."
+            )
+            frappe.log_error(f"Unauthorized JV Edit on {self.name}: {msg}", "Petty Cash Authorization")
+            frappe.throw(msg, exc=APValidationError)
+
+
 
 
 @frappe.whitelist()

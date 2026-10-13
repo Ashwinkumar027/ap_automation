@@ -75,9 +75,10 @@ def export_petty_cash_excel(voucher_name: str = None, docname: str = None, docty
         ("Voucher ID:", doc.name, "Posting Date:", str(doc.posting_date or "")),
         ("Claim Title:", getattr(doc, "claim_title", None) or "N/A", "Workflow Status:", doc.status or "Draft"),
         ("Company:", doc.company or "N/A", "Payment Batch ID:", getattr(doc, "batch_id", None) or "N/A"),
+        ("JV Number (Accounts):", getattr(doc, "jv_number", None) or "Pending Accounts Posting", "Total Amount (₹):", f"₹ {float(doc.total_amount or 0):,.2f}"),
         ("Beneficiary Employee:", getattr(doc, "custodian", None) or "N/A", "Beneficiary Name:", getattr(doc, "beneficiary_name", None) or "N/A"),
         ("Bank Name:", getattr(doc, "bank_name", None) or "N/A", "Bank A/C No:", masked_acc),
-        ("Bank IFSC Code:", getattr(doc, "custodian_ifsc_code", None) or "N/A", "Total Amount (₹):", f"₹ {float(doc.total_amount or 0):,.2f}")
+        ("Bank IFSC Code:", getattr(doc, "custodian_ifsc_code", None) or "N/A", "Generated On:", str(frappe.utils.today()))
     ]
 
     r = 3
@@ -94,18 +95,19 @@ def export_petty_cash_excel(voucher_name: str = None, docname: str = None, docty
     r += 1
 
     headers = [
-        "#",
-        "Date",
-        "Expense Type",
-        "Shop / Merchant",
+        "S.NO",
+        "DATE",
+        "BRANCH",
+        "EXPENSES OF HEAD",
+        "PARTICULARS (Merchant / Details)",
         "GST?",
-        "Merchant GST Number (15 Digits)",
-        "Bill # / Txn ID",
-        "Amount (₹)",
-        "Spent By (Staff)",
-        "Receipt",
-        "Notes / Remarks (Optional)",
-        "Decision"
+        "MERCHANT GSTIN",
+        "BILL # / TXN ID",
+        "AMOUNT (₹)",
+        "STAFF NAME",
+        "RECEIPT",
+        "REMARK",
+        "DECISION"
     ]
     
     for c_idx, h in enumerate(headers, 1):
@@ -119,53 +121,71 @@ def export_petty_cash_excel(voucher_name: str = None, docname: str = None, docty
     r += 1
     start_line_r = r
     lines = doc.expense_lines or []
+    category_summary = {}
     for idx, line in enumerate(lines, 1):
         ws.cell(row=r, column=1, value=idx).alignment = Alignment(horizontal="center")
         ws.cell(row=r, column=2, value=str(getattr(line, "expense_date", None) or getattr(doc, "posting_date", "") or "")).alignment = Alignment(horizontal="center")
-        ws.cell(row=r, column=3, value=getattr(line, "expense_category", "") or "")
-        ws.cell(row=r, column=4, value=getattr(line, "merchant_name", "") or "")
+        ws.cell(row=r, column=3, value=getattr(line, "branch", "") or "Head Office").alignment = Alignment(horizontal="center")
+        
+        is_before_accounts = doc.status in ("Draft", "Pending Admin L1", "Pending Admin L2", "Rejected")
+        raw_head = getattr(line, "expense_head", None)
+        if raw_head == "OTHER / VENDOR LEDGER" and getattr(line, "custom_ledger_name", None):
+            exp_head = getattr(line, "custom_ledger_name", "OTHER / VENDOR LEDGER")
+        elif raw_head:
+            exp_head = raw_head
+        elif is_before_accounts:
+            exp_head = "Pending Accounts Classification"
+        else:
+            exp_head = getattr(line, "expense_category", "") or "OFFICE EXPENSES"
+        ws.cell(row=r, column=4, value=exp_head)
+        
+        ws.cell(row=r, column=5, value=getattr(line, "merchant_name", "") or "")
         
         # GST?
         is_gst = int(getattr(line, "is_gst", 0) or 0)
-        ws.cell(row=r, column=5, value="Yes" if is_gst else "No").alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=6, value="Yes" if is_gst else "No").alignment = Alignment(horizontal="center")
         
         # Merchant GSTIN
-        ws.cell(row=r, column=6, value=getattr(line, "merchant_gstin", "") or "N/A").alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=7, value=getattr(line, "merchant_gstin", "") or "N/A").alignment = Alignment(horizontal="center")
         
         # Bill # / Txn ID
-        ws.cell(row=r, column=7, value=getattr(line, "bill_number", "") or getattr(line, "transaction_id", "") or "N/A").alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=8, value=getattr(line, "bill_number", "") or getattr(line, "transaction_id", "") or "N/A").alignment = Alignment(horizontal="center")
         
-        # Amount (₹) - Column 8 (H)
-        amt_cell = ws.cell(row=r, column=8, value=float(getattr(line, "amount", 0.0) or 0.0))
+        # Amount (₹) - Column 9 (I)
+        line_amt = float(getattr(line, "amount", 0.0) or 0.0)
+        amt_cell = ws.cell(row=r, column=9, value=line_amt)
         amt_cell.number_format = '₹ #,##0.00'
         amt_cell.alignment = Alignment(horizontal="right")
         
-        # Spent By (Staff)
+        # Accumulate Category for Pivot Summary
+        category_summary[exp_head] = category_summary.get(exp_head, 0.0) + line_amt
+        
+        # Staff Name
         staff_disp = getattr(line, "staff_name", "") or getattr(line, "employee", "") or ""
-        ws.cell(row=r, column=9, value=staff_disp).alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=10, value=staff_disp).alignment = Alignment(horizontal="center")
         
         # Receipt
         receipt_url = getattr(line, "receipt_attachment", None) or ""
-        receipt_cell = ws.cell(row=r, column=10, value="View Receipt" if receipt_url else "No Receipt")
+        receipt_cell = ws.cell(row=r, column=11, value="View Receipt" if receipt_url else "No Receipt")
         if receipt_url:
             receipt_cell.hyperlink = receipt_url
             receipt_cell.font = Font(color="2563EB", underline="single")
         receipt_cell.alignment = Alignment(horizontal="center")
 
-        # Notes / Remarks (Optional)
-        ws.cell(row=r, column=11, value=getattr(line, "remarks", "") or getattr(line, "description", "") or "")
+        # Remarks / Bill type
+        ws.cell(row=r, column=12, value=getattr(line, "remarks", "") or getattr(line, "description", "") or "BILL")
 
         # Decision
         if getattr(line, "is_disputed", 0):
             d_val = f"⚠️ Disputed: {getattr(line, 'dispute_reason', '') or 'Disputed'}"
-            d_cell = ws.cell(row=r, column=12, value=d_val)
+            d_cell = ws.cell(row=r, column=13, value=d_val)
             d_cell.font = Font(name="Calibri", size=10, bold=True, color="B91C1C")
         else:
-            d_cell = ws.cell(row=r, column=12, value="✅ OK / Approved")
+            d_cell = ws.cell(row=r, column=13, value="✅ OK / Approved")
             d_cell.font = Font(name="Calibri", size=10, color="15803D")
         d_cell.alignment = Alignment(horizontal="center")
 
-        for c in range(1, 13):
+        for c in range(1, 14):
             ws.cell(row=r, column=c).border = thin_border
         r += 1
 
@@ -174,20 +194,82 @@ def export_petty_cash_excel(voucher_name: str = None, docname: str = None, docty
         ws.cell(row=r, column=1, value="TOTAL").font = total_font
         ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
         ws.cell(row=r, column=1).fill = total_fill
-        for c in range(2, 8):
+        for c in range(2, 9):
             ws.cell(row=r, column=c).fill = total_fill
         
-        # Formula for Amount (Column H)
-        tot_cell = ws.cell(row=r, column=8, value=f"=SUM(H{start_line_r}:H{r-1})")
+        # Formula for Amount (Column I)
+        tot_cell = ws.cell(row=r, column=9, value=f"=SUM(I{start_line_r}:I{r-1})")
         tot_cell.font = total_font
         tot_cell.fill = total_fill
         tot_cell.number_format = '₹ #,##0.00'
         tot_cell.alignment = Alignment(horizontal="right")
         
-        for c in range(9, 13):
+        for c in range(10, 14):
             ws.cell(row=r, column=c).fill = total_fill
-        for c in range(1, 13):
+        for c in range(1, 14):
             ws.cell(row=r, column=c).border = thin_border
+        r += 2
+
+        # --------------------------------------------------------------------------------------
+        # ACCOUNTS SUMMARY / PIVOT BLOCK (Exact Match with Real-World Excel Sheet)
+        # --------------------------------------------------------------------------------------
+        pivot_title_fill = PatternFill(start_color="E2E8F0", end_color="E2E8F0", fill_type="solid")
+        pivot_head_fill = PatternFill(start_color="D1E7DD", end_color="D1E7DD", fill_type="solid")
+        
+        ws.cell(row=r, column=2, value="ACCOUNTS LEDGER SUMMARY (EXPENSES OF HEAD)").font = sec_font
+        r += 1
+        
+        # Pivot Headers: Row Labels | Sum of AMOUNT | JV Number | Date
+        jv_val = getattr(doc, "jv_number", None) or "JV Pending"
+        post_date_str = str(doc.posting_date or frappe.utils.today())
+        
+        ws.cell(row=r, column=2, value="Row Labels").font = Font(name="Calibri", size=10, bold=True, color="0F172A")
+        ws.cell(row=r, column=2).fill = pivot_head_fill
+        ws.cell(row=r, column=2).border = thin_border
+        
+        ws.cell(row=r, column=3, value="Sum of AMOUNT").font = Font(name="Calibri", size=10, bold=True, color="0F172A")
+        ws.cell(row=r, column=3).fill = pivot_head_fill
+        ws.cell(row=r, column=3).alignment = Alignment(horizontal="right")
+        ws.cell(row=r, column=3).border = thin_border
+        
+        ws.cell(row=r, column=4, value=jv_val).font = Font(name="Calibri", size=10, bold=True, color="1E3A8A")
+        ws.cell(row=r, column=4).fill = pivot_head_fill
+        ws.cell(row=r, column=4).alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=4).border = thin_border
+        
+        ws.cell(row=r, column=5, value=post_date_str).font = Font(name="Calibri", size=10, bold=True, color="0F172A")
+        ws.cell(row=r, column=5).fill = pivot_head_fill
+        ws.cell(row=r, column=5).alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=5).border = thin_border
+        r += 1
+        
+        pivot_start_r = r
+        for cat_label, cat_amt in sorted(category_summary.items()):
+            ws.cell(row=r, column=2, value=cat_label).border = thin_border
+            p_cell = ws.cell(row=r, column=3, value=cat_amt)
+            p_cell.number_format = '₹ #,##0.00'
+            p_cell.alignment = Alignment(horizontal="right")
+            p_cell.border = thin_border
+            ws.cell(row=r, column=4, value="").border = thin_border
+            ws.cell(row=r, column=5, value="").border = thin_border
+            r += 1
+            
+        # Grand Total of Pivot
+        ws.cell(row=r, column=2, value="Grand Total").font = Font(name="Calibri", size=10, bold=True, color="000000")
+        ws.cell(row=r, column=2).fill = total_fill
+        ws.cell(row=r, column=2).border = thin_border
+        
+        p_tot_cell = ws.cell(row=r, column=3, value=f"=SUM(C{pivot_start_r}:C{r-1})")
+        p_tot_cell.font = Font(name="Calibri", size=10, bold=True, color="000000")
+        p_tot_cell.fill = total_fill
+        p_tot_cell.number_format = '₹ #,##0.00'
+        p_tot_cell.alignment = Alignment(horizontal="right")
+        p_tot_cell.border = thin_border
+        
+        ws.cell(row=r, column=4, value="").fill = total_fill
+        ws.cell(row=r, column=4).border = thin_border
+        ws.cell(row=r, column=5, value="").fill = total_fill
+        ws.cell(row=r, column=5).border = thin_border
         r += 2
 
     # 4. Approval Audit Trail
