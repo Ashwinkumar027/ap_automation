@@ -22,7 +22,9 @@
   "dispute_reason",
   "receipt_count",
   "return_to",
-  "returned_by"
+  "returned_by",
+  "jv_number",
+  "jv_date"
  ],
  "fields": [
   {
@@ -134,6 +136,20 @@
    "label": "Returned By",
    "options": "User",
    "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "jv_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "JV #"
+  },
+  {
+   "columns": 1,
+   "fieldname": "jv_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "JV Date"
   }
  ],
  "grid_page_length": 50,

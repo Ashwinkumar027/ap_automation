@@ -49,6 +49,7 @@ class EmployeeReimbursementClaim(APDocument):
         self.validate_expense_lines()
         self.calculate_settlement_totals()
         self.auto_link_and_unlock_receipt_files()
+        self.validate_jv_number_permissions()
 
         # Map base fields for APDocument fingerprint and corporate batch release
         self.payee_name = getattr(self, "employee_name", "") or getattr(self, "employee", "")
@@ -188,6 +189,45 @@ class EmployeeReimbursementClaim(APDocument):
                 raise
             self.reporting_manager = None
             self.manager_user_id = None
+
+
+    def validate_jv_number_permissions(self):
+        """Enforces that only Accounts L1 Auditor, Accounts Director, or System Manager can set or update JV Number and JV Date."""
+        if self.is_new() and not getattr(self, "jv_number", None) and not getattr(self, "jv_date", None):
+            return
+
+        # Check if jv_number or jv_date is being modified or set
+        if not self.is_new():
+            old_vals = frappe.db.get_value("Employee Reimbursement Claim", self.name, ["jv_number", "jv_date"], as_dict=True) or {}
+            old_jv = old_vals.get("jv_number")
+            old_date = str(old_vals.get("jv_date") or "")
+            cur_date = str(self.jv_date or "")
+            if old_jv == self.jv_number and old_date == cur_date:
+                return
+        elif not getattr(self, "jv_number", None) and not getattr(self, "jv_date", None):
+            return
+
+        # 1. Enforce workflow stage: JV can only be assigned once the claim reaches Queued in Admin Batch, Admin review, or Accounts stage
+        disallowed_stages = ("Draft", "Pending Manager", "Pending Receptionist", "Rejected")
+        if (getattr(self, "jv_number", None) or getattr(self, "jv_date", None)) and self.status in disallowed_stages:
+            msg = f"JV Number and Date can only be assigned once the voucher reaches Admin/Accounts review (current status: '{self.status}')."
+            frappe.log_error(f"Premature JV Assignment on {self.name}: {msg}", "Reimbursement Validation")
+            raise APValidationError(msg)
+
+        # 2. Strict Role Enforcement: Only Accounts L1 Auditor, Accounts Director, or System Manager
+        user = frappe.session.user
+        if user in ("Administrator", "administrator@example.com"):
+            return
+
+        user_roles = frappe.get_roles(user)
+        allowed_roles = ["Accounts L1 Auditor", "Accounts Director", "System Manager"]
+        if not any(r in user_roles for r in allowed_roles):
+            msg = (
+                f"Unauthorized: User '{user}' is not authorized to edit JV Number or JV Date. "
+                f"Only Accounts L1 Auditor, Accounts Director, or System Manager can assign or modify JV details."
+            )
+            frappe.log_error(f"Unauthorized JV Edit on {self.name}: {msg}", "Reimbursement Authorization")
+            raise APValidationError(msg)
 
     def validate_salary_bank_account(self):
         """Ensures verified salary bank account exists in HRMS before allowing submission."""

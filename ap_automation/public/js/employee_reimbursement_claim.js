@@ -45,6 +45,16 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         frm.trigger('setup_form_immutability');
         render_unified_claim_header(frm);
+        // Strict JV Number & JV Date Permissions: Only Accounts L1 Auditor, Accounts Director, System Manager
+        const is_accounts_jv = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Director', 'System Manager']) || frappe.session.user === 'Administrator';
+        if (is_accounts_jv) {
+            frm.set_df_property('jv_number', 'read_only', 0);
+            frm.set_df_property('jv_date', 'read_only', 0);
+        } else {
+            frm.set_df_property('jv_number', 'read_only', 1);
+            frm.set_df_property('jv_date', 'read_only', 1);
+        }
+
         toggle_category_sections(frm, false);
         frm.trigger('setup_dashboard_alerts');
         frm.trigger('render_stage_action_buttons');
@@ -95,6 +105,16 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
     claim_category: function(frm) {
         render_unified_claim_header(frm);
+        // Strict JV Number & JV Date Permissions: Only Accounts L1 Auditor, Accounts Director, System Manager
+        const is_accounts_jv = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Director', 'System Manager']) || frappe.session.user === 'Administrator';
+        if (is_accounts_jv) {
+            frm.set_df_property('jv_number', 'read_only', 0);
+            frm.set_df_property('jv_date', 'read_only', 0);
+        } else {
+            frm.set_df_property('jv_number', 'read_only', 1);
+            frm.set_df_property('jv_date', 'read_only', 1);
+        }
+
         toggle_category_sections(frm, true);
         update_multi_leg_travel_calculations(frm);
         update_team_lunch_calculations(frm);

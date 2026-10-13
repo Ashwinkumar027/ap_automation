@@ -1145,3 +1145,186 @@ def download_multiple_claims_excel_zip(claim_names: Any = None, employee_name: O
     frappe.response["filename"] = f"{clean_emp}_Individual_Vouchers_Excel.zip"
     frappe.response["filecontent"] = zip_buffer.getvalue()
     frappe.response["type"] = "download"
+
+
+@frappe.whitelist()
+def download_batch_jv_audit_excel(batch_name: str):
+    """
+    Direct endpoint: Generates the exact JV Audit Excel spreadsheet matching the accounting audit format:
+    Columns:
+    Sr.No | Employee No | Name | Net Pay | Name As Per Bank Records | Bank Ac No | IFSC Code | Company | Remarks | JV | DATE
+    """
+    if not batch_name:
+        frappe.throw("Batch name is required.")
+
+    batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
+    items = [it for it in (batch.items or []) if it.voucher_no and it.status not in ("Disputed / Returned", "Returned to Employee", "Returned to Receptionist")]
+
+    if not items:
+        frappe.throw("No active vouchers found in this batch to generate JV Excel.")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "JV Audit Sheet"
+    ws.views.sheetView[0].showGridLines = True
+
+    # Styling matching the user sample (Sage Green headers, 10pt bold Calibri, thin borders)
+    fill_sage_header = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+    font_header = Font(name="Calibri", size=10, bold=True, color="000000")
+    font_bold = Font(name="Calibri", size=10, bold=True, color="000000")
+    font_regular = Font(name="Calibri", size=10, bold=False, color="000000")
+
+    border_thin = Border(
+        left=Side(style="thin", color="000000"),
+        right=Side(style="thin", color="000000"),
+        top=Side(style="thin", color="000000"),
+        bottom=Side(style="thin", color="000000")
+    )
+
+    align_center = Alignment(horizontal="center", vertical="center")
+    align_left = Alignment(horizontal="left", vertical="center")
+    align_right = Alignment(horizontal="right", vertical="center")
+
+    headers = [
+        "Sr.No", "Employee No", "Name", "Net Pay", "Name As Per Bank Records",
+        "Bank Ac No", "IFSC Code", "Company", "Remarks", "JV", "DATE"
+    ]
+
+    col_widths = {
+        "A": 7.0,   # Sr.No
+        "B": 15.0,  # Employee No
+        "C": 26.0,  # Name
+        "D": 15.0,  # Net Pay
+        "E": 26.0,  # Name As Per Bank Records
+        "F": 22.0,  # Bank Ac No
+        "G": 16.0,  # IFSC Code
+        "H": 12.0,  # Company
+        "I": 42.0,  # Remarks
+        "J": 10.0,  # JV
+        "K": 14.0   # DATE
+    }
+    for col, width in col_widths.items():
+        ws.column_dimensions[col].width = width
+
+    ws.row_dimensions[1].height = 28.0
+
+    for col_idx, h_text in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=h_text)
+        cell.font = font_header
+        cell.fill = fill_sage_header
+        cell.border = border_thin
+        cell.alignment = align_center
+
+    row_num = 2
+    for idx, it in enumerate(items, 1):
+        ws.row_dimensions[row_num].height = 20.0
+
+        claim_doc = None
+        try:
+            claim_doc = frappe.get_doc("Employee Reimbursement Claim", it.voucher_no)
+        except Exception:
+            pass
+
+        # 1. Sr.No
+        c1 = ws.cell(row=row_num, column=1, value=idx)
+        c1.alignment = align_center
+        c1.font = font_bold
+        c1.border = border_thin
+
+        # 2. Employee No
+        emp_id = it.employee_id or (claim_doc.employee if claim_doc else "") or ""
+        c2 = ws.cell(row=row_num, column=2, value=str(emp_id).strip())
+        c2.alignment = align_center
+        c2.font = font_regular
+        c2.border = border_thin
+
+        # 3. Name
+        emp_name = (it.employee_name or (claim_doc.employee_name if claim_doc else "") or "").upper()
+        c3 = ws.cell(row=row_num, column=3, value=emp_name)
+        c3.alignment = align_left
+        c3.font = font_regular
+        c3.border = border_thin
+
+        # 4. Net Pay
+        amount = flt(it.sanctioned_amount or it.claimed_amount or (claim_doc.net_payable_amount if claim_doc else 0.0))
+        c4 = ws.cell(row=row_num, column=4, value=amount)
+        c4.alignment = align_right
+        c4.font = font_regular
+        c4.number_format = "#,##0.00"
+        c4.border = border_thin
+
+        # 5. Name As Per Bank Records
+        bank_holder_name = (claim_doc.get("bank_account_name") if claim_doc else "") or emp_name
+        c5 = ws.cell(row=row_num, column=5, value=bank_holder_name)
+        c5.alignment = align_left
+        c5.font = font_regular
+        c5.border = border_thin
+
+        # 6. Bank Ac No (Explicitly formatted as text string)
+        ac_no = str(it.bank_account_number or (claim_doc.bank_account_number if claim_doc else "") or "").strip()
+        c6 = ws.cell(row=row_num, column=6, value=ac_no)
+        c6.alignment = align_left
+        c6.number_format = "@"
+        c6.font = font_regular
+        c6.border = border_thin
+
+        # 7. IFSC Code
+        ifsc = str(it.bank_ifsc or (claim_doc.bank_ifsc_code if claim_doc else "") or "").strip().upper()
+        c7 = ws.cell(row=row_num, column=7, value=ifsc)
+        c7.alignment = align_center
+        c7.font = font_regular
+        c7.border = border_thin
+
+        # 8. Company
+        comp = (claim_doc.company if claim_doc else "") or "ACM"
+        # If long company name, derive short abbreviation
+        if "quanti" in comp.lower():
+            comp_abbr = "ACM"
+        elif len(comp) > 6:
+            comp_abbr = "".join([w[0].upper() for w in comp.split() if w])[:4]
+        else:
+            comp_abbr = comp.upper()
+        c8 = ws.cell(row=row_num, column=8, value=comp_abbr)
+        c8.alignment = align_center
+        c8.font = font_regular
+        c8.border = border_thin
+
+        # 9. Remarks
+        cat = it.claim_category or (claim_doc.claim_category if claim_doc else "REIMBURSEMENT")
+        remarks_text = f"{cat.upper()} REIMBURSEMENT"
+        if "REIMBURSEMENT REIMBURSEMENT" in remarks_text:
+            remarks_text = remarks_text.replace("REIMBURSEMENT REIMBURSEMENT", "REIMBURSEMENT")
+        c9 = ws.cell(row=row_num, column=9, value=remarks_text)
+        c9.alignment = align_left
+        c9.font = font_regular
+        c9.border = border_thin
+
+        # 10. JV Number
+        jv_val = it.jv_number or (claim_doc.jv_number if claim_doc else "") or ""
+        # If numeric, store as integer or clean string
+        if str(jv_val).strip().isdigit():
+            jv_val = int(str(jv_val).strip())
+        c10 = ws.cell(row=row_num, column=10, value=jv_val)
+        c10.alignment = align_center
+        c10.font = font_bold
+        c10.border = border_thin
+
+        # 11. DATE
+        raw_date = it.jv_date or (claim_doc.jv_date if claim_doc else None) or batch.batch_date or nowdate()
+        date_str = getdate(raw_date).strftime("%d-%m-%Y")
+        c11 = ws.cell(row=row_num, column=11, value=date_str)
+        c11.alignment = align_center
+        c11.font = font_regular
+        c11.border = border_thin
+
+        row_num += 1
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    file_bytes = buffer.getvalue()
+
+    filename = f"Reimbursement_JV_Audit_{batch_name}_{frappe.utils.now_datetime().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    frappe.response['filename'] = filename
+    frappe.response['filecontent'] = file_bytes
+    frappe.response['type'] = 'binary'

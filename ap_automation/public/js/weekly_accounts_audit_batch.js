@@ -221,6 +221,54 @@ function setup_batch_action_buttons(frm) {
         frm.set_df_property('items', 'hidden', isHidden ? 0 : 1);
     }, __('Actions'));
 
+    // Download Official JV Audit Excel (.xlsx) matching accounting format
+    frm.add_custom_button(__('📗 Download JV Audit Excel (.xlsx)'), function() {
+        window.open(`/api/method/ap_automation.services.reimbursement_excel_generator.download_batch_jv_audit_excel?batch_name=${encodeURIComponent(frm.doc.name)}`, '_blank');
+    }, __('Actions'));
+
+    // Accounts L1 & Accounts Director: Bulk Assign JV Numbers
+    const isAccountsAuditor = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Director', 'System Manager']) || frappe.session.user === 'Administrator';
+    if (isAccountsAuditor) {
+        frm.add_custom_button(__('📝 Bulk Assign JV Numbers'), function() {
+            frappe.prompt([
+                {
+                    fieldname: 'start_jv',
+                    fieldtype: 'Data',
+                    label: __('Starting JV Number (e.g. 744)'),
+                    reqd: 1,
+                    placeholder: '744'
+                },
+                {
+                    fieldname: 'jv_date',
+                    fieldtype: 'Date',
+                    label: __('JV Date'),
+                    default: frm.doc.batch_date || frappe.datetime.nowdate(),
+                    reqd: 1
+                }
+            ], function(values) {
+                frappe.call({
+                    method: 'ap_automation.services.weekly_accounts_batch_service.bulk_assign_batch_jv',
+                    args: {
+                        batch_name: frm.doc.name,
+                        start_jv_number: values.start_jv,
+                        jv_date: values.jv_date
+                    },
+                    freeze: true,
+                    freeze_message: __('Assigning JV Numbers...'),
+                    callback: function(r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({
+                                message: r.message.message,
+                                indicator: 'green'
+                            });
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }, __('Bulk Auto-Increment JV Numbers'), __('Assign JVs')).addClass('btn-primary');
+        }, __('Actions'));
+    }
+
 
     if (frm.is_new()) return;
 
@@ -610,13 +658,14 @@ function render_audit_workstation_view(frm) {
                 <table class="table table-bordered table-sm" style="margin: 0; background: #ffffff; font-size: 12px;">
                     <thead>
                         <tr style="background: #f1f5f9; color: #475569;">
-                            <th style="width: 18%;">Voucher #</th>
-                            <th style="width: 16%;">Category</th>
-                            <th style="width: 12%;">Claim Date</th>
-                            <th style="width: 13%; text-align: right;">Claimed (INR)</th>
-                            <th style="width: 13%; text-align: right;">Sanctioned (INR)</th>
-                            <th style="width: 12%; text-align: center;">Audit Status</th>
-                            <th style="width: 16%; text-align: center;">Actions</th>
+                            <th style="width: 14%;">Voucher #</th>
+                            <th style="width: 13%;">Category</th>
+                            <th style="width: 9%;">Claim Date</th>
+                            <th style="width: 10%; text-align: right;">Claimed (INR)</th>
+                            <th style="width: 10%; text-align: right;">Sanctioned (INR)</th>
+                            <th style="width: 11%; text-align: center;">Audit Status</th>
+                            <th style="width: 12%; text-align: center;">JV # & Date</th>
+                            <th style="width: 21%; text-align: center;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -640,6 +689,15 @@ function render_audit_workstation_view(frm) {
                 ? `<span style="font-size: 10px; color: #991b1b; font-weight: 600;">Returned</span>`
                 : `<button type="button" class="btn btn-xs btn-outline-danger btn-send-back-voucher" data-voucher="${v.voucher_no}" style="font-size: 11px; padding: 2px 6px;" title="Send Back to Employee or Receptionist">↩️ Send Back</button>`;
 
+            const isAccountsRole = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Director', 'System Manager']) || frappe.session.user === 'Administrator';
+            const jvBadge = v.jv_number
+                ? `<div style="font-weight: 700; color: #1e3a8a; font-size: 11.5px;">JV ${frappe.utils.escape_html(String(v.jv_number))}</div><div style="font-size: 10px; color: #64748b;">${v.jv_date || ''}</div>`
+                : `<span style="color: #94a3b8; font-size: 11px; font-style: italic;">No JV</span>`;
+            
+            const jvEditBtn = isAccountsRole
+                ? `<button type="button" class="btn btn-xs btn-outline-info btn-set-voucher-jv" data-voucher="${v.voucher_no}" data-jv="${v.jv_number || ''}" data-date="${v.jv_date || ''}" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="Set Journal Voucher (JV) Number and Date">📝 JV</button>`
+                : '';
+
             html += `
                 <tr style="${isReturned ? 'background: #fff5f5; opacity: 0.85;' : ''}">
                     <td>
@@ -652,7 +710,9 @@ function render_audit_workstation_view(frm) {
                     <td style="text-align: right; font-weight: 500;">₹ ${format_currency(v.claimed_amount)}</td>
                     <td style="text-align: right; font-weight: 700; color: #16a34a;">₹ ${format_currency(v.sanctioned_amount || v.claimed_amount)}</td>
                     <td style="text-align: center;">${statusBadge}</td>
+                    <td style="text-align: center;">${jvBadge}</td>
                     <td style="text-align: center; white-space: nowrap;">
+                        ${jvEditBtn}
                         <button type="button" class="btn btn-xs btn-outline-primary btn-view-voucher-receipts" data-voucher="${v.voucher_no}" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="View Receipts in Lightbox">👁️ Proofs</button>
                         <a href="/api/method/ap_automation.services.reimbursement_excel_generator.download_reimbursement_excel?voucher_name=${v.voucher_no ? encodeURIComponent(v.voucher_no) : ''}" target="_blank" class="btn btn-xs btn-outline-success" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="Download Excel Voucher">📥 Excel</a>
                         <a href="/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=Employee Reimbursement Claim&docname=${v.voucher_no ? encodeURIComponent(v.voucher_no) : ''}" target="_blank" class="btn btn-xs btn-outline-secondary" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="Download Receipts ZIP">📦 ZIP</a>

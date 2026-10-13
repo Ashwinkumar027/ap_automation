@@ -78,6 +78,8 @@
   "current_approval_level",
   "target_return_to",
   "payment_reference",
+  "jv_number",
+  "jv_date",
   "payment_release_date",
   "rejection_reason",
   "admin_rejection_reason",
@@ -627,6 +629,22 @@
    "label": "Applied Rate / KM",
    "read_only": 1,
    "hidden": 1
+  },
+  {
+   "fieldname": "jv_number",
+   "fieldtype": "Data",
+   "label": "JV Number",
+   "description": "Journal Voucher Number entered by Accounts Team (e.g. 744)",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "jv_date",
+   "fieldtype": "Date",
+   "label": "JV Date",
+   "description": "Journal Voucher Date entered by Accounts Team",
+   "in_list_view": 1,
+   "columns": 1
   }
  ],
  "grid_page_length": 50,

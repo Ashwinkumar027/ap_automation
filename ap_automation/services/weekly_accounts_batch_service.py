@@ -109,7 +109,9 @@ def generate_weekly_accounts_batch(company: str, batch_date: Optional[str] = Non
             "claimed_amount": claimed,
             "sanctioned_amount": sanctioned,
             "status": "Pending Audit",
-            "receipt_count": receipt_count
+            "receipt_count": receipt_count,
+            "jv_number": getattr(c, "jv_number", None) or "",
+            "jv_date": getattr(c, "jv_date", None)
         })
 
     batch.total_claims_count = len(claims)
@@ -462,7 +464,9 @@ def generate_friday_admin_batch(company: str, batch_date: Optional[str] = None) 
             "claimed_amount": claimed,
             "sanctioned_amount": sanctioned,
             "status": "Pending Audit",
-            "receipt_count": receipt_count
+            "receipt_count": receipt_count,
+            "jv_number": getattr(c, "jv_number", None) or "",
+            "jv_date": getattr(c, "jv_date", None)
         })
 
     batch.total_claims_count = len(claims)
@@ -692,3 +696,106 @@ def notify_accounts_friday_handoff() -> Dict[str, Any]:
             frappe.log_error(f"Error in Friday 12 PM Accounts handoff for {b_name}: {str(e)}")
     return {"status": "SUCCESS", "batches_notified": len(batches)}
 
+
+
+@frappe.whitelist()
+def set_voucher_jv(batch_name: str, voucher_no: str, jv_number: str, jv_date: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Accounts L1 Auditor & Accounts Director endpoint:
+    Sets or updates JV Number and JV Date for an individual voucher in the batch and updates the claim document.
+    """
+    user = frappe.session.user
+    user_roles = frappe.get_roles(user) if user else []
+    allowed_roles = ["Accounts L1 Auditor", "Accounts Director", "System Manager", "Administrator"]
+    if not any(r in user_roles for r in allowed_roles) and user not in ("Administrator", "administrator@example.com"):
+        frappe.throw("Access Denied: Only Accounts L1 Auditor, Accounts Director, or System Manager can assign or edit JV Number.", frappe.PermissionError)
+
+    if not batch_name or not voucher_no:
+        frappe.throw("Batch Name and Voucher Number are mandatory.")
+
+    clean_jv = str(jv_number or "").strip()
+    clean_date = getdate(jv_date or nowdate())
+
+    batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
+    found_item = None
+    for it in batch.items:
+        if it.voucher_no == voucher_no:
+            it.jv_number = clean_jv
+            it.jv_date = clean_date
+            found_item = it
+            break
+
+    if not found_item:
+        frappe.throw(f"Voucher #{voucher_no} not found in Batch {batch_name}.")
+
+    batch.save(ignore_permissions=True)
+
+    # Sync to Employee Reimbursement Claim
+    if frappe.db.exists("Employee Reimbursement Claim", voucher_no):
+        claim = frappe.get_doc("Employee Reimbursement Claim", voucher_no)
+        claim.jv_number = clean_jv
+        claim.jv_date = clean_date
+        claim.save(ignore_permissions=True)
+
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "voucher_no": voucher_no,
+        "jv_number": clean_jv,
+        "jv_date": str(clean_date),
+        "message": f"JV #{clean_jv} ({clean_date.strftime('%d-%m-%Y')}) assigned to Voucher #{voucher_no}."
+    }
+
+
+@frappe.whitelist()
+def bulk_assign_batch_jv(batch_name: str, start_jv_number: Any, jv_date: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Accounts L1 Auditor & Accounts Director endpoint:
+    Bulk auto-increments and assigns JV Numbers across all active vouchers in the batch in order.
+    e.g. Starting JV 744 -> 744, 745, 746, 747...
+    """
+    user = frappe.session.user
+    user_roles = frappe.get_roles(user) if user else []
+    allowed_roles = ["Accounts L1 Auditor", "Accounts Director", "System Manager", "Administrator"]
+    if not any(r in user_roles for r in allowed_roles) and user not in ("Administrator", "administrator@example.com"):
+        frappe.throw("Access Denied: Only Accounts L1 Auditor, Accounts Director, or System Manager can assign or edit JV Numbers.", frappe.PermissionError)
+
+    if not batch_name or start_jv_number is None:
+        frappe.throw("Batch Name and Starting JV Number are mandatory.")
+
+    clean_date = getdate(jv_date or nowdate())
+    batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
+
+    raw_str = str(start_jv_number).strip()
+    is_numeric = raw_str.isdigit()
+    cur_num = int(raw_str) if is_numeric else 1
+
+    updated_count = 0
+    for it in batch.items:
+        if it.status in ("Disputed / Returned", "Returned to Employee", "Returned to Receptionist"):
+            continue
+
+        assigned_jv = str(cur_num) if is_numeric else f"{raw_str}-{updated_count + 1}"
+        it.jv_number = assigned_jv
+        it.jv_date = clean_date
+        updated_count += 1
+        if is_numeric:
+            cur_num += 1
+
+        # Sync to claim doc
+        if it.voucher_no and frappe.db.exists("Employee Reimbursement Claim", it.voucher_no):
+            claim = frappe.get_doc("Employee Reimbursement Claim", it.voucher_no)
+            claim.jv_number = assigned_jv
+            claim.jv_date = clean_date
+            claim.save(ignore_permissions=True)
+
+    batch.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "batch_name": batch_name,
+        "updated_count": updated_count,
+        "message": f"Successfully assigned JV numbers to {updated_count} vouchers starting from JV #{raw_str} ({clean_date.strftime('%d-%m-%Y')})."
+    }
