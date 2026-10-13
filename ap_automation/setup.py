@@ -124,6 +124,19 @@ def setup_workspaces():
 
 def setup_desktop_icons():
     """Updates desktop icons and creates dedicated Workspace Sidebars for all spend lanes."""
+    legacy_icons = [
+        "Lane 1: Petty Cash",
+        "Lane 2: Employee Claims",
+        "Lane 3: Vendor Invoices",
+        "Lane 4: Event Spends"
+    ]
+    for legacy_name in legacy_icons:
+        if frappe.db.exists("Desktop Icon", legacy_name):
+            try:
+                frappe.delete_doc("Desktop Icon", legacy_name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+
     lanes = [
         ("Petty Cash", "Lane 1: Petty Cash", "Petty Cash", "green", "cash"),
         ("Employee Claims", "Lane 2: Employee Claims", "Employee Claims", "orange", "expense"),
