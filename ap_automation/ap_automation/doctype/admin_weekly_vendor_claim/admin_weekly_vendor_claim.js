@@ -12,6 +12,7 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
         render_status_guidance_banner(frm);
         render_role_based_action_buttons(frm);
         setup_grid_styling(frm);
+        apply_grid_role_permissions(frm);
         setTimeout(() => bind_custom_grid_uploaders(frm), 300);
     },
 
@@ -25,10 +26,80 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
     }
 });
 
+// Statutory TDS Section Rates Lookup
+const TDS_SECTION_RATES = {
+    'None / Exempt': 0.0,
+    '194C - Contractor (1%)': 1.0,
+    '194C - Contractor (2%)': 2.0,
+    '194C - Company (2%)': 2.0,
+    '194J - Technical Fees (2%)': 2.0,
+    '194J - Professional/Technical (2%)': 2.0,
+    '194J - Professional Fees (10%)': 10.0,
+    '194J - Professional (10%)': 10.0,
+    '194Q - Purchase of Goods (0.1%)': 0.1,
+    '194I - Rent (10%)': 10.0,
+    '194I - Rent Land/Building (10%)': 10.0,
+    '194I - Rent Plant/Machinery (2%)': 2.0,
+    '206AB - Higher Non-Filer (20%)': 20.0,
+    '206AB - Non-Filer Higher Rate (20%)': 20.0,
+    'None / No TDS (0%)': 0.0
+};
+
+function is_accounts_user() {
+    return frappe.user.has_role('Accounts User') ||
+           frappe.user.has_role('Accounts Manager') ||
+           frappe.user.has_role('Accounts Director') ||
+           frappe.user.has_role('Accounts L1 Auditor') ||
+           frappe.user.has_role('Accounts Auditor') ||
+           frappe.user.has_role('System Manager') ||
+           frappe.session.user === 'Administrator';
+}
+
+function calculate_row_statutory(cdt, cdn) {
+    const row = locals[cdt][cdn];
+    const base = flt(row.base_amount);
+    const gst_rate = flt(row.gst_rate);
+    const gst_amount = flt((base * gst_rate) / 100.0, 2);
+    const total_inv = flt(base + gst_amount, 2);
+
+    let tds_rate = 0.0;
+    if (row.tds_section && TDS_SECTION_RATES[row.tds_section] !== undefined) {
+        tds_rate = TDS_SECTION_RATES[row.tds_section];
+    } else if (row.tds_section) {
+        const m = (row.tds_section || '').match(/\((\d+(?:\.\d+)?)\s*%\)/);
+        tds_rate = m ? flt(m[1]) : flt(row.tds_rate);
+    } else if (row.tds_rate) {
+        tds_rate = flt(row.tds_rate);
+    }
+    const tds_amount = flt((base * tds_rate) / 100.0, 2);
+    const net_pay = flt(total_inv - tds_amount, 2);
+
+    frappe.model.set_value(cdt, cdn, 'gst_amount', gst_amount);
+    frappe.model.set_value(cdt, cdn, 'total_invoice_amount', total_inv);
+    frappe.model.set_value(cdt, cdn, 'tds_rate', tds_rate);
+    frappe.model.set_value(cdt, cdn, 'tds_amount', tds_amount);
+    frappe.model.set_value(cdt, cdn, 'amount', net_pay);
+}
+
 // --------------------------------------------------------------------------------------
 // CHILD TABLE ROW CONTROLLER (ADMIN VENDOR CLAIM ITEM)
 // --------------------------------------------------------------------------------------
 frappe.ui.form.on('Admin Vendor Claim Item', {
+    base_amount: function (frm, cdt, cdn) {
+        calculate_row_statutory(cdt, cdn);
+        calculate_grid_totals(frm);
+    },
+
+    gst_rate: function (frm, cdt, cdn) {
+        calculate_row_statutory(cdt, cdn);
+        calculate_grid_totals(frm);
+    },
+
+    tds_section: function (frm, cdt, cdn) {
+        calculate_row_statutory(cdt, cdn);
+        calculate_grid_totals(frm);
+    },
+
     amount: function (frm, cdt, cdn) {
         calculate_grid_totals(frm);
     },
@@ -90,13 +161,24 @@ frappe.ui.form.on('Admin Vendor Claim Item', {
 // 1. CALCULATE GRID TOTALS & TITLE
 // --------------------------------------------------------------------------------------
 function calculate_grid_totals(frm) {
-    let total = 0.0;
+    let total_base = 0.0;
+    let total_gst = 0.0;
+    let total_tds = 0.0;
+    let total_net = 0.0;
     const lines = frm.doc.vendor_lines || [];
+
     lines.forEach(row => {
-        total += flt(row.amount);
+        total_base += flt(row.base_amount);
+        total_gst += flt(row.gst_amount);
+        total_tds += flt(row.tds_amount);
+        total_net += flt(row.amount);
     });
+
     frm.set_value('total_lines', lines.length);
-    frm.set_value('total_amount', total);
+    frm.set_value('total_base_amount', flt(total_base, 2));
+    frm.set_value('total_gst_amount', flt(total_gst, 2));
+    frm.set_value('total_tds_amount', flt(total_tds, 2));
+    frm.set_value('total_amount', flt(total_net, 2));
 }
 
 function update_voucher_title(frm) {
@@ -174,14 +256,17 @@ function render_status_guidance_banner(frm) {
 
     const status = frm.doc.status || 'Draft';
     const amount_str = format_inr(frm.doc.total_amount);
+    const base_str = format_inr(frm.doc.total_base_amount);
+    const gst_str = format_inr(frm.doc.total_gst_amount);
+    const tds_str = format_inr(frm.doc.total_tds_amount);
     let cfg = null;
 
     if (frm.doc.admin_rejection_reason && (status === 'Draft' || status === 'Pending Admin L1' || status === 'Pending Admin L2')) {
         cfg = {
             class: 'banner-rejected',
             icon: '↩️',
-            title: `Returned for Correction (${status})`,
-            message: `<b>Feedback:</b> ${frm.doc.admin_rejection_reason}. Please rectify the affected line items and resubmit.`
+            title: `Returned for Correction (${status}) — Origin: ${frm.doc.return_origin_stage || 'Reviewer'}`,
+            message: `<b>Feedback:</b> ${frm.doc.admin_rejection_reason}. Please rectify the affected line items. Use <b>🚀 Resubmit Directly</b> to return straight to the reviewer once corrected.`
         };
     } else if (status === 'Draft') {
         cfg = {
@@ -209,14 +294,14 @@ function render_status_guidance_banner(frm) {
             class: 'banner-submitted',
             icon: '🔍',
             title: 'Stage 3: Accounts & Tax Audit (Finance Review)',
-            message: `Admin approvals complete. Accounts team is verifying TDS compliance, GST invoices, and vendor bank accounts.`
+            message: `Admin approvals complete. Accounts auditor verifies GST rates, computes statutory TDS per row, checks vendor bank proofs, and approves.`
         };
     } else if (status === 'Approved for Payment') {
         cfg = {
             class: 'banner-approved',
             icon: '⭐',
             title: 'Stage 4: Audited & Awaiting Director Payout Sanction',
-            message: `Accounts verified <b>₹ ${amount_str}</b>. Ready for Executive Director sanction.`
+            message: `Accounts verified <b>₹ ${amount_str}</b> (Tax Base: ₹ ${base_str}, GST: ₹ ${gst_str}, TDS: -₹ ${tds_str}). Ready for Executive Director sanction.`
         };
     } else if (status === 'Queued in Batch') {
         cfg = {
@@ -241,9 +326,14 @@ function render_status_guidance_banner(frm) {
                 <div class="banner-content">
                     <div class="banner-title">${cfg.title}</div>
                     <div class="banner-sub">${cfg.message}</div>
+                    <div style="margin-top:6px; font-size:11px; opacity:0.85;">
+                        <span>Base: <b>₹ ${base_str}</b></span> &nbsp;|&nbsp; 
+                        <span>GST: <b>₹ ${gst_str}</b></span> &nbsp;|&nbsp; 
+                        <span>TDS: <b style="color:#b91c1c;">-₹ ${tds_str}</b></span>
+                    </div>
                 </div>
                 <div class="banner-stat">
-                    <div class="stat-label">Total Net Pay</div>
+                    <div class="stat-label">Net Payable</div>
                     <div class="stat-val">₹ ${amount_str}</div>
                 </div>
             </div>
@@ -272,6 +362,32 @@ function render_role_based_action_buttons(frm) {
     frm.add_custom_button(__('📁 View Receipt Gallery'), function () {
         open_admin_receipt_gallery(frm, 0);
     }).addClass('btn-secondary');
+
+    // Fast-Track Resubmission Button (When voucher was returned from Accounts or Director)
+    if (frm.doc.return_origin_stage && ['Draft', 'Pending Admin L1', 'Pending Admin L2'].includes(status)) {
+        const target_label = frm.doc.return_origin_stage === 'Pending Accounts Review' ? 'Accounts Review' :
+                             frm.doc.return_origin_stage === 'Approved for Payment' ? 'Director Sanction' : frm.doc.return_origin_stage;
+
+        frm.add_custom_button(__('🚀 Resubmit to ') + target_label, function () {
+            frappe.confirm(
+                __('Fast-track this corrected voucher directly back to <b>{0}</b> without repeating earlier approval stages?', [target_label]),
+                function () {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim.resubmit_corrected_voucher',
+                        args: { docname: frm.doc.name },
+                        freeze: true,
+                        freeze_message: __('Resubmitting directly to reviewer...'),
+                        callback: function (r) {
+                            if (r.message) {
+                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }
+            );
+        }).addClass('btn-primary').css({ 'background-color': '#059669', 'color': '#ffffff', 'font-weight': '700' });
+    }
 
     // 3. Stage-Specific Transitions
     if (status === 'Draft' || status === 'Rejected') {
@@ -318,7 +434,7 @@ function render_role_based_action_buttons(frm) {
     if (status === 'Pending Accounts Review') {
         frm.add_custom_button(__('✅ Clear Accounts Audit'), function () {
             frappe.confirm(
-                __('Confirm accounts verification and forward to Director for payout sanction?'),
+                __('Confirm accounts verification, GST/TDS tax calculations, and forward to Director for payout sanction?'),
                 function () {
                     call_workflow_method(frm, 'approve_accounts');
                 }
@@ -341,7 +457,7 @@ function render_role_based_action_buttons(frm) {
         }).addClass('btn-primary').css({ 'background-color': '#4f46e5', 'color': '#ffffff', 'font-weight': '700' });
 
         frm.add_custom_button(__('↩️ Return / Reject Voucher'), function () {
-            open_rejection_modal(frm, ['Draft', 'Pending Accounts Review']);
+            open_rejection_modal(frm, ['Draft', 'Pending Admin L1', 'Pending Admin L2', 'Pending Accounts Review']);
         }).addClass('btn-danger');
     }
 
@@ -419,6 +535,7 @@ function open_rejection_modal(frm, return_targets) {
                     'Missing Bill / Proof PDF',
                     'Bank Details Mismatch',
                     'GST / Tax Invoicing Issue',
+                    'TDS Section or Rate Discrepancy',
                     'Invoice Rate Discrepancy',
                     'Vendor Duplicate Entry',
                     'Company Entity Selection Error',
@@ -470,13 +587,30 @@ function open_rejection_modal(frm, return_targets) {
 }
 
 // --------------------------------------------------------------------------------------
-// 6. IN-GRID RECEIPT UPLOADERS & BADGES
+// 6. RBAC PERMISSION ENFORCEMENT ON GRID
+// --------------------------------------------------------------------------------------
+function apply_grid_role_permissions(frm) {
+    if (!frm.fields_dict['vendor_lines'] || !frm.fields_dict['vendor_lines'].grid) return;
+    const grid = frm.fields_dict['vendor_lines'].grid;
+    const is_acc = is_accounts_user();
+
+    // Accounts L1 and Accounts Director can configure/edit GST Rate, TDS Section, Line Status
+    // Non-accounts users cannot edit statutory tax fields
+    grid.toggle_enable('gst_rate', is_acc);
+    grid.toggle_enable('tds_section', is_acc);
+    grid.toggle_enable('line_status', is_acc);
+    grid.toggle_enable('discrepancy_remarks', is_acc);
+}
+
+// --------------------------------------------------------------------------------------
+// 7. IN-GRID RECEIPT UPLOADERS & BADGES (WITH HEADER ROW PROTECTION)
 // --------------------------------------------------------------------------------------
 function bind_custom_grid_uploaders(frm) {
     if (!frm.fields_dict['vendor_lines'] || !frm.fields_dict['vendor_lines'].grid) return;
 
     const grid = frm.fields_dict['vendor_lines'].grid;
-    const grid_rows = $(grid.wrapper).find('.grid-row');
+    // CRITICAL BUG FIX: Target strictly .grid-body .grid-row so the column header row is NEVER modified!
+    const grid_rows = $(grid.wrapper).find('.grid-body .grid-row');
 
     grid_rows.each(function (idx) {
         const row_elem = $(this);
@@ -492,12 +626,14 @@ function bind_custom_grid_uploaders(frm) {
 
         if (current_val) {
             const badge = $(`
-                <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:6px; background:#ecfdf5; border:1px solid #10b981; border-radius:5px; padding:2px 8px; cursor:pointer;" title="Click to view full receipt">
+                <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:6px; background:#ecfdf5; border:1px solid #10b981; border-radius:5px; padding:2px 8px; cursor:pointer;" title="Click to view full receipt or click download">
                     <img src="${current_val}" style="width:18px; height:18px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />
                     <span style="font-size:11px; font-weight:700; color:#065f46;">🧾 Attached</span>
+                    <a href="${current_val}" download target="_blank" style="text-decoration:none; color:#059669; font-size:11px; margin-left:2px;" title="Direct Download Receipt">⬇️</a>
                 </div>
             `);
             badge.on('click', function (e) {
+                if ($(e.target).is('a')) return;
                 e.stopPropagation();
                 open_admin_receipt_gallery(frm, idx);
             });
@@ -531,14 +667,15 @@ function setup_grid_styling(frm) {
     if (!frm.fields_dict['vendor_lines'] || !frm.fields_dict['vendor_lines'].grid) return;
     const grid = frm.fields_dict['vendor_lines'].grid;
 
-    // Refresh custom uploaders when rows re-render
+    // Refresh custom uploaders and permissions when rows re-render
     grid.wrapper.on('render-complete', function () {
+        apply_grid_role_permissions(frm);
         bind_custom_grid_uploaders(frm);
     });
 }
 
 // --------------------------------------------------------------------------------------
-// 7. 2-COLUMN RECEIPT GALLERY MODAL
+// 8. 2-COLUMN RECEIPT GALLERY MODAL (WITH DIRECT DOWNLOAD)
 // --------------------------------------------------------------------------------------
 function open_admin_receipt_gallery(frm, start_idx) {
     const atts = [];
@@ -551,6 +688,9 @@ function open_admin_receipt_gallery(frm, start_idx) {
                 row_idx: row.idx || (idx + 1),
                 vendor: row.vendor_name || row.vendor || 'Vendor Bill',
                 category: row.vendor_category || 'Admin Expense',
+                base_amount: parseFloat(row.base_amount || 0.0),
+                gst_amount: parseFloat(row.gst_amount || 0.0),
+                tds_amount: parseFloat(row.tds_amount || 0.0),
                 amount: parseFloat(row.amount || 0.0),
                 company: row.company || '',
                 invoice: row.invoice_number || '',
@@ -613,10 +753,12 @@ function open_admin_receipt_gallery(frm, start_idx) {
                         <div>
                             <div style="font-size:14px; font-weight:800; color:#0f172a;">#${item.row_idx}: ${item.vendor}</div>
                             <div style="font-size:12px; color:#64748b;">${item.category} | Invoice: <b>${item.invoice || 'N/A'}</b> | Entity: <b>${item.company}</b></div>
+                            <div style="font-size:11px; color:#475569; margin-top:2px;">Base: ₹ ${format_inr(item.base_amount)} | GST: ₹ ${format_inr(item.gst_amount)} | TDS: -₹ ${format_inr(item.tds_amount)}</div>
                         </div>
-                        <div style="text-align:right;">
-                            <div style="font-size:16px; font-weight:800; color:#16a34a;">₹ ${format_inr(item.amount)}</div>
-                            <a href="${item.file_url}" target="_blank" class="btn btn-xs btn-default" style="font-size:11px;">🔗 Open Full File</a>
+                        <div style="text-align:right; display:flex; align-items:center; gap:8px;">
+                            <div style="font-size:16px; font-weight:800; color:#16a34a; margin-right:8px;">Net: ₹ ${format_inr(item.amount)}</div>
+                            <a href="${item.file_url}" target="_blank" class="btn btn-xs btn-default" style="font-size:11px;">🔗 View File</a>
+                            <a href="${item.file_url}" download target="_blank" class="btn btn-xs btn-primary" style="font-size:11px; background:#2563eb; color:#ffffff;">⬇️ Download</a>
                         </div>
                     </div>
                     <div style="flex:1; overflow:auto; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; display:flex; align-items:center; justify-content:center;">
@@ -638,7 +780,7 @@ function open_admin_receipt_gallery(frm, start_idx) {
 }
 
 // --------------------------------------------------------------------------------------
-// 8. LUXURY DESIGN SYSTEM CSS INJECTION
+// 9. LUXURY DESIGN SYSTEM CSS INJECTION
 // --------------------------------------------------------------------------------------
 function apply_admin_vendor_styles() {
     if (document.getElementById('admin-vendor-flow-styles')) return;
