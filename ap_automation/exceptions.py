@@ -12,6 +12,8 @@ class APBaseException(frappe.ValidationError):
         self.message = message or self.default_message
         self.error_code = error_code or "AP_GENERAL_ERROR"
         self.http_status = http_status
+        if self.message and hasattr(frappe, "msgprint"):
+            frappe.msgprint(self.message, title="Validation Error", indicator="red", raise_exception=False)
         super().__init__(self.message)
 
 

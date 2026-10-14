@@ -41,11 +41,16 @@ def get_employee_hrms_profile(user_or_emp: str) -> Dict[str, Any]:
             "bank_name",
             "bank_ac_no",
             "ifsc_code",
+            "custom_ifsc_code",
             "prefered_email",
             "cell_number"
         ],
         as_dict=True
     )
+
+    if emp_data:
+        if not emp_data.get("ifsc_code") and emp_data.get("custom_ifsc_code"):
+            emp_data["ifsc_code"] = emp_data.get("custom_ifsc_code")
 
     if not emp_data:
         raise APValidationError(f"Active HRMS Employee record not found for '{user_or_emp}'.")

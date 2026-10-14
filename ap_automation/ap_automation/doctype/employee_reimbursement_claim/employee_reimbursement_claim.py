@@ -173,10 +173,25 @@ class EmployeeReimbursementClaim(APDocument):
         self.employee_name = emp_profile["employee_name"]
         self.department = emp_profile["department"]
 
-        if not getattr(self, "bank_account_number", None) and emp_profile.get("bank_ac_no"):
-            self.bank_account_number = emp_profile.get("bank_ac_no")
-            self.bank_name = emp_profile.get("bank_name")
-            self.bank_ifsc_code = emp_profile.get("ifsc_code")
+        # Always resolve bank details from HRMS employee profile (with fallback for custom_ifsc_code)
+        bank_ac = emp_profile.get("bank_ac_no") or getattr(self, "bank_account_number", None)
+        ifsc = emp_profile.get("custom_ifsc_code") or emp_profile.get("ifsc_code") or getattr(self, "bank_ifsc_code", None)
+        b_name = emp_profile.get("bank_name") or getattr(self, "bank_name", None)
+
+        if not bank_ac or not ifsc:
+            emp_db = frappe.db.get_value(
+                "Employee",
+                emp_id,
+                ["bank_ac_no", "bank_name", "ifsc_code", "custom_ifsc_code"],
+                as_dict=True
+            ) or {}
+            bank_ac = bank_ac or emp_db.get("bank_ac_no")
+            ifsc = ifsc or emp_db.get("custom_ifsc_code") or emp_db.get("ifsc_code")
+            b_name = b_name or emp_db.get("bank_name")
+
+        self.bank_account_number = bank_ac or ""
+        self.bank_name = b_name or ""
+        self.bank_ifsc_code = ifsc or ""
 
         # Resolve and bind Reporting Manager
         try:

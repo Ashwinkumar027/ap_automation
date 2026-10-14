@@ -260,7 +260,7 @@ def download_idfc_bank_batch_excel(batch_name: str):
         emp_info = frappe.db.get_value(
             "Employee",
             emp_id,
-            ["employee_name", "bank_name", "bank_ac_no", "ifsc_code", "company_email", "personal_email"],
+            ["employee_name", "bank_name", "bank_ac_no", "ifsc_code", "custom_ifsc_code", "company_email", "personal_email"],
             as_dict=True
         ) or {}
 
@@ -278,6 +278,7 @@ def download_idfc_bank_batch_excel(batch_name: str):
         )
         b_ifsc = (
             claim.get("bank_ifsc_code")
+            or emp_info.get("custom_ifsc_code")
             or emp_info.get("ifsc_code")
             or ""
         )
@@ -396,7 +397,7 @@ def download_idfc_petty_cash_excel(voucher_name: str):
         emp_info = frappe.db.get_value(
             "Employee",
             doc.custodian,
-            ["employee_name", "company_email", "personal_email", "bank_ac_no", "ifsc_code"],
+            ["employee_name", "company_email", "personal_email", "bank_ac_no", "ifsc_code", "custom_ifsc_code"],
             as_dict=True
         ) or {}
 
@@ -412,6 +413,7 @@ def download_idfc_petty_cash_excel(voucher_name: str):
     )
     b_ifsc = (
         doc.get("custodian_ifsc_code")
+        or emp_info.get("custom_ifsc_code")
         or emp_info.get("ifsc_code")
         or ""
     )

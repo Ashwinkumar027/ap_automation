@@ -25,13 +25,13 @@ def generate_reimbursement_excel_bytes(voucher_name: str):
 
     # Fetch employee bank details if not present on doc
     emp_id = doc.employee
-    emp = frappe.db.get_value("Employee", emp_id, ["employee_name", "bank_name", "bank_ac_no", "ifsc_code", "department", "company"], as_dict=True) or {}
+    emp = frappe.db.get_value("Employee", emp_id, ["employee_name", "bank_name", "bank_ac_no", "ifsc_code", "custom_ifsc_code", "department", "company"], as_dict=True) or {}
     
     emp_name = doc.get("employee_name") or emp.get("employee_name") or emp_id
     id_number = emp_id or ""
     bank_name = doc.get("bank_name") or emp.get("bank_name") or ""
     ac_number = doc.get("bank_account_number") or emp.get("bank_ac_no") or ""
-    ifsc_code = doc.get("bank_ifsc_code") or emp.get("ifsc_code") or ""
+    ifsc_code = doc.get("bank_ifsc_code") or emp.get("custom_ifsc_code") or emp.get("ifsc_code") or ""
     name_as_per_bank = emp_name
     company_name = doc.get("company") or emp.get("company") or "Quanticus Software Solutions Private Limited"
 
@@ -448,7 +448,7 @@ def generate_consolidated_employee_excel_bytes(claim_names: Any, employee_name: 
     # Pre-fetch all employee info for fast mapping
     emp_map = {}
     for emp_id in distinct_emps:
-        info = frappe.db.get_value("Employee", emp_id, ["employee_name", "bank_name", "bank_ac_no", "ifsc_code", "department", "company"], as_dict=True) or {}
+        info = frappe.db.get_value("Employee", emp_id, ["employee_name", "bank_name", "bank_ac_no", "ifsc_code", "custom_ifsc_code", "department", "company"], as_dict=True) or {}
         emp_map[emp_id] = info
 
     # Flatten all line items across all vouchers
@@ -464,7 +464,7 @@ def generate_consolidated_employee_excel_bytes(claim_names: Any, employee_name: 
         doc_emp_name = doc.get("employee_name") or emp_info.get("employee_name") or doc_emp_id
         doc_bank_name = doc.get("bank_name") or emp_info.get("bank_name") or ""
         doc_ac_no = str(doc.get("bank_account_number") or emp_info.get("bank_ac_no") or "").strip()
-        doc_ifsc = str(doc.get("bank_ifsc_code") or emp_info.get("ifsc_code") or "").strip()
+        doc_ifsc = str(doc.get("bank_ifsc_code") or emp_info.get("custom_ifsc_code") or emp_info.get("ifsc_code") or "").strip()
         doc_company = doc.get("company") or emp_info.get("company") or company_name
 
         if cat == "Client Visit Travel":
@@ -895,7 +895,7 @@ def generate_consolidated_employee_excel_bytes(claim_names: Any, employee_name: 
     single_id = first_doc.employee or ""
     single_bank = first_doc.get("bank_name") or emp_info.get("bank_name") or ""
     single_ac = str(first_doc.get("bank_account_number") or emp_info.get("bank_ac_no") or "")
-    single_ifsc = str(first_doc.get("bank_ifsc_code") or emp_info.get("ifsc_code") or "")
+    single_ifsc = str(first_doc.get("bank_ifsc_code") or emp_info.get("custom_ifsc_code") or emp_info.get("ifsc_code") or "")
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
     t = ws.cell(row=1, column=1, value=company_name)
