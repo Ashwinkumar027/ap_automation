@@ -418,3 +418,42 @@ def get_all_companies_query(doctype, txt, searchfield, start, page_len, filters)
         "start": int(start or 0),
         "page_len": int(page_len or 20)
     })
+
+
+@frappe.whitelist()
+def record_petty_cash_payment_utr(voucher_name: str, utr_number: str, jv_number: str = None):
+    """
+    Direct payment settlement endpoint for Petty Cash Entry after Director Sanction.
+    Stamps the IDFC Bank UTR, updates status to "Paid", and appends to audit trail.
+    """
+    if not voucher_name or not utr_number:
+        frappe.throw(frappe._("Voucher Name and Bank UTR / Transaction Reference are required."))
+
+    doc = frappe.get_doc("Petty Cash Entry", voucher_name)
+    user = frappe.session.user
+
+    allowed_roles = {
+        "Accounts Director", "Accounts L1 Auditor", "Accounts User",
+        "Payment Releaser", "Director Tier", "Dileep Director", "System Manager", "Administrator"
+    }
+    user_roles = set(frappe.get_roles(user))
+    if not (allowed_roles & user_roles) and user != "Administrator":
+        frappe.throw(frappe._("You do not have permission to disburse or record payment for this voucher."))
+
+    doc.status = "Paid"
+    doc.workflow_state = "Disbursed via IDFC Bank"
+    if jv_number:
+        doc.jv_number = jv_number
+
+    doc.append("approval_trail", {
+        "level_number": 6,
+        "level_name": "Payment Release (IDFC Bank UTR)",
+        "action_taken_by": user,
+        "action": "APPROVED",
+        "action_timestamp": frappe.utils.now_datetime(),
+        "remarks": f"Disbursed via IDFC Bank. UTR: {utr_number}." + (f" JV: {jv_number}." if jv_number else "")
+    })
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {"status": "SUCCESS", "message": frappe._("Payment successfully recorded with UTR {0}.").format(utr_number)}

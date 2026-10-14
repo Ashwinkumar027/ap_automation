@@ -56,24 +56,37 @@ frappe.ui.form.on('Petty Cash Entry', {
                 grid.cannot_add_rows = true;
                 grid.cannot_delete_rows = true;
 
+                const safe_toggle_enable = (fieldname, enable) => {
+                    try {
+                        if (grid.docfields && grid.docfields.some(d => d.fieldname === fieldname)) {
+                            grid.toggle_enable(fieldname, enable);
+                        }
+                    } catch (e) {
+                        console.warn(`[PettyCash] Could not toggle enable for ${fieldname}:`, e);
+                    }
+                };
+
                 // Enable Expenses of Head and custom ledger for all reviewer roles
-                grid.toggle_enable('expense_head', true);
-                grid.toggle_enable('custom_ledger_name', true);
-                grid.toggle_enable('remarks', true);
+                safe_toggle_enable('expense_head', true);
+                safe_toggle_enable('custom_ledger_name', true);
+                safe_toggle_enable('remarks', true);
 
                 // Accounts Director can adjust amounts
-                grid.toggle_enable('amount', can_director_edit);
+                safe_toggle_enable('amount', can_director_edit);
 
                 // Lock immutable transaction details
-                grid.toggle_enable('expense_date', false);
-                grid.toggle_enable('merchant_name', false);
-                grid.toggle_enable('bill_number', false);
-                grid.toggle_enable('expense_category', false);
-                grid.toggle_enable('branch', false);
-                grid.toggle_enable('receipt_attachment', false);
-                grid.toggle_enable('spent_by', false);
-                grid.toggle_enable('is_b2b', false);
-                grid.toggle_enable('has_gst', false);
+                safe_toggle_enable('expense_date', false);
+                safe_toggle_enable('merchant_name', false);
+                safe_toggle_enable('bill_number', false);
+                safe_toggle_enable('expense_category', false);
+                safe_toggle_enable('branch', false);
+                safe_toggle_enable('receipt_attachment', false);
+                safe_toggle_enable('employee', false);
+                safe_toggle_enable('staff_name', false);
+                safe_toggle_enable('is_gst', false);
+                safe_toggle_enable('merchant_gstin', false);
+                safe_toggle_enable('transaction_id', false);
+                safe_toggle_enable('description', false);
             }
         } else {
             frm.set_df_property('expense_lines', 'read_only', 1);
@@ -245,8 +258,7 @@ function cleanup_bank_account_masking(frm) {
 // --------------------------------------------------------------------------------------
 function render_petty_cash_stepper(frm) {
     if (frm.fields_dict['sb_header'] && frm.fields_dict['sb_header'].wrapper) {
-        const existing = document.getElementById('petty-cash-flow-stepper');
-        if (existing) existing.remove();
+        $(frm.fields_dict['sb_header'].wrapper).find('#petty-cash-flow-stepper').remove();
 
         const status = frm.doc.status || 'Draft';
         let active_step = 1;
@@ -255,8 +267,9 @@ function render_petty_cash_stepper(frm) {
         else if (status === 'Pending Admin L2') active_step = 3;
         else if (status === 'Submitted') active_step = 4;
         else if (status === 'L1 Verified') active_step = 5;
-        else if (status === 'Approved for Payment' || status === 'Queued in Batch') active_step = 5;
-        else if (status === 'Paid' || status === 'Disbursed via IDFC') active_step = 6;
+        else if (status === 'Approved for Payment' || status === 'Queued in Batch') active_step = 6;
+        else if (status === 'Paid' || status === 'Disbursed via IDFC') active_step = 7;
+        
 
         const is_rejected = status === 'Rejected' || status === 'Disputed';
 
@@ -301,8 +314,7 @@ function render_petty_cash_stepper(frm) {
 function render_status_guidance_banner(frm) {
     if (!frm.fields_dict['sb_header'] || !frm.fields_dict['sb_header'].wrapper) return;
 
-    const existing = document.getElementById('petty-cash-status-banner');
-    if (existing) existing.remove();
+    $(frm.fields_dict['sb_header'].wrapper).find('#petty-cash-status-banner').remove();
 
     const status = frm.doc.status || 'Draft';
     const amount_formatted = format_inr_clean(frm.doc.total_amount);
@@ -743,7 +755,7 @@ function render_role_based_action_buttons(frm) {
         });
     }
 
-    // 5. POST-DIRECTOR APPROVAL: Official IDFC Bank Bulk Disbursal Template (.xlsx)
+    // 5. POST-DIRECTOR APPROVAL: Official IDFC Bank Bulk Disbursal Template (.xlsx) & Settlement
     if (status === 'Approved for Payment' || status === 'Paid') {
         frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function () {
             window.open(`/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_petty_cash_excel?voucher_name=${encodeURIComponent(frm.doc.name)}`, '_blank');
@@ -751,7 +763,50 @@ function render_role_based_action_buttons(frm) {
             'background-color': '#1e3a8a',
             'border-color': '#172554',
             'color': '#ffffff',
-            'font-weight': '600'
+            'font-weight': '700'
+        });
+    }
+
+    if (status === 'Approved for Payment' && (is_accounts_or_director || can_sanction_or_reject)) {
+        frm.add_custom_button(__('💳 Record Bank UTR / Settle'), function () {
+            frappe.prompt([
+                {
+                    fieldname: 'utr_number',
+                    fieldtype: 'Data',
+                    label: __('Bank UTR / Transaction Reference'),
+                    reqd: 1,
+                    description: __('Enter the 12-16 digit bank UTR from IDFC Corporate Portal.')
+                },
+                {
+                    fieldname: 'jv_number',
+                    fieldtype: 'Data',
+                    label: __('Journal Voucher (JV) Number'),
+                    default: frm.doc.jv_number || '',
+                    description: __('Optional: Tally JV number if posted.')
+                }
+            ], function (vals) {
+                frappe.call({
+                    method: 'ap_automation.ap_automation.doctype.petty_cash_entry.petty_cash_entry.record_petty_cash_payment_utr',
+                    args: {
+                        voucher_name: frm.doc.name,
+                        utr_number: vals.utr_number,
+                        jv_number: vals.jv_number
+                    },
+                    freeze: true,
+                    freeze_message: __('Recording bank payment...'),
+                    callback: function (r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({ message: __('🎉 Payment recorded and settled!'), indicator: 'green' }, 5);
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }, __('Record Bank Disbursal'), __('Confirm Disbursal & Settle'));
+        }).addClass('btn-primary').css({
+            'background-color': '#16a34a',
+            'border-color': '#15803d',
+            'color': '#ffffff',
+            'font-weight': '700'
         });
     }
 }

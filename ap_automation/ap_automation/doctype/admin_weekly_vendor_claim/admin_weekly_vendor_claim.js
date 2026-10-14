@@ -597,10 +597,20 @@ function apply_grid_role_permissions(frm) {
 
     // Accounts L1 and Accounts Director can configure/edit GST Rate, TDS Section, Line Status
     // Non-accounts users cannot edit statutory tax fields
-    grid.toggle_enable('gst_rate', is_acc);
-    grid.toggle_enable('tds_section', is_acc);
-    grid.toggle_enable('line_status', is_acc);
-    grid.toggle_enable('discrepancy_remarks', is_acc);
+    const safe_toggle_enable = (fieldname, enable) => {
+        try {
+            if (grid.docfields && grid.docfields.some(d => d.fieldname === fieldname)) {
+                grid.toggle_enable(fieldname, enable);
+            }
+        } catch (e) {
+            console.warn(`[AdminWeekly] Could not toggle enable for ${fieldname}:`, e);
+        }
+    };
+
+    safe_toggle_enable('gst_rate', is_acc);
+    safe_toggle_enable('tds_section', is_acc);
+    safe_toggle_enable('line_status', is_acc);
+    safe_toggle_enable('discrepancy_remarks', is_acc);
 }
 
 // --------------------------------------------------------------------------------------
