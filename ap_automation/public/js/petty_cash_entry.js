@@ -3,6 +3,7 @@ frappe.ui.form.on('Petty Cash Entry', {
     onload: function (frm) {
         frappe.require('/assets/ap_automation/css/ap_automation.css');
         auto_update_claim_title(frm);
+        enforce_permanent_grid_columns(frm);
     },
 
     refresh: function (frm) {
@@ -118,6 +119,7 @@ frappe.ui.form.on('Petty Cash Entry', {
         } else {
             frm.set_df_property('jv_number', 'read_only', 1);
         }
+        enforce_permanent_grid_columns(frm);
         apply_petty_cash_styles();
         render_petty_cash_stepper(frm);
         render_status_guidance_banner(frm);
@@ -128,11 +130,13 @@ frappe.ui.form.on('Petty Cash Entry', {
 
     company: function (frm) {
         auto_update_claim_title(frm);
+        enforce_permanent_grid_columns(frm);
     },
 
     posting_date: function (frm) {
         validate_client_posting_date(frm);
         auto_update_claim_title(frm);
+        enforce_permanent_grid_columns(frm);
     },
 
     custodian: function (frm) {
@@ -1224,4 +1228,47 @@ function open_dispute_split_dialog(frm) {
     });
 
     d.show();
+}
+
+
+// --------------------------------------------------------------------------------------
+// PERMANENT GRID COLUMNS: Enforces Branch (2) and Expenses of Head (2) permanently
+// --------------------------------------------------------------------------------------
+function enforce_permanent_grid_columns(frm) {
+    if (!frm.fields_dict['expense_lines'] || !frm.fields_dict['expense_lines'].grid) return;
+    const grid = frm.fields_dict['expense_lines'].grid;
+
+    // Check if user has an old saved user_defined_columns missing branch or expense_head
+    if (grid.user_defined_columns && grid.user_defined_columns.length) {
+        const has_branch = grid.user_defined_columns.some(col => col.fieldname === 'branch');
+        const has_expense_head = grid.user_defined_columns.some(col => col.fieldname === 'expense_head');
+
+        if (!has_branch || !has_expense_head) {
+            frappe.model.user_settings.save(frm.doctype, 'GridView', null);
+            grid.user_defined_columns = null;
+        }
+    }
+
+    // Ensure branch and expense_head in_list_view and columns size 2 are strictly set
+    if (grid.docfields) {
+        grid.docfields.forEach(df => {
+            if (df.fieldname === 'branch') {
+                df.in_list_view = 1;
+                df.columns = 2;
+                df.reqd = 1;
+            } else if (df.fieldname === 'expense_head') {
+                df.in_list_view = 1;
+                df.columns = 2;
+            }
+        });
+    }
+
+    if (grid.visible_columns) {
+        const vis_branch = grid.visible_columns.some(([df]) => df.fieldname === 'branch');
+        const vis_head = grid.visible_columns.some(([df]) => df.fieldname === 'expense_head');
+        if (!vis_branch || !vis_head) {
+            grid.setup_visible_columns();
+            grid.refresh();
+        }
+    }
 }
