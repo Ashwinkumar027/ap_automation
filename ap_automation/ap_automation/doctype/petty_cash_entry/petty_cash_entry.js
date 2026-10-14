@@ -31,28 +31,51 @@ frappe.ui.form.on('Petty Cash Entry', {
         const is_draft = !frm.doc.status || ['Draft', 'Rejected', 'Returned to Reception'].includes(frm.doc.status);
         const can_director_edit = is_director && frm.doc.status === 'L1 Verified';
 
+        const is_admin_approver = frappe.user.has_role([
+            'Admin L1 Approver',
+            'Admin L2 Approver',
+            'Admin Manager',
+            'Assistant Admin Manager',
+            'System Manager'
+        ]) || frappe.session.user === 'Administrator';
+
+        const can_edit_expense_head = is_draft || is_accounts || is_admin_approver || is_director;
+
         if (is_draft) {
             frm.set_df_property('expense_lines', 'read_only', 0);
-        } else if (can_director_edit) {
-            // Accounts Director can edit line item amounts and expense heads during L1 Verified review
+            if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].grid) {
+                frm.fields_dict['expense_lines'].grid.cannot_add_rows = false;
+                frm.fields_dict['expense_lines'].grid.cannot_delete_rows = false;
+            }
+        } else if (can_edit_expense_head && ['Pending Admin L1', 'Pending Admin L2', 'Submitted', 'L1 Verified', 'Approved for Payment', 'Queued in Batch'].includes(frm.doc.status)) {
+            // Admin L1, Admin L2, Accounts L1, and Accounts Director can all edit Expenses of Head directly on rows
             frm.set_df_property('expense_lines', 'read_only', 0);
             if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].grid) {
-                frm.fields_dict['expense_lines'].grid.toggle_enable('amount', true);
-                frm.fields_dict['expense_lines'].grid.toggle_enable('expense_head', true);
-                frm.fields_dict['expense_lines'].grid.toggle_enable('remarks', true);
-                frm.fields_dict['expense_lines'].grid.toggle_enable('expense_date', false);
-                frm.fields_dict['expense_lines'].grid.toggle_enable('merchant_name', false);
-                frm.fields_dict['expense_lines'].grid.toggle_enable('bill_number', false);
-                frm.fields_dict['expense_lines'].grid.toggle_enable('expense_category', false);
-                frm.fields_dict['expense_lines'].grid.cannot_add_rows = true;
-                frm.fields_dict['expense_lines'].grid.cannot_delete_rows = true;
+                const grid = frm.fields_dict['expense_lines'].grid;
+                grid.cannot_add_rows = true;
+                grid.cannot_delete_rows = true;
+
+                // Enable Expenses of Head and custom ledger for all reviewer roles
+                grid.toggle_enable('expense_head', true);
+                grid.toggle_enable('custom_ledger_name', true);
+                grid.toggle_enable('remarks', true);
+
+                // Accounts Director can adjust amounts
+                grid.toggle_enable('amount', can_director_edit);
+
+                // Lock immutable transaction details
+                grid.toggle_enable('expense_date', false);
+                grid.toggle_enable('merchant_name', false);
+                grid.toggle_enable('bill_number', false);
+                grid.toggle_enable('expense_category', false);
+                grid.toggle_enable('branch', false);
+                grid.toggle_enable('receipt_attachment', false);
+                grid.toggle_enable('spent_by', false);
+                grid.toggle_enable('is_b2b', false);
+                grid.toggle_enable('has_gst', false);
             }
         } else {
             frm.set_df_property('expense_lines', 'read_only', 1);
-            if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].grid) {
-                const allow_head_edit = is_accounts && ['Submitted', 'L1 Verified', 'Approved for Payment'].includes(frm.doc.status);
-                frm.fields_dict['expense_lines'].grid.toggle_enable('expense_head', allow_head_edit);
-            }
         }
 
         // Clean up any residual bank account mask toggle button
@@ -566,8 +589,48 @@ function render_role_based_action_buttons(frm) {
     }
 
     // 4. ACCOUNTS AUDIT ACTIONS (Status == 'Submitted')
-    if (status === 'Submitted' && (frappe.user.has_role(['Accounts User', 'Accounts Manager', 'Accounts Auditor', 'System Manager']) || frappe.session.user === 'Administrator')) {
+    if (status === 'Submitted' && (frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager', 'Accounts Director', 'System Manager']) || frappe.session.user === 'Administrator')) {
         frm.add_custom_button(__('✅ Audit & Pass to Director'), function () {
+            // Check if any line item is missing Expenses of Head
+            const unclassified_rows = (frm.doc.expense_lines || []).filter(r => !r.expense_head);
+            if (unclassified_rows.length > 0) {
+                const head_options = [
+                    'STAFF WELFARE',
+                    'FOOD EXPENSES',
+                    'OFFICE EXPENSES',
+                    'OFFICE EXPENSES - GROCERY',
+                    'OFFICE EXPENSES - POOJA',
+                    'PRINTING & STATIONARY',
+                    'COURIER CHARGES',
+                    'POWER & FUEL EXPENSES',
+                    'OTHER EXPENSES',
+                    'Logiminds Technolab Llp',
+                    'OTHER / VENDOR LEDGER'
+                ];
+                frappe.prompt([
+                    {
+                        fieldname: 'expense_head',
+                        fieldtype: 'Select',
+                        label: __('Assign Expenses of Head to {0} unclassified row(s)', [unclassified_rows.length]),
+                        options: head_options,
+                        default: 'OFFICE EXPENSES',
+                        reqd: 1
+                    }
+                ], function (values) {
+                    unclassified_rows.forEach(r => {
+                        r.expense_head = values.expense_head;
+                    });
+                    frm.refresh_field('expense_lines');
+                    frm.set_value('status', 'L1 Verified');
+                    frm.set_value('workflow_state', 'Audited & Verified by Accounts L1');
+                    frm.set_value('current_approval_level', 2);
+                    frm.save().then(() => {
+                        frappe.show_alert({ message: __('✅ Assigned Expense Head & Passed to Director!'), indicator: 'green' }, 5);
+                    });
+                }, __('Expenses of Head Required'), __('Assign & Forward to Director')).addClass('btn-primary');
+                return;
+            }
+
             frappe.confirm(__('Pass line-item audit and forward to Director for final sanction?'), function () {
                 frm.set_value('status', 'L1 Verified');
                 frm.set_value('workflow_state', 'Audited & Verified by Accounts L1');
