@@ -3,6 +3,7 @@
 
 frappe.ui.form.on('Admin Weekly Vendor Claim', {
     onload: function (frm) {
+        frappe.require('/assets/ap_automation/css/ap_automation.css');
         apply_admin_vendor_styles();
     },
 

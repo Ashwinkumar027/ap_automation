@@ -1,3 +1,8 @@
+
+/* Explicit safety: Ensure Frappe native hidden utility is never overridden */
+.hide, .hidden, [hidden] {
+    display: none !important;
+}
 /* AP Automation Global Optimizations & Zero-CLS Layout Rules */
 
 [data-fieldname="claim_visual_header_html"],

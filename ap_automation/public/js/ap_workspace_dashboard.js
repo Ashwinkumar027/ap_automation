@@ -181,6 +181,9 @@
 
     function renderExecutiveDashboard(isManualRefresh) {
         if (!isAPHubWorkspace()) {
+            return;
+        }
+        frappe.require('/assets/ap_automation/css/ap_automation.css');
             $('#ap-executive-hub-dashboard').remove();
             return;
         }

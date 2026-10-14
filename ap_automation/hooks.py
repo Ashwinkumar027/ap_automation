@@ -21,9 +21,8 @@ app_include_js = [
     "/assets/ap_automation/js/ap_workspace_dashboard.js"
 ]
 
-app_include_css = [
-    "/assets/ap_automation/css/ap_automation.css"
-]
+# Scoped to AP Automation DocTypes only to preserve default Frappe Desk across all other apps
+app_include_css = []
 
 doctype_js = {}
 

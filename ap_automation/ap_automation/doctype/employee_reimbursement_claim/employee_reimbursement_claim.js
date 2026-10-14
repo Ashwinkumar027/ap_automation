@@ -50,6 +50,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     },
 
     onload: function(frm) {
+        frappe.require('/assets/ap_automation/css/ap_automation.css');
         if (frm.is_new() && !frm.doc.employee) {
             frappe.db.get_value('Employee', { user_id: frappe.session.user }, [
                 'name', 'employee_name', 'company', 'department',

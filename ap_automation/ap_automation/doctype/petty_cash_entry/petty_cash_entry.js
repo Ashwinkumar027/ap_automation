@@ -1,6 +1,7 @@
 // Enterprise Petty Cash Entry Client Controller (Production-Ready)
 frappe.ui.form.on('Petty Cash Entry', {
     onload: function (frm) {
+        frappe.require('/assets/ap_automation/css/ap_automation.css');
         auto_update_claim_title(frm);
     },
 
