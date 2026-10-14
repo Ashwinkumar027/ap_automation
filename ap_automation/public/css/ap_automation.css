@@ -162,85 +162,9 @@
 }
 
 /* ======================================================================================
-   AP AUTOMATION RESPONSIVE & ZOOM OPTIMIZATION
-   Ensures seamless responsive behavior on zoom (125%, 150%, 200%) and small screens
+   AP AUTOMATION ONLY RESPONSIVE COMPONENTS (STRICTLY SCOPED TO AP-* CLASSES)
+   Does NOT touch or override default Frappe Desk navbar, page-head, or buttons!
    ====================================================================================== */
-
-/* Frappe Page Header & Actions Wrapper */
-.page-head {
-    height: auto !important;
-    min-height: var(--page-head-height, 46px) !important;
-    box-sizing: border-box !important;
-}
-
-.page-head .page-head-content {
-    height: auto !important;
-    min-height: var(--page-head-height, 46px) !important;
-    display: flex !important;
-    flex-wrap: wrap !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    gap: 8px !important;
-    padding: 6px 0 !important;
-    box-sizing: border-box !important;
-}
-
-/* Page Title & Breadcrumbs area */
-.page-head .page-title,
-.page-head .title-area {
-    display: flex !important;
-    align-items: center !important;
-    flex-wrap: wrap !important;
-    gap: 6px !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-}
-
-.page-head .title-text {
-    word-break: break-word !important;
-}
-
-/* Page Actions & Custom Buttons */
-.page-head .page-actions {
-    display: flex !important;
-    align-items: center !important;
-    flex-wrap: wrap !important;
-    gap: 6px !important;
-    max-width: 100% !important;
-    justify-content: flex-end !important;
-    height: auto !important;
-}
-
-.page-head .custom-actions {
-    display: flex !important;
-    align-items: center !important;
-    flex-wrap: wrap !important;
-    gap: 5px !important;
-    max-width: 100% !important;
-    height: auto !important;
-}
-
-.page-head .standard-actions {
-    display: flex !important;
-    align-items: center !important;
-    gap: 4px !important;
-    flex-wrap: nowrap !important;
-}
-
-/* Custom action buttons styling on desk */
-.page-head .custom-actions .btn,
-.page-head .page-actions .btn {
-    white-space: nowrap !important;
-    font-size: 12px !important;
-    padding: 4px 10px !important;
-    border-radius: 6px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    gap: 4px !important;
-    margin: 1px 0 !important;
-    flex-shrink: 0 !important;
-    line-height: 1.4 !important;
-}
 
 /* Stepper horizontal scroll & layout resilience */
 .ap-stepper-container {
@@ -287,60 +211,7 @@
     text-align: right !important;
 }
 
-/* Form grid scrollability */
-.form-grid {
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-}
-
-/* Zoom (120% - 140% or max-width 1380px) */
-@media (max-width: 1380px) {
-    .page-head .custom-actions .btn,
-    .page-head .page-actions .btn {
-        padding: 3px 8px !important;
-        font-size: 11.5px !important;
-    }
-
-    .page-head .title-text {
-        font-size: 15px !important;
-    }
-}
-
-/* High Zoom (>=150%) or Screen width <= 1100px */
-@media (max-width: 1100px) {
-    .page-head .page-head-content {
-        flex-direction: column !important;
-        align-items: stretch !important;
-        gap: 6px !important;
-    }
-
-    .page-head .page-title,
-    .page-head .title-area {
-        width: 100% !important;
-        justify-content: flex-start !important;
-    }
-
-    .page-head .page-actions {
-        width: 100% !important;
-        justify-content: flex-start !important;
-        overflow-x: auto !important;
-        padding-bottom: 3px !important;
-    }
-
-    .page-head .custom-actions {
-        width: 100% !important;
-        justify-content: flex-start !important;
-    }
-}
-
-/* Mobile & Ultra-Zoom (<=768px) */
 @media (max-width: 768px) {
-    .page-head .custom-actions .btn,
-    .page-head .page-actions .btn {
-        padding: 3px 6px !important;
-        font-size: 11px !important;
-    }
-
     .ap-status-banner {
         flex-direction: column !important;
         align-items: flex-start !important;

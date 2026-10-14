@@ -965,24 +965,7 @@ function apply_petty_cash_styles() {
         .banner-paid { background: #f0fdf4; border: 1.5px solid #86efac; color: #14532d; }
         .banner-rejected { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
 
-        /* Responsive Page Header & Actions Bar (Zoom Resilience) */
-        .page-head { height: auto !important; min-height: var(--page-head-height, 46px) !important; }
-        .page-head .page-head-content { height: auto !important; min-height: var(--page-head-height, 46px) !important; display: flex !important; flex-wrap: wrap !important; align-items: center !important; justify-content: space-between !important; gap: 8px !important; padding: 6px 0 !important; }
-        .page-head .page-title, .page-head .title-area { display: flex !important; align-items: center !important; flex-wrap: wrap !important; gap: 6px !important; min-width: 0 !important; max-width: 100% !important; }
-        .page-head .page-actions { display: flex !important; align-items: center !important; flex-wrap: wrap !important; gap: 6px !important; max-width: 100% !important; justify-content: flex-end !important; height: auto !important; }
-        .page-head .custom-actions { display: flex !important; align-items: center !important; flex-wrap: wrap !important; gap: 5px !important; max-width: 100% !important; height: auto !important; }
-        .page-head .custom-actions .btn, .page-head .page-actions .btn { white-space: nowrap !important; font-size: 12px !important; padding: 4px 10px !important; border-radius: 6px !important; display: inline-flex !important; align-items: center !important; gap: 4px !important; margin: 1px 0 !important; flex-shrink: 0 !important; line-height: 1.4 !important; }
-        @media (max-width: 1380px) {
-            .page-head .custom-actions .btn, .page-head .page-actions .btn { padding: 3px 8px !important; font-size: 11.5px !important; }
-        }
-        @media (max-width: 1100px) {
-            .page-head .page-head-content { flex-direction: column !important; align-items: stretch !important; gap: 6px !important; }
-            .page-head .page-title, .page-head .title-area { width: 100% !important; justify-content: flex-start !important; }
-            .page-head .page-actions { width: 100% !important; justify-content: flex-start !important; overflow-x: auto !important; padding-bottom: 3px !important; }
-            .page-head .custom-actions { width: 100% !important; justify-content: flex-start !important; }
-        }
         @media (max-width: 768px) {
-            .page-head .custom-actions .btn, .page-head .page-actions .btn { padding: 3px 6px !important; font-size: 11px !important; }
             .ap-status-banner { flex-direction: column !important; align-items: flex-start !important; padding: 10px 14px !important; }
             .ap-status-banner .banner-stat { text-align: left !important; margin-top: 4px !important; }
         }
