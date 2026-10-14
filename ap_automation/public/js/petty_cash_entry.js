@@ -663,7 +663,7 @@ function render_role_based_action_buttons(frm) {
             'font-weight': '700'
         });
 
-        if (lines.length > 1) {
+        if (lines.length > 0) {
             frm.add_custom_button(__('⚠️ Dispute Lines'), function () {
                 open_dispute_split_dialog(frm);
             }).addClass('btn-secondary').css({
