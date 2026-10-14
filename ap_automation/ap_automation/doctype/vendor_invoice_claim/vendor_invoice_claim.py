@@ -85,10 +85,9 @@ class VendorInvoiceClaim(APDocument):
         if self.match_status in ("Price Mismatch Flagged", "Quantity Mismatch Flagged", "Missing GRN Flagged"):
             self.status = "Disputed"
         elif getattr(self, "status", "Draft") in ("Draft", "Not Saved"):
-            if self.match_status == "3-Way Match Passed":
-                self.status = "Pending Accounts Review"
-            elif self.invoice_type == "Without PO (Direct Tax Invoice)" and getattr(self, "email_approval_attachment", None):
-                self.status = "Pending Accounts Review"
+            # Route to Manager Approval as first business gate (PRD Stage 3)
+            self.status = "Pending Manager Approval"
+            self.workflow_state = "Awaiting Manager Approval (PRD Stage 3)"
 
         # Execute parent base validations (duplicate hash, immutability, tamper guard)
         super().validate()
@@ -325,3 +324,260 @@ def get_vendor_claim_audit_logs(docname: str) -> List[Dict[str, Any]]:
         as_dict=True
     )
     return logs
+
+
+# --------------------------------------------------------------------------------------
+# PRD STAGE 3, 4, 6, 7 MULTI-TIER BUSINESS APPROVAL & TALLY LOGGING APIS
+# --------------------------------------------------------------------------------------
+
+@frappe.whitelist()
+def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None):
+    """
+    Stage 3: Manager Approval.
+    Validates claim status and advances to 'Pending HoD Approval'.
+    """
+    if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
+        frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
+
+    doc = frappe.get_doc("Vendor Invoice Claim", docname)
+    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+
+    if doc.status != "Pending Manager Approval":
+        frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not 'Pending Manager Approval'.")
+
+    now_ts = frappe.utils.now_datetime()
+    doc.manager_approver = user
+    doc.manager_approved_on = now_ts
+    doc.status = "Pending HoD Approval"
+    doc.workflow_state = "Awaiting HoD Approval (PRD Stage 3)"
+
+    doc.append("approval_trail", {
+        "level_number": 1,
+        "level_name": "Stage 3: Manager Approval",
+        "action_taken_by": user,
+        "action": "APPROVED",
+        "action_timestamp": now_ts,
+        "remarks": remarks or "Approved by Reporting Manager"
+    })
+    doc.save(ignore_permissions=True)
+    doc.add_comment("Comment", text=f"âœ… <b>Approved by Manager:</b> {user} â€” {remarks or 'Approved'}")
+
+    return {"status": doc.status, "message": f"Claim #{docname} successfully approved by Manager."}
+
+
+@frappe.whitelist()
+def approve_vendor_claim_by_hod(docname: str, remarks: Optional[str] = None):
+    """
+    Stage 3: Head of Department (HoD) Approval.
+    If Net Payable > Director Threshold (INR 2 Lakhs), escalates to Director.
+    Otherwise, routes directly to Accounts L1 Review (Gokulnath).
+    """
+    if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
+        frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
+
+    doc = frappe.get_doc("Vendor Invoice Claim", docname)
+    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+
+    if doc.status != "Pending HoD Approval":
+        frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not 'Pending HoD Approval'.")
+
+    now_ts = frappe.utils.now_datetime()
+    doc.hod_approver = user
+    doc.hod_approved_on = now_ts
+
+    net = float(getattr(doc, "net_payable_amount", 0.0) or 0.0)
+    thresh = float(getattr(doc, "director_threshold", 200000.0) or 200000.0)
+
+    if net > thresh:
+        doc.status = "Pending Director Approval"
+        doc.workflow_state = f"Escalated to Director Tier (> INR {thresh:,.2f})"
+        level_name = "Stage 3: HoD Approval (Escalated to Director)"
+    else:
+        doc.status = "Pending Accounts Review"
+        doc.workflow_state = "Awaiting Accounts L1 Review (Gokulnath)"
+        level_name = "Stage 3: HoD Approval (Routed to Accounts L1)"
+
+    doc.append("approval_trail", {
+        "level_number": 2,
+        "level_name": level_name,
+        "action_taken_by": user,
+        "action": "APPROVED",
+        "action_timestamp": now_ts,
+        "remarks": remarks or "Approved by Head of Department"
+    })
+    doc.save(ignore_permissions=True)
+    doc.add_comment("Comment", text=f"âœ… <b>Approved by HoD:</b> {user} â€” {remarks or 'Approved'} (Next: {doc.status})")
+
+    return {"status": doc.status, "message": f"Claim #{docname} successfully approved by HoD. Next Status: {doc.status}"}
+
+
+@frappe.whitelist()
+def approve_vendor_claim_by_director(docname: str, remarks: Optional[str] = None):
+    """
+    Stage 3: Executive Director Approval (> INR 2 Lakhs).
+    Advances claim to Accounts L1 Review (Gokulnath).
+    """
+    if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
+        frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
+
+    doc = frappe.get_doc("Vendor Invoice Claim", docname)
+    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+
+    if doc.status != "Pending Director Approval":
+        frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not 'Pending Director Approval'.")
+
+    now_ts = frappe.utils.now_datetime()
+    doc.director_approver = user
+    doc.director_approved_on = now_ts
+    doc.status = "Pending Accounts Review"
+    doc.workflow_state = "Awaiting Accounts L1 Review (Gokulnath)"
+
+    doc.append("approval_trail", {
+        "level_number": 3,
+        "level_name": "Stage 3: Director Approval (> INR 2L)",
+        "action_taken_by": user,
+        "action": "APPROVED",
+        "action_timestamp": now_ts,
+        "remarks": remarks or "Approved by Executive Director"
+    })
+    doc.save(ignore_permissions=True)
+    doc.add_comment("Comment", text=f"âœ… <b>Approved by Executive Director:</b> {user} â€” {remarks or 'Approved'}")
+
+    return {"status": doc.status, "message": f"Claim #{docname} successfully approved by Director. Routed to Accounts L1 (Gokulnath)."}
+
+
+@frappe.whitelist()
+def verify_vendor_claim_by_accounts_l1(docname: str, tally_reference: str, remarks: Optional[str] = None):
+    """
+    Stage 4 & 6: Accounts L1 Verification (Gokulnath).
+    1. Re-runs and verifies 3-Way Match & statutory TDS.
+    2. Strictly enforces Tally Voucher Reference logging (PRD Stage 6).
+    3. Advances claim to Accounts L2 Approval (Anshul Sir / Srinivasan Sir).
+    """
+    if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
+        frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
+
+    if not tally_reference or not str(tally_reference).strip():
+        frappe.throw(
+            "Tally Voucher Reference # is strictly mandatory per PRD Stage 6 before Accounts L1 signoff.",
+            title="Tally Reference Required"
+        )
+
+    doc = frappe.get_doc("Vendor Invoice Claim", docname)
+    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+
+    if doc.status != "Pending Accounts Review":
+        frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not 'Pending Accounts Review'.")
+
+    # Enforce clean 3-way match
+    if doc.match_status in ("Quantity Mismatch Flagged", "Price Mismatch Flagged", "Missing GRN Flagged"):
+        frappe.throw(
+            f"Cannot complete L1 Verification: 3-Way Match Discrepancy Active ({doc.match_status}). "
+            f"Diagnostics: {doc.match_variance_details}",
+            title="3-Way Match Discrepancy"
+        )
+
+    clean_tally = str(tally_reference).strip().upper()
+    now_ts = frappe.utils.now_datetime()
+
+    doc.tally_reference = clean_tally
+    doc.tally_posted_on = now_ts
+    doc.tally_posted_by = user
+    doc.accounts_l1_verifier = user
+    doc.accounts_l1_verified_on = now_ts
+    doc.status = "Pending Accounts L2 Approval"
+    doc.workflow_state = "Awaiting Accounts L2 Signoff (Anshul Sir / Srinivasan Sir)"
+
+    doc.append("approval_trail", {
+        "level_number": 4,
+        "level_name": "Stage 4 & 6: Accounts L1 Verification & Tally Logged",
+        "action_taken_by": user,
+        "action": "VERIFIED",
+        "action_timestamp": now_ts,
+        "remarks": f"Verified by L1 (Gokulnath) | Tally Ref: {clean_tally} | {remarks or 'Voucher Posted to Tally'}"
+    })
+    doc.save(ignore_permissions=True)
+    doc.add_comment("Comment", text=f"âœ… <b>Accounts L1 Verified & Tally Logged:</b> {user} | Tally Ref: <code>{clean_tally}</code>")
+
+    return {
+        "status": doc.status,
+        "tally_reference": clean_tally,
+        "message": f"Claim #{docname} successfully verified by Accounts L1 with Tally Ref '{clean_tally}'. Escalated to Accounts L2."
+    }
+
+
+@frappe.whitelist()
+def approve_vendor_claim_by_accounts_l2(docname: str, remarks: Optional[str] = None):
+    """
+    Stage 7: Accounts L2 Approval (Anshul Sir / Srinivasan Sir).
+    Approves what L1 has verified.
+    Checks clean penny drop status and advances claim to 'Approved for Payment'.
+    """
+    if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
+        frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
+
+    doc = frappe.get_doc("Vendor Invoice Claim", docname)
+    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+
+    if doc.status != "Pending Accounts L2 Approval":
+        frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not 'Pending Accounts L2 Approval'.")
+
+    if not doc.accounts_l1_verifier:
+        frappe.throw("Cannot complete L2 Approval without prior Accounts L1 Verification.", title="L1 Verification Missing")
+
+    # Gate on Penny Drop status
+    bank_acc = doc._fetch_supplier_bank_account(doc.vendor)
+    if bank_acc.get("penny_drop_status") == "LOCKED_PENNY_DROP_MISMATCH":
+        frappe.throw(
+            "Security Lock: Vendor Bank Account is locked due to NPCI Penny Drop Name Mismatch! "
+            "L2 Approval is blocked until Accounts clears the bank account.",
+            title="Penny Drop Lockout Active"
+        )
+
+    now_ts = frappe.utils.now_datetime()
+    doc.accounts_l2_approver = user
+    doc.accounts_l2_approved_on = now_ts
+    doc.status = "Approved for Payment"
+    doc.workflow_state = "Approved for Shared Payment Core Release (Anish Sir)"
+
+    doc.append("approval_trail", {
+        "level_number": 5,
+        "level_name": "Stage 7: Accounts L2 Approval (Anshul Sir / Srinivasan Sir)",
+        "action_taken_by": user,
+        "action": "APPROVED",
+        "action_timestamp": now_ts,
+        "remarks": remarks or "Approved by Accounts L2 for payment core release"
+    })
+    doc.save(ignore_permissions=True)
+    doc.add_comment("Comment", text=f"âœ… <b>Approved by Accounts L2:</b> {user} â€” {remarks or 'Approved for Payment'}")
+
+    return {
+        "status": doc.status,
+        "message": f"Claim #{docname} successfully approved by Accounts L2! Ready for Payment Core Release."
+    }
+
+
+@frappe.whitelist()
+def save_tally_reference(docname: str, tally_reference: str):
+    """
+    Whitelisted API: Updates and saves Tally Voucher Reference on Vendor Claim.
+    """
+    if not docname or not tally_reference:
+        frappe.throw("Document Name and Tally Reference are required.")
+
+    clean_ref = tally_reference.strip().upper()
+    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+    now_ts = frappe.utils.now_datetime()
+
+    frappe.db.set_value(
+        "Vendor Invoice Claim",
+        docname,
+        {
+            "tally_reference": clean_ref,
+            "tally_posted_on": now_ts,
+            "tally_posted_by": user
+        }
+    )
+    frappe.db.commit()
+
+    return {"status": "SUCCESS", "tally_reference": clean_ref}

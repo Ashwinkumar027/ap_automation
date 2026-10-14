@@ -47,8 +47,16 @@ frappe.listview_settings["Vendor Invoice Claim"] = {
         const status = doc.status || "Draft";
         if (status === "Approved for Payment") {
             return [__("Approved for Payment"), "green", "status,=,Approved for Payment"];
+        } else if (status === "Pending Manager Approval") {
+            return [__("Pending Manager Approval"), "blue", "status,=,Pending Manager Approval"];
+        } else if (status === "Pending HoD Approval") {
+            return [__("Pending HoD Approval"), "purple", "status,=,Pending HoD Approval"];
+        } else if (status === "Pending Director Approval") {
+            return [__("Pending Director Approval"), "darkred", "status,=,Pending Director Approval"];
         } else if (status === "Pending Accounts Review") {
-            return [__("Pending Accounts Review"), "orange", "status,=,Pending Accounts Review"];
+            return [__("Pending Accounts Review (L1)"), "orange", "status,=,Pending Accounts Review"];
+        } else if (status === "Pending Accounts L2 Approval") {
+            return [__("Pending Accounts L2 Approval"), "cyan", "status,=,Pending Accounts L2 Approval"];
         } else if (status === "Disputed") {
             return [__("Disputed"), "red", "status,=,Disputed"];
         } else if (status === "Queued in Batch") {
@@ -907,22 +915,27 @@ function render_vendor_invoice_dashboard(frm) {
         `;
     }
 
-    // 1. Five-Stage Stepper
+    // 1. PRD Compliant Stepper
     let stages = [
         { label: "1. Intake", key: "Draft" },
-        { label: "2. 3-Way Match", key: "3-Way Match Passed" },
-        { label: "3. Accounts Review", key: "Pending Accounts Review" },
-        { label: "4. Batch Queued", key: "Queued in Batch" },
-        { label: "5. Settled & Paid", key: "Paid" }
+        { label: "2. Manager", key: "Pending Manager Approval" },
+        { label: "3. HoD", key: "Pending HoD Approval" },
+        { label: "4. Director (>2L)", key: "Pending Director Approval" },
+        { label: "5. Accounts L1", key: "Pending Accounts Review" },
+        { label: "6. Accounts L2", key: "Pending Accounts L2 Approval" },
+        { label: "7. Payment", key: "Paid" }
     ];
 
     let current_status = frm.doc.status || "Draft";
     let active_idx = 0;
     if (current_status === "Draft") active_idx = 0;
-    else if (current_status === "Pending Accounts Review") active_idx = 2;
-    else if (current_status === "Approved for Payment") active_idx = 2;
-    else if (current_status === "Queued in Batch") active_idx = 3;
-    else if (current_status === "Paid") active_idx = 4;
+    else if (current_status === "Pending Manager Approval") active_idx = 1;
+    else if (current_status === "Pending HoD Approval") active_idx = 2;
+    else if (current_status === "Pending Director Approval") active_idx = 3;
+    else if (current_status === "Pending Accounts Review") active_idx = 4;
+    else if (current_status === "Pending Accounts L2 Approval") active_idx = 5;
+    else if (current_status === "Approved for Payment" || current_status === "Queued in Batch") active_idx = 5;
+    else if (current_status === "Paid") active_idx = 6;
     else if (current_status === "Disputed") active_idx = 1;
 
     let stepper_html = stages.map((st, i) => {

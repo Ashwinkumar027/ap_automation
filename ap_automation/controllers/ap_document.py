@@ -24,9 +24,12 @@ class APDocument(Document):
 
     VALID_STATUSES = [
         "Draft",
+        "Submitted",
+        "Pending Manager Approval",
         "Pending HoD Approval",
-        "Pending Accounts Review",
         "Pending Director Approval",
+        "Pending Accounts Review",
+        "Pending Accounts L2 Approval",
         "Approved for Payment",
         "Queued in Batch",
         "Paid",
@@ -53,13 +56,51 @@ class APDocument(Document):
             check_group_duplicates(self)
 
     def before_save(self):
-        """Enforces immutability for approved or paid vouchers."""
+        """Enforces immutability for approved or paid vouchers, and locks amounts during approval."""
         if self.is_new():
             return
 
         old_status = frappe.db.get_value(self.doctype, self.name, "status")
         if old_status in self.LOCKED_STATUSES and self.status in self.LOCKED_STATUSES:
             self._check_tamper_attempt()
+
+        # PRD Stage 3 & Requirement 5: Amounts strictly read-only for approvers
+        approval_statuses = (
+            "Pending Manager Approval",
+            "Pending HoD Approval",
+            "Pending Director Approval",
+            "Pending Accounts Review",
+            "Pending Accounts L2 Approval"
+        )
+        if old_status in approval_statuses and self.status in approval_statuses:
+            self._check_approval_amounts_tamper()
+
+    def _check_approval_amounts_tamper(self):
+        """Strictly blocks modification of financial amounts by approvers per PRD Stage 3."""
+        old_doc = self.get_doc_before_save()
+        if not old_doc:
+            return
+
+        financial_fields = [
+            "base_amount", "gst_rate", "gst_amount", "total_invoice_amount",
+            "advance_deducted", "net_payable_amount", "total_amount",
+            "tds_section", "tds_rate", "tds_amount"
+        ]
+        for field in financial_fields:
+            if hasattr(self, field) and hasattr(old_doc, field):
+                old_val = getattr(old_doc, field, None)
+                new_val = getattr(self, field, None)
+                try:
+                    if old_val is not None and new_val is not None and round(float(old_val), 2) != round(float(new_val), 2):
+                        raise APSecurityError(
+                            f"Tamper Alert: Field '{field}' is strictly read-only during the approval workflow per PRD Stage 3. "
+                            f"Approvers cannot modify financial values (Original: {old_val}, Attempted: {new_val})."
+                        )
+                except (ValueError, TypeError):
+                    if old_val != new_val:
+                        raise APSecurityError(
+                            f"Tamper Alert: Field '{field}' is strictly read-only during the approval workflow per PRD Stage 3."
+                        )
 
     def before_delete(self):
         """Hard-blocks deletion of any document that passed beyond Draft."""

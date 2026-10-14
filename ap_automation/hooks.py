@@ -84,3 +84,13 @@ fixtures = [
         ]
     }
 ]
+
+
+# --------------------------------------------------------------------------------------
+# DOC EVENTS (Vendor Master Deduplication & Compliance)
+# --------------------------------------------------------------------------------------
+doc_events = {
+    "Supplier": {
+        "validate": "ap_automation.services.vendor_master_service.validate_supplier_deduplication"
+    }
+}

@@ -732,7 +732,7 @@ frappe.ui.form.on('Employee Reimbursement Participant', {
         const row = locals[cdt][cdn];
         if (row.employee_id) {
             frappe.call({
-                method: 'ap_automation.services.team_lunch_budget_service.get_employee_team_lunch_wallet',
+                method: 'ap_automation.services.team_bonding_wallet_service.get_employee_team_lunch_wallet',
                 args: {
                     employee_id: row.employee_id,
                     activity_date: frm.doc.activity_date || frappe.datetime.get_today()
@@ -871,7 +871,8 @@ function bind_custom_grid_uploaders(frm) {
             const row_data = (frm.doc[grid_fieldname] || [])[idx];
             if (!row_data) return;
 
-            const current_val = row_data.receipt_attachment || null;
+            const raw_val = row_data.receipt_attachment || null;
+            const current_val = (raw_val && raw_val !== "undefined" && raw_val !== "null" && typeof raw_val === "string" && raw_val.trim().length > 0) ? raw_val.trim() : null;
 
             if (cell.attr('data-rendered-url') === (current_val || 'empty')) return;
             cell.attr('data-rendered-url', current_val || 'empty');
@@ -881,9 +882,14 @@ function bind_custom_grid_uploaders(frm) {
                 const remove_btn_html = is_editable ?
                     `<span class="ap-remove-receipt" style="color:#ef4444; font-weight:bold; font-size:14px; margin-left:4px; padding:0 2px; line-height:1; cursor:pointer;" title="Remove attachment">×</span>` : '';
 
+                const is_pdf = current_val.toLowerCase().endsWith('.pdf');
+                const img_preview_html = !is_pdf ?
+                    `<img src="${current_val}" width="20" height="20" alt="Receipt preview" loading="lazy" style="width:20px; height:20px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />` :
+                    `<span style="font-size:14px;">📄</span>`;
+
                 const badge = $(`
                     <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:6px; background:#ecfdf5; border:1px solid #10b981; border-radius:5px; padding:2px 8px; cursor:pointer;" title="Click to view full receipt">
-                        <img src="${current_val}" width="20" height="20" alt="Receipt preview" loading="lazy" style="width:20px; height:20px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />
+                        ${img_preview_html}
                         <span style="font-size:11px; font-weight:700; color:#065f46;">🧾 Attached</span>
                         ${remove_btn_html}
                     </div>
@@ -1282,7 +1288,7 @@ function refresh_all_participant_wallets(frm) {
     participants.forEach((row) => {
         if (row.employee_id) {
             frappe.call({
-                method: 'ap_automation.services.team_lunch_budget_service.get_employee_team_lunch_wallet',
+                method: 'ap_automation.services.team_bonding_wallet_service.get_employee_team_lunch_wallet',
                 args: {
                     employee_id: row.employee_id,
                     activity_date: frm.doc.activity_date
