@@ -90,7 +90,13 @@
   "is_forked_voucher",
   "parent_voucher",
   "forked_voucher",
-  "approval_trail"
+  "approval_trail",
+  "manager_user_id",
+  "rejected_at_stage",
+  "rejected_by_user",
+  "rejected_by_role",
+  "baseline_amount_at_rejection",
+  "baseline_lines_hash"
  ],
  "fields": [
   {
@@ -645,6 +651,129 @@
    "description": "Journal Voucher Date entered by Accounts Team",
    "in_list_view": 1,
    "columns": 1
+  },
+  {
+   "fieldname": "pre_approval_attachment",
+   "fieldtype": "Attach Image",
+   "label": "Pre-Approval Attachment / Approval Screenshot"
+  },
+  {
+   "fieldname": "sanctioned_amount",
+   "fieldtype": "Currency",
+   "label": "Sanctioned Amount",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "is_resubmission",
+   "fieldtype": "Check",
+   "label": "Is Resubmission",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "reporting_manager",
+   "fieldtype": "Link",
+   "label": "Reporting Manager",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "fieldname": "manager_user_id",
+   "fieldtype": "Link",
+   "label": "Manager User Account",
+   "options": "User",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "manager_approver",
+   "fieldtype": "Link",
+   "label": "Manager Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "receptionist_verifier",
+   "fieldtype": "Link",
+   "label": "Receptionist Verifier",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "accounts_l2_approver",
+   "fieldtype": "Link",
+   "label": "Accounts L2 Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_releaser",
+   "fieldtype": "Link",
+   "label": "Payment Releaser",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "target_return_to",
+   "fieldtype": "Select",
+   "label": "Target Return To",
+   "options": "Employee\nReceptionist\nReporting Manager\nAdmin L1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_reference",
+   "fieldtype": "Data",
+   "label": "Payment Reference",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_release_date",
+   "fieldtype": "Datetime",
+   "label": "Payment Release Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejection_reason",
+   "fieldtype": "Small Text",
+   "label": "Rejection Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejected_at_stage",
+   "fieldtype": "Data",
+   "label": "Rejected At Stage",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "rejected_by_user",
+   "fieldtype": "Link",
+   "label": "Rejected By User",
+   "options": "User",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "rejected_by_role",
+   "fieldtype": "Data",
+   "label": "Rejected By Role",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "baseline_amount_at_rejection",
+   "fieldtype": "Currency",
+   "label": "Baseline Amount At Rejection",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "baseline_lines_hash",
+   "fieldtype": "Data",
+   "label": "Baseline Lines Hash",
+   "read_only": 1,
+   "hidden": 1
   }
  ],
  "grid_page_length": 50,
