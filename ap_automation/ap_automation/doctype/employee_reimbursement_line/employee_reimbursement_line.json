@@ -22,7 +22,7 @@
  ],
  "fields": [
   {
-   "columns": 2,
+   "columns": 1,
    "fieldname": "expense_date",
    "fieldtype": "Date",
    "in_list_view": 1,
@@ -40,7 +40,7 @@
    "reqd": 1
   },
   {
-   "columns": 3,
+   "columns": 2,
    "fieldname": "description",
    "fieldtype": "Small Text",
    "in_list_view": 1,
@@ -54,7 +54,7 @@
    "label": "OUT TIME"
   },
   {
-   "columns": 2,
+   "columns": 1,
    "fieldname": "amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
@@ -70,7 +70,7 @@
    "reqd": 1
   },
   {
-   "columns": 2,
+   "columns": 1,
    "fieldname": "payment_mode_used",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -79,14 +79,16 @@
   {
    "fieldname": "merchant_name",
    "fieldtype": "Data",
-   "in_list_view": 0,
-   "label": "Merchant / Restaurant Name"
+   "in_list_view": 1,
+   "label": "Merchant / Restaurant Name",
+   "columns": 2
   },
   {
    "fieldname": "invoice_number",
    "fieldtype": "Data",
-   "in_list_view": 0,
-   "label": "Tax Invoice / Bill #"
+   "in_list_view": 1,
+   "label": "Tax Invoice / Bill #",
+   "columns": 1
   },
   {
    "default": "0",
@@ -98,8 +100,9 @@
   {
    "fieldname": "merchant_gstin",
    "fieldtype": "Data",
-   "in_list_view": 0,
-   "label": "Merchant GSTIN"
+   "in_list_view": 1,
+   "label": "Merchant GSTIN",
+   "columns": 1
   },
   {
    "default": "0",

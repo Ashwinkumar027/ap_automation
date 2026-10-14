@@ -30,7 +30,7 @@
    "in_list_view": 1,
    "label": "Visit Date",
    "reqd": 1,
-   "columns": 2
+   "columns": 1
   },
   {
    "fieldname": "client_code",
@@ -55,8 +55,9 @@
   {
    "fieldname": "purpose",
    "fieldtype": "Data",
-   "in_list_view": 0,
-   "label": "Purpose of Visit"
+   "in_list_view": 1,
+   "label": "Purpose of Visit",
+   "columns": 2
   },
   {
    "fieldname": "cb_leg_route",
@@ -86,7 +87,7 @@
    "label": "Mode of Travel",
    "options": "Two-Wheeler\nCar\nAuto / Taxi\nPublic Transport (Bus/Metro/Train)\nFlight",
    "reqd": 1,
-   "columns": 2
+   "columns": 1
   },
   {
    "default": "Metro Cities",
@@ -95,7 +96,8 @@
    "label": "City Tier",
    "options": "Metro Cities\nNon-Metro Cities",
    "reqd": 1,
-   "in_list_view": 0
+   "in_list_view": 1,
+   "columns": 1
   },
   {
    "default": "0",
@@ -111,7 +113,8 @@
    "fieldtype": "Currency",
    "label": "Rate / KM (INR)",
    "read_only": 1,
-   "in_list_view": 0
+   "in_list_view": 1,
+   "columns": 1
   },
   {
    "default": "0",
@@ -135,7 +138,7 @@
    "fieldtype": "Attach",
    "label": "\ud83d\udcce Supporting Proof",
    "in_list_view": 1,
-   "columns": 2
+   "columns": 1
   }
  ],
  "grid_page_length": 50,

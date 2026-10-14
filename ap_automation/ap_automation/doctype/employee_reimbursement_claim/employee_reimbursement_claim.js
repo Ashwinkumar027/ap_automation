@@ -2,6 +2,37 @@
 // For license information, please see license.txt
 
 frappe.ui.form.on('Employee Reimbursement Claim', {
+    before_save: function(frm) {
+        if (frm.doc.claim_category === 'Client Visit Travel') {
+            if (frm.doc.expense_lines && frm.doc.expense_lines.length > 0) {
+                const valid_lines = (frm.doc.expense_lines || []).filter(r => (parseFloat(r.amount || 0) > 0 || r.receipt_attachment));
+                if (valid_lines.length !== frm.doc.expense_lines.length) {
+                    frm.doc.expense_lines = valid_lines;
+                    frm.refresh_field('expense_lines');
+                }
+            }
+        } else {
+            if (frm.doc.expense_lines && frm.doc.expense_lines.length > 0) {
+                const valid_lines = (frm.doc.expense_lines || []).filter(r => (
+                    parseFloat(r.amount || 0) > 0 || r.receipt_attachment || r.merchant_name || r.invoice_number || (r.description && r.description.trim())
+                ));
+                if (valid_lines.length !== frm.doc.expense_lines.length) {
+                    frm.doc.expense_lines = valid_lines;
+                    frm.refresh_field('expense_lines');
+                }
+            }
+        }
+
+        if (frm.doc.client_visit_legs && frm.doc.client_visit_legs.length > 0) {
+            const valid_legs = (frm.doc.client_visit_legs || []).filter(r => (
+                r.client_name || r.from_location || r.to_location || parseFloat(r.distance_km || 0) > 0 || parseFloat(r.leg_amount || 0) > 0
+            ));
+            if (valid_legs.length !== frm.doc.client_visit_legs.length) {
+                frm.doc.client_visit_legs = valid_legs;
+                frm.refresh_field('client_visit_legs');
+            }
+        }
+    },
     setup: function(frm) {
         apply_claim_flow_styles();
         frm.set_query('pre_travel_request', function() {

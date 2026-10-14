@@ -41,6 +41,28 @@ class EmployeeReimbursementClaim(APDocument):
     Unified 5-Category Employee Reimbursement Claim Controller.
     """
 
+    def before_validate(self):
+        """Clean up empty child rows before mandatory and validation checks."""
+        cat = getattr(self, "claim_category", "") or "General Expense"
+        if cat == "Client Visit Travel":
+            if getattr(self, "expense_lines", None):
+                self.expense_lines = [
+                    r for r in self.expense_lines
+                    if (flt(getattr(r, "amount", 0)) > 0 or getattr(r, "receipt_attachment", None))
+                ]
+        else:
+            if getattr(self, "expense_lines", None):
+                self.expense_lines = [
+                    r for r in self.expense_lines
+                    if (flt(getattr(r, "amount", 0)) > 0 or getattr(r, "receipt_attachment", None) or getattr(r, "merchant_name", None) or getattr(r, "invoice_number", None) or (getattr(r, "description", None) and str(r.description).strip()))
+                ]
+
+        if getattr(self, "client_visit_legs", None):
+            self.client_visit_legs = [
+                r for r in self.client_visit_legs
+                if (getattr(r, "client_name", None) or getattr(r, "from_location", None) or getattr(r, "to_location", None) or flt(getattr(r, "distance_km", 0)) > 0 or flt(getattr(r, "leg_amount", 0)) > 0)
+            ]
+
     def validate(self):
         """Lifecycle hook executed on document save."""
         self.bind_and_lock_hrms_profile()
