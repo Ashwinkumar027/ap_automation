@@ -78,24 +78,20 @@ def submit_pre_travel_request(docname: str) -> Dict[str, Any]:
 
     # SOP Policy Check 2: Travel Overlap Guard across Active Requests
     overlaps = frappe.db.sql("""
-        SELECT name, from_date, to_date, status
+        SELECT name, departure_date, return_date, status
         FROM `tabPre Travel Request`
         WHERE employee = %s
           AND name != %s
           AND status IN ('Pending Manager Approval', 'Approved', 'Claimed')
-          AND (
-              (from_date <= %s AND to_date >= %s)
-              OR (from_date <= %s AND to_date >= %s)
-              OR (from_date >= %s AND to_date <= %s)
-          )
+          AND NOT (return_date < %s OR departure_date > %s)
         LIMIT 1
-    """, (doc.employee, doc.name, to_date, from_date, from_date, from_date, from_date, to_date), as_dict=True)
+    """, (doc.employee, doc.name, from_date, to_date), as_dict=True)
 
     if overlaps:
         ov = overlaps[0]
         raise APValidationError(
             f"⚠️ Travel Date Overlap Detected: Employee '{doc.employee}' already has an active Pre-Travel Request #{ov['name']} "
-            f"(Status: '{ov['status']}') covering {ov['from_date']} to {ov['to_date']}. "
+            f"(Status: '{ov['status']}') covering {ov.get('departure_date')} to {ov.get('return_date')}. "
             f"Submitting overlapping travel requests for the same date interval is strictly blocked under SOP Policy §2.1."
         )
 
