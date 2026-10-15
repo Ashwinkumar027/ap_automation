@@ -254,5 +254,4 @@ function render_custom_po_actions(frm) {
         }, __('Actions'));
     }
 }
-    }
 }
