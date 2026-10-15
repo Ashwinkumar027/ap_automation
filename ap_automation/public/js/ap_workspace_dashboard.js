@@ -181,12 +181,10 @@
 
     function renderExecutiveDashboard(isManualRefresh) {
         if (!isAPHubWorkspace()) {
-            return;
-        }
-        frappe.require('/assets/ap_automation/css/ap_automation.css');
             $('#ap-executive-hub-dashboard').remove();
             return;
         }
+        frappe.require('/assets/ap_automation/css/ap_automation.css');
 
         let $target = $('.layout-main-section, .workspace-page, .page-container, #page-ap-automation .page-body').first();
         if ($target.length === 0) return;
