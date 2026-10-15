@@ -183,7 +183,19 @@ function update_dynamic_commercial_pills(frm) {
 }
 
 function render_custom_po_actions(frm) {
-    if (!frm.is_new() && frm.doc.grand_total > 0) {
+    if (!frm.is_new()) {
+        // 1-Click Download Purchase Order PDF on Official Aionion Capital Letterhead
+        frm.add_custom_button(__('📄 Download PO (PDF)'), function() {
+            const url = `/api/method/ap_automation.services.po_pdf_service.download_purchase_order_pdf?po_name=${encodeURIComponent(frm.doc.name)}`;
+            window.open(url, '_blank');
+        }).addClass('btn-primary').css({
+            'background-color': '#1e3a8a',
+            'border-color': '#172554',
+            'color': '#ffffff',
+            'font-weight': '700'
+        });
+
+        if (frm.doc.grand_total > 0) {
         if (frm.doc.vendor_sign_url) {
             frm.add_custom_button(__('📋 Copy E-Sign Link'), function() {
                 if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -240,5 +252,7 @@ function render_custom_po_actions(frm) {
                 });
             }, __('Digital Signature Test Console'), __('Apply Digital Signature'));
         }, __('Actions'));
+    }
+}
     }
 }
