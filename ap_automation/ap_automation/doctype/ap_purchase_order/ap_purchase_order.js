@@ -9,8 +9,57 @@ frappe.ui.form.on('AP Purchase Order', {
     },
 
     company_entity: function(frm) {
+        let ent = (frm.doc.company_entity || "").toLowerCase();
+        if (ent.includes("quanticus")) {
+            frm.set_value('signatory_name', 'Dileep Keerthi Kumar');
+            frm.set_value('signatory_designation', 'Director');
+            if (!frm.doc.company_gstin) frm.set_value('company_gstin', '33AAACQ5678Q1Z2');
+            if (!frm.doc.company_cin) frm.set_value('company_cin', 'U62090TN2024PTC175627');
+            if (!frm.doc.company_registered_address) frm.set_value('company_registered_address', '33, Meerlan Tower, Hanumantha Road, Balaji Nagar, Royapettah, Chennai - 600 014');
+        } else if (ent.includes("anshul") || ent.includes("gupta") || ent.includes("aag")) {
+            frm.set_value('signatory_name', 'Anish Gupta');
+            frm.set_value('signatory_designation', 'Senior Partner');
+            if (!frm.doc.company_gstin) frm.set_value('company_gstin', '33BAFPG1837F1Z5');
+            if (!frm.doc.company_cin) frm.set_value('company_cin', 'ICAI: FNA295288');
+            if (!frm.doc.company_registered_address) frm.set_value('company_registered_address', '2A, 2nd Floor, Meerlan Towers, No.33, Hanumantha Road, Royapettah, Chennai - 600 014');
+        } else if (ent.includes("global") || ent.includes("ifsc")) {
+            frm.set_value('signatory_name', 'Anish Gupta');
+            frm.set_value('signatory_designation', 'Designated Partner');
+            if (!frm.doc.company_gstin) frm.set_value('company_gstin', '24AAJFA1234F1Z9');
+            if (!frm.doc.company_cin) frm.set_value('company_cin', 'LLPIN: ABR-1234');
+            if (!frm.doc.company_registered_address) frm.set_value('company_registered_address', 'Unit 208, Pragya Accelerator II, GIFT City, Gandhinagar, Gujarat 382050');
+        } else if (ent.includes("insurance")) {
+            frm.set_value('signatory_name', 'Anish Gupta');
+            frm.set_value('signatory_designation', 'Director');
+            if (!frm.doc.company_gstin) frm.set_value('company_gstin', '33AAACI9876I1Z9');
+            if (!frm.doc.company_cin) frm.set_value('company_cin', 'U66000TN2021PTC142985');
+            if (!frm.doc.company_registered_address) frm.set_value('company_registered_address', 'No.5/2, Hanumantha Road, Balaji Nagar, Royapettah, Chennai - 600 014');
+        } else {
+            // Aionion Capital Market Services (ACM / Default)
+            frm.set_value('signatory_name', 'Anish Gupta');
+            frm.set_value('signatory_designation', 'Director');
+            if (!frm.doc.company_gstin) frm.set_value('company_gstin', '27AAACA1234A1Z5');
+            if (!frm.doc.company_cin) frm.set_value('company_cin', 'U66120TN2024PTC167864');
+            if (!frm.doc.company_registered_address) frm.set_value('company_registered_address', '3rd Floor, Meerlan Towers, No 33, Hanumantha Road, Royapettah, Chennai - 600014');
+        }
         frm.trigger('calculate_totals');
         render_entity_letterhead_banner(frm);
+    },
+
+    signatory_name: function(frm) {
+        let sig = frm.doc.signatory_name || "";
+        let ent = (frm.doc.company_entity || "").toLowerCase();
+        if (sig.includes("Dileep")) {
+            frm.set_value('signatory_designation', 'Director');
+        } else if (sig.includes("Anish")) {
+            if (ent.includes("anshul") || ent.includes("aag")) {
+                frm.set_value('signatory_designation', 'Senior Partner');
+            } else if (ent.includes("global") || ent.includes("ifsc")) {
+                frm.set_value('signatory_designation', 'Designated Partner');
+            } else {
+                frm.set_value('signatory_designation', 'Director');
+            }
+        }
     },
 
     vendor: function(frm) {
@@ -81,6 +130,7 @@ frappe.ui.form.on('AP Purchase Order', {
             frm.set_value('igst_amount', 0.0);
             frm.set_value('gst_type', `Intra-State (CGST 9% + SGST 9% - State ${comp_state || '27'})`);
         } else {
+            let half = 0.0;
             frm.set_value('cgst_amount', 0.0);
             frm.set_value('sgst_amount', 0.0);
             frm.set_value('igst_amount', total_gst);
@@ -107,13 +157,21 @@ frappe.ui.form.on('AP PO Item', {
 });
 
 function render_entity_letterhead_banner(frm) {
-    let entity = frm.doc.company_entity || "Aionion Capital Management";
+    let entity = frm.doc.company_entity || "Aionion Capital Market Services Private Limited";
     let gstin = frm.doc.company_gstin || "27AAACA1234A1Z5";
-    let cin = frm.doc.company_cin || "U74999MH2020PTC123456";
-    let addr = frm.doc.company_registered_address || "Level 8, Tower B, Peninsula Business Park, Lower Parel, Mumbai, Maharashtra 400013";
+    let cin = frm.doc.company_cin || "U66120TN2024PTC167864";
+    let addr = frm.doc.company_registered_address || "3rd Floor, Meerlan Towers, No 33, Hanumantha Road, Royapettah, Chennai - 600014";
+
+    let bg_grad = "linear-gradient(135deg, #1B365D 0%, #2B547E 100%)";
+    let ent_lower = entity.toLowerCase();
+    if (ent_lower.includes("quanticus")) {
+        bg_grad = "linear-gradient(135deg, #0369a1 0%, #0284c7 100%)";
+    } else if (ent_lower.includes("anshul") || ent_lower.includes("aag")) {
+        bg_grad = "linear-gradient(135deg, #1e3a8a 0%, #172554 100%)";
+    }
 
     let html = `
-    <div style="background: linear-gradient(135deg, #1B365D 0%, #2B547E 100%); color: white; padding: 16px 20px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(27,54,93,0.15);">
+    <div style="background: ${bg_grad}; color: white; padding: 16px 20px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(27,54,93,0.15);">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 10px; margin-bottom: 10px;">
             <div>
                 <h3 style="margin: 0; color: #FFFFFF; font-size: 18px; font-weight: 700; letter-spacing: 0.5px;">${entity}</h3>
@@ -145,37 +203,40 @@ function update_dynamic_commercial_pills(frm) {
     let bal = flt(frm.doc.balance_due_on_completion) || 0.0;
     let gst_label = frm.doc.gst_type || "Intra-State GST";
 
-    let sign_status = frm.doc.vendor_sign_status || "Not Sent";
+    let sign_status = frm.doc.status || "Draft";
     let sign_badge = `<span class="badge badge-secondary">${sign_status}</span>`;
-    if (sign_status === "Digitally Signed") sign_badge = `<span class="badge badge-success" style="background-color: #107C41; color: white;">🖋️ Digitally Signed</span>`;
-    if (sign_status === "Sent to Vendor") sign_badge = `<span class="badge badge-warning" style="background-color: #E8A838; color: #1B365D;">📩 Awaiting Signature</span>`;
+    if (sign_status === "Active PO" || frm.doc.signatory_signature_hash) {
+        sign_badge = `<span class="badge badge-success" style="background-color: #107C41; color: white;">✔ Digitally Signed & Active</span>`;
+    }
 
     let dashboard_html = `
-    <div class="custom-po-dashboard" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 5px 0;">
-        <div style="background: #F8FAFC; border-left: 4px solid #1B365D; padding: 10px 14px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-            <div style="font-size: 11px; color: #64748B; font-weight: 700; text-transform: uppercase;">Grand Total (inc GST)</div>
-            <div style="font-size: 17px; font-weight: 800; color: #1B365D; margin: 2px 0;">₹ ${format_number(grand, null, 2)}</div>
-            <div style="font-size: 11px; color: #475569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${gst_label}</div>
+    <div style="display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 200px; background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #1B365D; padding: 12px 16px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size: 11px; color: #64748b; font-weight: 700; text-transform: uppercase;">Grand Total (Inc GST)</div>
+            <div style="font-size: 20px; font-weight: 800; color: #1e293b; margin: 4px 0;">₹ ${format_currency(grand)}</div>
+            <div style="font-size: 11px; color: #475569;">${gst_label}</div>
         </div>
-        <div style="background: #F8FAFC; border-left: 4px solid #D97706; padding: 10px 14px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-            <div style="font-size: 11px; color: #64748B; font-weight: 700; text-transform: uppercase;">Advance Payable Now</div>
-            <div style="font-size: 17px; font-weight: 800; color: #D97706; margin: 2px 0;">₹ ${format_number(adv, null, 2)}</div>
+
+        <div style="flex: 1; min-width: 200px; background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size: 11px; color: #64748b; font-weight: 700; text-transform: uppercase;">Advance Payable Now</div>
+            <div style="font-size: 20px; font-weight: 800; color: #b45309; margin: 4px 0;">₹ ${format_currency(adv)}</div>
             <div style="font-size: 11px; color: #475569;">Rate: ${frm.doc.advance_percentage || '0%'}</div>
         </div>
-        <div style="background: #F8FAFC; border-left: 4px solid #107C41; padding: 10px 14px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-            <div style="font-size: 11px; color: #64748B; font-weight: 700; text-transform: uppercase;">Balance on Completion</div>
-            <div style="font-size: 17px; font-weight: 800; color: #107C41; margin: 2px 0;">₹ ${format_number(bal, null, 2)}</div>
-            <div style="font-size: 11px; color: #475569;">Terms: ${frm.doc.payment_terms || 'Net 30'}</div>
+
+        <div style="flex: 1; min-width: 200px; background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #10b981; padding: 12px 16px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size: 11px; color: #64748b; font-weight: 700; text-transform: uppercase;">Balance on Completion</div>
+            <div style="font-size: 20px; font-weight: 800; color: #047857; margin: 4px 0;">₹ ${format_currency(bal)}</div>
+            <div style="font-size: 11px; color: #475569;">Terms: ${frm.doc.payment_terms_clause || 'Milestone Based'}</div>
         </div>
-        <div style="background: #F8FAFC; border-left: 4px solid #6366F1; padding: 10px 14px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-            <div style="font-size: 11px; color: #64748B; font-weight: 700; text-transform: uppercase;">Vendor E-Sign Status</div>
-            <div style="margin-top: 4px;">${sign_badge}</div>
-            <div style="font-size: 11px; color: #475569; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">SPOC: ${frm.doc.spoc_name || 'Assigned'}</div>
+
+        <div style="flex: 0.8; min-width: 160px; background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #6366f1; padding: 12px 16px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size: 11px; color: #64748b; font-weight: 700; text-transform: uppercase;">Status</div>
+            <div style="margin: 8px 0;">${sign_badge}</div>
+            <div style="font-size: 11px; color: #475569;">Signatory: <b>${frm.doc.signatory_name || 'Anish Gupta'}</b></div>
         </div>
     </div>
     `;
 
-    // Clear previous custom headline to prevent duplicates
     if (frm.dashboard.headline && frm.dashboard.headline.length) {
         frm.dashboard.headline.empty();
     }
@@ -184,7 +245,7 @@ function update_dynamic_commercial_pills(frm) {
 
 function render_custom_po_actions(frm) {
     if (!frm.is_new()) {
-        // 1-Click Download Purchase Order PDF on Official Aionion Capital Letterhead
+        // 1. Download PO PDF Button
         frm.add_custom_button(__('📄 Download PO (PDF)'), function() {
             const url = `/api/method/ap_automation.services.po_pdf_service.download_purchase_order_pdf?po_name=${encodeURIComponent(frm.doc.name)}`;
             window.open(url, '_blank');
@@ -195,63 +256,63 @@ function render_custom_po_actions(frm) {
             'font-weight': '700'
         });
 
-        if (frm.doc.grand_total > 0) {
-        if (frm.doc.vendor_sign_url) {
-            frm.add_custom_button(__('📋 Copy E-Sign Link'), function() {
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(frm.doc.vendor_sign_url).then(() => {
-                        frappe.show_alert({
-                            message: __('📋 Vendor E-Sign Portal URL copied to clipboard!'),
-                            indicator: 'green'
-                        }, 5);
-                    });
-                } else {
-                    frappe.prompt([
-                        { fieldname: 'sign_url', fieldtype: 'Small Text', label: 'Vendor Signing URL', default: frm.doc.vendor_sign_url, read_only: 1 }
-                    ], null, __('Vendor Signing URL'));
-                }
-            }, __('Actions'));
-
-            frm.add_custom_button(__('↗️ Open Signing Portal'), function() {
-                window.open(frm.doc.vendor_sign_url, '_blank');
-            }, __('Actions'));
-        }
-        frm.add_custom_button(__('📩 Send to Vendor for E-Sign'), function() {
-            frappe.confirm(
-                `Are you sure you want to email Purchase Order <strong>#${frm.doc.name}</strong> to Vendor (${frm.doc.vendor_email}) for digital signature?`,
-                function() {
-                    frappe.call({
-                        method: 'send_po_to_vendor_for_esign',
-                        doc: frm.doc,
-                        freeze: true,
-                        freeze_message: __('Dispatching Purchase Order to Vendor...'),
-                        callback: function(r) {
-                            frm.reload_doc();
-                        }
-                    });
-                }
-            );
-        }, __('Actions')).addClass('btn-primary');
-
-        frm.add_custom_button(__('🖋️ Mock Test Vendor E-Sign'), function() {
-            frappe.prompt([
-                { fieldname: 'signer_name', fieldtype: 'Data', label: 'Signer Name', reqd: 1, default: frm.doc.vendor_contact_person || frm.doc.vendor_name },
-                { fieldname: 'signer_ip', fieldtype: 'Data', label: 'Signer IP Address', reqd: 1, default: '192.168.1.108' }
-            ], function(values) {
-                frappe.call({
-                    method: 'record_vendor_esign',
-                    doc: frm.doc,
-                    args: {
-                        signer_name: values.signer_name,
-                        signer_ip: values.signer_ip
-                    },
-                    callback: function() {
-                        frm.reload_doc();
-                        frappe.msgprint(__('🎉 Purchase Order successfully marked as Digitally Signed & Active!'));
+        // 2. Approve & Digitally Sign PO Button (Option 1)
+        if (frm.doc.status !== 'Active PO') {
+            frm.add_custom_button(__('✔ Approve & Sign PO'), function() {
+                let current_sig = frm.doc.signatory_name || 'Director';
+                frappe.confirm(
+                    `Are you sure you want to <strong>Approve & Digitally Sign</strong> Purchase Order <strong>#${frm.doc.name}</strong> as <strong>${current_sig}</strong>?`,
+                    function() {
+                        frappe.call({
+                            method: 'ap_automation.services.po_pdf_service.approve_and_digitally_sign_po',
+                            args: {
+                                po_name: frm.doc.name,
+                                signatory_name: frm.doc.signatory_name
+                            },
+                            freeze: true,
+                            freeze_message: __('Certifying Digital Signature & Activating PO...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'success') {
+                                    frappe.show_alert({
+                                        message: __('🎉 PO Approved & Digitally Certified by ' + r.message.signatory_name),
+                                        indicator: 'green'
+                                    }, 6);
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
                     }
-                });
-            }, __('Digital Signature Test Console'), __('Apply Digital Signature'));
-        }, __('Actions'));
+                );
+            }).addClass('btn-success').css({
+                'background-color': '#16a34a',
+                'border-color': '#15803d',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
+        }
+
+        // Actions menu for other utilities
+        if (frm.doc.grand_total > 0) {
+            if (frm.doc.vendor_sign_url) {
+                frm.add_custom_button(__('📋 Copy E-Sign Link'), function() {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(frm.doc.vendor_sign_url).then(() => {
+                            frappe.show_alert({
+                                message: __('📋 Vendor E-Sign Portal URL copied to clipboard!'),
+                                indicator: 'green'
+                            }, 5);
+                        });
+                    } else {
+                        frappe.prompt([
+                            { fieldname: 'sign_url', fieldtype: 'Small Text', label: 'Vendor Signing URL', default: frm.doc.vendor_sign_url, read_only: 1 }
+                        ], null, __('Vendor Signing URL'));
+                    }
+                }, __('Actions'));
+
+                frm.add_custom_button(__('↗️ Open Signing Portal'), function() {
+                    window.open(frm.doc.vendor_sign_url, '_blank');
+                }, __('Actions'));
+            }
+        }
     }
-}
 }

@@ -298,7 +298,7 @@
   {
    "fieldname": "net_taxable_value",
    "fieldtype": "Currency",
-   "label": "Net Taxable Value (₹)",
+   "label": "Net Taxable Value (\u20b9)",
    "read_only": 1
   },
   {
@@ -310,19 +310,19 @@
   {
    "fieldname": "cgst_amount",
    "fieldtype": "Currency",
-   "label": "CGST (₹)",
+   "label": "CGST (\u20b9)",
    "read_only": 1
   },
   {
    "fieldname": "sgst_amount",
    "fieldtype": "Currency",
-   "label": "SGST (₹)",
+   "label": "SGST (\u20b9)",
    "read_only": 1
   },
   {
    "fieldname": "igst_amount",
    "fieldtype": "Currency",
-   "label": "IGST (₹)",
+   "label": "IGST (\u20b9)",
    "read_only": 1
   },
   {
@@ -332,14 +332,14 @@
   {
    "fieldname": "total_gst_amount",
    "fieldtype": "Currency",
-   "label": "Total GST Amount (₹)",
+   "label": "Total GST Amount (\u20b9)",
    "read_only": 1
   },
   {
    "fieldname": "grand_total",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Grand Total PO Value (₹)",
+   "label": "Grand Total PO Value (\u20b9)",
    "read_only": 1
   },
   {
@@ -352,13 +352,13 @@
   {
    "fieldname": "advance_amount",
    "fieldtype": "Currency",
-   "label": "Calculated Advance Amount (₹)",
+   "label": "Calculated Advance Amount (\u20b9)",
    "read_only": 1
   },
   {
    "fieldname": "balance_due_on_completion",
    "fieldtype": "Currency",
-   "label": "Balance Due on Completion (₹)",
+   "label": "Balance Due on Completion (\u20b9)",
    "read_only": 1
   },
   {
@@ -380,10 +380,11 @@
    "options": "User"
   },
   {
-   "default": "Anshul Gupta",
+   "default": "Anish Gupta",
    "fieldname": "signatory_name",
-   "fieldtype": "Data",
-   "label": "Signatory Full Name"
+   "fieldtype": "Select",
+   "label": "Signatory Full Name",
+   "options": "Anish Gupta\nDileep Keerthi Kumar"
   },
   {
    "default": "Director / Authorised Officer",
