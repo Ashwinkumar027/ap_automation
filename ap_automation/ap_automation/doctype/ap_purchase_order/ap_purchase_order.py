@@ -260,4 +260,23 @@ class APPurchaseOrder(Document):
         self.status = "Active PO"
         self.save(ignore_permissions=True)
         frappe.db.commit()
+        try:
+            from ap_automation.services.notification_service import notify_on_vendor_po_signed
+            notify_on_vendor_po_signed(self.name)
+        except Exception as e:
+            frappe.log_error(f"PO signed notification error: {e}")
         return {"status": "success", "message": "Purchase Order digitally accepted and signed."}
+
+    @frappe.whitelist()
+    def record_vendor_rejection(self, reason: str = "Commercial terms discrepancy"):
+        """Records vendor rejection and notifies SPOC."""
+        self.vendor_sign_status = "Rejected by Vendor"
+        self.status = "Cancelled"
+        self.save(ignore_permissions=True)
+        frappe.db.commit()
+        try:
+            from ap_automation.services.notification_service import notify_on_vendor_po_rejected
+            notify_on_vendor_po_rejected(self.name, reason)
+        except Exception as e:
+            frappe.log_error(f"PO rejection notification error: {e}")
+        return {"status": "success", "message": "Purchase Order marked as rejected by vendor."}

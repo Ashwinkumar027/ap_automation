@@ -20,6 +20,15 @@ from ap_automation.exceptions import APValidationError, APSecurityError
 from ap_automation.services.duplicate_engine import register_spend_fingerprint, release_spend_fingerprint
 from ap_automation.services.matching_service import execute_3way_matching
 from ap_automation.services.tds_service import apply_tds_to_invoice
+from ap_automation.services.notification_service import (
+    notify_vendor_claim_submitted,
+    notify_vendor_claim_manager_approved,
+    notify_vendor_claim_hod_approved,
+    notify_vendor_claim_director_approved,
+    notify_vendor_claim_accounts_l1_verified,
+    notify_vendor_claim_accounts_l2_approved,
+    notify_vendor_claim_disputed
+)
 
 
 def log_and_throw(message: str, title: str = "Vendor Claim Validation Error", exc=APValidationError, doc=None):
@@ -59,6 +68,13 @@ class VendorInvoiceClaim(APDocument):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.flags.ignore_links = True
+
+    def after_insert(self):
+        if getattr(self, "status", None) == "Pending Manager Approval":
+            try:
+                notify_vendor_claim_submitted(self.name)
+            except Exception as e:
+                frappe.log_error(f"Vendor submission notification dispatch: {e}")
 
     def validate(self):
         """Lifecycle hook executed on document save."""
@@ -302,6 +318,10 @@ def dispute_vendor_claim(docname: str, reason_code: str, remarks: str):
     )
 
     doc.add_comment("Comment", text=f"🚫 <b>Disputed / Rejected:</b> {reason_code} — {remarks.strip()}")
+    try:
+        notify_vendor_claim_disputed(docname, reason_code, remarks.strip())
+    except Exception as e:
+        frappe.log_error(f"Vendor dispute notification dispatch: {e}")
 
     return {
         "status": "Disputed",
@@ -375,6 +395,10 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
     })
     doc.save(ignore_permissions=True)
     doc.add_comment("Comment", text=f"âœ… <b>Approved by Manager:</b> {user} â€” {remarks or 'Approved'}")
+    try:
+        notify_vendor_claim_manager_approved(docname)
+    except Exception as e:
+        frappe.log_error(f"Vendor manager approval notification dispatch: {e}")
 
     return {"status": doc.status, "message": f"Claim #{docname} successfully approved by Manager."}
 
@@ -429,6 +453,10 @@ def approve_vendor_claim_by_hod(docname: str, remarks: Optional[str] = None):
     })
     doc.save(ignore_permissions=True)
     doc.add_comment("Comment", text=f"âœ… <b>Approved by HoD:</b> {user} â€” {remarks or 'Approved'} (Next: {doc.status})")
+    try:
+        notify_vendor_claim_hod_approved(docname)
+    except Exception as e:
+        frappe.log_error(f"Vendor HoD approval notification dispatch: {e}")
 
     return {"status": doc.status, "message": f"Claim #{docname} successfully approved by HoD. Next Status: {doc.status}"}
 
@@ -482,6 +510,10 @@ def approve_vendor_claim_by_director(docname: str, remarks: Optional[str] = None
     })
     doc.save(ignore_permissions=True)
     doc.add_comment("Comment", text=f"âœ… <b>Approved by Executive Director:</b> {user} â€” {remarks or 'Approved'}")
+    try:
+        notify_vendor_claim_director_approved(docname)
+    except Exception as e:
+        frappe.log_error(f"Vendor director approval notification dispatch: {e}")
 
     return {"status": doc.status, "message": f"Claim #{docname} successfully approved by Director. Routed to Accounts L1 (Gokulnath)."}
 
@@ -547,6 +579,10 @@ def verify_vendor_claim_by_accounts_l1(docname: str, tally_reference: str, remar
     })
     doc.save(ignore_permissions=True)
     doc.add_comment("Comment", text=f"âœ… <b>Accounts L1 Verified & Tally Logged:</b> {user} | Tally Ref: <code>{clean_tally}</code>")
+    try:
+        notify_vendor_claim_accounts_l1_verified(docname)
+    except Exception as e:
+        frappe.log_error(f"Vendor accounts L1 notification dispatch: {e}")
 
     return {
         "status": doc.status,
@@ -608,6 +644,10 @@ def approve_vendor_claim_by_accounts_l2(docname: str, remarks: Optional[str] = N
     })
     doc.save(ignore_permissions=True)
     doc.add_comment("Comment", text=f"âœ… <b>Approved by Accounts L2:</b> {user} â€” {remarks or 'Approved for Payment'}")
+    try:
+        notify_vendor_claim_accounts_l2_approved(docname)
+    except Exception as e:
+        frappe.log_error(f"Vendor accounts L2 notification dispatch: {e}")
 
     return {
         "status": doc.status,

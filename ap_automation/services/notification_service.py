@@ -1297,3 +1297,494 @@ def notify_on_vendor_po_signed(po_name: str) -> None:
         )
     except Exception:
         pass
+
+
+# --------------------------------------------------------------------------------------
+
+def notify_on_vendor_po_rejected(po_name: str, rejection_reason: str = "Commercial terms discrepancy") -> None:
+    """Dispatches automated notification to SPOC and Company contact when vendor rejects PO."""
+    if not frappe.db.exists("AP Purchase Order", po_name):
+        return
+
+    po = frappe.get_doc("AP Purchase Order", po_name)
+    company = po.company_entity
+    vendor_name = po.vendor_name
+    grand_total = float(po.grand_total or 0.0)
+
+    recipients = []
+    if po.spoc_email and po.spoc_email not in recipients:
+        recipients.append(po.spoc_email)
+    if po.company_contact_email and po.company_contact_email not in recipients:
+        recipients.append(po.company_contact_email)
+
+    if not recipients:
+        recipients = ["admin@example.com"]
+
+    base_url = frappe.utils.get_url()
+    desk_url = f"{base_url}/desk/ap-purchase-order/{po.name}"
+
+    subject = f"❌ [PO Rejected by Vendor] #{po.name} - {vendor_name} (₹ {grand_total:,.2f})"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fecaca; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #ef4444; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #dc2626; font-weight: 700;">Action Required • Vendor Rejection</span>
+            <h2 style="margin: 4px 0 0 0; color: #991b1b; font-size: 20px;">Purchase Order #{po.name} Declined by Vendor</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Vendor <b>{vendor_name}</b> has declined to sign Purchase Order <b>#{po.name}</b>.
+        </p>
+        <div style="background: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px; padding: 14px; margin: 16px 0;">
+            <div style="font-size: 13px; color: #991b1b;">Rejection Reason: <b style="color: #0f172a;">{rejection_reason}</b></div>
+            <div style="font-size: 13px; color: #991b1b; margin-top: 4px;">PO Amount: <b>₹ {grand_total:,.2f}</b></div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{desk_url}" style="background: #ef4444; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Review Purchase Order in AP Desk &rarr;
+            </a>
+        </div>
+    </div>
+    """
+
+    try:
+        frappe.sendmail(
+            recipients=recipients,
+            subject=subject,
+            message=html,
+            reference_doctype="AP Purchase Order",
+            reference_name=po.name,
+            now=False
+        )
+    except Exception as e:
+        frappe.log_error(f"PO Rejection email dispatch notification: {e}")
+
+    try:
+        po.add_comment(
+            "Comment",
+            text=f"❌ <b>Vendor Declined / Rejected PO</b><br>"
+                 f"Reason: <b>{rejection_reason}</b><br>"
+                 f"Status transitioned to: <span class='indicator-pill red'>Rejected by Vendor</span>"
+        )
+    except Exception as e:
+        frappe.log_error(f"PO rejection timeline stamp error: {e}")
+
+
+# VENDOR INVOICE CLAIM NOTIFICATIONS (PRD Stage 3, 4, 6, 7 & Dispute)
+# --------------------------------------------------------------------------------------
+def notify_vendor_claim_submitted(claim_name: str) -> None:
+    """Triggered on initial filing. Alerts Manager (Level 1 in AP Matrix or Reports To)."""
+    if not frappe.db.exists("Vendor Invoice Claim", claim_name):
+        return
+    doc = frappe.get_doc("Vendor Invoice Claim", claim_name)
+    company = getattr(doc, "company", "Company")
+    vendor = getattr(doc, "vendor_name", None) or getattr(doc, "vendor", "Vendor")
+    amount = float(getattr(doc, "net_payable_amount", 0.0) or getattr(doc, "total_invoice_amount", 0.0) or 0.0)
+    doc_url = _get_form_url("Vendor Invoice Claim", claim_name)
+
+    recipients = _get_matrix_or_role_approvers(
+        company=company,
+        document_lane="AP Vendor Invoice",
+        level_number=1,
+        fallback_roles=["Admin L1 Approver", "Admin Manager"],
+        stage_keyword="Manager"
+    )
+    emp = frappe.db.get_value("Employee", {"user_id": doc.owner}, ["reports_to"], as_dict=True)
+    if emp and emp.reports_to:
+        mgr_user = frappe.db.get_value("Employee", emp.reports_to, "user_id")
+        if mgr_user and mgr_user not in recipients:
+            recipients.append(mgr_user)
+
+    subject = f"[Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)}) Submitted for Manager Review"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fed7aa; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #ea580c; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #c2410c; font-weight: 700;">Vendor Spend Gate • Stage 1 Manager Approval</span>
+            <h2 style="margin: 4px 0 0 0; color: #7c2d12; font-size: 20px;">New Vendor Invoice Submitted</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            A new vendor invoice claim has been submitted for <b>{company}</b> and requires your operational review as Reporting Manager.
+        </p>
+        <div style="background: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #9a3412; margin-bottom: 4px;">Vendor: <b style="color: #0f172a;">{vendor}</b></div>
+            <div style="font-size: 13px; color: #9a3412; margin-bottom: 4px;">Invoice Number: <b style="color: #0f172a;">#{doc.tax_invoice_number or 'DRAFT'}</b></div>
+            <div style="font-size: 13px; color: #9a3412; margin-bottom: 4px;">Intake Route: <b>{doc.invoice_type}</b></div>
+            <div style="font-size: 18px; font-weight: 800; color: #ea580c; margin-top: 8px;">Net Payable: ₹ {fmt_money(amount)}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #ea580c; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Review Claim & Approve &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Vendor Invoice Claim",
+        reference_name=claim_name,
+        alert_type="orange",
+        cc=[doc.owner],
+        is_thread_reply=False
+    )
+
+
+def notify_vendor_claim_manager_approved(claim_name: str) -> None:
+    """Triggered after Manager signs off. Alerts HoD (Level 2 in AP Matrix)."""
+    if not frappe.db.exists("Vendor Invoice Claim", claim_name):
+        return
+    doc = frappe.get_doc("Vendor Invoice Claim", claim_name)
+    company = getattr(doc, "company", "Company")
+    vendor = getattr(doc, "vendor_name", None) or getattr(doc, "vendor", "Vendor")
+    amount = float(getattr(doc, "net_payable_amount", 0.0) or 0.0)
+    doc_url = _get_form_url("Vendor Invoice Claim", claim_name)
+
+    recipients = _get_matrix_or_role_approvers(
+        company=company,
+        document_lane="AP Vendor Invoice",
+        level_number=2,
+        fallback_roles=["Admin L2 Approver", "HoD"],
+        stage_keyword="HoD"
+    )
+    subject = f"[Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)}) Approved by Manager -> Awaiting HoD"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fed7aa; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #1d4ed8; font-weight: 700;">Department Gate • Stage 2 HoD Approval</span>
+            <h2 style="margin: 4px 0 0 0; color: #1e3a8a; font-size: 20px;">Manager Approved Vendor Claim</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Reporting Manager <b>{doc.manager_approver or 'Manager'}</b> has approved this invoice for <b>{vendor}</b>. It now requires your Departmental sign-off.
+        </p>
+        <div style="background: #eff6ff; border: 1px solid #dbeafe; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #1e40af; margin-bottom: 4px;">Vendor: <b style="color: #0f172a;">{vendor}</b></div>
+            <div style="font-size: 18px; font-weight: 800; color: #1d4ed8;">Net Disbursal: ₹ {fmt_money(amount)}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Review & Sanction as HoD &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Vendor Invoice Claim",
+        reference_name=claim_name,
+        alert_type="blue",
+        cc=[doc.owner, doc.manager_approver],
+        is_thread_reply=True
+    )
+
+
+def notify_vendor_claim_hod_approved(claim_name: str) -> None:
+    """
+    Triggered after HoD signs off.
+    If Net > 2L: Alerts Business Head / Director (Level 3 in AP Matrix).
+    Else: Alerts Accounts L1 (Level 4 in AP Matrix - Gokulnath).
+    """
+    if not frappe.db.exists("Vendor Invoice Claim", claim_name):
+        return
+    doc = frappe.get_doc("Vendor Invoice Claim", claim_name)
+    company = getattr(doc, "company", "Company")
+    vendor = getattr(doc, "vendor_name", None) or getattr(doc, "vendor", "Vendor")
+    amount = float(getattr(doc, "net_payable_amount", 0.0) or 0.0)
+    thresh = float(getattr(doc, "director_threshold", 200000.0) or 200000.0)
+    doc_url = _get_form_url("Vendor Invoice Claim", claim_name)
+
+    if amount > thresh:
+        recipients = _get_matrix_or_role_approvers(
+            company=company,
+            document_lane="AP Vendor Invoice",
+            level_number=3,
+            fallback_roles=["Accounts Director", "Director Tier"],
+            stage_keyword="Director"
+        )
+        bus_head = frappe.db.get_value("Company", company, "ap_business_head")
+        if bus_head and bus_head not in recipients:
+            recipients.append(bus_head)
+
+        subject = f"[HIGH VALUE > ₹2L] [Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)}) Awaiting Director Sanction"
+        html = f"""
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e9d5ff; border-radius: 10px; padding: 24px; background: #ffffff;">
+            <div style="border-bottom: 2px solid #7c3aed; padding-bottom: 12px; margin-bottom: 16px;">
+                <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #6d28d9; font-weight: 700;">Executive Governance • High-Value Signoff</span>
+                <h2 style="margin: 4px 0 0 0; color: #581c87; font-size: 20px;">Vendor Claim Escalated to Director Tier</h2>
+            </div>
+            <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+                This claim for <b>{vendor}</b> exceeds the ₹2,00,000 threshold and requires your executive sign-off as Business Head / Executive Director.
+            </p>
+            <div style="background: #faf5ff; border: 1px solid #f3e8ff; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                <div style="font-size: 13px; color: #6b21a8; margin-bottom: 4px;">Vendor: <b style="color: #0f172a;">{vendor}</b></div>
+                <div style="font-size: 20px; font-weight: 800; color: #7c3aed;">Total Value: ₹ {fmt_money(amount)}</div>
+            </div>
+            <div style="text-align: center; margin-top: 24px;">
+                <a href="{doc_url}" style="background: #7c3aed; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                    Review & Authorize as Director &rarr;
+                </a>
+            </div>
+        </div>
+        """
+    else:
+        recipients = _get_matrix_or_role_approvers(
+            company=company,
+            document_lane="AP Vendor Invoice",
+            level_number=4,
+            fallback_roles=["Accounts L1 Auditor", "Accounts User"],
+            stage_keyword="Accounts L1"
+        )
+        subject = f"[Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)}) Approved by HoD -> Ready for Accounts L1 Audit"
+        html = f"""
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bfdbfe; border-radius: 10px; padding: 24px; background: #ffffff;">
+            <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px;">
+                <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #1d4ed8; font-weight: 700;">Finance Audit Gate • Accounts L1</span>
+                <h2 style="margin: 4px 0 0 0; color: #1e3a8a; font-size: 20px;">Ready for Accounts L1 Verification & Tally Entry</h2>
+            </div>
+            <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+                Departmental HoD approval is complete for <b>{vendor}</b>. Please complete the 3-Way Match audit and record the Tally Voucher Reference.
+            </p>
+            <div style="background: #eff6ff; border: 1px solid #dbeafe; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                <div style="font-size: 13px; color: #1e40af; margin-bottom: 4px;">Vendor: <b style="color: #0f172a;">{vendor}</b></div>
+                <div style="font-size: 18px; font-weight: 800; color: #2563eb;">Net Disbursal: ₹ {fmt_money(amount)}</div>
+            </div>
+            <div style="text-align: center; margin-top: 24px;">
+                <a href="{doc_url}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                    Audit 3-Way Match & Post Tally Ref &rarr;
+                </a>
+            </div>
+        </div>
+        """
+
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Vendor Invoice Claim",
+        reference_name=claim_name,
+        alert_type="blue",
+        cc=[doc.owner, doc.manager_approver, doc.hod_approver],
+        is_thread_reply=True
+    )
+
+
+def notify_vendor_claim_director_approved(claim_name: str) -> None:
+    """Triggered after Director signs off. Alerts Accounts L1 (Level 4 in AP Matrix - Gokulnath)."""
+    if not frappe.db.exists("Vendor Invoice Claim", claim_name):
+        return
+    doc = frappe.get_doc("Vendor Invoice Claim", claim_name)
+    company = getattr(doc, "company", "Company")
+    vendor = getattr(doc, "vendor_name", None) or getattr(doc, "vendor", "Vendor")
+    amount = float(getattr(doc, "net_payable_amount", 0.0) or 0.0)
+    doc_url = _get_form_url("Vendor Invoice Claim", claim_name)
+
+    recipients = _get_matrix_or_role_approvers(
+        company=company,
+        document_lane="AP Vendor Invoice",
+        level_number=4,
+        fallback_roles=["Accounts L1 Auditor", "Accounts User"],
+        stage_keyword="Accounts L1"
+    )
+    subject = f"[Director Cleared] [Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)}) Ready for Accounts L1"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bfdbfe; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #1d4ed8; font-weight: 700;">Director Sanction Complete • Accounts L1</span>
+            <h2 style="margin: 4px 0 0 0; color: #1e3a8a; font-size: 20px;">Executive Director Approved Vendor Claim</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Business Head / Executive Director <b>{doc.director_approver or 'Director'}</b> has authorized this invoice for <b>{vendor}</b>. Please complete L1 audit and record Tally voucher #.
+        </p>
+        <div style="background: #eff6ff; border: 1px solid #dbeafe; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #1e40af; margin-bottom: 4px;">Vendor: <b style="color: #0f172a;">{vendor}</b></div>
+            <div style="font-size: 18px; font-weight: 800; color: #2563eb;">Net Disbursal: ₹ {fmt_money(amount)}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Post Tally Voucher Reference &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Vendor Invoice Claim",
+        reference_name=claim_name,
+        alert_type="blue",
+        cc=[doc.owner, doc.manager_approver, doc.hod_approver, doc.director_approver],
+        is_thread_reply=True
+    )
+
+
+def notify_vendor_claim_accounts_l1_verified(claim_name: str) -> None:
+    """Triggered after Accounts L1 posts Tally voucher. Alerts Accounts L2 (Level 5 in AP Matrix)."""
+    if not frappe.db.exists("Vendor Invoice Claim", claim_name):
+        return
+    doc = frappe.get_doc("Vendor Invoice Claim", claim_name)
+    company = getattr(doc, "company", "Company")
+    vendor = getattr(doc, "vendor_name", None) or getattr(doc, "vendor", "Vendor")
+    amount = float(getattr(doc, "net_payable_amount", 0.0) or 0.0)
+    tally_ref = getattr(doc, "tally_reference", "POSTED")
+    doc_url = _get_form_url("Vendor Invoice Claim", claim_name)
+
+    recipients = _get_matrix_or_role_approvers(
+        company=company,
+        document_lane="AP Vendor Invoice",
+        level_number=5,
+        fallback_roles=["Accounts Manager", "Accounts Director"],
+        stage_keyword="Accounts L2"
+    )
+    subject = f"[Tally #{tally_ref}] [Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)}) Awaiting L2 Clearance"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bbf7d0; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #16a34a; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #15803d; font-weight: 700;">Final Finance Gate • Stage 7 Accounts L2</span>
+            <h2 style="margin: 4px 0 0 0; color: #14532d; font-size: 20px;">Accounts L1 Verified & Tally Logged</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Accounts L1 Auditor (<b>{doc.accounts_l1_verifier or 'Gokulnath'}</b>) has verified 3-Way matching, statutory TDS, and posted Tally Voucher <code>{tally_ref}</code>. Ready for final L2 payment authorization.
+        </p>
+        <div style="background: #f0fdf4; border: 1px solid #dcfce7; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #166534; margin-bottom: 4px;">Vendor: <b style="color: #0f172a;">{vendor}</b></div>
+            <div style="font-size: 13px; color: #166534; margin-bottom: 4px;">Tally Reference: <code style="font-weight: 700;">{tally_ref}</code></div>
+            <div style="font-size: 18px; font-weight: 800; color: #16a34a;">Approved Disbursal: ₹ {fmt_money(amount)}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #16a34a; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Grant Accounts L2 Clearance &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Vendor Invoice Claim",
+        reference_name=claim_name,
+        alert_type="green",
+        cc=[doc.owner, doc.accounts_l1_verifier],
+        is_thread_reply=True
+    )
+
+
+def notify_vendor_claim_accounts_l2_approved(claim_name: str) -> None:
+    """Triggered after Accounts L2 clearance. Alerts Payment Releaser and Submitter (Approved for Payment)."""
+    if not frappe.db.exists("Vendor Invoice Claim", claim_name):
+        return
+    doc = frappe.get_doc("Vendor Invoice Claim", claim_name)
+    company = getattr(doc, "company", "Company")
+    vendor = getattr(doc, "vendor_name", None) or getattr(doc, "vendor", "Vendor")
+    amount = float(getattr(doc, "net_payable_amount", 0.0) or 0.0)
+    doc_url = _get_form_url("Vendor Invoice Claim", claim_name)
+
+    recipients = _get_matrix_or_role_approvers(
+        company=company,
+        document_lane="AP Vendor Invoice",
+        level_number=6,
+        fallback_roles=["Payment Releaser"],
+        stage_keyword="Payment"
+    )
+    if doc.owner and doc.owner not in recipients:
+        recipients.append(doc.owner)
+
+    subject = f"✅ [Approved for Payment] [Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)})"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #86efac; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #10b981; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #047857; font-weight: 700;">Final Sanction Complete • Thursday Batch Queue</span>
+            <h2 style="margin: 4px 0 0 0; color: #064e3b; font-size: 20px;">Vendor Invoice Approved for Payment</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Accounts L2 (<b>{doc.accounts_l2_approver or 'Accounts Director'}</b>) has granted final clearance. This claim is now marked <b>Approved for Payment</b> and will be included in the Thursday payment batch for IDFC 2FA release.
+        </p>
+        <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #047857; margin-bottom: 4px;">Vendor: <b style="color: #0f172a;">{vendor}</b></div>
+            <div style="font-size: 20px; font-weight: 800; color: #059669;">Net Disbursement: ₹ {fmt_money(amount)}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #059669; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                View Approved Claim in AP Desk &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Vendor Invoice Claim",
+        reference_name=claim_name,
+        alert_type="green",
+        cc=[doc.accounts_l1_verifier, doc.accounts_l2_approver],
+        is_thread_reply=True
+    )
+
+
+def notify_vendor_claim_disputed(claim_name: str, reason_code: str, remarks: str) -> None:
+    """Triggered on dispute/rejection. Alerts Submitter, Prior Approvers, and Accounts with forensic details."""
+    if not frappe.db.exists("Vendor Invoice Claim", claim_name):
+        return
+    doc = frappe.get_doc("Vendor Invoice Claim", claim_name)
+    company = getattr(doc, "company", "Company")
+    vendor = getattr(doc, "vendor_name", None) or getattr(doc, "vendor", "Vendor")
+    amount = float(getattr(doc, "net_payable_amount", 0.0) or 0.0)
+    user = frappe.session.user if getattr(frappe, "session", None) else "Auditor"
+    doc_url = _get_form_url("Vendor Invoice Claim", claim_name)
+
+    recipients = []
+    if doc.owner:
+        recipients.append(doc.owner)
+    if getattr(doc, "claimant_email", None):
+        recipients.append(doc.claimant_email)
+    if doc.manager_approver:
+        recipients.append(doc.manager_approver)
+    if doc.accounts_l1_verifier:
+        recipients.append(doc.accounts_l1_verifier)
+    if not any(_resolve_email(r) for r in recipients):
+        matrix_mgrs = _get_matrix_or_role_approvers(
+            company=company,
+            document_lane="AP Vendor Invoice",
+            level_number=1,
+            fallback_roles=["Admin L1 Approver"],
+            stage_keyword="Manager"
+        )
+        recipients.extend(matrix_mgrs)
+
+    subject = f"🚫 [DISPUTED / REJECTED] [Invoice #{claim_name}] {company} - {vendor} ({reason_code})"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fca5a5; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #dc2626; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #991b1b; font-weight: 700;">Audit Discrepancy Flagged • Action Required</span>
+            <h2 style="margin: 4px 0 0 0; color: #7f1d1d; font-size: 20px;">Vendor Claim Flagged as Disputed / Rejected</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Auditor <b>{user}</b> has placed Vendor Claim <b>#{claim_name}</b> for <b>{vendor}</b> into <b>Disputed</b> status.
+        </p>
+        <div style="background: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #991b1b; margin-bottom: 4px;">Reason Code: <b style="color: #7f1d1d;">{reason_code}</b></div>
+            <div style="font-size: 13px; color: #991b1b; margin-bottom: 6px;">Auditor Remarks: <span style="color: #0f172a;">{remarks}</span></div>
+            <div style="font-size: 16px; font-weight: 700; color: #dc2626;">Claim Amount on Hold: ₹ {fmt_money(amount)}</div>
+        </div>
+        <p style="color: #64748b; font-size: 13px;">
+            Payment processing is strictly halted until the PO discrepancy, tax variance, or proof issue is rectified.
+        </p>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Open Claim & Resolve Discrepancy &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Vendor Invoice Claim",
+        reference_name=claim_name,
+        alert_type="red",
+        cc=[],
+        is_thread_reply=True
+    )

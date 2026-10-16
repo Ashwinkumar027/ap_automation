@@ -112,3 +112,29 @@ def submit_vendor_esign(po_name: str = None, token: str = None, signer_name: str
         "signed_at": str(po.vendor_signed_timestamp),
         "message": f"Purchase Order #{po.name} successfully signed and activated."
     }
+
+
+@frappe.whitelist(allow_guest=True)
+def reject_po(po_name: str = None, token: str = None, reason: str = "Terms not acceptable"):
+    """Whitelisted endpoint allowing vendor to reject / decline a PO via link."""
+    po_name = po_name or frappe.form_dict.get("po_name")
+    token = token or frappe.form_dict.get("token")
+    reason = reason or frappe.form_dict.get("reason") or "Terms not acceptable"
+
+    if not po_name or not token:
+        frappe.throw("Purchase Order # and Security Token are strictly mandatory.")
+
+    if not frappe.db.exists("AP Purchase Order", po_name):
+        frappe.throw(f"Purchase Order '{po_name}' not found.")
+
+    po = frappe.get_doc("AP Purchase Order", po_name)
+    token_in_doc = getattr(po, "vendor_sign_token", None)
+    if not token_in_doc and getattr(po, "vendor_sign_url", None):
+        parsed = urllib.parse.urlparse(po.vendor_sign_url)
+        params = urllib.parse.parse_qs(parsed.query)
+        token_in_doc = params.get("token", [None])[0]
+
+    if token_in_doc and not is_token_matching(token_in_doc, token):
+        frappe.throw("Invalid or expired digital signature token.")
+
+    return po.record_vendor_rejection(reason=reason)
