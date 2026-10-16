@@ -871,27 +871,12 @@ function open_vendor_receipt_gallery(frm) {
 // --------------------------------------------------------------------------------------
 function render_vendor_invoice_dashboard(frm) {
     if (!frm || !frm.dashboard) return;
-    if (frm._dashboard_render_timer) {
-        clearTimeout(frm._dashboard_render_timer);
-    }
-    frm._dashboard_render_timer = setTimeout(function() {
-        _do_render_vendor_invoice_dashboard(frm);
-    }, 40);
-}
 
-function _do_render_vendor_invoice_dashboard(frm) {
-    if (!frm || !frm.dashboard || !frm.wrapper || !frm.wrapper.length) return;
-
-    // 1. Comprehensive cleanup of any prior dashboard and headline messages
-    if (frm.dashboard && typeof frm.dashboard.clear_headline === "function") {
-        frm.dashboard.clear_headline();
+    // 1. Clean up any existing vendor claim dashboard instance so it never duplicates
+    if (frm.wrapper) {
+        $(frm.wrapper).find('.ap-vendor-claim-dashboard').closest('.form-message').remove();
+        $(frm.wrapper).find('.ap-vendor-claim-dashboard').remove();
     }
-    if (frm.layout && frm.layout.message) {
-        frm.layout.message.find(".ap-vendor-claim-dashboard").closest(".form-message").remove();
-        frm.layout.message.find(".ap-vendor-claim-dashboard").remove();
-    }
-    $(frm.wrapper).find(".ap-vendor-claim-dashboard").closest(".form-message").remove();
-    $(frm.wrapper).find(".ap-vendor-claim-dashboard").remove();
 
     let audit = run_pre_submit_audit(frm);
 
@@ -1117,16 +1102,7 @@ function _do_render_vendor_invoice_dashboard(frm) {
         </div>
     `;
 
-    frm.dashboard.set_headline(full_dashboard_html, "white", true);
-
-    // Style parent wrapper to remove bulky default borders and margins
-    let $dash = $(frm.wrapper).find('.ap-vendor-claim-dashboard');
-    $dash.closest('.form-message').css({
-        'border': 'none',
-        'padding': '0',
-        'margin': '0',
-        'background': 'transparent'
-    });
+    frm.dashboard.set_headline(full_dashboard_html);
 
     // Bind Audit Banner Click Handlers with reliable event delegation on frm.wrapper
     $(frm.wrapper).off('click.ap_vendor_claim', '.ap-err-chip').on('click.ap_vendor_claim', '.ap-err-chip', function() {
