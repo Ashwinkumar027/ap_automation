@@ -94,6 +94,12 @@ class VendorInvoiceClaim(APDocument):
 
     def before_submit(self):
         """Pre-submission verification guard: strictly halts any invalid or incomplete filing."""
+        if getattr(self, "status", "Draft") != "Approved for Payment":
+            log_and_throw(
+                f"Direct Submission Blocked: Vendor Invoice Claim must complete all required approval stages (Manager -> HoD -> Director -> Accounts L1 -> Accounts L2) before it can be submitted. Current status: '{self.status}'.",
+                title="Approval Stages Pending",
+                doc=self
+            )
         self.bind_and_lock_vendor_profile()
         self.validate_intake_route_and_proofs()
         self.calculate_financial_totals()
@@ -345,6 +351,14 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
     if doc.status != "Pending Manager Approval":
         frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not 'Pending Manager Approval'.")
 
+    if user != "Administrator" and "System Manager" not in frappe.get_roles(user):
+        if user == getattr(doc, "owner", None):
+            frappe.throw(
+                "Self-Approval Prohibited: As the creator of this claim, you cannot approve it as Manager. An independent Reporting Manager must review and sign off.",
+                title="Self-Approval Prohibited",
+                exc=APSecurityError
+            )
+
     now_ts = frappe.utils.now_datetime()
     doc.manager_approver = user
     doc.manager_approved_on = now_ts
@@ -380,6 +394,14 @@ def approve_vendor_claim_by_hod(docname: str, remarks: Optional[str] = None):
 
     if doc.status != "Pending HoD Approval":
         frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not 'Pending HoD Approval'.")
+
+    if user != "Administrator" and "System Manager" not in frappe.get_roles(user):
+        if user == getattr(doc, "owner", None):
+            frappe.throw(
+                "Self-Approval Prohibited: Submitter cannot approve their own claim as HoD.",
+                title="Self-Approval Prohibited",
+                exc=APSecurityError
+            )
 
     now_ts = frappe.utils.now_datetime()
     doc.hod_approver = user
@@ -426,6 +448,24 @@ def approve_vendor_claim_by_director(docname: str, remarks: Optional[str] = None
     if doc.status != "Pending Director Approval":
         frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not 'Pending Director Approval'.")
 
+    if user != "Administrator" and "System Manager" not in frappe.get_roles(user):
+        if user == getattr(doc, "owner", None):
+            frappe.throw(
+                "Self-Approval Prohibited: Submitter cannot approve their own claim as Director.",
+                title="Self-Approval Prohibited",
+                exc=APSecurityError
+            )
+        company = getattr(doc, "company", None)
+        bus_head = frappe.db.get_value("Company", company, "ap_business_head") if company else None
+        user_roles = frappe.get_roles(user)
+        is_auth = (user == bus_head or "Accounts Director" in user_roles or "Director Tier" in user_roles)
+        if not is_auth:
+            frappe.throw(
+                f"Access Denied: You ('{user}') are not the designated Business Head or Director for '{company}'.",
+                title="Director Authorization Required",
+                exc=APSecurityError
+            )
+
     now_ts = frappe.utils.now_datetime()
     doc.director_approver = user
     doc.director_approved_on = now_ts
@@ -468,6 +508,15 @@ def verify_vendor_claim_by_accounts_l1(docname: str, tally_reference: str, remar
 
     if doc.status != "Pending Accounts Review":
         frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not 'Pending Accounts Review'.")
+
+    if user != "Administrator" and "System Manager" not in frappe.get_roles(user):
+        user_roles = frappe.get_roles(user)
+        if not any(r in user_roles for r in ["Accounts L1 Auditor", "Accounts User", "Accounts Manager"]):
+            frappe.throw(
+                "Access Denied: Accounts L1 Verification requires 'Accounts L1 Auditor' or 'Accounts User' role.",
+                title="Accounts Permission Required",
+                exc=APSecurityError
+            )
 
     # Enforce clean 3-way match
     if doc.match_status in ("Quantity Mismatch Flagged", "Price Mismatch Flagged", "Missing GRN Flagged"):
@@ -521,6 +570,15 @@ def approve_vendor_claim_by_accounts_l2(docname: str, remarks: Optional[str] = N
 
     if doc.status != "Pending Accounts L2 Approval":
         frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not 'Pending Accounts L2 Approval'.")
+
+    if user != "Administrator" and "System Manager" not in frappe.get_roles(user):
+        user_roles = frappe.get_roles(user)
+        if not any(r in user_roles for r in ["Accounts Director", "Accounts Manager"]):
+            frappe.throw(
+                "Access Denied: Accounts L2 Approval requires 'Accounts Director' or 'Accounts Manager' role.",
+                title="Accounts Director Required",
+                exc=APSecurityError
+            )
 
     if not doc.accounts_l1_verifier:
         frappe.throw("Cannot complete L2 Approval without prior Accounts L1 Verification.", title="L1 Verification Missing")

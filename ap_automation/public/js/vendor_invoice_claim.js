@@ -110,6 +110,9 @@ frappe.ui.form.on("Vendor Invoice Claim", {
                 open_vendor_audit_inspector_modal(frm);
             }, __('Actions'));
         }
+
+        // Render dynamic approval action buttons based on current lifecycle stage & RBAC
+        render_vendor_claim_approval_buttons(frm);
     },
 
     before_submit: function(frm) {
@@ -271,6 +274,162 @@ frappe.ui.form.on("Vendor Invoice Claim", {
         frm.toggle_reqd("email_approval_attachment", !is_po);
     }
 });
+
+// --------------------------------------------------------------------------------------
+// APPROVAL ACTION BUTTONS CONTROLLER (Manager -> HoD -> Director -> Accounts L1 -> Accounts L2)
+// --------------------------------------------------------------------------------------
+function render_vendor_claim_approval_buttons(frm) {
+    if (frm.is_new() || frm.doc.docstatus === 2) return;
+
+    let status = frm.doc.status || "Draft";
+    let is_owner = frm.doc.owner === frappe.session.user;
+    let is_admin = frappe.session.user === "Administrator" || frappe.user.has_role("System Manager");
+
+    // Hide premature Frappe Submit button if claim has not completed all approval stages
+    if (status !== "Approved for Payment") {
+        if (frm.page.btn_primary && frm.page.btn_primary.text().trim() === __("Submit")) {
+            frm.page.btn_primary.hide();
+        }
+    }
+
+    // Stage 1: Pending Manager Approval
+    if (status === "Pending Manager Approval") {
+        if (!is_owner || is_admin) {
+            frm.add_custom_button(__('✅ Approve (Manager)'), function() {
+                frappe.prompt([
+                    { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Approval Remarks (Optional)') }
+                ], function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.approve_vendor_claim_by_manager',
+                        args: { docname: frm.doc.name, remarks: values.remarks || "" },
+                        freeze: true,
+                        freeze_message: __('Processing Manager Approval...'),
+                        callback: function(r) {
+                            if (r.message) {
+                                frappe.show_alert({ message: __(r.message.message), indicator: 'green' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Manager Approval'), __('Approve & Advance'));
+            }).addClass('btn-primary').css({ 'background-color': '#059669', 'border-color': '#047857', 'color': '#fff' });
+        }
+    }
+
+    // Stage 2: Pending HoD Approval
+    else if (status === "Pending HoD Approval") {
+        if (!is_owner || is_admin) {
+            frm.add_custom_button(__('✅ Approve (HoD)'), function() {
+                frappe.prompt([
+                    { fieldname: 'remarks', fieldtype: 'Small Text', label: __('HoD Remarks (Optional)') }
+                ], function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.approve_vendor_claim_by_hod',
+                        args: { docname: frm.doc.name, remarks: values.remarks || "" },
+                        freeze: true,
+                        freeze_message: __('Processing HoD Approval...'),
+                        callback: function(r) {
+                            if (r.message) {
+                                frappe.show_alert({ message: __(r.message.message), indicator: 'green' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('HoD Departmental Approval'), __('Approve & Advance'));
+            }).addClass('btn-primary').css({ 'background-color': '#059669', 'border-color': '#047857', 'color': '#fff' });
+        }
+    }
+
+    // Stage 3: Pending Director Approval (> 2L)
+    else if (status === "Pending Director Approval") {
+        if (!is_owner || is_admin) {
+            frm.add_custom_button(__('👑 Approve (Business Head / Director)'), function() {
+                frappe.prompt([
+                    { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Director Remarks (Optional)') }
+                ], function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.approve_vendor_claim_by_director',
+                        args: { docname: frm.doc.name, remarks: values.remarks || "" },
+                        freeze: true,
+                        freeze_message: __('Processing Director Approval...'),
+                        callback: function(r) {
+                            if (r.message) {
+                                frappe.show_alert({ message: __(r.message.message), indicator: 'green' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Executive Director Approval (> ₹2 Lakhs)'), __('Sanction & Advance to Accounts'));
+            }).addClass('btn-primary').css({ 'background-color': '#7c3aed', 'border-color': '#6d28d9', 'color': '#fff' });
+        }
+    }
+
+    // Stage 4: Pending Accounts Review (Gokulnath)
+    else if (status === "Pending Accounts Review") {
+        let is_accounts = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager']) || is_admin;
+        if (is_accounts) {
+            frm.add_custom_button(__('📋 Verify & Post Tally Voucher (Accounts L1)'), function() {
+                frappe.prompt([
+                    {
+                        fieldname: 'tally_reference',
+                        fieldtype: 'Data',
+                        label: __('Tally Voucher Reference Number'),
+                        description: __('Enter the official posted Tally voucher number (e.g. PV-2026-0891). Mandatory before L2 clearance.'),
+                        reqd: 1
+                    },
+                    {
+                        fieldname: 'remarks',
+                        fieldtype: 'Small Text',
+                        label: __('Audit Verification Remarks (Optional)')
+                    }
+                ], function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.verify_vendor_claim_by_accounts_l1',
+                        args: {
+                            docname: frm.doc.name,
+                            tally_reference: values.tally_reference,
+                            remarks: values.remarks || ""
+                        },
+                        freeze: true,
+                        freeze_message: __('Verifying & Logging Tally Reference...'),
+                        callback: function(r) {
+                            if (r.message) {
+                                frappe.show_alert({ message: __(r.message.message), indicator: 'green' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Accounts L1 Audit & Tally Posting'), __('Verify & Advance to L2'));
+            }).addClass('btn-primary').css({ 'background-color': '#2563eb', 'border-color': '#1d4ed8', 'color': '#fff' });
+        }
+    }
+
+    // Stage 5: Pending Accounts L2 Approval (Anshul Sir / Srinivasan Sir)
+    else if (status === "Pending Accounts L2 Approval") {
+        let is_l2 = frappe.user.has_role(['Accounts Manager', 'Accounts Director']) || is_admin;
+        if (is_l2) {
+            frm.add_custom_button(__('💳 Approve for Payment Disbursal (Accounts L2)'), function() {
+                frappe.confirm(
+                    __('Are you sure you want to grant final Accounts L2 clearance for this claim? It will be marked Approved for Payment and queued for the payment batch.'),
+                    function() {
+                        frappe.call({
+                            method: 'ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.approve_vendor_claim_by_accounts_l2',
+                            args: { docname: frm.doc.name },
+                            freeze: true,
+                            freeze_message: __('Processing Accounts L2 Approval...'),
+                            callback: function(r) {
+                                if (r.message) {
+                                    frappe.show_alert({ message: __(r.message.message), indicator: 'green' });
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }
+                );
+            }).addClass('btn-primary').css({ 'background-color': '#059669', 'border-color': '#047857', 'color': '#fff' });
+        }
+    }
+}
 
 // --------------------------------------------------------------------------------------
 // PRE-SUBMIT AUDIT ENGINE: ZERO-SILENT FAILURE GUARANTEE
