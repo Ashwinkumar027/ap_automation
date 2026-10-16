@@ -870,7 +870,28 @@ function open_vendor_receipt_gallery(frm) {
 // FORM DASHBOARD: STEPPER, 3-WAY MATCHING CARD, WATERFALL & AUDIT BANNERS
 // --------------------------------------------------------------------------------------
 function render_vendor_invoice_dashboard(frm) {
-    if (!frm.dashboard) return;
+    if (!frm || !frm.dashboard) return;
+    if (frm._dashboard_render_timer) {
+        clearTimeout(frm._dashboard_render_timer);
+    }
+    frm._dashboard_render_timer = setTimeout(function() {
+        _do_render_vendor_invoice_dashboard(frm);
+    }, 40);
+}
+
+function _do_render_vendor_invoice_dashboard(frm) {
+    if (!frm || !frm.dashboard || !frm.wrapper || !frm.wrapper.length) return;
+
+    // 1. Comprehensive cleanup of any prior dashboard and headline messages
+    if (frm.dashboard && typeof frm.dashboard.clear_headline === "function") {
+        frm.dashboard.clear_headline();
+    }
+    if (frm.layout && frm.layout.message) {
+        frm.layout.message.find(".ap-vendor-claim-dashboard").closest(".form-message").remove();
+        frm.layout.message.find(".ap-vendor-claim-dashboard").remove();
+    }
+    $(frm.wrapper).find(".ap-vendor-claim-dashboard").closest(".form-message").remove();
+    $(frm.wrapper).find(".ap-vendor-claim-dashboard").remove();
 
     let audit = run_pre_submit_audit(frm);
 
@@ -1096,27 +1117,34 @@ function render_vendor_invoice_dashboard(frm) {
         </div>
     `;
 
-    if (frm.dashboard.headline && frm.dashboard.headline.length) {
-        frm.dashboard.headline.empty();
-    }
-    frm.dashboard.set_headline(full_dashboard_html);
+    frm.dashboard.set_headline(full_dashboard_html, "white", true);
 
-    // Bind Audit Banner Click Handlers
-    $(frm.dashboard.headline).off('click', '.ap-err-chip').on('click', '.ap-err-chip', function() {
+    // Style parent wrapper to remove bulky default borders and margins
+    let $dash = $(frm.wrapper).find('.ap-vendor-claim-dashboard');
+    $dash.closest('.form-message').css({
+        'border': 'none',
+        'padding': '0',
+        'margin': '0',
+        'background': 'transparent'
+    });
+
+    // Bind Audit Banner Click Handlers with reliable event delegation on frm.wrapper
+    $(frm.wrapper).off('click.ap_vendor_claim', '.ap-err-chip').on('click.ap_vendor_claim', '.ap-err-chip', function() {
         let fieldname = $(this).attr('data-field');
         jump_to_and_highlight_field(frm, fieldname);
     });
 
-    $(frm.dashboard.headline).off('click', '.ap-btn-banner-checklist').on('click', '.ap-btn-banner-checklist', function() {
-        show_submission_blocker_dialog(frm, audit);
+    $(frm.wrapper).off('click.ap_vendor_claim', '.ap-btn-banner-checklist').on('click.ap_vendor_claim', '.ap-btn-banner-checklist', function() {
+        let current_audit = run_pre_submit_audit(frm);
+        show_submission_blocker_dialog(frm, current_audit);
     });
 
-    $(frm.dashboard.headline).off('click', '.ap-btn-banner-audit-logs').on('click', '.ap-btn-banner-audit-logs', function() {
+    $(frm.wrapper).off('click.ap_vendor_claim', '.ap-btn-banner-audit-logs').on('click.ap_vendor_claim', '.ap-btn-banner-audit-logs', function() {
         open_vendor_audit_inspector_modal(frm);
     });
 
     // Bind Manager Unlock Action Modal
-    $(frm.dashboard.headline).off('click', '.ap-btn-unlock-bank').on('click', '.ap-btn-unlock-bank', function() {
+    $(frm.wrapper).off('click.ap_vendor_claim', '.ap-btn-unlock-bank').on('click.ap_vendor_claim', '.ap-btn-unlock-bank', function() {
         let ba = $(this).attr('data-ba') || "";
         frappe.prompt([
             {

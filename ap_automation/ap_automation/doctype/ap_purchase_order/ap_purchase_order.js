@@ -220,7 +220,7 @@ function update_dynamic_commercial_pills(frm) {
     }
 
     let dashboard_html = `
-    <div style="display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap;">
+    <div class="ap-po-dashboard" style="display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap;">
         <div style="flex: 1; min-width: 200px; background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #1B365D; padding: 12px 16px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
             <div style="font-size: 11px; color: #64748b; font-weight: 700; text-transform: uppercase;">Grand Total (Inc GST)</div>
             <div style="font-size: 20px; font-weight: 800; color: #1e293b; margin: 4px 0;">₹ ${format_currency(grand)}</div>
@@ -247,10 +247,16 @@ function update_dynamic_commercial_pills(frm) {
     </div>
     `;
 
-    if (frm.dashboard.headline && frm.dashboard.headline.length) {
-        frm.dashboard.headline.empty();
+    if (frm.dashboard && typeof frm.dashboard.clear_headline === "function") {
+        frm.dashboard.clear_headline();
     }
-    frm.dashboard.set_headline(dashboard_html);
+    if (frm.layout && frm.layout.message) {
+        frm.layout.message.find(".ap-po-dashboard").closest(".form-message").remove();
+        frm.layout.message.find(".ap-po-dashboard").remove();
+    }
+    $(frm.wrapper).find(".ap-po-dashboard").closest(".form-message").remove();
+    $(frm.wrapper).find(".ap-po-dashboard").remove();
+    frm.dashboard.set_headline(dashboard_html, "white", true);
 }
 
 function render_custom_po_actions(frm) {
