@@ -168,7 +168,7 @@ def render_po_html(doc):
 
     # Signatory details
     final_signatory = doc.signatory_name or profile["default_signatory"]
-    final_designation = doc.signatory_designation or profile["default_designation"]
+    final_designation = profile["default_designation"] if not doc.signatory_designation or doc.signatory_designation in ["Director / Authorised Officer", "Director"] else doc.signatory_designation
     
     # Strictly check if PO is approved
     is_signed = bool(doc.status == "Active PO" and doc.signatory_signature_hash)
