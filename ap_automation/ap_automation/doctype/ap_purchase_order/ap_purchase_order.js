@@ -3,6 +3,7 @@
 
 frappe.ui.form.on('AP Purchase Order', {
     refresh: function(frm) {
+        frm.set_df_property('status', 'read_only', 1);
         render_entity_letterhead_banner(frm);
         render_custom_po_actions(frm);
         update_dynamic_commercial_pills(frm);

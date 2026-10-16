@@ -73,6 +73,8 @@ frappe.listview_settings["Vendor Invoice Claim"] = {
 frappe.ui.form.on("Vendor Invoice Claim", {
     refresh: function(frm) {
         frappe.require('/assets/ap_automation/css/ap_automation.css');
+        frm.set_df_property('status', 'read_only', 1);
+        frm.set_df_property('workflow_state', 'read_only', 1);
         frm.trigger("toggle_route_fields");
         render_vendor_invoice_dashboard(frm);
         setup_vendor_receipt_gallery_button(frm);
