@@ -13,7 +13,7 @@ Enforces:
 9. Group-wide duplicate spend fingerprinting via APDocument base class.
 10. Full Audit Error Logging (frappe.log_error) and Interactive Error Dialogs.
 """
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Union, Tuple
 import frappe
 from ap_automation.controllers.ap_document import APDocument
 from ap_automation.exceptions import APValidationError, APSecurityError
