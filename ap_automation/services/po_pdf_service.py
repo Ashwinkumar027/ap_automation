@@ -7,15 +7,43 @@ from frappe import _
 from frappe.utils.pdf import get_pdf
 from frappe.utils import format_date, fmt_money, flt, now_datetime
 
-PUBLIC_IMG_DIR = "/home/ashwinkumark_quanti/frappe/my-bench/apps/ap_automation/ap_automation/public/images"
+def get_image_base64_from_url_or_path(img_path):
+    """
+    Converts any file path, uploaded /files/ URL, or /assets/ URL to a clean base64 data URI.
+    Works for any image uploaded via the Frappe Desk UI or stored in app public assets.
+    """
+    if not img_path:
+        return ""
+        
+    resolved_path = None
+    
+    # 1. Check if it's a standard app asset URL
+    if img_path.startswith("/assets/ap_automation/images/"):
+        filename = img_path.replace("/assets/ap_automation/images/", "")
+        resolved_path = os.path.join("/home/ashwinkumark_quanti/frappe/my-bench/apps/ap_automation/ap_automation/public/images", filename)
+    elif img_path.startswith("/assets/"):
+        # Generic bench assets
+        rel = img_path.replace("/assets/", "")
+        resolved_path = os.path.join("/home/ashwinkumark_quanti/frappe/my-bench/sites/assets", rel)
+    elif img_path.startswith("/files/"):
+        # Uploaded public file in Frappe Desk
+        rel = img_path.replace("/files/", "")
+        site_name = frappe.local.site or "hrms1.local"
+        resolved_path = os.path.join("/home/ashwinkumark_quanti/frappe/my-bench/sites", site_name, "public", "files", rel)
+    elif img_path.startswith("/private/files/"):
+        # Uploaded private file in Frappe Desk
+        rel = img_path.replace("/private/files/", "")
+        site_name = frappe.local.site or "hrms1.local"
+        resolved_path = os.path.join("/home/ashwinkumark_quanti/frappe/my-bench/sites", site_name, "private", "files", rel)
+    elif os.path.isabs(img_path) and os.path.exists(img_path):
+        resolved_path = img_path
 
-def get_image_base64(filename):
-    path = os.path.join(PUBLIC_IMG_DIR, filename)
-    if os.path.exists(path):
-        with open(path, "rb") as f:
-            ext = filename.split(".")[-1].lower()
-            mime = "image/png" if ext == "png" else "image/jpeg"
+    if resolved_path and os.path.exists(resolved_path):
+        with open(resolved_path, "rb") as f:
+            ext = resolved_path.split(".")[-1].lower()
+            mime = "image/png" if ext == "png" else ("image/jpeg" if ext in ["jpg", "jpeg"] else "image/svg+xml")
             return f"data:{mime};base64," + base64.b64encode(f.read()).decode("utf-8")
+            
     return ""
 
 def format_inr(val):
@@ -23,135 +51,88 @@ def format_inr(val):
 
 def get_entity_profile(entity_name: str, requested_signatory: str = None):
     """
-    Returns full entity profile including branding, logos, legal registrations, 
-    addresses, and default business head / authorized signatory.
+    100% Dynamic UI-Driven Entity Profile:
+    Reads directly from Frappe Desk 'Company' record in database.
+    Zero hardcoded company names!
     """
-    e = (entity_name or "").lower().strip()
+    if not entity_name:
+        entity_name = frappe.defaults.get_user_default("Company") or "Quanticus Software Solutions Private Limited"
     
-    # 1. QUANTICUS SOFTWARE SOLUTIONS PRIVATE LIMITED
-    if "quanticus" in e:
-        return {
-            "key": "quanticus",
-            "full_name": "QUANTICUS SOFTWARE SOLUTIONS PRIVATE LIMITED",
-            "logo_b64": get_image_base64("logo_quanticus.png"),
-            "cin": "U62090TN2024PTC175627",
-            "gstin": "33AAACQ5678Q1Z2",
-            "reg_address": "33, Meerlan Tower, Hanumantha Road, Balaji Nagar, Royapettah, Chennai - 600 014",
-            "default_signatory": "Dileep Keerthi Kumar",
-            "default_designation": "Director",
-            "accent_color": "#0284c7",
-            "footer_html": """
-                <div style="text-align: center; font-size: 8.5px; color: #334155; line-height: 1.3; border-top: 1.5px solid #0284c7; padding-top: 4px; margin-top: 8px;">
-                    <b>33, MEERLAN TOWER, HANUMANTHA ROAD, BALAJI NAGAR, ROYAPETTAH, CHENNAI - 600 014</b><br>
-                    CIN: U62090TN2024PTC175627 &nbsp;|&nbsp; WWW.QUANTISYSTEMS.COM
-                </div>
-            """
-        }
-
-    # 2. ANSHUL A GUPTA & ASSOCIATES (AAG)
-    elif "anshul" in e or "gupta & associates" in e or "aag" in e:
-        return {
-            "key": "aag",
-            "full_name": "ANSHUL A GUPTA & ASSOCIATES",
-            "subtitle": "CHARTERED ACCOUNTANTS CA",
-            "logo_b64": get_image_base64("logo_aag.png"),
-            "cin": "ICAI Firm Registration No.: FNA295288",
-            "gstin": "33BAFPG1837F1Z5",
-            "phone": "+91 91500 87656 / +91 91500 23455",
-            "reg_address": "2A, 2nd Floor, Meerlan Towers, No.33, Hanumantha Road, Royapettah, Chennai - 600 014",
-            "default_signatory": requested_signatory or "Anish Gupta",
-            "default_designation": "Senior Partner",
-            "accent_color": "#1e3a8a",
-            "footer_html": """
-                <div style="text-align: center; font-size: 8.5px; color: #1e3a8a; line-height: 1.3; border-top: 1.5px solid #1e3a8a; padding-top: 4px; margin-top: 8px;">
-                    <b>2A, 2nd Floor, Meerlan Towers, No.33, Hanumantha Road, Royapettah, Chennai - 600 014</b><br>
-                    Phone: +91 91500 87656 / +91 91500 23455 &nbsp;|&nbsp; www.angassociates.com
-                </div>
-            """
-        }
-
-    # 3. AIONION GLOBAL CAPITAL MARKET SERVICES (IFSC) LLP
-    elif "global" in e or "ifsc" in e:
-        return {
-            "key": "aionion_global",
-            "full_name": "AIONION GLOBAL CAPITAL MARKET SERVICES (IFSC) LLP",
-            "logo_b64": get_image_base64("logo_aionion_global.png"),
-            "cin": "LLPIN: ABR-1234",
-            "gstin": "24AAJFA1234F1Z9",
-            "reg_address": "Unit 208, Seat No 1 to 4, First Floor, Pragya Accelerator II, Building 15B, Block 15 Road, No 1 C, Zone 1, GIFT City, Gandhinagar, Gujarat - 382050",
-            "default_signatory": requested_signatory or "Anish Gupta",
-            "default_designation": "Designated Partner",
-            "accent_color": "#1e60ff",
-            "footer_html": """
-                <div style="text-align: center; font-size: 8.5px; color: #000000; line-height: 1.3; border-top: 1.5px solid #1e60ff; padding-top: 4px; margin-top: 8px;">
-                    <b>UNIT 208, SEAT NO 1 TO 4, FIRST FLOOR, PRAGYA ACCELERATOR II, BUILDING 15B, BLOCK 15 ROAD, NO 1 C, ZONE 1,</b><br>
-                    <b>GIFT CITY, GANDHINAGAR, INDIA 382050</b>
-                    <table style="width: 100%; border-collapse: collapse; margin-top: 3px;">
-                        <tr><td style="width: 100%; height: 3px; background-color: #ff6b8b; padding: 0;"></td></tr>
-                    </table>
-                </div>
-            """
-        }
-
-    # 4. AIONION INSURANCE MARKETING PRIVATE LIMITED
-    elif "insurance" in e:
-        return {
-            "key": "aionion_insurance",
-            "full_name": "AIONION INSURANCE MARKETING PRIVATE LIMITED",
-            "logo_b64": get_image_base64("logo_aionion_insurance.png"),
-            "cin": "U66000TN2021PTC142985",
-            "gstin": "33AAACI9876I1Z9",
-            "reg_address": "No.5/2 (2/2), Hanumantha Road, Balaji Nagar, Royapettah, Chennai - 600 014",
-            "default_signatory": requested_signatory or "Anish Gupta",
-            "default_designation": "Director",
-            "accent_color": "#1e3a8a",
-            "footer_html": """
-                <div style="text-align: center; font-size: 8.5px; color: #000000; line-height: 1.3; border-top: 1.5px solid #1e3a8a; padding-top: 4px; margin-top: 8px;">
-                    <b>NO.5/2 (2/2), HANUMANTHA ROAD, BALAJI NAGAR, ROYAPETTAH, CHENNAI - 600 014</b><br>
-                    CIN: U66000TN2021PTC142985
-                </div>
-            """
-        }
-
-    # 5. AIONION CAPITAL MARKET SERVICES PRIVATE LIMITED (ACM / Default)
+    comp = None
+    if frappe.db.exists("Company", entity_name):
+        comp = frappe.get_doc("Company", entity_name)
     else:
-        return {
-            "key": "aionion_capital",
-            "full_name": "AIONION CAPITAL MARKET SERVICES PRIVATE LIMITED",
-            "logo_b64": get_image_base64("logo_aionion_capital.png"),
-            "cin": "U66120TN2024PTC167864",
-            "gstin": "27AAACA1234A1Z5",
-            "sebi": "INZ000318532",
-            "amfi": "ARN-296313",
-            "reg_address": "3rd Floor, Meerlan Towers, No 33, Hanumantha Road, Royapettah, Chennai - 600 014",
-            "default_signatory": requested_signatory or "Anish Gupta",
-            "default_designation": "Director",
-            "accent_color": "#1e60ff",
-            "footer_html": """
-                <div style="margin-top: 8px;">
-                    <table style="width: 100%; border-collapse: collapse; font-size: 8px; color: #000000; line-height: 1.25; border-top: 1.5px solid #1e60ff; padding-top: 3px;">
-                        <tr>
-                            <td style="width: 55%; vertical-align: top; padding-top: 3px;">
-                                REG OFFICE: 3RD FLOOR, MEERLAN TOWERS,<br>
-                                NO 33, HANUMANTHA ROAD, ROYAPETTAH, CHENNAI - 600014.<br>
-                                SEBI REGISTRATION NO : INZ000318532
-                            </td>
-                            <td style="width: 45%; text-align: right; vertical-align: top; padding-top: 3px;">
-                                COMPLIANCE@AIONIONCAPITAL.COM<br>
-                                CIN: U66120TN2024PTC167864<br>
-                                AMFI REG. NO. : ARN-296313
-                            </td>
-                        </tr>
-                    </table>
-                    <table style="width: 100%; border-collapse: collapse; margin-top: 3px;">
-                        <tr>
-                            <td style="width: 50%; height: 4px; background-color: #ff6b8b; padding: 0;"></td>
-                            <td style="width: 50%; height: 4px; background-color: #1e60ff; padding: 0;"></td>
-                        </tr>
-                    </table>
-                </div>
-            """
-        }
+        matches = frappe.get_all("Company", filters={"company_name": ["like", f"%{entity_name}%"]}, pluck="name")
+        if matches:
+            comp = frappe.get_doc("Company", matches[0])
+            
+    if not comp:
+        all_comps = frappe.get_all("Company", pluck="name")
+        if all_comps:
+            comp = frappe.get_doc("Company", all_comps[0])
+            
+    full_name = (comp.company_name or comp.name if comp else entity_name).upper()
+    cin = (comp.get("ap_corporate_cin") or comp.get("cin") or "") if comp else ""
+    gstin = (comp.get("tax_id") or "") if comp else ""
+    reg_address = (comp.get("ap_registered_address") or "") if comp else ""
+    accent_color = (comp.get("ap_accent_color") or "#0284c7") if comp else "#0284c7"
+    footer_text = (comp.get("ap_footer_compliance") or "") if comp else ""
+    
+    # Dynamic Business Head & Signatory from Company UI record
+    primary_sig_name = comp.get("ap_signatory_name") if comp else "Dileep Keerthi Kumar"
+    primary_designation = comp.get("ap_signatory_designation") if comp else "Director"
+    alternate_sig_name = comp.get("ap_alternate_name") if comp else "Anish Gupta"
+    alternate_designation = comp.get("ap_alternate_designation") if comp else "Director"
+    
+    # Determine final signatory based on requested signatory override
+    final_signatory = requested_signatory or primary_sig_name
+    if requested_signatory and alternate_sig_name and requested_signatory.strip().lower() == alternate_sig_name.strip().lower():
+        final_designation = alternate_designation
+    elif requested_signatory and primary_sig_name and requested_signatory.strip().lower() == primary_sig_name.strip().lower():
+        final_designation = primary_designation
+    else:
+        final_designation = primary_designation
+        
+    # Read logo dynamically from Company record
+    logo_b64 = ""
+    logo_path = comp.get("ap_letterhead_logo") or comp.get("company_logo") if comp else None
+    if logo_path:
+        logo_b64 = get_image_base64_from_url_or_path(logo_path)
+        
+    if not logo_b64:
+        # Fallback to default asset logo if none uploaded
+        fallback_path = "/home/ashwinkumark_quanti/frappe/my-bench/apps/ap_automation/ap_automation/public/images/logo_quanticus.png"
+        if os.path.exists(fallback_path):
+            with open(fallback_path, "rb") as f:
+                logo_b64 = "data:image/png;base64," + base64.b64encode(f.read()).decode("utf-8")
+        
+    # Build clean footer HTML from Company UI record
+    if footer_text:
+        formatted_footer = "<br>".join([f"<b>{line.strip()}</b>" if i == 0 else line.strip() for i, line in enumerate(footer_text.strip().split("\n"))])
+        footer_html = f"""
+        <div style="text-align: center; font-size: 8.5px; color: #334155; line-height: 1.3; border-top: 1.5px solid {accent_color}; padding-top: 4px; margin-top: 8px;">
+            {formatted_footer}
+        </div>
+        """
+    else:
+        footer_html = f"""
+        <div style="text-align: center; font-size: 8.5px; color: #334155; line-height: 1.3; border-top: 1.5px solid {accent_color}; padding-top: 4px; margin-top: 8px;">
+            <b>{reg_address}</b><br>
+            CIN: {cin} &nbsp;|&nbsp; GSTIN: {gstin}
+        </div>
+        """
+        
+    return {
+        "full_name": full_name,
+        "logo_b64": logo_b64,
+        "cin": cin,
+        "gstin": gstin,
+        "reg_address": reg_address,
+        "accent_color": accent_color,
+        "default_signatory": final_signatory,
+        "default_designation": final_designation,
+        "footer_html": footer_html
+    }
 
 
 def render_po_html(doc):
@@ -317,7 +298,7 @@ def render_po_html(doc):
         </style>
     </head>
     <body>
-        <!-- Official Header (NO dark watermark in body) -->
+        <!-- Official Header (Generated dynamically from Company master) -->
         <div class="header-container">
             <img src="{profile['logo_b64']}" class="header-logo" alt="{profile['full_name']}">
             <div class="company-title">{profile['full_name']}</div>
@@ -412,12 +393,60 @@ def render_po_html(doc):
             </div>
         </div>
 
-        <!-- Dynamic Official Footer -->
+        <!-- Dynamic Official Footer from Company Settings -->
         {profile['footer_html']}
     </body>
     </html>
     """
     return html
+
+
+@frappe.whitelist()
+def get_company_po_defaults(company_name: str):
+    """
+    Dynamically loads PO defaults directly from Company record.
+    Used by Client Script when Company Entity is changed.
+    """
+    if not company_name:
+        return {}
+        
+    comp = frappe.get_doc("Company", company_name)
+    return {
+        "company_name": comp.name,
+        "gstin": comp.get("tax_id") or "",
+        "cin": comp.get("ap_corporate_cin") or comp.get("cin") or "",
+        "registered_address": comp.get("ap_registered_address") or "",
+        "signatory_name": comp.get("ap_signatory_name") or "Anish Gupta",
+        "signatory_designation": comp.get("ap_signatory_designation") or "Director",
+        "business_head_user": comp.get("ap_business_head") or "",
+        "alternate_name": comp.get("ap_alternate_name") or "",
+        "alternate_designation": comp.get("ap_alternate_designation") or "",
+        "alternate_signatory_user": comp.get("ap_alternate_signatory") or "",
+        "accent_color": comp.get("ap_accent_color") or "#0284c7"
+    }
+
+
+@frappe.whitelist()
+def get_signatory_designation_for_company(company_name: str, signatory_name: str):
+    """
+    Resolves designation and user link for the selected signatory under this company.
+    """
+    if not company_name or not signatory_name:
+        return {"designation": "Director"}
+        
+    comp = frappe.get_doc("Company", company_name)
+    sig_clean = signatory_name.strip().lower()
+    
+    if comp.get("ap_alternate_name") and sig_clean == comp.get("ap_alternate_name").strip().lower():
+        return {
+            "designation": comp.get("ap_alternate_designation") or "Director",
+            "user": comp.get("ap_alternate_signatory") or ""
+        }
+        
+    return {
+        "designation": comp.get("ap_signatory_designation") or "Director",
+        "user": comp.get("ap_business_head") or ""
+    }
 
 
 @frappe.whitelist()
@@ -430,7 +459,7 @@ def approve_and_digitally_sign_po(po_name: str, signatory_name: str = None):
         frappe.throw(_("PO Name is required."))
 
     doc = frappe.get_doc("AP Purchase Order", po_name)
-    profile = get_entity_profile(doc.company_entity)
+    profile = get_entity_profile(doc.company_entity, signatory_name)
 
     # Determine signatory
     chosen_signatory = signatory_name or doc.signatory_name or profile["default_signatory"]

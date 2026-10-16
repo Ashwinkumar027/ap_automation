@@ -81,6 +81,13 @@ fixtures = [
                 ]
             ]
         ]
+    },
+    {
+        "dt": "Custom Field",
+        "filters": [
+            ["dt", "=", "Company"],
+            ["fieldname", "like", "ap_%"]
+        ]
     }
 ]
 

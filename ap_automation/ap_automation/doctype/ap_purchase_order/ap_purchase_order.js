@@ -6,60 +6,61 @@ frappe.ui.form.on('AP Purchase Order', {
         render_entity_letterhead_banner(frm);
         render_custom_po_actions(frm);
         update_dynamic_commercial_pills(frm);
+        setup_dynamic_signatory_options(frm);
     },
 
     company_entity: function(frm) {
-        let ent = (frm.doc.company_entity || "").toLowerCase();
-        if (ent.includes("quanticus")) {
-            frm.set_value('signatory_name', 'Dileep Keerthi Kumar');
-            frm.set_value('signatory_designation', 'Director');
-            if (!frm.doc.company_gstin) frm.set_value('company_gstin', '33AAACQ5678Q1Z2');
-            if (!frm.doc.company_cin) frm.set_value('company_cin', 'U62090TN2024PTC175627');
-            if (!frm.doc.company_registered_address) frm.set_value('company_registered_address', '33, Meerlan Tower, Hanumantha Road, Balaji Nagar, Royapettah, Chennai - 600 014');
-        } else if (ent.includes("anshul") || ent.includes("gupta") || ent.includes("aag")) {
-            frm.set_value('signatory_name', 'Anish Gupta');
-            frm.set_value('signatory_designation', 'Senior Partner');
-            if (!frm.doc.company_gstin) frm.set_value('company_gstin', '33BAFPG1837F1Z5');
-            if (!frm.doc.company_cin) frm.set_value('company_cin', 'ICAI: FNA295288');
-            if (!frm.doc.company_registered_address) frm.set_value('company_registered_address', '2A, 2nd Floor, Meerlan Towers, No.33, Hanumantha Road, Royapettah, Chennai - 600 014');
-        } else if (ent.includes("global") || ent.includes("ifsc")) {
-            frm.set_value('signatory_name', 'Anish Gupta');
-            frm.set_value('signatory_designation', 'Designated Partner');
-            if (!frm.doc.company_gstin) frm.set_value('company_gstin', '24AAJFA1234F1Z9');
-            if (!frm.doc.company_cin) frm.set_value('company_cin', 'LLPIN: ABR-1234');
-            if (!frm.doc.company_registered_address) frm.set_value('company_registered_address', 'Unit 208, Pragya Accelerator II, GIFT City, Gandhinagar, Gujarat 382050');
-        } else if (ent.includes("insurance")) {
-            frm.set_value('signatory_name', 'Anish Gupta');
-            frm.set_value('signatory_designation', 'Director');
-            if (!frm.doc.company_gstin) frm.set_value('company_gstin', '33AAACI9876I1Z9');
-            if (!frm.doc.company_cin) frm.set_value('company_cin', 'U66000TN2021PTC142985');
-            if (!frm.doc.company_registered_address) frm.set_value('company_registered_address', 'No.5/2, Hanumantha Road, Balaji Nagar, Royapettah, Chennai - 600 014');
-        } else {
-            // Aionion Capital Market Services (ACM / Default)
-            frm.set_value('signatory_name', 'Anish Gupta');
-            frm.set_value('signatory_designation', 'Director');
-            if (!frm.doc.company_gstin) frm.set_value('company_gstin', '27AAACA1234A1Z5');
-            if (!frm.doc.company_cin) frm.set_value('company_cin', 'U66120TN2024PTC167864');
-            if (!frm.doc.company_registered_address) frm.set_value('company_registered_address', '3rd Floor, Meerlan Towers, No 33, Hanumantha Road, Royapettah, Chennai - 600014');
-        }
-        frm.trigger('calculate_totals');
-        render_entity_letterhead_banner(frm);
+        if (!frm.doc.company_entity) return;
+
+        frappe.call({
+            method: 'ap_automation.services.po_pdf_service.get_company_po_defaults',
+            args: {
+                company_name: frm.doc.company_entity
+            },
+            callback: function(r) {
+                if (r.message) {
+                    let d = r.message;
+                    if (d.gstin) frm.set_value('company_gstin', d.gstin);
+                    if (d.cin) frm.set_value('company_cin', d.cin);
+                    if (d.registered_address) frm.set_value('company_registered_address', d.registered_address);
+
+                    if (d.signatory_name) frm.set_value('signatory_name', d.signatory_name);
+                    if (d.signatory_designation) frm.set_value('signatory_designation', d.signatory_designation);
+                    if (d.business_head_user) frm.set_value('authorised_signatory', d.business_head_user);
+
+                    // Dynamically build dropdown options from Company record
+                    let opts = [];
+                    if (d.signatory_name) opts.push(d.signatory_name);
+                    if (d.alternate_name && !opts.includes(d.alternate_name)) {
+                        opts.push(d.alternate_name);
+                    }
+                    if (opts.length > 0) {
+                        frm.set_df_property('signatory_name', 'options', opts.join('\n'));
+                        frm.refresh_field('signatory_name');
+                    }
+                }
+                frm.trigger('calculate_totals');
+                render_entity_letterhead_banner(frm);
+            }
+        });
     },
 
     signatory_name: function(frm) {
-        let sig = frm.doc.signatory_name || "";
-        let ent = (frm.doc.company_entity || "").toLowerCase();
-        if (sig.includes("Dileep")) {
-            frm.set_value('signatory_designation', 'Director');
-        } else if (sig.includes("Anish")) {
-            if (ent.includes("anshul") || ent.includes("aag")) {
-                frm.set_value('signatory_designation', 'Senior Partner');
-            } else if (ent.includes("global") || ent.includes("ifsc")) {
-                frm.set_value('signatory_designation', 'Designated Partner');
-            } else {
-                frm.set_value('signatory_designation', 'Director');
+        if (!frm.doc.company_entity || !frm.doc.signatory_name) return;
+
+        frappe.call({
+            method: 'ap_automation.services.po_pdf_service.get_signatory_designation_for_company',
+            args: {
+                company_name: frm.doc.company_entity,
+                signatory_name: frm.doc.signatory_name
+            },
+            callback: function(r) {
+                if (r.message) {
+                    if (r.message.designation) frm.set_value('signatory_designation', r.message.designation);
+                    if (r.message.user) frm.set_value('authorised_signatory', r.message.user);
+                }
             }
-        }
+        });
     },
 
     vendor: function(frm) {
@@ -156,22 +157,31 @@ frappe.ui.form.on('AP PO Item', {
     items_remove: function(frm) { frm.trigger('calculate_totals'); }
 });
 
-function render_entity_letterhead_banner(frm) {
-    let entity = frm.doc.company_entity || "Aionion Capital Market Services Private Limited";
-    let gstin = frm.doc.company_gstin || "27AAACA1234A1Z5";
-    let cin = frm.doc.company_cin || "U66120TN2024PTC167864";
-    let addr = frm.doc.company_registered_address || "3rd Floor, Meerlan Towers, No 33, Hanumantha Road, Royapettah, Chennai - 600014";
+function setup_dynamic_signatory_options(frm) {
+    if (!frm.doc.company_entity) return;
+    frappe.db.get_value('Company', frm.doc.company_entity, ['ap_signatory_name', 'ap_alternate_name'], function(r) {
+        if (r) {
+            let opts = [];
+            if (r.ap_signatory_name) opts.push(r.ap_signatory_name);
+            if (r.ap_alternate_name && !opts.includes(r.ap_alternate_name)) {
+                opts.push(r.ap_alternate_name);
+            }
+            if (opts.length > 0) {
+                frm.set_df_property('signatory_name', 'options', opts.join('\n'));
+                frm.refresh_field('signatory_name');
+            }
+        }
+    });
+}
 
-    let bg_grad = "linear-gradient(135deg, #1B365D 0%, #2B547E 100%)";
-    let ent_lower = entity.toLowerCase();
-    if (ent_lower.includes("quanticus")) {
-        bg_grad = "linear-gradient(135deg, #0369a1 0%, #0284c7 100%)";
-    } else if (ent_lower.includes("anshul") || ent_lower.includes("aag")) {
-        bg_grad = "linear-gradient(135deg, #1e3a8a 0%, #172554 100%)";
-    }
+function render_entity_letterhead_banner(frm) {
+    let entity = frm.doc.company_entity || "Company Entity";
+    let gstin = frm.doc.company_gstin || "GSTIN Pending";
+    let cin = frm.doc.company_cin || "CIN Pending";
+    let addr = frm.doc.company_registered_address || "Registered Address Pending";
 
     let html = `
-    <div style="background: ${bg_grad}; color: white; padding: 16px 20px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(27,54,93,0.15);">
+    <div style="background: linear-gradient(135deg, #1B365D 0%, #2B547E 100%); color: white; padding: 16px 20px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(27,54,93,0.15);">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 10px; margin-bottom: 10px;">
             <div>
                 <h3 style="margin: 0; color: #FFFFFF; font-size: 18px; font-weight: 700; letter-spacing: 0.5px;">${entity}</h3>
@@ -232,7 +242,7 @@ function update_dynamic_commercial_pills(frm) {
         <div style="flex: 0.8; min-width: 160px; background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #6366f1; padding: 12px 16px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
             <div style="font-size: 11px; color: #64748b; font-weight: 700; text-transform: uppercase;">Status</div>
             <div style="margin: 8px 0;">${sign_badge}</div>
-            <div style="font-size: 11px; color: #475569;">Signatory: <b>${frm.doc.signatory_name || 'Anish Gupta'}</b></div>
+            <div style="font-size: 11px; color: #475569;">Signatory: <b>${frm.doc.signatory_name || 'Authorised Signatory'}</b></div>
         </div>
     </div>
     `;
@@ -256,7 +266,7 @@ function render_custom_po_actions(frm) {
             'font-weight': '700'
         });
 
-        // 2. Approve & Digitally Sign PO Button (Option 1)
+        // 2. Approve & Digitally Sign PO Button
         if (frm.doc.status !== 'Active PO') {
             frm.add_custom_button(__('✔ Approve & Sign PO'), function() {
                 let current_sig = frm.doc.signatory_name || 'Director';
