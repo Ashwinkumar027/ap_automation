@@ -541,7 +541,7 @@ def verify_vendor_claim_by_accounts_l1(docname: str, tally_reference: str, remar
         "level_number": 4,
         "level_name": "Stage 4 & 6: Accounts L1 Verification & Tally Logged",
         "action_taken_by": user,
-        "action": "VERIFIED",
+        "action": "APPROVED",
         "action_timestamp": now_ts,
         "remarks": f"Verified by L1 (Gokulnath) | Tally Ref: {clean_tally} | {remarks or 'Voucher Posted to Tally'}"
     })

@@ -46,7 +46,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Action",
-   "options": "APPROVED\nDISPUTED\nREJECTED"
+   "options": "APPROVED\nVERIFIED\nDISPUTED\nREJECTED"
   },
   {
    "fieldname": "action_timestamp",
