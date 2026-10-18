@@ -296,7 +296,8 @@ function render_vendor_claim_approval_buttons(frm) {
 
     // Stage 1: Pending Manager Approval
     if (status === "Pending Manager Approval") {
-        if (!is_owner || is_admin) {
+        let is_mgr = frappe.user.has_role(["Admin L1 Approver", "Admin Manager", "System Manager"]) || is_admin;
+        if ((!is_owner && is_mgr) || is_admin) {
             frm.add_custom_button(__('✅ Approve (Manager)'), function() {
                 frappe.prompt([
                     { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Approval Remarks (Optional)') }
@@ -320,7 +321,8 @@ function render_vendor_claim_approval_buttons(frm) {
 
     // Stage 2: Pending HoD Approval
     else if (status === "Pending HoD Approval") {
-        if (!is_owner || is_admin) {
+        let is_hod = frappe.user.has_role(["Admin L2 Approver", "HoD", "System Manager"]) || is_admin;
+        if ((!is_owner && is_hod) || is_admin) {
             frm.add_custom_button(__('✅ Approve (HoD)'), function() {
                 frappe.prompt([
                     { fieldname: 'remarks', fieldtype: 'Small Text', label: __('HoD Remarks (Optional)') }
@@ -344,7 +346,8 @@ function render_vendor_claim_approval_buttons(frm) {
 
     // Stage 3: Pending Director Approval (> 2L)
     else if (status === "Pending Director Approval") {
-        if (!is_owner || is_admin) {
+        let is_dir = frappe.user.has_role(["Accounts Director", "Director Tier", "System Manager"]) || is_admin;
+        if ((!is_owner && is_dir) || is_admin) {
             frm.add_custom_button(__('👑 Approve (Business Head / Director)'), function() {
                 frappe.prompt([
                     { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Director Remarks (Optional)') }

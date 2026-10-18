@@ -378,6 +378,30 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
                 title="Self-Approval Prohibited",
                 exc=APSecurityError
             )
+        # Check authorization via Matrix or Role or Reports To
+        from ap_automation.services.notification_service import _get_matrix_or_role_approvers
+        company = getattr(doc, "company", None)
+        matrix_mgrs = _get_matrix_or_role_approvers(
+            company=company,
+            document_lane="AP Vendor Invoice",
+            level_number=1,
+            fallback_roles=["Admin L1 Approver", "Admin Manager"],
+            stage_keyword="Manager"
+        )
+        user_roles = frappe.get_roles(user)
+        is_auth = (user in matrix_mgrs or any(r in user_roles for r in ["Admin L1 Approver", "Admin Manager", "Reporting Manager"]))
+        if not is_auth:
+            emp = frappe.db.get_value("Employee", {"user_id": doc.owner}, ["reports_to"], as_dict=True)
+            if emp and emp.reports_to:
+                mgr_user = frappe.db.get_value("Employee", emp.reports_to, "user_id")
+                if mgr_user == user:
+                    is_auth = True
+        if not is_auth:
+            frappe.throw(
+                f"Access Denied: You ('{user}') are not designated as Manager or Admin L1 for '{company}'.",
+                title="Manager Authorization Required",
+                exc=APSecurityError
+            )
 
     now_ts = frappe.utils.now_datetime()
     doc.manager_approver = user
@@ -424,6 +448,24 @@ def approve_vendor_claim_by_hod(docname: str, remarks: Optional[str] = None):
             frappe.throw(
                 "Self-Approval Prohibited: Submitter cannot approve their own claim as HoD.",
                 title="Self-Approval Prohibited",
+                exc=APSecurityError
+            )
+        # Check authorization via Matrix or Role
+        from ap_automation.services.notification_service import _get_matrix_or_role_approvers
+        company = getattr(doc, "company", None)
+        matrix_hods = _get_matrix_or_role_approvers(
+            company=company,
+            document_lane="AP Vendor Invoice",
+            level_number=2,
+            fallback_roles=["Admin L2 Approver", "HoD"],
+            stage_keyword="HoD"
+        )
+        user_roles = frappe.get_roles(user)
+        is_auth = (user in matrix_hods or any(r in user_roles for r in ["Admin L2 Approver", "HoD"]))
+        if not is_auth:
+            frappe.throw(
+                f"Access Denied: You ('{user}') are not designated as Head of Department (HoD) for '{company}'.",
+                title="HoD Authorization Required",
                 exc=APSecurityError
             )
 
@@ -485,8 +527,16 @@ def approve_vendor_claim_by_director(docname: str, remarks: Optional[str] = None
             )
         company = getattr(doc, "company", None)
         bus_head = frappe.db.get_value("Company", company, "ap_business_head") if company else None
+        from ap_automation.services.notification_service import _get_matrix_or_role_approvers
+        matrix_dirs = _get_matrix_or_role_approvers(
+            company=company,
+            document_lane="AP Vendor Invoice",
+            level_number=3,
+            fallback_roles=["Accounts Director", "Director Tier"],
+            stage_keyword="Director"
+        )
         user_roles = frappe.get_roles(user)
-        is_auth = (user == bus_head or "Accounts Director" in user_roles or "Director Tier" in user_roles)
+        is_auth = (user == bus_head or user in matrix_dirs or "Accounts Director" in user_roles or "Director Tier" in user_roles)
         if not is_auth:
             frappe.throw(
                 f"Access Denied: You ('{user}') are not the designated Business Head or Director for '{company}'.",
