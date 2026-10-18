@@ -195,30 +195,59 @@
 </head>
 <body>
 
-<!-- Dynamic Letterhead or Fallback Header -->
-{% set letter_head_content = frappe.db.get_value("Letter Head", doc.letter_head or (doc.company and frappe.db.get_value("Company", doc.company, "default_letter_head")), "content") %}
-{% if letter_head_content %}
-    <div style="margin-bottom: 16px;">
-        {{ letter_head_content }}
-    </div>
-{% else %}
-    <table class="header-table">
+<!-- Dynamic Header from Offer Letter Print Settings or Letter Head -->
+{% set company_settings = get_company_print_settings(doc.company) if doc.company and get_company_print_settings is defined else None %}
+{% if company_settings and (company_settings.company_logo_base64 or company_settings.company_logo_url) %}
+    <table class="header-table" style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
         <tr>
-            <td style="vertical-align: top;">
-                <div class="tag-title">EXPENSE CLAIMS / IMPREST PROPOSAL</div>
-                <h1 class="brand-name">{{ doc.company or "Corona Creative Solutions" }}</h1>
-                <div class="brand-sub">Automated financial proposal, approval routing, and accounting handoff for event spends.</div>
-            </td>
-            <td style="text-align: right; vertical-align: top;">
-                <div style="font-size: 11px; color: #64748b;">Generated On</div>
-                <div style="font-size: 12px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">
-                    {{ frappe.utils.format_datetime(frappe.utils.now_datetime(), "dd/MM/yyyy, hh:mm:ss a") }}
+            <td style="vertical-align: middle; width: 45%;">
+                <img src="{{ company_settings.company_logo_base64 or company_settings.company_logo_url }}" style="max-height: 60px; max-width: 250px; object-fit: contain;" alt="{{ doc.company }}">
+                <div style="font-size: 10px; font-weight: 700; color: #ea580c; text-transform: uppercase; margin-top: 6px; letter-spacing: 0.1em;">
+                    EXPENSE CLAIMS / IMPREST PROPOSAL
                 </div>
-                <div style="font-size: 11px; color: #64748b;">Proposal Ref</div>
-                <div style="font-size: 13px; font-weight: 800; color: #ea580c;">{{ doc.name }}</div>
+            </td>
+            <td style="text-align: right; vertical-align: top; width: 55%; font-size: 11px; color: #475569; line-height: 1.45;">
+                <div style="font-weight: 800; font-size: 13px; color: #0f172a; text-transform: uppercase;">{{ doc.company }}</div>
+                {% if company_settings.registered_address %}
+                    <div style="font-size: 10px; color: #64748b; white-space: pre-line;">{{ company_settings.registered_address.strip() }}</div>
+                {% endif %}
+                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">
+                    {% if company_settings.cin_number %}<span>CIN: {{ company_settings.cin_number }}</span>{% endif %}
+                    {% if company_settings.compliance_email %} | <span>{{ company_settings.compliance_email }}</span>{% endif %}
+                </div>
+                <div style="margin-top: 6px;">
+                    <span style="font-size: 10px; color: #64748b;">Proposal Ref:</span>
+                    <span style="font-size: 12px; font-weight: 800; color: #ea580c;">{{ doc.name }}</span>
+                    <span style="font-size: 10px; color: #64748b; margin-left: 8px;">Date: {{ frappe.utils.format_datetime(doc.creation, "dd/MM/yyyy") }}</span>
+                </div>
             </td>
         </tr>
     </table>
+{% else %}
+    {% set letter_head_content = frappe.db.get_value("Letter Head", doc.letter_head or (doc.company and frappe.db.get_value("Company", doc.company, "default_letter_head")), "content") %}
+    {% if letter_head_content %}
+        <div style="margin-bottom: 16px;">
+            {{ letter_head_content }}
+        </div>
+    {% else %}
+        <table class="header-table">
+            <tr>
+                <td style="vertical-align: top;">
+                    <div class="tag-title">EXPENSE CLAIMS / IMPREST PROPOSAL</div>
+                    <h1 class="brand-name">{{ doc.company or "Corona Creative Solutions" }}</h1>
+                    <div class="brand-sub">Automated financial proposal, approval routing, and accounting handoff for event spends.</div>
+                </td>
+                <td style="text-align: right; vertical-align: top;">
+                    <div style="font-size: 11px; color: #64748b;">Generated On</div>
+                    <div style="font-size: 12px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">
+                        {{ frappe.utils.format_datetime(frappe.utils.now_datetime(), "dd/MM/yyyy, hh:mm:ss a") }}
+                    </div>
+                    <div style="font-size: 11px; color: #64748b;">Proposal Ref</div>
+                    <div style="font-size: 13px; font-weight: 800; color: #ea580c;">{{ doc.name }}</div>
+                </td>
+            </tr>
+        </table>
+    {% endif %}
 {% endif %}
 
 <div class="header-orange-bar"></div>

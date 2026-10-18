@@ -100,3 +100,14 @@ doc_events = {
         "validate": "ap_automation.services.vendor_master_service.validate_supplier_deduplication"
     }
 }
+
+
+# --------------------------------------------------------------------------------------
+# JINJA ENVIRONMENT METHODS (Dynamic Company Logos & Offer Letter Print Settings)
+# --------------------------------------------------------------------------------------
+jinja = {
+    "methods": [
+        "ap_automation.utils.get_company_print_settings",
+        "ap_automation.utils.get_file_as_base64"
+    ]
+}
