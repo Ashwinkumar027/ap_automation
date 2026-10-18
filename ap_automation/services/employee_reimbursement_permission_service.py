@@ -16,7 +16,11 @@ GLOBAL_VIEW_ROLES = {
     "Accounts L1 Auditor",
     "Accounts Director",
     "Payment Releaser",
-    "Accounts Manager"
+    "Accounts Manager",
+    "Receptionist",
+    "Admin L1 Approver",
+    "Admin L2 Approver",
+    "Admin Manager"
 }
 
 EMPLOYEE_EDITABLE_STATUSES = {"Draft", "Returned for Correction", "Rejected", None, ""}
