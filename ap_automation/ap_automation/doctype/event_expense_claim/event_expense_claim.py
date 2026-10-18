@@ -84,3 +84,75 @@ class EventExpenseClaim(APDocument):
 
         frappe.db.set_value("Event Master", self.event, "spoc_actual_spends", float(spoc_total))
         update_event_budget_ledger(self.event)
+
+
+@frappe.whitelist()
+def populate_from_imprest_proposal(event_name: str) -> Dict[str, Any]:
+    """
+    Auto-populates Event Expense Claim child items directly from the approved/disbursed Event Imprest Proposal.
+    Prevents SPOC from having to re-type line items manually.
+    """
+    if not frappe.db.exists("Event Master", event_name):
+        raise APValidationError(f"Event Master '{event_name}' not found.")
+
+    # Find the disbursed or approved advance request for this event
+    advances = frappe.get_all(
+        "Event Advance Request",
+        filters={"event": event_name, "status": ["in", ["Disbursed via IDFC", "Pending Accounts Disbursal", "Approved by Business Head", "Submitted"]]},
+        fields=["name", "company", "spoc", "spoc_name", "event_date"],
+        order_by="creation desc",
+        limit=1
+    )
+
+    if not advances:
+        raise APValidationError(f"No approved or disbursed Imprest Proposal found for event '{event_name}'.")
+
+    adv = advances[0]
+    items = frappe.get_all(
+        "Event Imprest Item",
+        filters={"parent": adv.name},
+        fields=["particulars", "amount", "payment_mode", "beneficiary_name", "remarks"],
+        order_by="idx asc"
+    )
+
+    populated_rows = []
+    category_map = {
+        "production": "Marketing & Collateral",
+        "backdrop": "Venue & Stage",
+        "vallet": "Local Conveyance",
+        "tea": "Food & Catering",
+        "furniture": "Venue & Stage",
+        "mc": "Incidentals",
+        "foam": "Stationery & Props",
+        "miscellaneous": "Incidentals",
+        "promoter": "Incidentals",
+        "usher": "Incidentals"
+    }
+
+    for idx, row in enumerate(items, start=1):
+        part_lower = (row.particulars or "").lower()
+        matched_cat = "Incidentals"
+        for kw, cat in category_map.items():
+            if kw in part_lower:
+                matched_cat = cat
+                break
+
+        stream = "Finance Direct Pay" if row.payment_mode == "Direct Vendor Payment" else "SPOC On-Ground Cash Spend"
+
+        populated_rows.append({
+            "particulars": row.particulars,
+            "vendor_name": row.beneficiary_name or "Vendor",
+            "bill_number": f"BILL-{adv.name[-5:]}-{idx:02d}",
+            "bill_date": adv.event_date or frappe.utils.nowdate(),
+            "amount": float(row.amount or 0.0),
+            "spend_stream": stream,
+            "expense_category": matched_cat,
+            "remarks": row.remarks or row.particulars
+        })
+
+    return {
+        "status": "SUCCESS",
+        "advance_name": adv.name,
+        "items_count": len(populated_rows),
+        "items": populated_rows
+    }

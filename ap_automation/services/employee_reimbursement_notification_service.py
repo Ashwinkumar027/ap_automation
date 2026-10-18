@@ -918,3 +918,147 @@ def notify_releaser_on_weekly_batch_approved(batch_name: str) -> None:
     )
     _dispatch_reimbursement_email(releasers, subject, body, "Weekly Accounts Audit Batch", batch_name, alert_color="green")
 
+
+
+# ==============================================================================
+# EVENT IMPREST & ADVANCE NOTIFICATION SUITE
+# ==============================================================================
+
+def notify_event_imprest_submitted(advance_doc) -> None:
+    """
+    Triggered when Event SPOC submits an Event Imprest Proposal.
+    TO: Business Head (Anish Sir / Dileep Sir based on entity / role)
+    CC: Accounts Team (Gokulnath - Accounts L1 & Accounts Director)
+    """
+    if isinstance(advance_doc, str):
+        advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
+
+    company = advance_doc.company or ""
+    # Determine Business Head
+    if "quanticus" in company.lower():
+        bh_email = "dileep@quanticus.com"
+    else:
+        bh_email = "anish@quanticus.com"
+
+    # Fetch Business Head users
+    bh_users = _get_role_recipients(["Business Head", "Director"])
+    if bh_email and bh_email not in bh_users:
+        bh_users.append(bh_email)
+
+    # Fetch Accounts L1 & Director for visibility
+    accounts_users = _get_role_recipients(["Accounts L1 Auditor", "Accounts Director", "Accounts Manager"])
+
+    doc_url = _get_form_url("Event Advance Request", advance_doc.name)
+    event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
+    amount = float(getattr(advance_doc, "requested_advance_amount", 0.0) or 0.0)
+    direct_amt = float(getattr(advance_doc, "total_direct_vendor_amount", 0.0) or 0.0)
+    cash_amt = float(getattr(advance_doc, "total_cash_imprest_amount", 0.0) or 0.0)
+
+    subject = f"🎟️ [Approval Required] Event Imprest Proposal #{advance_doc.name} - {event_name} (₹ {_safe_fmt_money(amount)})"
+    body = _build_html_template(
+        title="Event Imprest Proposal Submitted",
+        subtitle=f"Stage 1 &bull; Business Head Sanction Required",
+        greeting_name="Business Head",
+        main_message=(
+            f"An itemized Imprest Proposal has been submitted for upcoming event <b>'{event_name}'</b> ({company}).<br><br>"
+            f"• <b>Direct Vendor Payments:</b> ₹ {_safe_fmt_money(direct_amt)}<br>"
+            f"• <b>On-Ground Cash Imprest:</b> ₹ {_safe_fmt_money(cash_amt)}<br>"
+            f"• <b>Total Sanction Requested:</b> ₹ {_safe_fmt_money(amount)}<br><br>"
+            f"Accounts team (Gokulnath & Accounts Director) is CCed for proactive banking audit."
+        ),
+        metric_label_1="Total Proposed Imprest",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="Direct / Cash Split",
+        metric_val_2=f"₹ {_safe_fmt_money(direct_amt)} / ₹ {_safe_fmt_money(cash_amt)}",
+        doc_url=doc_url,
+        button_text="Review & Sanction Proposal",
+        badge_color="#4f46e5"
+    )
+
+    all_recipients = list(set(bh_users + accounts_users))
+    _dispatch_reimbursement_email(all_recipients, subject, body, "Event Advance Request", advance_doc.name, alert_color="purple")
+
+
+def notify_event_imprest_sanctioned(advance_doc) -> None:
+    """
+    Triggered when Business Head sanctions the Event Imprest Proposal.
+    TO: Accounts Team (Gokulnath - Accounts L1 & Accounts Director)
+    CC: Event SPOC
+    """
+    if isinstance(advance_doc, str):
+        advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
+
+    accounts_users = _get_role_recipients(["Accounts L1 Auditor", "Accounts Director", "Accounts Manager", "Payment Releaser"])
+    spoc_email = _resolve_email_address(advance_doc.spoc)
+    if spoc_email and spoc_email not in accounts_users:
+        accounts_users.append(spoc_email)
+
+    doc_url = _get_form_url("Event Advance Request", advance_doc.name)
+    event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
+    amount = float(getattr(advance_doc, "approved_advance_amount", advance_doc.requested_advance_amount) or 0.0)
+    direct_amt = float(getattr(advance_doc, "total_direct_vendor_amount", 0.0) or 0.0)
+    cash_amt = float(getattr(advance_doc, "total_cash_imprest_amount", 0.0) or 0.0)
+
+    subject = f"✅ [Ready for Disbursal] Event Imprest #{advance_doc.name} Sanctioned by Business Head (₹ {_safe_fmt_money(amount)})"
+    body = _build_html_template(
+        title="Event Imprest Sanctioned by Business Head",
+        subtitle=f"Stage 2 &bull; Accounts IDFC Disbursal Queue",
+        greeting_name="Accounts Team",
+        main_message=(
+            f"Business Head has officially sanctioned the Imprest Proposal for <b>'{event_name}'</b>.<br><br>"
+            f"• <b>Total Sanctioned:</b> ₹ {_safe_fmt_money(amount)}<br>"
+            f"• <b>Direct Vendor Payments:</b> ₹ {_safe_fmt_money(direct_amt)} (Bank A/C verified)<br>"
+            f"• <b>Cash Imprest to SPOC:</b> ₹ {_safe_fmt_money(cash_amt)}<br><br>"
+            f"Please verify beneficiary accounts and execute IDFC payment batch release."
+        ),
+        metric_label_1="Sanctioned Payout",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="Sanctioned By",
+        metric_val_2=f"{advance_doc.approved_by_business_head or 'Business Head'}",
+        doc_url=doc_url,
+        button_text="Queue IDFC Disbursal",
+        badge_color="#16a34a"
+    )
+
+    _dispatch_reimbursement_email(accounts_users, subject, body, "Event Advance Request", advance_doc.name, alert_color="green")
+
+
+def notify_event_imprest_disbursed(advance_doc) -> None:
+    """
+    Triggered when Accounts disburses the advance / vendor payouts via IDFC.
+    TO: Event SPOC
+    CC: Accounts Team
+    """
+    if isinstance(advance_doc, str):
+        advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
+
+    spoc_email = _resolve_email_address(advance_doc.spoc)
+    recipients = [spoc_email] if spoc_email else []
+    accounts_users = _get_role_recipients(["Accounts L1 Auditor", "Accounts Director"])
+    recipients.extend(accounts_users)
+
+    doc_url = _get_form_url("Event Advance Request", advance_doc.name)
+    event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
+    amount = float(getattr(advance_doc, "approved_advance_amount", advance_doc.requested_advance_amount) or 0.0)
+
+    subject = f"💳 [Funds Disbursed] Event Imprest #{advance_doc.name} Released via IDFC (₹ {_safe_fmt_money(amount)})"
+    body = _build_html_template(
+        title="Event Imprest Funds Disbursed",
+        subtitle=f"Stage 3 &bull; Bank Disbursal Complete",
+        greeting_name=advance_doc.spoc_name or "Event SPOC",
+        main_message=(
+            f"Funds for Event <b>'{event_name}'</b> have been successfully disbursed via corporate banking.<br><br>"
+            f"• <b>Total Disbursed:</b> ₹ {_safe_fmt_money(amount)}<br>"
+            f"• <b>Bank Reference / UTR:</b> {advance_doc.disbursement_reference or 'IDFC-PROCESSED'}<br><br>"
+            f"Please ensure all vendors are settled and retain all GST tax invoices and receipts for post-event settlement."
+        ),
+        metric_label_1="Disbursed Amount",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="Bank Reference",
+        metric_val_2=f"{advance_doc.disbursement_reference or 'IDFC'}",
+        doc_url=doc_url,
+        button_text="View Disbursal Details",
+        badge_color="#2563eb"
+    )
+
+    _dispatch_reimbursement_email(list(set(recipients)), subject, body, "Event Advance Request", advance_doc.name, alert_color="blue")

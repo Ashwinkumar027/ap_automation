@@ -10,19 +10,32 @@
   "sb_event",
   "event",
   "company",
+  "letter_head",
   "spoc",
   "spoc_name",
-  "sb_bank",
-  "bank_name",
-  "bank_account_number",
-  "bank_ifsc_code",
-  "sb_advance",
+  "cb_event_meta",
+  "event_date",
+  "venue",
+  "contact_phone",
+  "sb_imprest_breakdown",
+  "imprest_items",
+  "sb_totals",
+  "total_direct_vendor_amount",
+  "total_cash_imprest_amount",
+  "cb_totals",
   "requested_advance_amount",
   "approved_advance_amount",
   "total_amount",
   "purpose",
+  "sb_bank",
+  "bank_name",
+  "bank_account_number",
+  "bank_ifsc_code",
   "sb_lifecycle",
   "status",
+  "approved_by_business_head",
+  "business_head_approval_date",
+  "business_head_comments",
   "batch_id",
   "disbursement_reference",
   "approval_trail",
@@ -51,6 +64,12 @@
    "read_only": 1
   },
   {
+   "fieldname": "letter_head",
+   "fieldtype": "Link",
+   "label": "Letter Head",
+   "options": "Letter Head"
+  },
+  {
    "fieldname": "spoc",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -63,6 +82,89 @@
    "fieldtype": "Data",
    "label": "SPOC Full Name",
    "read_only": 1
+  },
+  {
+   "fieldname": "cb_event_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "event_date",
+   "fieldtype": "Date",
+   "label": "Event Date",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "venue",
+   "fieldtype": "Data",
+   "label": "Event Venue"
+  },
+  {
+   "fieldname": "contact_phone",
+   "fieldtype": "Data",
+   "label": "Contact Phone"
+  },
+  {
+   "fieldname": "sb_imprest_breakdown",
+   "fieldtype": "Section Break",
+   "label": "Itemized Imprest Proposal (Direct Vendor Payouts & Cash Spends)"
+  },
+  {
+   "fieldname": "imprest_items",
+   "fieldtype": "Table",
+   "label": "Imprest Items",
+   "options": "Event Imprest Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sb_totals",
+   "fieldtype": "Section Break",
+   "label": "Proposal Financial Summary"
+  },
+  {
+   "fieldname": "total_direct_vendor_amount",
+   "fieldtype": "Currency",
+   "label": "Total Direct Vendor Payments (INR)",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "total_cash_imprest_amount",
+   "fieldtype": "Currency",
+   "label": "Total On-Ground Cash Imprest (INR)",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "cb_totals",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "requested_advance_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Imprest Proposal Amount (INR)",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_advance_amount",
+   "fieldtype": "Currency",
+   "label": "Approved Advance (INR)",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Base Total Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "purpose",
+   "fieldtype": "Small Text",
+   "label": "Advance Purpose & Spend Breakdown",
+   "reqd": 0
   },
   {
    "fieldname": "sb_bank",
@@ -88,37 +190,6 @@
    "read_only": 1
   },
   {
-   "fieldname": "sb_advance",
-   "fieldtype": "Section Break",
-   "label": "Advance Request & Justification"
-  },
-  {
-   "fieldname": "requested_advance_amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Requested Advance (INR)",
-   "reqd": 1
-  },
-  {
-   "fieldname": "approved_advance_amount",
-   "fieldtype": "Currency",
-   "label": "Approved Advance (INR)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "total_amount",
-   "fieldtype": "Currency",
-   "hidden": 1,
-   "label": "Base Total Amount",
-   "read_only": 1
-  },
-  {
-   "fieldname": "purpose",
-   "fieldtype": "Small Text",
-   "label": "Advance Purpose & Spend Breakdown",
-   "reqd": 1
-  },
-  {
    "fieldname": "sb_lifecycle",
    "fieldtype": "Section Break",
    "label": "Approval & IDFC Payout Status"
@@ -129,7 +200,30 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nSubmitted\nApproved for Advance\nQueued in Batch\nDisbursed via IDFC\nRejected"
+   "options": "Draft\nPending Business Head Approval\nApproved by Business Head\nPending Accounts Disbursal\nQueued in Batch\nDisbursed via IDFC\nRejected",
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "approved_by_business_head",
+   "fieldtype": "Link",
+   "label": "Sanctioned By (Business Head)",
+   "options": "User",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "business_head_approval_date",
+   "fieldtype": "Datetime",
+   "label": "Business Head Sanction Timestamp",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "business_head_comments",
+   "fieldtype": "Small Text",
+   "label": "Business Head Comments",
+   "read_only": 1,
+   "allow_on_submit": 1
   },
   {
    "fieldname": "batch_id",
@@ -141,7 +235,8 @@
    "fieldname": "disbursement_reference",
    "fieldtype": "Data",
    "label": "IDFC UTR / Reference",
-   "read_only": 1
+   "read_only": 1,
+   "allow_on_submit": 1
   },
   {
    "fieldname": "approval_trail",
@@ -217,6 +312,71 @@
    "select": 1,
    "share": 1,
    "write": 1
+  },
+  {
+   "role": "Accounts L1 Auditor",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "select": 1,
+   "print": 1,
+   "email": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts Director",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "select": 1,
+   "print": 1,
+   "email": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1
+  },
+  {
+   "role": "Payment Releaser",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "select": 1,
+   "print": 1,
+   "email": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1
+  },
+  {
+   "role": "Admin L1 Approver",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "select": 1,
+   "print": 1,
+   "email": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1
+  },
+  {
+   "role": "Admin L2 Approver",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "select": 1,
+   "print": 1,
+   "email": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1
   }
  ],
  "row_format": "Dynamic",

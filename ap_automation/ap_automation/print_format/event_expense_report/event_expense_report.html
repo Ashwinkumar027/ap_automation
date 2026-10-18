@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        color: #1e293b;
+        margin: 0;
+        padding: 24px;
+        background: #ffffff;
+    }
+    .header-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 20px;
+    }
+    .header-orange-bar {
+        height: 4px;
+        background: linear-gradient(90deg, #ea580c, #f97316);
+        margin-bottom: 24px;
+        border-radius: 2px;
+    }
+    .tag-title {
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        color: #ea580c;
+        margin-bottom: 4px;
+    }
+    .brand-name {
+        font-size: 26px;
+        font-weight: 800;
+        color: #0f172a;
+        margin: 0 0 4px 0;
+    }
+    .brand-sub {
+        font-size: 12px;
+        color: #64748b;
+        max-width: 380px;
+        line-height: 1.4;
+    }
+    .meta-box-row {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .meta-box {
+        flex: 1;
+        border: 1.5px solid #fef08a;
+        background: #fefce8;
+        border-radius: 8px;
+        padding: 12px 16px;
+    }
+    .meta-box-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #854d0e;
+        margin-bottom: 4px;
+    }
+    .meta-box-value {
+        font-size: 14px;
+        font-weight: 700;
+        color: #1e293b;
+    }
+    .section-title {
+        font-size: 16px;
+        font-weight: 800;
+        color: #0f172a;
+        margin: 0 0 12px 0;
+    }
+    .event-details-card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 28px;
+    }
+    .event-details-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .event-details-table td {
+        padding: 8px 12px;
+        vertical-align: top;
+    }
+    .event-field-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #64748b;
+        margin-bottom: 4px;
+    }
+    .event-field-value {
+        font-size: 13px;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .items-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 28px;
+    }
+    .items-table th {
+        background: #0f172a;
+        color: #ffffff;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 10px 12px;
+        text-align: left;
+    }
+    .items-table td {
+        padding: 12px;
+        font-size: 12px;
+        border-bottom: 1px solid #f1f5f9;
+        vertical-align: middle;
+    }
+    .items-table tr:nth-child(even) td {
+        background: #f8fafc;
+    }
+    .badge-mode {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 3px 8px;
+        border-radius: 4px;
+    }
+    .badge-direct {
+        background: #dbeafe;
+        color: #1d4ed8;
+        border: 1px solid #bfdbfe;
+    }
+    .badge-cash {
+        background: #fef3c7;
+        color: #b45309;
+        border: 1px solid #fde68a;
+    }
+    .summary-card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 16px 20px;
+        width: 320px;
+        margin-left: auto;
+        margin-bottom: 36px;
+    }
+    .summary-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: #475569;
+        padding: 6px 0;
+    }
+    .summary-row.total {
+        border-top: 2px solid #cbd5e1;
+        margin-top: 8px;
+        padding-top: 10px;
+        font-size: 16px;
+        font-weight: 800;
+        color: #b91c1c;
+    }
+    .approval-trail-section {
+        border-top: 1px solid #e2e8f0;
+        padding-top: 24px;
+        margin-top: 24px;
+    }
+    .approval-grid {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 36px;
+    }
+    .approval-box {
+        text-align: center;
+        width: 28%;
+        border-top: 1.5px solid #cbd5e1;
+        padding-top: 8px;
+        font-size: 12px;
+    }
+    .approval-role {
+        color: #64748b;
+        font-size: 11px;
+    }
+    .approval-name {
+        font-weight: 700;
+        color: #0f172a;
+        margin-top: 2px;
+    }
+</style>
+</head>
+<body>
+
+<!-- Dynamic Letterhead or Fallback Header -->
+{% set letter_head_content = frappe.db.get_value("Letter Head", doc.letter_head or (doc.company and frappe.db.get_value("Company", doc.company, "default_letter_head")), "content") %}
+{% if letter_head_content %}
+    <div style="margin-bottom: 16px;">
+        {{ letter_head_content }}
+    </div>
+{% else %}
+    <table class="header-table">
+        <tr>
+            <td style="vertical-align: top;">
+                <div class="tag-title">EXPENSE CLAIMS / IMPREST PROPOSAL</div>
+                <h1 class="brand-name">{{ doc.company or "Corona Creative Solutions" }}</h1>
+                <div class="brand-sub">Automated financial proposal, approval routing, and accounting handoff for event spends.</div>
+            </td>
+            <td style="text-align: right; vertical-align: top;">
+                <div style="font-size: 11px; color: #64748b;">Generated On</div>
+                <div style="font-size: 12px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">
+                    {{ frappe.utils.format_datetime(frappe.utils.now_datetime(), "dd/MM/yyyy, hh:mm:ss a") }}
+                </div>
+                <div style="font-size: 11px; color: #64748b;">Proposal Ref</div>
+                <div style="font-size: 13px; font-weight: 800; color: #ea580c;">{{ doc.name }}</div>
+            </td>
+        </tr>
+    </table>
+{% endif %}
+
+<div class="header-orange-bar"></div>
+
+<!-- Metadata Badges -->
+<table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+    <tr>
+        <td style="width: 32%; padding-right: 8px;">
+            <div class="meta-box">
+                <div class="meta-box-label">PREPARED BY</div>
+                <div class="meta-box-value">{{ doc.spoc_name or doc.spoc or "Event SPOC" }}</div>
+            </div>
+        </td>
+        <td style="width: 32%; padding: 0 4px;">
+            <div class="meta-box">
+                <div class="meta-box-label">SANCTIONED BY (BUSINESS HEAD)</div>
+                <div class="meta-box-value">{{ doc.approved_by_business_head or "Pending Approval" }}</div>
+            </div>
+        </td>
+        <td style="width: 32%; padding-left: 8px;">
+            <div class="meta-box">
+                <div class="meta-box-label">ACCOUNTING COPY</div>
+                <div class="meta-box-value">Accounts L1 & Accounts Director (Auto CC)</div>
+            </div>
+        </td>
+    </tr>
+</table>
+
+<!-- Event Details Card -->
+<div class="section-title">Event Details</div>
+<div class="event-details-card">
+    {% set event_doc = frappe.get_doc("Event Master", doc.event) if doc.event else None %}
+    <table class="event-details-table">
+        <tr>
+            <td style="width: 50%;">
+                <div class="event-field-label">EVENT NAME</div>
+                <div class="event-field-value">{{ event_doc.event_name if event_doc else doc.event }}</div>
+            </td>
+            <td style="width: 50%;">
+                <div class="event-field-label">EVENT DATE</div>
+                <div class="event-field-value">{{ frappe.utils.formatdate(doc.event_date or (event_doc.start_date if event_doc else doc.creation)) }}</div>
+            </td>
+        </tr>
+        <tr>
+            <td>
+                <div class="event-field-label">VENUE</div>
+                <div class="event-field-value">{{ doc.venue or (event_doc.event_location if event_doc else "Bhavan's Pottipati Ganamba Obul Reddy Auditorium") }}</div>
+            </td>
+            <td>
+                <div class="event-field-label">CONTACT PHONE</div>
+                <div class="event-field-value">{{ doc.contact_phone or "9791212413" }}</div>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<!-- Expense Details Table -->
+<div class="section-title">Expense Details</div>
+<table class="items-table">
+    <thead>
+        <tr>
+            <th style="width: 5%;">S.NO</th>
+            <th style="width: 28%;">PARTICULARS</th>
+            <th style="width: 18%;">PAYMENT MODE</th>
+            <th style="width: 25%;">BENEFICIARY / BANK DETAILS</th>
+            <th style="width: 14%; text-align: right;">EXPENSES</th>
+            <th style="width: 10%;">REMARKS</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in doc.imprest_items %}
+        <tr>
+            <td style="font-weight: 700; color: #64748b;">{{ loop.index }}</td>
+            <td style="font-weight: 700; color: #0f172a;">{{ row.particulars }}</td>
+            <td>
+                {% if row.payment_mode == 'Direct Vendor Payment' %}
+                    <span class="badge-mode badge-direct">Direct Vendor</span>
+                {% else %}
+                    <span class="badge-mode badge-cash">Cash Imprest</span>
+                {% endif %}
+            </td>
+            <td>
+                <div style="font-weight: 700; color: #1e293b;">{{ row.beneficiary_name or "-" }}</div>
+                {% if row.bank_account_number %}
+                    <div style="font-size: 11px; color: #64748b;">A/C: {{ row.bank_account_number }} | IFSC: {{ row.bank_ifsc_code or "-" }}</div>
+                    {% if row.bank_name %}<div style="font-size: 10px; color: #94a3b8;">{{ row.bank_name }}</div>{% endif %}
+                {% endif %}
+            </td>
+            <td style="text-align: right; font-weight: 800; color: #b91c1c;">
+                ₹ {{ frappe.utils.fmt_money(row.amount, precision=2) }}
+            </td>
+            <td style="color: #64748b; font-size: 11px;">{{ row.remarks or "-" }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Financial Summary Box -->
+<div class="summary-card">
+    <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">
+        Summary
+    </div>
+    <div class="summary-row">
+        <span>Direct Vendor Payments:</span>
+        <span style="font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.total_direct_vendor_amount or 0, precision=2) }}</span>
+    </div>
+    <div class="summary-row">
+        <span>On-Ground Cash Imprest:</span>
+        <span style="font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.total_cash_imprest_amount or 0, precision=2) }}</span>
+    </div>
+    <div class="summary-row total">
+        <span>Grand Total:</span>
+        <span>₹ {{ frappe.utils.fmt_money(doc.requested_advance_amount or 0, precision=2) }}</span>
+    </div>
+    <div style="font-size: 11px; color: #64748b; margin-top: 10px; line-height: 1.4;">
+        Prepared by {{ doc.spoc_name or doc.spoc }}, routed to Business Head for approval, and CCed to Accounts automatically.
+    </div>
+</div>
+
+<!-- Approval Trail Signatures -->
+<div class="approval-trail-section">
+    <div class="section-title">Approval Trail</div>
+    <div class="approval-grid">
+        <div class="approval-box">
+            <div class="approval-role">Prepared by</div>
+            <div class="approval-name">{{ doc.spoc_name or doc.spoc or "Event SPOC" }}</div>
+        </div>
+        <div class="approval-box">
+            <div class="approval-role">Approved by (Business Head)</div>
+            <div class="approval-name">{{ doc.approved_by_business_head or "Pending Approval" }}</div>
+        </div>
+        <div class="approval-box">
+            <div class="approval-role">CC to</div>
+            <div class="approval-name">Accounting Team</div>
+        </div>
+    </div>
+</div>
+
+<div style="font-size: 10px; color: #94a3b8; text-align: center; margin-top: 40px; border-top: 1px dashed #cbd5e1; padding-top: 12px;">
+    This is an enterprise system-generated event imprest & expense proposal. All vendor bills and vouchers must be submitted for final post-event delta settlement.
+</div>
+
+</body>
+</html>
