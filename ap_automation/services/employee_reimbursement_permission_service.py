@@ -1,15 +1,16 @@
 """
-Enterprise Multi-Tier Permission Engine for Employee Reimbursements & Pre-Travel.
+Enterprise Dynamic Multi-Tier Permission Engine for Employee Reimbursements & Pre-Travel.
 Implements:
-1. Dynamic ORM SQL Query Conditions (Desk List, Report, and API isolation).
-2. Document-Level Fine-Grained Permissions (Read/Write/Approval security).
-3. 4-Tier Organizational Scoping (Claimant, Reporting Manager, SPOC, Global Approver).
+1. Dynamic Real-time Role Permission Manager Evaluation (respects Read, Write, Create, Delete, Print, Email, Export checkboxes).
+2. Dynamic ORM SQL Query Conditions (Desk List, Report, and API isolation).
+3. Document-Level Fine-Grained Permissions (Read/Write/Approval security).
+4. 4-Tier Organizational Scoping (Claimant, Reporting Manager, AP Approval Matrix Approver, Global Approver).
 """
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import frappe
 from frappe.model.document import Document
 
-# Roles that bypass document-level user restrictions and have organization-wide visibility
+# Pre-registered fallback roles for organization-wide visibility
 GLOBAL_VIEW_ROLES = {
     "System Manager",
     "Administrator",
@@ -23,17 +24,98 @@ GLOBAL_VIEW_ROLES = {
     "Admin Manager"
 }
 
-EMPLOYEE_EDITABLE_STATUSES = {"Draft", "Returned for Correction", "Rejected", None, ""}
+EMPLOYEE_EDITABLE_STATUSES = {"Draft", "Returned for Correction", "Returned to Employee", "Rejected", None, ""}
 
 
-def is_global_view_user(user: Optional[str] = None) -> bool:
-    """Checks if the user possesses any corporate-wide audit or approval roles."""
+def get_dynamic_user_permissions(doctype: str, user: Optional[str] = None) -> Dict[str, bool]:
+    """
+    Dynamically inspects active permissions from Role Permission Manager (tabCustom DocPerm / tabDocPerm)
+    and AP Approval Matrix for a specific user and doctype.
+    Respects every individual checkbox: Read, Write, Create, Delete, Select, Print, Email, Report, Export, Share.
+    """
     if not user:
         user = frappe.session.user
-    if user == "Administrator":
-        return True
+
+    perms = {
+        "read": False,
+        "write": False,
+        "create": False,
+        "delete": False,
+        "select": False,
+        "print": False,
+        "email": False,
+        "report": False,
+        "export": False,
+        "share": False,
+        "is_global": False
+    }
+
+    if user == "Administrator" or "System Manager" in frappe.get_roles(user):
+        for k in perms:
+            perms[k] = True
+        return perms
+
     user_roles = set(frappe.get_roles(user))
-    return bool(user_roles.intersection(GLOBAL_VIEW_ROLES))
+    
+    # 1. Real-time inspection of active DocPerms (automatically selects Custom DocPerm if modified via UI)
+    try:
+        meta = frappe.get_meta(doctype)
+        for p in meta.permissions:
+            if p.role in user_roles:
+                # Corporate/approver role (not restricted to creator/employee only)
+                is_corporate_rule = (not getattr(p, "if_owner", 0)) and (p.role not in ("Employee", "All"))
+                if is_corporate_rule:
+                    for k in ["read", "write", "create", "delete", "select", "print", "email", "report", "export", "share"]:
+                        if getattr(p, k, 0):
+                            perms[k] = True
+                    if getattr(p, "read", 0):
+                        perms["is_global"] = True
+    except Exception as e:
+        frappe.log_error(f"Error evaluating dynamic permissions for {doctype}: {str(e)}", "Dynamic RBAC Error")
+
+    # 2. Real-time inspection of AP Approval Matrix designated approvers
+    try:
+        if frappe.db.exists("DocType", "AP Approval Matrix"):
+            matrix_approvers = frappe.db.sql("""
+                SELECT lvl.designated_approver 
+                FROM `tabAP Approval Level Rule` lvl
+                JOIN `tabAP Approval Matrix` mat ON lvl.parent = mat.name
+                WHERE mat.is_active = 1 
+                  AND (mat.document_lane = %s OR mat.document_lane LIKE %s)
+                  AND lvl.designated_approver = %s
+            """, (doctype, f"%{doctype}%", user))
+            if matrix_approvers:
+                perms["read"] = True
+                perms["write"] = True
+                perms["select"] = True
+                perms["print"] = True
+                perms["email"] = True
+                perms["report"] = True
+                perms["is_global"] = True
+    except Exception:
+        pass
+
+    # 3. Fallback to pre-registered global roles
+    if bool(user_roles.intersection(GLOBAL_VIEW_ROLES)):
+        perms["read"] = True
+        perms["select"] = True
+        perms["is_global"] = True
+
+    return perms
+
+
+def is_global_view_user(user: Optional[str] = None, doctype: str = "Employee Reimbursement Claim") -> bool:
+    """
+    Checks if the user possesses any corporate-wide audit or approval roles
+    dynamically configured in Role Permission Manager or AP Approval Matrix.
+    """
+    if not user:
+        user = frappe.session.user
+    if user == "Administrator" or "System Manager" in frappe.get_roles(user):
+        return True
+
+    perms = get_dynamic_user_permissions(doctype, user)
+    return bool(perms.get("is_global") and perms.get("read"))
 
 
 def get_subordinate_employees_for_user(user: Optional[str] = None) -> List[str]:
@@ -52,16 +134,28 @@ def get_subordinate_employees_for_user(user: Optional[str] = None) -> List[str]:
     if not manager_emp_names:
         return []
 
-    subordinates = frappe.db.get_all(
-        "Employee",
-        filters={
-            "reports_to": ["in", manager_emp_names],
-            "status": "Active"
-        },
-        pluck="name"
-    )
+    subordinates: Set[str] = set()
+    to_process = list(manager_emp_names)
+    processed = set()
 
-    return list(set(manager_emp_names + subordinates))
+    while to_process:
+        current_mgr = to_process.pop(0)
+        if current_mgr in processed:
+            continue
+        processed.add(current_mgr)
+
+        direct_reports = frappe.db.get_all(
+            "Employee",
+            filters={"reports_to": current_mgr, "status": "Active"},
+            pluck="name"
+        )
+        for dr in direct_reports:
+            if dr not in subordinates:
+                subordinates.add(dr)
+                to_process.append(dr)
+
+    all_emp_names = set(manager_emp_names).union(subordinates)
+    return list(all_emp_names)
 
 
 # ==============================================================================
@@ -71,11 +165,13 @@ def get_subordinate_employees_for_user(user: Optional[str] = None) -> List[str]:
 def get_reimbursement_permission_query_conditions(user: Optional[str] = None) -> str:
     """
     Injected into Frappe ORM queries for 'Employee Reimbursement Claim'.
+    - If user has a corporate role with Read=1 in Role Permission Manager -> returns "" (full company list).
+    - If user is standard employee -> restricts to own claims and reporting subordinates.
     """
     if not user:
         user = frappe.session.user
 
-    if is_global_view_user(user):
+    if is_global_view_user(user, "Employee Reimbursement Claim"):
         return ""
 
     own_emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
@@ -102,6 +198,12 @@ def get_reimbursement_permission_query_conditions(user: Optional[str] = None) ->
 def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "read") -> Optional[bool]:
     """
     Document-level permission evaluator for 'Employee Reimbursement Claim'.
+    Dynamically respects UI checkboxes:
+    - read: View claim
+    - write: Edit/approve claim (if unchecked, user is strictly read-only)
+    - create: Submit new claim
+    - delete: Remove claim (if unchecked, delete is blocked)
+    - print, email, export, report: Feature access
     """
     if not user:
         user = frappe.session.user
@@ -110,19 +212,38 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
     if not doc or isinstance(doc, str):
         return None
 
-    # Allow create/write on new/unsaved docs
-    if getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()) or not getattr(doc, "name", None) or str(getattr(doc, "name", "")).startswith("new-"):
+    # Dynamic check for new / unsaved documents
+    perms = get_dynamic_user_permissions("Employee Reimbursement Claim", user)
+    is_new_doc = (
+        getattr(doc, "__islocal", False)
+        or (hasattr(doc, "is_new") and doc.is_new())
+        or not getattr(doc, "name", None)
+        or str(getattr(doc, "name", "")).startswith("new-")
+    )
+    if is_new_doc:
+        if ptype in ("create", "write"):
+            # Check if user has create permission in DocPerm
+            meta = frappe.get_meta("Employee Reimbursement Claim")
+            user_roles = set(frappe.get_roles(user))
+            can_create = any(p.role in user_roles and p.create for p in meta.permissions)
+            return bool(can_create or perms.get("create"))
         return True
 
-    if is_global_view_user(user):
-        return True
+    # 1. Dynamic Check for Corporate / Approver Roles
+    if perms.get("is_global"):
+        if ptype == "delete":
+            return bool(perms.get("delete"))
+        if ptype == "write":
+            return bool(perms.get("write"))
+        if ptype in ("read", "select", "email", "print", "report", "export", "share"):
+            return bool(perms.get(ptype, perms.get("read", False)))
+        return bool(perms.get("read"))
 
+    # 2. Claimant / Owner permissions
     own_emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
     is_owner = (getattr(doc, "owner", None) == user) or (own_emp and getattr(doc, "employee", None) == own_emp)
-
     doc_status = getattr(doc, "status", None)
 
-    # 1. Draft & Returned states are editable by the claimant
     if is_owner:
         if ptype in ("read", "select", "email", "print"):
             return True
@@ -130,7 +251,7 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
             return doc_status in EMPLOYEE_EDITABLE_STATUSES
         return True
 
-    # 2. Manager authorization
+    # 3. Manager authorization
     mgr_uid = getattr(doc, "manager_user_id", None) or (doc.get("manager_user_id") if hasattr(doc, "get") else None)
     if mgr_uid == user:
         if ptype in ("read", "select", "email", "print"):
@@ -153,17 +274,18 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
 
 
 # ==============================================================================
-# 2. PRE TRAVEL REQUEST PERMISSION HOOKS
+# 2. PRE TRAVEL REQUEST PERMISSION HOOKS (DYNAMIC)
 # ==============================================================================
 
 def get_pre_travel_permission_query_conditions(user: Optional[str] = None) -> str:
     """
     Injected into Frappe ORM queries for 'Pre Travel Request'.
+    Dynamically respects Role Permission Manager.
     """
     if not user:
         user = frappe.session.user
 
-    if is_global_view_user(user):
+    if is_global_view_user(user, "Pre Travel Request"):
         return ""
 
     own_emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
@@ -190,27 +312,44 @@ def get_pre_travel_permission_query_conditions(user: Optional[str] = None) -> st
 def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "read") -> Optional[bool]:
     """
     Document-level permission evaluator for 'Pre Travel Request'.
+    Dynamically respects UI checkboxes.
     """
     if not user:
         user = frappe.session.user
 
-    # If doc is None or a string (doctype-level check), let standard DocPerm decide
     if not doc or isinstance(doc, str):
         return None
 
-    # Allow create/write on new/unsaved docs
-    if getattr(doc, "__islocal", False) or (hasattr(doc, "is_new") and doc.is_new()) or not getattr(doc, "name", None) or str(getattr(doc, "name", "")).startswith("new-"):
+    perms = get_dynamic_user_permissions("Pre Travel Request", user)
+    is_new_doc = (
+        getattr(doc, "__islocal", False)
+        or (hasattr(doc, "is_new") and doc.is_new())
+        or not getattr(doc, "name", None)
+        or str(getattr(doc, "name", "")).startswith("new-")
+    )
+    if is_new_doc:
+        if ptype in ("create", "write"):
+            meta = frappe.get_meta("Pre Travel Request")
+            user_roles = set(frappe.get_roles(user))
+            can_create = any(p.role in user_roles and p.create for p in meta.permissions)
+            return bool(can_create or perms.get("create"))
         return True
 
-    if is_global_view_user(user):
-        return True
+    # 1. Dynamic Check for Corporate / Approver Roles
+    if perms.get("is_global"):
+        if ptype == "delete":
+            return bool(perms.get("delete"))
+        if ptype == "write":
+            return bool(perms.get("write"))
+        if ptype in ("read", "select", "email", "print", "report", "export", "share"):
+            return bool(perms.get(ptype, perms.get("read", False)))
+        return bool(perms.get("read"))
 
+    # 2. Claimant permissions
     own_emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
     is_owner = (getattr(doc, "owner", None) == user) or (own_emp and getattr(doc, "employee", None) == own_emp)
-
     doc_status = getattr(doc, "status", None) or ""
 
-    # 1. Claimant permissions
     if is_owner:
         if ptype in ("read", "select", "email", "print"):
             return True
@@ -218,7 +357,7 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
             return doc_status in EMPLOYEE_EDITABLE_STATUSES
         return True
 
-    # 2. Manager authorization
+    # 3. Manager authorization
     mgr_uid = getattr(doc, "manager_user_id", None) or (doc.get("manager_user_id") if hasattr(doc, "get") else None)
     if mgr_uid == user:
         if ptype in ("read", "select", "email", "print"):
@@ -254,7 +393,7 @@ def get_allowed_employee_query(doctype, txt, searchfield, start, page_len, filte
     """
     user = frappe.session.user
 
-    if is_global_view_user(user):
+    if is_global_view_user(user, doctype or "Employee Reimbursement Claim"):
         return frappe.db.sql("""
             SELECT name, employee_name, department, company
             FROM `tabEmployee`
