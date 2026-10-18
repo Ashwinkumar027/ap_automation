@@ -1,10 +1,10 @@
-// Copyright (c) 2026, Quanti and contributors
-// Production Event Advance Request (Imprest Proposal) UI Controller
-// Supports:
-// 1. Dynamic Row-Wise Imprest Table Calculations (Direct Vendor Pay vs Cash Imprest).
-// 2. Business Head Sanction Action (Anish Sir / Dileep Sir).
-// 3. Accounts Team IDFC Disbursal Action (Gokulnath / Accounts Director).
-// 4. One-Click Expense Claim Generator.
+// Event Advance Request Controller (Lane 4: Imprest & Advance Spends)
+// Features:
+// 1. Live Imprest Item Calculation (Direct Vendor vs Cash Imprest Split).
+// 2. Direct Desk PDF Download & Print Preview buttons.
+// 3. Stage 1: Business Head Sanction Modal.
+// 4. Stage 2: Accounts Team IDFC Disbursal Modal.
+// 5. One-Click Expense Claim Generator.
 
 function calculate_imprest_totals(frm) {
     let direct_total = 0.0;
@@ -32,14 +32,31 @@ frappe.ui.form.on("Event Advance Request", {
     },
 
     refresh: function(frm) {
+        // --- 1. Direct Download & Print Preview Buttons (Always Available on Saved Docs) ---
+        if (!frm.is_new()) {
+            frm.add_custom_button(__('📥 Download PDF Report'), function() {
+                const pdf_url = frappe.urllib.get_full_url(
+                    `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(frm.doc.doctype)}&name=${encodeURIComponent(frm.doc.name)}&format=Event%20Expense%20Report&no_letterhead=0`
+                );
+                window.open(pdf_url, '_blank');
+            }, __('Print / Download'));
+
+            frm.add_custom_button(__('🖨️ View Print Format'), function() {
+                const print_url = `/printview?doctype=${encodeURIComponent(frm.doc.doctype)}&name=${encodeURIComponent(frm.doc.name)}&format=Event%20Expense%20Report&no_letterhead=0`;
+                window.open(print_url, '_blank');
+            }, __('Print / Download'));
+        }
+
+        // --- 2. Workflow Stage Actions ---
         if (frm.doc.docstatus === 1) {
             const user_roles = frappe.user_roles || [];
             const is_sys_mgr = user_roles.includes('System Manager') || frappe.session.user === 'Administrator';
             const is_bh = user_roles.includes('Business Head') || user_roles.includes('Director') || user_roles.includes('Director Tier') || is_sys_mgr;
             const is_accounts = user_roles.includes('Accounts L1 Auditor') || user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || user_roles.includes('Payment Releaser') || is_sys_mgr;
 
-            // 1. Business Head Approval Action
+            // STAGE 1: Business Head Sanction Action
             if (frm.doc.status === 'Pending Business Head Approval') {
+                frm.page.set_indicator(__('Pending Business Head Approval'), 'orange');
                 if (is_bh) {
                     frm.add_custom_button(__('✅ Sanction Imprest (Business Head)'), function() {
                         frappe.prompt([
@@ -97,8 +114,9 @@ frappe.ui.form.on("Event Advance Request", {
                 }
             }
 
-            // 2. Accounts Team Disbursal Action
-            if (frm.doc.status === 'Pending Accounts Disbursal') {
+            // STAGE 2: Accounts Team Disbursal Action
+            else if (frm.doc.status === 'Pending Accounts Disbursal') {
+                frm.page.set_indicator(__('Pending Accounts Disbursal'), 'blue');
                 if (is_accounts) {
                     frm.add_custom_button(__('💳 Disburse via IDFC (Accounts)'), function() {
                         frappe.prompt([
@@ -130,15 +148,16 @@ frappe.ui.form.on("Event Advance Request", {
                 }
             }
 
-            // 3. One-Click Expense Claim Generator
-            if (frm.doc.status === 'Disbursed via IDFC') {
+            // STAGE 3: Disbursed -> Ready for Post-Event Expense Claim
+            else if (frm.doc.status === 'Disbursed via IDFC') {
+                frm.page.set_indicator(__('Disbursed via IDFC'), 'green');
                 frm.add_custom_button(__('📋 Create Expense Claim from Proposal'), function() {
                     frappe.route_options = {
                         "event": frm.doc.event,
                         "company": frm.doc.company
                     };
                     frappe.new_doc("Event Expense Claim");
-                }).addClass('btn-default');
+                }).addClass('btn-primary');
             }
         }
     },
