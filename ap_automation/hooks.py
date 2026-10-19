@@ -31,12 +31,22 @@ doctype_js = {}
 # --------------------------------------------------------------------------------------
 permission_query_conditions = {
     "Employee Reimbursement Claim": "ap_automation.services.employee_reimbursement_permission_service.get_reimbursement_permission_query_conditions",
-    "Pre Travel Request": "ap_automation.services.employee_reimbursement_permission_service.get_pre_travel_permission_query_conditions"
+    "Pre Travel Request": "ap_automation.services.employee_reimbursement_permission_service.get_pre_travel_permission_query_conditions",
+    "Vendor Invoice Claim": "ap_automation.services.vendor_and_event_permission_service.get_vendor_invoice_permission_query_conditions",
+    "Admin Weekly Vendor Claim": "ap_automation.services.vendor_and_event_permission_service.get_admin_weekly_vendor_permission_query_conditions",
+    "Event Advance Request": "ap_automation.services.vendor_and_event_permission_service.get_event_advance_permission_query_conditions",
+    "Event Expense Claim": "ap_automation.services.vendor_and_event_permission_service.get_event_expense_permission_query_conditions",
+    "Event Settlement": "ap_automation.services.vendor_and_event_permission_service.get_event_settlement_permission_query_conditions"
 }
 
 has_permission = {
     "Employee Reimbursement Claim": "ap_automation.services.employee_reimbursement_permission_service.has_reimbursement_permission",
-    "Pre Travel Request": "ap_automation.services.employee_reimbursement_permission_service.has_pre_travel_permission"
+    "Pre Travel Request": "ap_automation.services.employee_reimbursement_permission_service.has_pre_travel_permission",
+    "Vendor Invoice Claim": "ap_automation.services.vendor_and_event_permission_service.has_vendor_invoice_permission",
+    "Admin Weekly Vendor Claim": "ap_automation.services.vendor_and_event_permission_service.has_admin_weekly_vendor_permission",
+    "Event Advance Request": "ap_automation.services.vendor_and_event_permission_service.has_event_advance_permission",
+    "Event Expense Claim": "ap_automation.services.vendor_and_event_permission_service.has_event_expense_permission",
+    "Event Settlement": "ap_automation.services.vendor_and_event_permission_service.has_event_settlement_permission"
 }
 
 # --------------------------------------------------------------------------------------
