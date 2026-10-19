@@ -63,7 +63,8 @@
   "_user_tags": null,
   "_comments": null,
   "_assign": null,
-  "_liked_by": null
+  "_liked_by": null,
+  "doctype": "Custom Field"
  },
  {
   "name": "Company-ap_accent_color",
@@ -129,7 +130,8 @@
   "_user_tags": null,
   "_comments": null,
   "_assign": null,
-  "_liked_by": null
+  "_liked_by": null,
+  "doctype": "Custom Field"
  },
  {
   "name": "Company-ap_letterhead_logo",
@@ -195,7 +197,8 @@
   "_user_tags": null,
   "_comments": null,
   "_assign": null,
-  "_liked_by": null
+  "_liked_by": null,
+  "doctype": "Custom Field"
  },
  {
   "name": "Company-ap_registered_address",
@@ -261,7 +264,8 @@
   "_user_tags": null,
   "_comments": null,
   "_assign": null,
-  "_liked_by": null
+  "_liked_by": null,
+  "doctype": "Custom Field"
  },
  {
   "name": "Company-ap_corporate_cin",
@@ -327,7 +331,8 @@
   "_user_tags": null,
   "_comments": null,
   "_assign": null,
-  "_liked_by": null
+  "_liked_by": null,
+  "doctype": "Custom Field"
  },
  {
   "name": "Company-ap_alternate_designation",
@@ -393,7 +398,8 @@
   "_user_tags": null,
   "_comments": null,
   "_assign": null,
-  "_liked_by": null
+  "_liked_by": null,
+  "doctype": "Custom Field"
  },
  {
   "name": "Company-ap_alternate_name",
@@ -459,7 +465,8 @@
   "_user_tags": null,
   "_comments": null,
   "_assign": null,
-  "_liked_by": null
+  "_liked_by": null,
+  "doctype": "Custom Field"
  },
  {
   "name": "Company-ap_alternate_signatory",
@@ -525,7 +532,8 @@
   "_user_tags": null,
   "_comments": null,
   "_assign": null,
-  "_liked_by": null
+  "_liked_by": null,
+  "doctype": "Custom Field"
  },
  {
   "name": "Company-ap_signatory_designation",
@@ -591,7 +599,8 @@
   "_user_tags": null,
   "_comments": null,
   "_assign": null,
-  "_liked_by": null
+  "_liked_by": null,
+  "doctype": "Custom Field"
  },
  {
   "name": "Company-ap_signatory_name",
@@ -657,7 +666,8 @@
   "_user_tags": null,
   "_comments": null,
   "_assign": null,
-  "_liked_by": null
+  "_liked_by": null,
+  "doctype": "Custom Field"
  },
  {
   "name": "Company-ap_business_head",
@@ -723,7 +733,8 @@
   "_user_tags": null,
   "_comments": null,
   "_assign": null,
-  "_liked_by": null
+  "_liked_by": null,
+  "doctype": "Custom Field"
  },
  {
   "name": "Company-ap_po_section",
@@ -789,6 +800,7 @@
   "_user_tags": null,
   "_comments": null,
   "_assign": null,
-  "_liked_by": null
+  "_liked_by": null,
+  "doctype": "Custom Field"
  }
 ]
