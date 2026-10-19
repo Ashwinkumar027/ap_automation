@@ -236,10 +236,39 @@ def reload_doctype_permissions():
             pass
 
 
+
+def ensure_ap_permission_rules():
+    fields_to_ignore = [
+        ('Employee Reimbursement Claim', 'employee'),
+        ('Employee Reimbursement Claim', 'reporting_manager'),
+        ('Pre Travel Request', 'employee'),
+        ('Pre Travel Request', 'reporting_manager'),
+    ]
+    for dt, fn in fields_to_ignore:
+        try:
+            frappe.db.set_value('DocField', {'parent': dt, 'fieldname': fn}, 'ignore_user_permissions', 1)
+            ps_name = f'{dt}-{fn}-ignore_user_permissions'
+            if not frappe.db.exists('Property Setter', ps_name):
+                ps = frappe.new_doc('Property Setter')
+                ps.name = ps_name
+                ps.doctype_or_field = 'DocField'
+                ps.doc_type = dt
+                ps.field_name = fn
+                ps.property = 'ignore_user_permissions'
+                ps.value = '1'
+                ps.property_type = 'Check'
+                ps.insert(ignore_permissions=True)
+            else:
+                frappe.db.set_value('Property Setter', ps_name, 'value', '1')
+        except Exception:
+            pass
+
+
 def after_install():
     """Hook executed after app is installed on a site."""
     setup_roles()
     reload_doctype_permissions()
+    ensure_ap_permission_rules()
     setup_reports()
     setup_workspaces()
     setup_desktop_icons()
@@ -250,6 +279,7 @@ def after_migrate():
     """Hook executed after bench migrate runs on a site."""
     setup_roles()
     reload_doctype_permissions()
+    ensure_ap_permission_rules()
     setup_reports()
     setup_workspaces()
     setup_desktop_icons()
