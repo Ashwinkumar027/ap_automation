@@ -372,7 +372,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         // 2. Manager Approval Stage
         if (['Pending Manager Approval', 'Pending Manager'].includes(status)) {
-            if (is_manager || !is_owner) {
+            if (is_manager) {
                 frm.add_custom_button(__('✅ Approve as Manager'), function() {
                     frappe.prompt([
                         { fieldname: 'comments', fieldtype: 'Small Text', label: __('Approval Notes (Optional)') }
@@ -398,7 +398,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         // 3. Receptionist Verification Stage
         if (['Pending Receptionist', 'Pending Receptionist Verification'].includes(status)) {
-            if (user_roles.includes('Receptionist') || is_system_mgr || !is_owner) {
+            if (user_roles.includes('Receptionist') || is_system_mgr) {
                 frm.add_custom_button(__('✅ Approve as Receptionist'), function() {
                     frappe.prompt([
                         { fieldname: 'comments', fieldtype: 'Small Text', label: __('Verification Remarks (Optional)') }
@@ -424,7 +424,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         // 4. Admin L1 Review Stage
         if (['Pending Admin L1', 'Pending Admin L1 Review'].includes(status)) {
-            if (user_roles.includes('Admin L1 Approver') || is_system_mgr || !is_owner) {
+            if (user_roles.includes('Admin L1 Approver') || is_system_mgr) {
                 frm.add_custom_button(__('🔍 Admin L1 Sign-Off'), function() {
                     frappe.prompt([
                         { fieldname: 'comments', fieldtype: 'Small Text', label: __('Admin L1 Notes (Optional)') }
@@ -450,7 +450,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         // 5. Admin L2 Authorization Stage
         if (['Pending Admin L2', 'Pending Admin L2 Sign-Off'].includes(status)) {
-            if (user_roles.includes('Admin L2 Approver') || is_system_mgr || !is_owner) {
+            if (user_roles.includes('Admin L2 Approver') || is_system_mgr) {
                 frm.add_custom_button(__('🛡️ Admin L2 Authorization'), function() {
                     frappe.prompt([
                         { fieldname: 'comments', fieldtype: 'Small Text', label: __('Admin L2 Notes (Optional)') }
@@ -476,7 +476,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         // 6. Accounts L1 Audit Stage
         if (['Pending Accounts L1', 'Pending Accounts L1 Audit'].includes(status)) {
-            if (user_roles.includes('Accounts L1 Auditor') || is_system_mgr || !is_owner) {
+            if (user_roles.includes('Accounts L1 Auditor') || is_system_mgr) {
                 frm.add_custom_button(__('📊 Audit & Sanction (Accounts L1)'), function() {
                     frappe.prompt([
                         {
@@ -513,7 +513,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         // 7. Accounts L2 Verification Stage
         if (['Pending Accounts L2', 'Pending Director L2 Sanction'].includes(status)) {
-            if (user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || is_system_mgr || !is_owner) {
+            if (user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || is_system_mgr) {
                 frm.add_custom_button(__('🏦 Final Sanction (Accounts L2)'), function() {
                     frappe.prompt([
                         { fieldname: 'comments', fieldtype: 'Small Text', label: __('Sanction Notes (Optional)') }
@@ -539,7 +539,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         // 8. Payment Release Stage
         if (['Approved for Payment', 'Included in Batch'].includes(status)) {
-            if (user_roles.includes('Payment Releaser') || user_roles.includes('Accounts Manager') || is_system_mgr || !is_owner) {
+            if (user_roles.includes('Payment Releaser') || user_roles.includes('Accounts Manager') || is_system_mgr) {
                 frm.add_custom_button(__('💳 Release Payment'), function() {
                     frappe.prompt([
                         { fieldname: 'payment_reference', fieldtype: 'Data', label: __('Payment Ref / UTR #'), reqd: 1, default: 'UTR-' + frappe.datetime.now_datetime().replace(/[-: ]/g, '') },
