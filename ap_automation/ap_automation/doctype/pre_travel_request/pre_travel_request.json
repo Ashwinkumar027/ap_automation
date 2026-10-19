@@ -45,7 +45,8 @@
    "in_list_view": 1,
    "label": "Employee ID",
    "options": "Employee",
-   "reqd": 1
+   "reqd": 1,
+   "ignore_user_permissions": 1
   },
   {
    "fieldname": "employee_name",
