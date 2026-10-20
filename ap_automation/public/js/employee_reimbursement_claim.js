@@ -1080,7 +1080,21 @@ function render_unified_claim_header(frm) {
     const is_rejected = (status === 'Rejected');
     const is_returned = (status === 'Returned to Employee');
 
-    let stepper_html = '<div class="ap-stepper-wrapper"><div class="ap-stepper-trail" role="list" aria-label="Claim Approval Progress">';
+    const active_stage_label = stages[cur_num - 1] ? stages[cur_num - 1].label : status;
+    const mobile_status_color = is_rejected ? '#dc2626' : (is_returned ? '#d97706' : (cur_num >= 8 ? '#059669' : '#2563eb'));
+
+    let stepper_html = `
+        <div class="ap-mobile-stage-bar">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${mobile_status_color};"></span>
+                <span style="font-weight: 700; color: #0f172a;">Stage ${cur_num} of 9:</span>
+                <span style="color: ${mobile_status_color}; font-weight: 700;">${active_stage_label}</span>
+            </div>
+            <span style="color: #64748b; font-size: 11px;">👉 Swipe flow</span>
+        </div>
+        <div class="ap-stepper-wrapper">
+            <div class="ap-stepper-trail" role="list" aria-label="Claim Approval Progress">
+    `;
     stages.forEach((stg, i) => {
         let cls = '';
         if (is_rejected && i === cur_num - 1) cls = 'step-rejected';
@@ -1098,6 +1112,16 @@ function render_unified_claim_header(frm) {
     stepper_html += '</div></div>';
 
     $(wrapper).html(stepper_html + tabs_html);
+
+    // Auto-scroll stepper on mobile to current active stage
+    setTimeout(() => {
+        try {
+            const active_el = $(wrapper).find('.step-active')[0] || $(wrapper).find('.step-rejected')[0] || $(wrapper).find('.step-returned')[0];
+            if (active_el && typeof active_el.scrollIntoView === 'function') {
+                active_el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+        } catch (e) {}
+    }, 150);
 
     $(wrapper).find('.ap-category-tab-btn').on('click', function() {
         if (!is_editable) {

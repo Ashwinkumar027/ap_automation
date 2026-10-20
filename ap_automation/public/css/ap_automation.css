@@ -1,16 +1,22 @@
+/* ======================================================================================
+   AP AUTOMATION GLOBAL RESPONSIVE DESIGN SYSTEM (MOBILE, TABLET & DESKTOP)
+   Optimized for: iPhone 17 Pro, iPhone 17 Pro Max, Modern Androids, Tablets & Desktop
+   ====================================================================================== */
 
-/* Explicit safety: Ensure Frappe native hidden utility is never overridden */
+/* Safety: Ensure Frappe native hidden utility is never overridden */
 .hide, .hidden, [hidden] {
     display: none !important;
 }
-/* AP Automation Global Optimizations & Zero-CLS Layout Rules */
 
+/* --------------------------------------------------------------------------------------
+   1. Visual Header & Category Selection System
+   -------------------------------------------------------------------------------------- */
 [data-fieldname="claim_visual_header_html"],
 #ap-claim-header-mount {
-    min-height: 175px !important;
+    min-height: 140px !important;
     contain: layout style;
     display: block;
-    margin-bottom: 15px;
+    margin-bottom: 14px;
 }
 
 .ap-category-tabs-container {
@@ -36,15 +42,20 @@
     border: 1.5px solid #cbd5e1;
     border-radius: 10px;
     cursor: pointer;
-    transition: all 0.2s ease-in-out;
+    transition: all 0.18s ease-in-out;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
     user-select: none;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .ap-category-tab-btn:hover {
     border-color: #3b82f6;
     transform: translateY(-2px);
     box-shadow: 0 4px 8px -1px rgba(59, 130, 246, 0.15);
+}
+
+.ap-category-tab-btn:active {
+    transform: scale(0.98);
 }
 
 .ap-category-tab-btn.tab-active {
@@ -59,6 +70,7 @@
     align-items: center;
     justify-content: center;
     min-width: 32px;
+    flex-shrink: 0;
 }
 
 .tab-title {
@@ -73,19 +85,32 @@
 
 .tab-desc {
     font-size: 11px;
-    color: #334155;
+    color: #475569;
     margin-top: 2px;
-    line-height: 1.2;
+    line-height: 1.25;
 }
 
+/* --------------------------------------------------------------------------------------
+   2. 9-Stage Progress Stepper (Touch-Scroll on Phones, Fluid on Desktop)
+   -------------------------------------------------------------------------------------- */
 .ap-stepper-wrapper {
     background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 12px 18px;
-    margin-bottom: 18px;
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
     min-height: 70px;
     contain: layout;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+    position: relative;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.ap-stepper-wrapper::-webkit-scrollbar {
+    display: none !important;
 }
 
 .ap-stepper-trail {
@@ -93,6 +118,7 @@
     justify-content: space-between;
     align-items: center;
     position: relative;
+    min-width: 680px; /* Guarantees all 9 stages are legible on mobile without squishing */
 }
 
 .ap-step-item {
@@ -102,6 +128,7 @@
     flex: 1;
     position: relative;
     z-index: 1;
+    padding: 0 4px;
 }
 
 .ap-step-node {
@@ -117,6 +144,7 @@
     color: #475569;
     border: 2px solid #94a3b8;
     margin-bottom: 6px;
+    transition: all 0.2s ease;
 }
 
 .ap-step-label {
@@ -124,6 +152,7 @@
     font-weight: 600;
     color: #334155;
     text-align: center;
+    white-space: nowrap;
 }
 
 .step-completed .ap-step-node {
@@ -160,39 +189,79 @@
     color: #ffffff;
 }
 
-[data-fieldname="client_visit_legs"] .grid-heading-row,
-[data-fieldname="participants"] .grid-heading-row {
-    background-color: #f1f5f9;
-    font-weight: 600;
+/* Mobile Stage Indicator Bar (Visible on <= 768px screens) */
+.ap-mobile-stage-bar {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
 }
 
-/* ======================================================================================
-   AP AUTOMATION ONLY RESPONSIVE COMPONENTS (STRICTLY SCOPED TO AP-* CLASSES)
-   Does NOT touch or override default Frappe Desk navbar, page-head, or buttons!
-   ====================================================================================== */
-
-/* Stepper horizontal scroll & layout resilience */
-.ap-stepper-container {
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    padding: 10px 14px !important;
-    background: #f8fafc !important;
-    border: 1px solid #e2e8f0 !important;
-    border-radius: 8px !important;
-    margin-bottom: 12px !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-width: thin !important;
-    max-width: 100% !important;
+/* --------------------------------------------------------------------------------------
+   3. Universal Receipt & Audit Gallery Modal (Responsive Split / Stack)
+   -------------------------------------------------------------------------------------- */
+.ap-gallery-wrapper {
+    display: flex;
+    gap: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-.ap-step-card {
-    min-width: 135px !important;
-    flex: 1 0 auto !important;
+.ap-gallery-sidebar {
+    width: 340px;
+    max-height: 540px;
+    overflow-y: auto;
+    padding-right: 8px;
+    border-right: 1px solid #e2e8f0;
+    flex-shrink: 0;
 }
 
-/* Status guidance banner responsiveness */
+.ap-gallery-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.ap-gallery-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 16px;
+    margin-bottom: 14px;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.ap-receipts-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.ap-receipt-thumb-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease-in-out;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* --------------------------------------------------------------------------------------
+   4. Status Guidance Banners
+   -------------------------------------------------------------------------------------- */
 .ap-status-banner {
     display: flex !important;
     align-items: center !important;
@@ -216,7 +285,47 @@
     text-align: right !important;
 }
 
+/* --------------------------------------------------------------------------------------
+   5. Mobile Media Queries (iPhone 17 Pro, iPhone 17 Pro Max, Androids: max-width: 768px)
+   -------------------------------------------------------------------------------------- */
 @media (max-width: 768px) {
+    /* Show mobile stage notification bar */
+    .ap-mobile-stage-bar {
+        display: flex !important;
+    }
+
+    /* Category cards responsive 2-column or 1-column */
+    .ap-category-tabs-container {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 8px !important;
+        padding: 6px !important;
+    }
+
+    .ap-category-tab-btn {
+        padding: 10px !important;
+        gap: 8px !important;
+    }
+
+    .tab-icon {
+        font-size: 22px !important;
+        min-width: 26px !important;
+    }
+
+    .tab-title {
+        font-size: 12px !important;
+    }
+
+    .tab-desc {
+        display: none !important; /* Hide long secondary subtexts on small screens for app-like clarity */
+    }
+
+    /* Stepper container mobile styling */
+    .ap-stepper-wrapper {
+        padding: 10px 12px !important;
+        border-radius: 10px !important;
+    }
+
+    /* Status banner mobile ergonomics */
     .ap-status-banner {
         flex-direction: column !important;
         align-items: flex-start !important;
@@ -228,7 +337,84 @@
         margin-top: 4px !important;
     }
 
+    /* Receipt Gallery Mobile Transformation: Stack layout + horizontal thumbnail carousel */
+    .ap-gallery-wrapper {
+        flex-direction: column !important;
+        gap: 12px !important;
+    }
+
+    .ap-gallery-sidebar {
+        width: 100% !important;
+        max-height: 140px !important;
+        border-right: none !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+        padding-right: 0 !important;
+        padding-bottom: 8px !important;
+    }
+
+    .ap-receipts-list {
+        flex-direction: row !important;
+        overflow-x: auto !important;
+        gap: 8px !important;
+        padding-bottom: 4px !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    .ap-receipt-thumb-item {
+        min-width: 220px !important;
+        margin-bottom: 0 !important;
+        flex-shrink: 0 !important;
+    }
+
+    .ap-gallery-toolbar {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        padding: 10px 12px !important;
+    }
+
+    .ap-gallery-toolbar .ap-gallery-toolbar-actions {
+        width: 100% !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        margin-top: 6px !important;
+    }
+
+    .ap-preview-container img {
+        max-height: 52vh !important;
+        object-fit: contain !important;
+    }
+
+    .ap-preview-container iframe {
+        height: 52vh !important;
+    }
+
+    /* Mobile modal ergonomics */
+    .modal-dialog {
+        max-width: 96vw !important;
+        margin: 8px auto !important;
+    }
+
+    .modal-content {
+        border-radius: 14px !important;
+    }
+
+    /* Touch targets for buttons */
+    .form-grid .grid-add-row,
+    .btn.btn-sm,
+    .btn.btn-primary {
+        min-height: 38px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+}
+
+/* Specific Small Phone Breakpoint (iPhone Mini / Android <= 420px) */
+@media (max-width: 420px) {
     .ap-category-tabs-container {
-        grid-template-columns: 1fr !important;
+        grid-template-columns: 1fr !important; /* Single column on compact screen */
+    }
+    .tab-desc {
+        display: block !important;
     }
 }

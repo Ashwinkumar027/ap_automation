@@ -282,10 +282,10 @@ window.APReceiptGallery = {
             const header_title = (active_att.row_idx ? `Row #${active_att.row_idx}: ` : '') + active_att.merchant;
 
             const full_html = `
-                <div style="display: flex; gap: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                    <!-- Left Sidebar (Receipts List) -->
-                    <div style="width: 350px; max-height: 540px; overflow-y: auto; padding-right: 8px; border-right: 1px solid #e2e8f0;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div class="ap-gallery-wrapper">
+                    <!-- Left Sidebar / Mobile Top Carousel (Receipts List) -->
+                    <div class="ap-gallery-sidebar">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                             <span style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">
                                 Attached Proofs (${attachments.length})
                             </span>
@@ -299,25 +299,25 @@ window.APReceiptGallery = {
                     </div>
 
                     <!-- Right Main Viewer Area -->
-                    <div style="flex: 1; display: flex; flex-direction: column;">
+                    <div class="ap-gallery-main">
                         <!-- Active Receipt Toolbar -->
-                        <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 16px; margin-bottom: 14px;">
-                            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <div class="ap-gallery-toolbar">
+                            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
                                 <span style="font-size: 14px; font-weight: 700; color: #0f172a;">
                                     ${header_title}
                                 </span>
                                 ${active_date_formatted ? `
-                                    <span style="font-size: 12px; font-weight: 700; color: #3730a3; background: #e0e7ff; border: 1px solid #c7d2fe; padding: 3px 10px; border-radius: 6px;">
-                                        📅 Expense Date: <b>${active_date_formatted}</b>
+                                    <span style="font-size: 12px; font-weight: 700; color: #3730a3; background: #e0e7ff; border: 1px solid #c7d2fe; padding: 2px 8px; border-radius: 6px;">
+                                        📅 ${active_date_formatted}
                                     </span>
                                 ` : ''}
                                 <span style="font-size: 12px; color: #64748b;">
-                                    Amount: <b style="color: #059669; font-size: 13px;">${window.APReceiptGallery.formatINR(active_att.amount)}</b> | Category: <b style="color: #1e293b;">${active_att.category}</b>
+                                    Amount: <b style="color: #059669; font-size: 13px;">${window.APReceiptGallery.formatINR(active_att.amount)}</b> | <b style="color: #1e293b;">${active_att.category}</b>
                                 </span>
                             </div>
-                            <div style="display: flex; gap: 8px;">
+                            <div class="ap-gallery-toolbar-actions" style="display: flex; gap: 8px;">
                                 <a href="${active_att.view_url || active_att.file_url}" download="${active_att.file_name}" class="btn btn-sm btn-primary" style="font-weight: 600;">
-                                    ⬇️ Download This (${(active_att.extension || '').toUpperCase()})
+                                    ⬇️ Download (${(active_att.extension || '').toUpperCase()})
                                 </a>
                                 <a href="${active_att.view_url || active_att.file_url}" target="_blank" class="btn btn-sm btn-default" title="Open Full in New Tab">
                                     ↗️
