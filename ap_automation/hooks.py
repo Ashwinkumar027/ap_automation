@@ -57,6 +57,9 @@ scheduler_events = {
         "0 10 * * 2": [
             "ap_automation.services.notification_service.send_pending_petty_cash_reminders"
         ],
+        "0 10 * * 1-5": [
+            "ap_automation.services.notification_service.send_pending_vendor_claim_reminders"
+        ],
         "0 10 * * 5": [
             "ap_automation.services.weekly_accounts_batch_service.generate_all_friday_admin_batches"
         ],

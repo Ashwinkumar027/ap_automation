@@ -349,7 +349,7 @@ function render_vendor_claim_approval_buttons(frm) {
     else if (status === "Pending Director Approval") {
         let is_dir = frappe.user.has_role(["Accounts Director", "Director Tier", "System Manager"]) || is_admin;
         if ((!is_owner && is_dir) || is_admin) {
-            frm.add_custom_button(__('👑 Approve (Business Head / Director)'), function() {
+            frm.add_custom_button(__('👑 Approve (Executive Director)'), function() {
                 frappe.prompt([
                     { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Director Remarks (Optional)') }
                 ], function(values) {
@@ -365,7 +365,7 @@ function render_vendor_claim_approval_buttons(frm) {
                             }
                         }
                     });
-                }, __('Executive Director Approval (> ₹2 Lakhs)'), __('Sanction & Advance to Accounts'));
+                }, __('Executive Director Approval'), __('Sanction & Advance to Accounts'));
             }).addClass('btn-primary').css({ 'background-color': '#7c3aed', 'border-color': '#6d28d9', 'color': '#fff' });
         }
     }
@@ -1087,27 +1087,25 @@ function render_vendor_invoice_dashboard(frm) {
         `;
     }
 
-    // 1. PRD Compliant Stepper
+    // 1. Streamlined Corporate Stepper (Intake -> Manager -> Director -> Accounts L1 -> Accounts L2 -> Payment)
     let stages = [
         { label: "1. Intake", key: "Draft" },
         { label: "2. Manager", key: "Pending Manager Approval" },
-        { label: "3. HoD", key: "Pending HoD Approval" },
-        { label: "4. Director (>2L)", key: "Pending Director Approval" },
-        { label: "5. Accounts L1", key: "Pending Accounts Review" },
-        { label: "6. Accounts L2", key: "Pending Accounts L2 Approval" },
-        { label: "7. Payment", key: "Paid" }
+        { label: "3. Director", key: "Pending Director Approval" },
+        { label: "4. Accounts L1 (Tally)", key: "Pending Accounts Review" },
+        { label: "5. Accounts L2", key: "Pending Accounts L2 Approval" },
+        { label: "6. Payment", key: "Paid" }
     ];
 
     let current_status = frm.doc.status || "Draft";
     let active_idx = 0;
     if (current_status === "Draft") active_idx = 0;
     else if (current_status === "Pending Manager Approval") active_idx = 1;
-    else if (current_status === "Pending HoD Approval") active_idx = 2;
-    else if (current_status === "Pending Director Approval") active_idx = 3;
-    else if (current_status === "Pending Accounts Review") active_idx = 4;
-    else if (current_status === "Pending Accounts L2 Approval") active_idx = 5;
-    else if (current_status === "Approved for Payment" || current_status === "Queued in Batch") active_idx = 5;
-    else if (current_status === "Paid") active_idx = 6;
+    else if (current_status === "Pending HoD Approval" || current_status === "Pending Director Approval") active_idx = 2;
+    else if (current_status === "Pending Accounts Review") active_idx = 3;
+    else if (current_status === "Pending Accounts L2 Approval") active_idx = 4;
+    else if (current_status === "Approved for Payment" || current_status === "Queued in Batch") active_idx = 4;
+    else if (current_status === "Paid") active_idx = 5;
     else if (current_status === "Disputed") active_idx = 1;
 
     let stepper_html = stages.map((st, i) => {

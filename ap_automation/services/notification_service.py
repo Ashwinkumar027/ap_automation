@@ -62,8 +62,8 @@ def _resolve_email(user_or_email: Optional[str]) -> Optional[str]:
 def _get_matrix_or_role_approvers(
     company: str,
     document_lane: str,
-    level_number: int,
-    fallback_roles: List[str],
+    level_number: int = 1,
+    fallback_roles: Optional[List[str]] = None,
     stage_keyword: Optional[str] = None
 ) -> List[str]:
     """
@@ -1506,7 +1506,7 @@ def notify_vendor_claim_submitted(claim_name: str) -> None:
 
 
 def notify_vendor_claim_manager_approved(claim_name: str) -> None:
-    """Triggered after Manager signs off. Alerts HoD (Level 2 in AP Matrix)."""
+    """Triggered after Manager signs off. Alerts Executive Director / Business Head directly."""
     if not frappe.db.exists("Vendor Invoice Claim", claim_name):
         return
     doc = frappe.get_doc("Vendor Invoice Claim", claim_name)
@@ -1518,19 +1518,22 @@ def notify_vendor_claim_manager_approved(claim_name: str) -> None:
     recipients = _get_matrix_or_role_approvers(
         company=company,
         document_lane="AP Vendor Invoice",
-        level_number=2,
-        fallback_roles=["Admin L2 Approver", "HoD"],
-        stage_keyword="HoD"
+        level_number=1,
+        fallback_roles=["Accounts Director", "Director Tier", "Director"],
+        stage_keyword="Director"
     )
-    subject = f"[Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)}) Approved by Manager -> Awaiting HoD"
+    bus_head = frappe.db.get_value("Company", company, "ap_business_head")
+    if bus_head and bus_head not in recipients:
+        recipients.append(bus_head)
+    subject = f"[Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)}) Approved by Manager -> Awaiting Director Sanction"
     html = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fed7aa; border-radius: 10px; padding: 24px; background: #ffffff;">
-        <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px;">
-            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #1d4ed8; font-weight: 700;">Department Gate • Stage 2 HoD Approval</span>
-            <h2 style="margin: 4px 0 0 0; color: #1e3a8a; font-size: 20px;">Manager Approved Vendor Claim</h2>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e9d5ff; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #7c3aed; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #6d28d9; font-weight: 700;">Executive Governance • Commercial Sanction</span>
+            <h2 style="margin: 4px 0 0 0; color: #581c87; font-size: 20px;">Vendor Claim Awaiting Director Approval</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            Reporting Manager <b>{doc.manager_approver or 'Manager'}</b> has approved this invoice for <b>{vendor}</b>. It now requires your Departmental sign-off.
+            Reporting Manager <b>{doc.manager_approver or 'Manager'}</b> has verified and approved the delivery for <b>{vendor}</b>. This claim now requires your executive sanction as Director / Business Head.
         </p>
         <div style="background: #eff6ff; border: 1px solid #dbeafe; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <div style="font-size: 13px; color: #1e40af; margin-bottom: 4px;">Vendor: <b style="color: #0f172a;">{vendor}</b></div>
@@ -1865,3 +1868,132 @@ def notify_vendor_claim_disputed(claim_name: str, reason_code: str, remarks: str
         cc=[],
         is_thread_reply=True
     )
+
+
+@frappe.whitelist()
+def send_pending_vendor_claim_reminders() -> Dict[str, Any]:
+    """
+    Automated reminder cron job for Vendor Invoice Claims pending action.
+    Sends notifications to:
+    1. Reporting Manager for 'Pending Manager Approval'
+    2. Executive Director for 'Pending Director Approval'
+    3. Accounts L1 (Gokulnath) for 'Pending Accounts Review'
+    4. Accounts L2 (Anshul Sir / Srinivasan Sir) for 'Pending Accounts L2 Approval'
+    """
+    pending_claims = frappe.get_all(
+        "Vendor Invoice Claim",
+        filters={
+            "status": [
+                "in",
+                [
+                    "Pending Manager Approval",
+                    "Pending Director Approval",
+                    "Pending Accounts Review",
+                    "Pending Accounts L2 Approval"
+                ]
+            ],
+            "docstatus": ["!=", 2]
+        },
+        fields=[
+            "name",
+            "company",
+            "vendor_name",
+            "vendor",
+            "owner",
+            "status",
+            "net_payable_amount",
+            "total_invoice_amount",
+            "tax_invoice_number",
+            "designated_approver",
+            "creation"
+        ]
+    )
+
+    sent_count = 0
+    for claim in pending_claims:
+        company = claim.company or "Company"
+        vendor = claim.vendor_name or claim.vendor or "Vendor"
+        amt = float(claim.net_payable_amount or claim.total_invoice_amount or 0.0)
+        amt_str = fmt_money(amt, currency="INR")
+        claim_url = _get_form_url("Vendor Invoice Claim", claim.name)
+        target_approvers = []
+        stage_title = ""
+
+        if claim.status == "Pending Manager Approval":
+            stage_title = "Reporting Manager Review"
+            mgr_user = claim.designated_approver
+            if not mgr_user and claim.owner:
+                emp = frappe.db.get_value("Employee", {"user_id": claim.owner, "status": "Active"}, ["reports_to"], as_dict=True)
+                if emp and emp.reports_to:
+                    mgr_user = frappe.db.get_value("Employee", emp.reports_to, "user_id")
+            if mgr_user:
+                target_approvers.append(mgr_user)
+                try:
+                    from ap_automation.services.security import resolve_acting_approver
+                    acting_mgr = resolve_acting_approver(mgr_user)
+                    if acting_mgr and acting_mgr not in target_approvers:
+                        target_approvers.append(acting_mgr)
+                except Exception:
+                    pass
+            else:
+                target_approvers = _get_matrix_or_role_approvers(
+                    company, "AP Vendor Invoice", level_number=1, fallback_roles=["Admin L1 Approver", "Admin Manager"], stage_keyword="Manager"
+                )
+
+        elif claim.status == "Pending Director Approval":
+            stage_title = "Executive Director Commercial Sanction"
+            target_approvers = _get_matrix_or_role_approvers(
+                company, "AP Vendor Invoice", level_number=1, fallback_roles=["Accounts Director", "Director Tier", "Director"], stage_keyword="Director"
+            )
+            bus_head = frappe.db.get_value("Company", company, "ap_business_head")
+            if bus_head and bus_head not in target_approvers:
+                target_approvers.append(bus_head)
+
+        elif claim.status == "Pending Accounts Review":
+            stage_title = "Accounts L1 Audit & Tally Entry"
+            target_approvers = _get_matrix_or_role_approvers(
+                company, "AP Vendor Invoice", level_number=2, fallback_roles=["Accounts L1 Auditor", "Accounts User"], stage_keyword="Accounts L1"
+            )
+
+        elif claim.status == "Pending Accounts L2 Approval":
+            stage_title = "Accounts L2 Payment Clearance"
+            target_approvers = _get_matrix_or_role_approvers(
+                company, "AP Vendor Invoice", level_number=3, fallback_roles=["Accounts Manager", "Accounts Director"], stage_keyword="Accounts L2"
+            )
+
+        if target_approvers:
+            subject = f"⏰ [Reminder] [Action Required] [Invoice #{claim.name}] {company} - {vendor} ({amt_str}) - {stage_title}"
+            msg_html = f"""
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fde047; border-radius: 10px; padding: 24px; background: #ffffff;">
+                <div style="border-bottom: 2px solid #ca8a04; padding-bottom: 12px; margin-bottom: 16px;">
+                    <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #a16207; font-weight: 700;">Pending Task Alert • {stage_title}</span>
+                    <h2 style="margin: 4px 0 0 0; color: #713f12; font-size: 20px;">Vendor Invoice Approval Reminder</h2>
+                </div>
+                <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+                    This is an automated reminder that Vendor Invoice Claim <b>#{claim.name}</b> for <b>{vendor}</b> is currently pending your action under <b>{stage_title}</b>.
+                </p>
+                <div style="background: #fefce8; border: 1px solid #fef08a; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                    <div style="font-size: 13px; color: #854d0e; margin-bottom: 4px;">Company: <b style="color: #0f172a;">{company}</b></div>
+                    <div style="font-size: 13px; color: #854d0e; margin-bottom: 4px;">Vendor: <b style="color: #0f172a;">{vendor}</b></div>
+                    <div style="font-size: 13px; color: #854d0e; margin-bottom: 4px;">Invoice #: <b style="color: #0f172a;">#{claim.tax_invoice_number or 'DRAFT'}</b></div>
+                    <div style="font-size: 18px; font-weight: 800; color: #a16207; margin-top: 8px;">Net Payable: ₹ {amt_str}</div>
+                </div>
+                <div style="text-align: center; margin-top: 24px;">
+                    <a href="{claim_url}" style="background: #ca8a04; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                        Open Claim #{claim.name} & Take Action &rarr;
+                    </a>
+                </div>
+            </div>
+            """
+            _send_email_and_desk_alert(
+                recipients=target_approvers,
+                subject=subject,
+                message_html=msg_html,
+                reference_doctype="Vendor Invoice Claim",
+                reference_name=claim.name,
+                alert_type="orange",
+                is_thread_reply=True
+            )
+            sent_count += 1
+
+    return {"status": "SUCCESS", "vendor_reminders_sent": sent_count}

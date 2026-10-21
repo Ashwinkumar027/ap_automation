@@ -443,12 +443,12 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
     now_ts = frappe.utils.now_datetime()
     doc.manager_approver = user
     doc.manager_approved_on = now_ts
-    doc.status = "Pending HoD Approval"
-    doc.workflow_state = "Awaiting HoD Approval (PRD Stage 3)"
+    doc.status = "Pending Director Approval"
+    doc.workflow_state = "Awaiting Executive Director Approval" 
 
     doc.append("approval_trail", {
         "level_number": 1,
-        "level_name": "Stage 3: Manager Approval",
+        "level_name": "Stage 1: Reporting Manager Approval",
         "action_taken_by": user,
         "action": "APPROVED",
         "action_timestamp": now_ts,
@@ -588,8 +588,8 @@ def approve_vendor_claim_by_director(docname: str, remarks: Optional[str] = None
     doc.workflow_state = "Awaiting Accounts L1 Review (Gokulnath)"
 
     doc.append("approval_trail", {
-        "level_number": 3,
-        "level_name": "Stage 3: Director Approval (> INR 2L)",
+        "level_number": 2,
+        "level_name": "Stage 2: Executive Director Approval",
         "action_taken_by": user,
         "action": "APPROVED",
         "action_timestamp": now_ts,
