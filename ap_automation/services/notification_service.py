@@ -75,15 +75,28 @@ def _get_matrix_or_role_approvers(
     # 1. Check Approval Matrix
     matrix_name = None
     if frappe.db.exists("DocType", "AP Approval Matrix"):
-        matrix_name = frappe.db.get_value(
-            "AP Approval Matrix",
-            {"company": company, "document_lane": document_lane, "is_active": 1},
-            "name"
-        ) or frappe.db.get_value(
-            "AP Approval Matrix",
-            {"document_lane": document_lane, "is_active": 1},
-            "name"
-        )
+        lane_options = [document_lane]
+        if document_lane in ("Petty Cash", "Petty Cash Entry"):
+            lane_options = ["Petty Cash Entry", "Petty Cash"]
+        elif document_lane in ("Employee Reimbursement", "Employee Reimbursement Claim"):
+            lane_options = ["Employee Reimbursement Claim", "Employee Reimbursement"]
+        elif document_lane in ("AP Vendor Invoice", "Vendor Invoice Claim", "Vendor Invoice"):
+            lane_options = ["AP Vendor Invoice", "Vendor Invoice Claim"]
+        elif document_lane in ("Event Advance Request", "Event Advance"):
+            lane_options = ["Event Advance Request", "Event Advance"]
+
+        for lane in lane_options:
+            matrix_name = frappe.db.get_value(
+                "AP Approval Matrix",
+                {"company": company, "document_lane": lane, "is_active": 1},
+                "name"
+            ) or frappe.db.get_value(
+                "AP Approval Matrix",
+                {"document_lane": lane, "is_active": 1},
+                "name"
+            )
+            if matrix_name:
+                break
 
     if matrix_name:
         matrix = frappe.get_doc("AP Approval Matrix", matrix_name)
@@ -435,8 +448,8 @@ def notify_director_on_l1_audit_completed(voucher_doctype: str, voucher_name: st
     director_users = _get_matrix_or_role_approvers(
         company=company,
         document_lane=voucher_doctype,
-        level_number=2,
-        fallback_roles=["Accounts Director"], stage_keyword="Director"
+        level_number=4,
+        fallback_roles=["Accounts Director", "Director Tier"], stage_keyword="Director"
     )
 
     cc_users = _get_claim_rolling_cc(doc, exclude_users=director_users)
@@ -854,13 +867,13 @@ def send_pending_petty_cash_reminders() -> Dict[str, Any]:
         target_approvers = []
 
         if vch.status == "Pending Admin L1":
-            target_approvers = [vch.admin_l1_approver] if vch.admin_l1_approver else _get_matrix_or_role_approvers(vch.company, "Petty Cash", 1, ["Admin L1 Approver"])
+            target_approvers = [vch.admin_l1_approver] if vch.admin_l1_approver else _get_matrix_or_role_approvers(vch.company, "Petty Cash Entry", 1, ["Admin L1 Approver"], stage_keyword="Admin L1")
         elif vch.status == "Pending Admin L2":
-            target_approvers = [vch.admin_l2_approver] if vch.admin_l2_approver else _get_matrix_or_role_approvers(vch.company, "Petty Cash", 2, ["Admin L2 Approver"])
+            target_approvers = [vch.admin_l2_approver] if vch.admin_l2_approver else _get_matrix_or_role_approvers(vch.company, "Petty Cash Entry", 2, ["Admin L2 Approver"], stage_keyword="Admin L2")
         elif vch.status == "Submitted":
-            target_approvers = _get_matrix_or_role_approvers(vch.company, "Petty Cash", 3, ["Accounts L1 Auditor"])
+            target_approvers = _get_matrix_or_role_approvers(vch.company, "Petty Cash Entry", 3, ["Accounts L1 Auditor"], stage_keyword="Accounts")
         elif vch.status == "L1 Verified":
-            target_approvers = _get_matrix_or_role_approvers(vch.company, "Petty Cash", 4, ["Accounts Director", "Director Tier"])
+            target_approvers = _get_matrix_or_role_approvers(vch.company, "Petty Cash Entry", 4, ["Accounts Director", "Director Tier"], stage_keyword="Director")
 
         if target_approvers:
             subject = f"[AP-PettyCash] [Reminder] [Action Required] [Voucher #{vch.name}] {vch.company} ({amt_str}) - {vch.status}"

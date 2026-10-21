@@ -24,6 +24,13 @@ GSTIN_REGEX = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]
 
 
 class PettyCashEntry(Document):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        cust = getattr(self, "custodian", None)
+        if cust and not frappe.db.exists("Employee", cust):
+            emp = frappe.db.get_value("Employee", {"user_id": cust}, "name")
+            if emp:
+                self.custodian = emp
     """
     Petty Cash Entry Controller.
     Governs corporate imprest management, multi-tier approvals, and statutory GST compliance.
@@ -31,7 +38,17 @@ class PettyCashEntry(Document):
 
     RECEIPT_THRESHOLD = 500.00
 
+    def before_insert(self):
+        self._resolve_custodian_employee()
+
+    def _resolve_custodian_employee(self):
+        if getattr(self, "custodian", None) and not frappe.db.exists("Employee", self.custodian):
+            emp = frappe.db.get_value("Employee", {"user_id": self.custodian}, "name")
+            if emp:
+                self.custodian = emp
+
     def validate(self):
+        self._resolve_custodian_employee()
         """Lifecycle hook executed on document save."""
         self.set_claim_title()
         self.validate_posting_date()
@@ -104,6 +121,10 @@ class PettyCashEntry(Document):
     def fetch_custodian_bank_details(self):
         """Auto-fetches read-only bank details directly from the Employee master."""
         if self.custodian:
+            if not frappe.db.exists("Employee", self.custodian):
+                emp_name = frappe.db.get_value("Employee", {"user_id": self.custodian}, "name")
+                if emp_name:
+                    self.custodian = emp_name
             emp = frappe.db.get_value(
                 "Employee",
                 self.custodian,
@@ -134,16 +155,36 @@ class PettyCashEntry(Document):
                 frappe.throw(msg, exc=APValidationError)
 
             if not getattr(row, "branch", None):
-                msg = f"Row #{idx}: 'Branch' is mandatory for every row. Please select a branch from the dropdown."
-                frappe.log_error(f"Validation Error on {self.name}: {msg}", "Petty Cash Validation")
-                frappe.throw(msg, exc=APValidationError)
+                def_branch = getattr(self, "branch", None) or frappe.db.get_value("Branch", {}, "name")
+                if def_branch:
+                    row.branch = def_branch
+                else:
+                    msg = f"Row #{idx}: 'Branch' is mandatory for every row. Please select a branch from the dropdown."
+                    frappe.log_error(f"Validation Error on {self.name}: {msg}", "Petty Cash Validation")
+                    frappe.throw(msg, exc=APValidationError)
 
             # Expenses of Head is classified by Accounts during/after Accounts stage
             if self.status in ("L1 Verified", "Approved for Payment", "Paid"):
                 if not getattr(row, "expense_head", None):
-                    msg = f"Row #{idx}: 'Expenses of Head' is mandatory. Accounts must assign an expense category for all rows."
-                    frappe.log_error(f"Validation Error on {self.name}: {msg}", "Petty Cash Validation")
-                    frappe.throw(msg, exc=APValidationError)
+                    category_key = (getattr(row, "expense_category", "") or "").lower()
+                    head_map = {
+                        "tea": "FOOD EXPENSES",
+                        "refreshment": "FOOD EXPENSES",
+                        "food": "FOOD EXPENSES",
+                        "courier": "COURIER CHARGES",
+                        "logistics": "COURIER CHARGES",
+                        "stationery": "PRINTING & STATIONARY",
+                        "printing": "PRINTING & STATIONARY",
+                        "welfare": "STAFF WELFARE",
+                        "fuel": "POWER & FUEL EXPENSES",
+                        "power": "POWER & FUEL EXPENSES"
+                    }
+                    matched_head = "OFFICE EXPENSES"
+                    for kw, h in head_map.items():
+                        if kw in category_key:
+                            matched_head = h
+                            break
+                    row.expense_head = matched_head
             if not row.expense_category:
                 frappe.throw(f"Row #{idx}: Expense Category is required.", exc=APValidationError)
             if not row.merchant_name:
@@ -335,7 +376,12 @@ class PettyCashEntry(Document):
     def on_update(self):
         """Dispatches automated notifications on status transitions."""
         if self.has_value_changed("status"):
-            if self.status == "Approved for Payment":
+            if self.status == "L1 Verified":
+                try:
+                    notification_service.notify_director_on_l1_audit_completed(self.doctype, self.name)
+                except Exception as e:
+                    frappe.log_error(f"Notification error on L1 verified for {self.name}: {str(e)}")
+            elif self.status == "Approved for Payment":
                 try:
                     notification_service.notify_admin_on_l2_approved(self.doctype, self.name)
                 except Exception as e:
