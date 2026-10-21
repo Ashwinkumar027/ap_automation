@@ -8,6 +8,20 @@ from frappe.model.document import Document
 from frappe.utils import getdate, flt, get_url, now_datetime
 from frappe.utils.xlsxutils import make_xlsx
 from ap_automation.exceptions import APValidationError, APSecurityError
+from ap_automation.services.approval_service import (
+    get_applicable_matrix,
+    get_current_level_rule,
+    validate_approver_identity
+)
+from ap_automation.services.security import resolve_acting_approver
+from ap_automation.services.notification_service import (
+    notify_admin_weekly_submitted,
+    notify_admin_weekly_admin_l1_approved,
+    notify_admin_weekly_admin_l2_approved,
+    notify_admin_weekly_accounts_l1_approved,
+    notify_admin_weekly_accounts_l2_approved,
+    notify_admin_weekly_paid
+)
 
 TDS_SECTION_RATES = {
     "None / Exempt": 0.0,
@@ -31,9 +45,15 @@ class AdminWeeklyVendorClaim(Document):
     """
     Parent Controller for Admin Weekly Vendor Claims.
     Replaces manual weekly Excel spreadsheets with automated multi-row child table intake,
-    6-stage Petty-Cash-style approvals (Admin L1 -> Admin L2 -> Accounts -> Director -> Paid),
-    zero-typing locked bank masters, in-grid bill proof uploaders, statutory GST & TDS sub-ledgers,
-    role-based financial editing, smart return fast-track routing, and 1-click Excel export.
+    6-stage AP Approval Matrix workflow:
+      Stage 1: Receptionist Submit ->
+      Stage 2: Admin L1 Approver (Matrix Level 1) ->
+      Stage 3: Admin L2 Approver (Matrix Level 2) ->
+      Stage 4: Accounts L1 Auditor (Matrix Level 3) ->
+      Stage 5: Accounts L2 Sanction (Matrix Level 4) ->
+      Stage 6: Payment Releaser Disburse & UTR Stamp.
+    Zero-typing locked bank masters, in-grid bill proof uploaders, statutory GST & TDS sub-ledgers,
+    strict identity validation gates, and 1-click Excel export.
     """
 
     def validate(self):
@@ -46,9 +66,19 @@ class AdminWeeklyVendorClaim(Document):
         self.validate_immutability()
 
     def set_claim_metadata(self):
-        """Generates dynamic voucher title based on Week Period."""
+        """Generates dynamic voucher title and auto-populates parent company & preparer."""
         if not self.prepared_by:
             self.prepared_by = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+
+        # Auto-resolve parent company if missing
+        if not self.company:
+            # 1. From first line item
+            if getattr(self, "vendor_lines", None) and len(self.vendor_lines) > 0 and self.vendor_lines[0].company:
+                self.company = self.vendor_lines[0].company
+            else:
+                # 2. From claimant employee record or default
+                emp_company = frappe.db.get_value("Employee", {"user_id": self.prepared_by, "status": "Active"}, "company")
+                self.company = emp_company or frappe.defaults.get_user_default("Company")
 
         period_label = self.week_period or "Weekly Claim"
         line_count = len(self.vendor_lines) if getattr(self, "vendor_lines", None) else 0
@@ -81,7 +111,9 @@ class AdminWeeklyVendorClaim(Document):
                 frappe.throw(_("Row #{0}: Vendor / Supplier is mandatory.").format(idx), title=_("Missing Vendor"), exc=APValidationError)
 
             if not row.company:
-                frappe.throw(_("Row #{0}: Company Entity is mandatory.").format(idx), title=_("Missing Company"), exc=APValidationError)
+                row.company = self.company or frappe.defaults.get_user_default("Company")
+                if not row.company:
+                    frappe.throw(_("Row #{0}: Company Entity is mandatory.").format(idx), title=_("Missing Company"), exc=APValidationError)
 
             val = flt(row.base_amount) or flt(row.amount)
             if val <= 0:
@@ -126,7 +158,7 @@ class AdminWeeklyVendorClaim(Document):
         """
         Enforces strict RBAC:
         Admin/Reception can only enter vendor, invoice details, proof, and base amount.
-        Only Accounts L1 and Accounts Director can modify GST rates, TDS sections, or adjust financial amounts.
+        Only Accounts L1 and Accounts L2 can modify GST rates, TDS sections, or adjust financial amounts.
         """
         if self.is_new():
             return
@@ -147,13 +179,13 @@ class AdminWeeklyVendorClaim(Document):
                     # Disallow altering GST or TDS by non-accounts users
                     if old_r.gst_rate and row.gst_rate and old_r.gst_rate != row.gst_rate:
                         frappe.throw(
-                            _("Unauthorized: Only Accounts L1 and Accounts Director are authorized to modify GST classification."),
+                            _("Unauthorized: Only Accounts L1 and Accounts L2 are authorized to modify GST classification."),
                             title=_("Permission Denied"),
                             exc=APSecurityError
                         )
                     if old_r.tds_section and row.tds_section and old_r.tds_section != row.tds_section:
                         frappe.throw(
-                            _("Unauthorized: Only Accounts L1 and Accounts Director are authorized to classify TDS sections."),
+                            _("Unauthorized: Only Accounts L1 and Accounts L2 are authorized to classify TDS sections."),
                             title=_("Permission Denied"),
                             exc=APSecurityError
                         )
@@ -191,7 +223,6 @@ class AdminWeeklyVendorClaim(Document):
 
         for row in (self.vendor_lines or []):
             base = flt(row.base_amount)
-            # If base is 0 but amount was entered (e.g. legacy/initial input), use amount as base
             if base <= 0 and flt(row.amount) > 0:
                 base = flt(row.amount)
                 row.base_amount = base
@@ -202,7 +233,7 @@ class AdminWeeklyVendorClaim(Document):
             gst_amt = round(base * (gst_pct / 100.0), 2)
             total_bill = round(base + gst_amt, 2)
 
-            # Statutory Indian TDS computation (excluding GST per CBDT circular)
+            # Statutory Indian TDS computation
             section = row.tds_section or "None / Exempt"
             tds_rate = TDS_SECTION_RATES.get(section)
             if tds_rate is None:
@@ -235,127 +266,290 @@ class AdminWeeklyVendorClaim(Document):
         if self.is_new():
             return
         old_status = frappe.db.get_value(self.doctype, self.name, "status")
-        if old_status in ("Approved for Payment", "Queued in Batch", "Paid") and self.status == old_status:
+        if old_status in ("Pending Accounts L2 Approval", "Queued for Payment Release", "Approved for Payment", "Queued in Batch", "Paid") and self.status == old_status:
             old_count = frappe.db.count("Admin Vendor Claim Item", {"parent": self.name})
             if old_count != len(self.vendor_lines):
                 frappe.throw(_("Immutability Violation: Approved weekly vouchers cannot be modified."), exc=APSecurityError)
 
 
 # --------------------------------------------------------------------------------------
-# WHITELISTED LIFECYCLE WORKFLOW TRANSITION APIS (PETTY CASH FLOW)
+# WHITELISTED LIFECYCLE WORKFLOW TRANSITION APIS (AP APPROVAL MATRIX ROUTED)
 # --------------------------------------------------------------------------------------
 
 @frappe.whitelist()
 def get_supplier_bank_info(supplier):
     """Fetches legal name and verified bank account details for a Supplier."""
-    if not supplier:
-        return {}
     supp = frappe.db.get_value("Supplier", supplier, ["supplier_name", "disabled"], as_dict=True)
     if not supp:
-        return {}
+        return None
 
-    bank_data = AdminWeeklyVendorClaim._get_supplier_bank_details(supplier)
+    bank_info = AdminWeeklyVendorClaim._get_supplier_bank_details(supplier) or {}
     return {
         "supplier_name": supp.supplier_name,
         "disabled": supp.disabled,
-        "bank_beneficiary_name": bank_data.get("bank_beneficiary_name") if bank_data else supp.supplier_name,
-        "bank_account_number": bank_data.get("bank_account_no") if bank_data else "",
-        "bank_ifsc_code": bank_data.get("ifsc_code") if bank_data else "",
-        "penny_drop_status": bank_data.get("penny_drop_status") if bank_data else "UNVERIFIED"
+        "bank_name": bank_info.get("bank_name", ""),
+        "bank_account_number": bank_info.get("bank_account_no", ""),
+        "bank_ifsc_code": bank_info.get("ifsc_code", ""),
+        "penny_drop_status": bank_info.get("penny_drop_status", "UNVERIFIED"),
+        "bank_beneficiary_name": bank_info.get("bank_beneficiary_name", supp.supplier_name)
     }
+
+
+def _resolve_matrix_level_approver(doc, level_number: int):
+    """
+    Finds designated approver rule from AP Approval Matrix for lane 'Admin Weekly Vendor Claim'.
+    Raises informative validation error if matrix is missing.
+    """
+    matrix = get_applicable_matrix("Admin Weekly Vendor Claim", doc.company, doc.total_amount)
+    if not matrix:
+        # Fallback to AP Vendor Invoice if not specifically set
+        matrix = get_applicable_matrix("AP Vendor Invoice", doc.company, doc.total_amount)
+
+    if not matrix:
+        frappe.throw(
+            _(f"No active AP Approval Matrix configured for Company '{doc.company}' and Document Lane 'Admin Weekly Vendor Claim'. "
+              f"Please configure the 4-tier matrix policy in AP Approval Matrix."),
+            title=_("Approval Matrix Missing"),
+            exc=APValidationError
+        )
+
+    rule = get_current_level_rule(matrix, level_number)
+    if not rule or not rule.designated_approver:
+        frappe.throw(
+            _(f"Approval Level #{level_number} has no Designated Approver configured in Policy '{matrix.name}'."),
+            title=_("Incomplete Matrix Configuration"),
+            exc=APValidationError
+        )
+    return rule
 
 
 @frappe.whitelist()
 def submit_to_admin_l1(docname):
-    """Stage 1 -> Stage 2: Submits draft voucher to Admin L1 Review."""
+    """
+    Stage 1 -> Stage 2: Receptionist submits to Admin L1.
+    Resolves Level 1 designated approver from AP Matrix and sends 1-to-1 forward email.
+    """
     doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
     if doc.status not in ("Draft", "Rejected"):
         frappe.throw(_("Voucher must be in Draft or Rejected status to submit."))
 
+    # Resolve Level 1 designated approver
+    rule_1 = _resolve_matrix_level_approver(doc, level_number=1)
+
     doc.status = "Pending Admin L1"
+    doc.current_approval_level = 1
+    doc.designated_approver = rule_1.designated_approver
     doc.admin_rejection_reason = ""
-    doc.save()
-    return {"status": doc.status, "message": _("Voucher successfully submitted to Admin L1 Review.")}
+    doc.save(ignore_permissions=True)
+
+    doc.add_comment("Comment", text=f"🚀 <b>Submitted to Admin L1:</b> Forwarded to designated approver <b>{doc.designated_approver}</b>.")
+
+    # 1-to-1 forward email
+    notify_admin_weekly_submitted(doc.name)
+
+    return {
+        "status": doc.status,
+        "designated_approver": doc.designated_approver,
+        "message": _("Voucher successfully submitted to Admin L1 ({0}).").format(doc.designated_approver)
+    }
 
 
 @frappe.whitelist()
 def approve_admin_l1(docname):
-    """Stage 2 -> Stage 3: Admin L1 Approver sign-off."""
+    """
+    Stage 2 -> Stage 3: Admin L1 Approver sign-off.
+    Enforces strict user identity validation.
+    Resolves Level 2 designated approver from AP Matrix and sends 1-to-1 forward email.
+    """
     doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
     if doc.status != "Pending Admin L1":
         frappe.throw(_("Voucher must be in 'Pending Admin L1' status."))
 
+    # Strict Identity Gate
+    validate_approver_identity(doc.designated_approver, frappe.session.user, allow_delegation=True)
+
+    # Resolve Level 2 designated approver
+    rule_2 = _resolve_matrix_level_approver(doc, level_number=2)
+
     doc.admin_l1_approver = frappe.session.user
     doc.admin_l1_date = now_datetime()
     doc.status = "Pending Admin L2"
-    doc.save()
-    return {"status": doc.status, "message": _("Admin L1 Review approved. Forwarded to Admin L2 (Operations Head).")}
+    doc.current_approval_level = 2
+    doc.designated_approver = rule_2.designated_approver
+    doc.save(ignore_permissions=True)
+
+    doc.add_comment("Comment", text=f"✅ <b>Admin L1 Approved:</b> Approved by {frappe.session.user}. Forwarded to Admin L2 <b>{doc.designated_approver}</b>.")
+
+    # 1-to-1 forward email
+    notify_admin_weekly_admin_l1_approved(doc.name)
+
+    return {
+        "status": doc.status,
+        "designated_approver": doc.designated_approver,
+        "message": _("Admin L1 Review approved. Forwarded to Admin L2 ({0}).").format(doc.designated_approver)
+    }
 
 
 @frappe.whitelist()
 def approve_admin_l2(docname):
-    """Stage 3 -> Stage 4: Admin L2 Head sign-off."""
+    """
+    Stage 3 -> Stage 4: Admin L2 Head sign-off.
+    Enforces strict user identity validation.
+    Resolves Level 3 (Accounts L1 Auditor) from AP Matrix and sends 1-to-1 forward email.
+    """
     doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
     if doc.status != "Pending Admin L2":
         frappe.throw(_("Voucher must be in 'Pending Admin L2' status."))
 
+    # Strict Identity Gate
+    validate_approver_identity(doc.designated_approver, frappe.session.user, allow_delegation=True)
+
+    # Resolve Level 3 designated approver (Accounts L1 Auditor)
+    rule_3 = _resolve_matrix_level_approver(doc, level_number=3)
+
     doc.admin_l2_approver = frappe.session.user
     doc.admin_l2_date = now_datetime()
-    doc.status = "Pending Accounts Review"
-    doc.save()
-    return {"status": doc.status, "message": _("Admin L2 Sign-off complete. Transferred to Accounts Review.")}
+    doc.status = "Pending Accounts L1 Review"
+    doc.current_approval_level = 3
+    doc.designated_approver = rule_3.designated_approver
+    doc.save(ignore_permissions=True)
+
+    doc.add_comment("Comment", text=f"✅ <b>Admin L2 Sign-Off:</b> Approved by {frappe.session.user}. Transferred to Accounts L1 Audit <b>{doc.designated_approver}</b>.")
+
+    # 1-to-1 forward email
+    notify_admin_weekly_admin_l2_approved(doc.name)
+
+    return {
+        "status": doc.status,
+        "designated_approver": doc.designated_approver,
+        "message": _("Admin L2 Sign-off complete. Transferred to Accounts L1 Review ({0}).").format(doc.designated_approver)
+    }
 
 
 @frappe.whitelist()
-def approve_accounts(docname):
-    """Stage 4 -> Stage 5: Accounts Audit clearance."""
+def approve_accounts_l1(docname):
+    """
+    Stage 4 -> Stage 5: Accounts L1 Audit clearance.
+    Verifies GST rates, TDS deductions, invoice attachments, and vendor bank verification.
+    Resolves Level 4 (Accounts L2 / Director) from AP Matrix and sends 1-to-1 forward email.
+    """
     doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
-    if doc.status != "Pending Accounts Review":
-        frappe.throw(_("Voucher must be in 'Pending Accounts Review' status."))
+    if doc.status not in ("Pending Accounts L1 Review", "Pending Accounts Review"):
+        frappe.throw(_("Voucher must be in 'Pending Accounts L1 Review' status."))
 
+    # Strict Identity Gate
+    validate_approver_identity(doc.designated_approver, frappe.session.user, allow_delegation=True)
+
+    # Resolve Level 4 designated approver (Accounts L2 / Director Sanction)
+    rule_4 = _resolve_matrix_level_approver(doc, level_number=4)
+
+    doc.accounts_l1_approver = frappe.session.user
+    doc.accounts_l1_date = now_datetime()
+    # Backward compatibility fields
     doc.accounts_reviewer = frappe.session.user
     doc.accounts_date = now_datetime()
-    doc.status = "Approved for Payment"
-    doc.save()
-    return {"status": doc.status, "message": _("Accounts Audit cleared. Approved for Director Payout Sanction.")}
+
+    doc.status = "Pending Accounts L2 Approval"
+    doc.current_approval_level = 4
+    doc.designated_approver = rule_4.designated_approver
+    doc.save(ignore_permissions=True)
+
+    doc.add_comment("Comment", text=f"🔍 <b>Accounts L1 Audit Cleared:</b> Tax & compliance verified by {frappe.session.user}. Awaiting Accounts L2 Sanction <b>{doc.designated_approver}</b>.")
+
+    # 1-to-1 forward email
+    notify_admin_weekly_accounts_l1_approved(doc.name)
+
+    return {
+        "status": doc.status,
+        "designated_approver": doc.designated_approver,
+        "message": _("Accounts L1 Audit cleared. Transferred to Accounts L2 Sanction ({0}).").format(doc.designated_approver)
+    }
+
+# Backward compatible alias
+approve_accounts = approve_accounts_l1
 
 
 @frappe.whitelist()
-def sanction_director(docname):
-    """Stage 5 -> Stage 6 Queued in Batch: Director authorization."""
+def approve_accounts_l2(docname):
+    """
+    Stage 5 -> Stage 6: Accounts L2 / Director authorization.
+    Enforces strict user identity validation.
+    Queues voucher in Payment Batch for Bank Release.
+    """
     doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
-    if doc.status != "Approved for Payment":
-        frappe.throw(_("Voucher must be 'Approved for Payment' to sanction."))
+    if doc.status not in ("Pending Accounts L2 Approval", "Approved for Payment"):
+        frappe.throw(_("Voucher must be in 'Pending Accounts L2 Approval' to sanction."))
 
+    # Strict Identity Gate
+    validate_approver_identity(doc.designated_approver, frappe.session.user, allow_delegation=True)
+
+    doc.accounts_l2_approver = frappe.session.user
+    doc.accounts_l2_date = now_datetime()
+    # Backward compatibility fields
     doc.director_approver = frappe.session.user
     doc.director_date = now_datetime()
-    doc.status = "Queued in Batch"
+
+    doc.status = "Queued for Payment Release"
+    doc.current_approval_level = 5
+    doc.designated_approver = ""
     doc.batch_id = f"BATCH-ADMIN-{doc.name[-5:]}"
-    doc.save()
-    return {"status": doc.status, "message": _("Director Payout sanctioned. Queued in Payment Batch for Bank Release.")}
+    doc.save(ignore_permissions=True)
+
+    doc.add_comment("Comment", text=f"⭐ <b>Accounts L2 Sanction Approved:</b> Payout sanctioned by {frappe.session.user}. Queued in payment batch **{doc.batch_id}**.")
+
+    # Notification email to Submitter + Payment Releasers
+    notify_admin_weekly_accounts_l2_approved(doc.name)
+
+    return {
+        "status": doc.status,
+        "batch_id": doc.batch_id,
+        "message": _("Accounts L2 Payout sanctioned. Queued in Payment Batch for Bank Release.")
+    }
+
+# Backward compatible alias
+sanction_director = approve_accounts_l2
 
 
 @frappe.whitelist()
 def disburse_payment(docname, utr_number=None):
-    """Stage 6: Settlement stamped with Bank UTR."""
+    """
+    Stage 6: Settlement stamped with Bank UTR by Payment Releaser.
+    """
     doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
+    if doc.status not in ("Queued for Payment Release", "Queued in Batch", "Approved for Payment"):
+        frappe.throw(_("Voucher must be in 'Queued for Payment Release' to disburse."))
+
+    user = frappe.session.user
+    roles = frappe.get_roles(user) if user else []
+    if not any(r in roles for r in ["Payment Releaser", "Accounts Manager", "Accounts Director", "System Manager", "Administrator"]):
+        frappe.throw(_("Unauthorized: Only users with 'Payment Releaser' role can disburse payments."), exc=APSecurityError)
+
     utr = utr_number or f"IDFC{now_datetime().strftime('%Y%m%d%H%M%S')}"
 
     doc.disbursement_utr = utr
+    doc.payment_releaser = user
+    doc.disbursement_date = now_datetime()
     doc.status = "Paid"
-    doc.save()
+    doc.current_approval_level = 6
+    doc.designated_approver = ""
+    doc.save(ignore_permissions=True)
 
-    doc.add_comment("Comment", text=f"💳 <b>Disbursed & Paid via Bank:</b> UTR Reference #{utr}")
-    return {"status": doc.status, "utr": utr, "message": _("All line payouts settled. Stamped with UTR.")}
+    doc.add_comment("Comment", text=f"💳 <b>Disbursed & Paid via Bank:</b> UTR Reference #{utr} by {user}.")
+
+    # Notification email to Submitter + Accounts
+    notify_admin_weekly_paid(doc.name, utr)
+
+    return {"status": doc.status, "utr": utr, "message": _("All line payouts settled. Stamped with Bank UTR #{0}.").format(utr)}
 
 
 @frappe.whitelist()
 def reject_or_return(docname, reason_code, remarks, return_to="Draft"):
     """
     Enhanced Targeted Rejection & Return Hook:
-    1. Supports returning to Reception (Draft), Admin L1, or Admin L2.
-    2. Remembers return_origin_stage (e.g. 'Pending Accounts Review' or 'Approved for Payment').
-    3. Sends threaded notification email.
+    1. Supports returning to Reception (Draft), Admin L1, Admin L2, or Accounts L1.
+    2. Remembers return_origin_stage.
+    3. Re-assigns designated_approver to target stage owner.
+    4. Sends threaded notification email.
     """
     if not remarks or len(remarks.strip()) < 10:
         frappe.throw(_("Detailed remarks are strictly mandatory for rejection (minimum 10 characters)."), title=_("Remarks Required"))
@@ -369,15 +563,39 @@ def reject_or_return(docname, reason_code, remarks, return_to="Draft"):
     doc.admin_rejection_reason = rej_text
     doc.return_to = return_to
     doc.return_origin_stage = origin_stage
-    doc.status = return_to if return_to in ("Draft", "Pending Admin L1", "Pending Admin L2", "Pending Accounts Review") else "Draft"
-    doc.save()
 
-    # Log forensic error
+    # Update level and designated approver based on target return stage
+    if return_to == "Draft":
+        doc.status = "Draft"
+        doc.current_approval_level = 0
+        doc.designated_approver = doc.prepared_by
+    elif return_to == "Pending Admin L1":
+        doc.status = "Pending Admin L1"
+        doc.current_approval_level = 1
+        rule_1 = _resolve_matrix_level_approver(doc, 1)
+        doc.designated_approver = rule_1.designated_approver
+    elif return_to == "Pending Admin L2":
+        doc.status = "Pending Admin L2"
+        doc.current_approval_level = 2
+        rule_2 = _resolve_matrix_level_approver(doc, 2)
+        doc.designated_approver = rule_2.designated_approver
+    elif return_to in ("Pending Accounts L1 Review", "Pending Accounts Review"):
+        doc.status = "Pending Accounts L1 Review"
+        doc.current_approval_level = 3
+        rule_3 = _resolve_matrix_level_approver(doc, 3)
+        doc.designated_approver = rule_3.designated_approver
+    else:
+        doc.status = "Draft"
+        doc.current_approval_level = 0
+        doc.designated_approver = doc.prepared_by
+
+    doc.save(ignore_permissions=True)
+
     frappe.log_error(title=f"Admin Vendor Claim Returned: {docname}", message=rej_text)
     doc.add_comment("Comment", text=f"🚫 <b>Voucher Returned to {doc.status}:</b> {reason_code} — {remarks.strip()} (Origin: {origin_stage})")
 
-    # Send threaded email notification
-    send_rejection_email_thread(doc, origin_stage, return_to, reason_code, remarks)
+    # Send targeted email notification
+    send_rejection_email_thread(doc, origin_stage, doc.status, reason_code, remarks)
 
     return {"status": doc.status, "message": _("Voucher returned to {0}.").format(doc.status), "rejection_log": rej_text}
 
@@ -387,38 +605,61 @@ def resubmit_corrected_voucher(docname, remarks=None):
     """
     Fast-Track Resubmission API:
     When Reception or Admin corrects the discrepancy, they resubmit directly back
-    to the stage that returned it (e.g. back to Accounts L1 or Director), bypassing
-    already-approved stages.
+    to the stage that returned it (e.g. back to Accounts L1 or Accounts L2), bypassing
+    already-approved stages. Re-assigns designated_approver from matrix.
     """
     if not docname:
         frappe.throw(_("Document name is required."))
 
     doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
-    target = doc.return_origin_stage or "Pending Accounts Review"
+    target = doc.return_origin_stage or "Pending Accounts L1 Review"
     user = frappe.session.user
 
-    doc.status = target
+    # Resolve target level and approver
+    if target in ("Pending Accounts L1 Review", "Pending Accounts Review"):
+        target_status = "Pending Accounts L1 Review"
+        lvl = 3
+    elif target in ("Pending Accounts L2 Approval", "Approved for Payment"):
+        target_status = "Pending Accounts L2 Approval"
+        lvl = 4
+    elif target == "Pending Admin L2":
+        target_status = "Pending Admin L2"
+        lvl = 2
+    else:
+        target_status = "Pending Admin L1"
+        lvl = 1
+
+    rule = _resolve_matrix_level_approver(doc, lvl)
+
+    doc.status = target_status
+    doc.current_approval_level = lvl
+    doc.designated_approver = rule.designated_approver
     doc.return_origin_stage = None
     doc.admin_rejection_reason = ""
-    doc.save()
+    doc.save(ignore_permissions=True)
 
-    doc.add_comment("Comment", text=f"🚀 <b>Corrected & Resubmitted:</b> Resubmitted by {user}. Fast-tracked directly to **{target}**.")
+    doc.add_comment("Comment", text=f"🚀 <b>Corrected & Resubmitted:</b> Resubmitted by {user}. Fast-tracked directly to **{target_status}** ({doc.designated_approver}).")
 
-    # Send threaded email update
-    send_resubmission_email_thread(doc, target, user, remarks)
+    # Send targeted email update
+    send_resubmission_email_thread(doc, target_status, user, remarks)
 
-    return {"status": doc.status, "message": _("Voucher successfully resubmitted directly to {0}.").format(target)}
+    return {
+        "status": doc.status,
+        "designated_approver": doc.designated_approver,
+        "message": _("Voucher successfully resubmitted directly to {0} ({1}).").format(target_status, doc.designated_approver)
+    }
 
 
 def send_rejection_email_thread(doc, origin_stage, return_to, reason_code, remarks):
-    """Sends a threaded notification email to prepared_by and approvers."""
+    """Sends a targeted notification email to the recipient of the return."""
     try:
-        recipients = [doc.prepared_by] if doc.prepared_by and "@" in doc.prepared_by else []
-        if return_to == "Pending Admin L1" and doc.admin_l1_approver and "@" in doc.admin_l1_approver:
-            recipients.append(doc.admin_l1_approver)
-        elif return_to == "Pending Admin L2" and doc.admin_l2_approver and "@" in doc.admin_l2_approver:
-            recipients.append(doc.admin_l2_approver)
+        recipients = []
+        if return_to == "Draft" and doc.prepared_by:
+            recipients.append(doc.prepared_by)
+        elif doc.designated_approver:
+            recipients.append(doc.designated_approver)
 
+        recipients = [r for r in recipients if r and "@" in r]
         if not recipients:
             return
 
@@ -450,15 +691,12 @@ def send_rejection_email_thread(doc, origin_stage, return_to, reason_code, remar
 
 
 def send_resubmission_email_thread(doc, target, resubmitter, remarks):
-    """Sends email notification on fast-track resubmission."""
+    """Sends email notification on fast-track resubmission strictly to designated approver."""
     try:
         recipients = []
-        if target == "Pending Accounts Review":
-            recipients = frappe.db.get_values("Has Role", {"role": ["in", ["Accounts L1 Auditor", "Accounts User"]], "parenttype": "User"}, "parent", pluck=True) or []
-        elif target in ("Approved for Payment", "Queued in Batch"):
-            recipients = frappe.db.get_values("Has Role", {"role": ["in", ["Accounts Director", "Director Tier"]], "parenttype": "User"}, "parent", pluck=True) or []
+        if doc.designated_approver and "@" in doc.designated_approver:
+            recipients.append(doc.designated_approver)
 
-        recipients = [r for r in recipients if r and "@" in r and frappe.db.get_value("User", r, "enabled")]
         if not recipients:
             return
 
@@ -468,7 +706,7 @@ def send_resubmission_email_thread(doc, target, resubmitter, remarks):
         message = f"""
         <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1e293b;">
             <h3 style="color: #059669;">🚀 Corrected Weekly Vendor Voucher Resubmitted</h3>
-            <p>Admin Weekly Vendor Claim <b>#{doc.name}</b> has been corrected and resubmitted by <b>{resubmitter}</b> directly to <b>{target}</b>.</p>
+            <p>Admin Weekly Vendor Claim <b>#{doc.name}</b> has been corrected and resubmitted by <b>{resubmitter}</b> directly to you for <b>{target}</b>.</p>
             <p>Remarks: {remarks or 'Discrepancies corrected.'}</p>
             <p><a href="{doc_url}" style="background: #059669; color: #ffffff; padding: 8px 16px; text-decoration: none; border-radius: 4px; font-weight: bold; display: inline-block;">Review Voucher #{doc.name}</a></p>
         </div>
@@ -528,7 +766,7 @@ def generate_weekly_excel_download(docname):
             row.vendor_category or "",
             row.vendor or "",
             row.vendor_name or "",
-            row.company or "",
+            row.company or doc.company or "",
             row.invoice_number or "",
             str(row.invoice_date or ""),
             flt(row.base_amount),
@@ -548,16 +786,16 @@ def generate_weekly_excel_download(docname):
     # Grand Total row
     rows.append([
         "",
+        "TOTAL",
         "",
         "",
         "",
         "",
         "",
-        "Grand Total",
         flt(doc.total_base_amount),
         "",
         flt(doc.total_gst_amount),
-        flt(doc.total_base_amount + doc.total_gst_amount),
+        round(flt(doc.total_base_amount) + flt(doc.total_gst_amount), 2),
         "",
         flt(doc.total_tds_amount),
         flt(doc.total_amount),
@@ -565,13 +803,11 @@ def generate_weekly_excel_download(docname):
         "",
         "",
         "",
-        ""
+        f"Total Bills: {doc.total_lines or len(doc.vendor_lines)}"
     ])
 
-    xlsx_data = [headers] + rows
-    sheet_title = doc.week_period or "Vendor Expenses"
-    xlsx_file = make_xlsx(xlsx_data, sheet_title[:31])
+    xlsx_file = make_xlsx([headers] + rows, "Admin Weekly Vendor Claims")
 
-    frappe.response["filename"] = f"{doc.name}_{sheet_title}.xlsx".replace(" ", "_")
+    frappe.response["filename"] = f"Admin_Weekly_Vendor_Claim_{doc.name}.xlsx"
     frappe.response["filecontent"] = xlsx_file.getvalue()
     frappe.response["type"] = "binary"

@@ -1997,3 +1997,341 @@ def send_pending_vendor_claim_reminders() -> Dict[str, Any]:
             sent_count += 1
 
     return {"status": "SUCCESS", "vendor_reminders_sent": sent_count}
+
+
+# -------------------------------------------------------------------------------------------------
+# LANE 3B: ADMIN WEEKLY VENDOR CLAIM NOTIFICATION ENGINE (1-TO-1 MATRIX ROUTED)
+# -------------------------------------------------------------------------------------------------
+
+def _get_admin_weekly_matrix_approver(company: str, level_number: int, amount: float = 0.0) -> List[str]:
+    """
+    Finds the exact 1-to-1 designated user from AP Approval Matrix for lane 'Admin Weekly Vendor Claim'.
+    Enforces HRMS Leave Delegation so if designated approver is on leave, their delegate is alerted.
+    Falls back to specific role holders only if matrix is unconfigured.
+    """
+    try:
+        from ap_automation.services.approval_service import get_applicable_matrix, get_current_level_rule
+        from ap_automation.services.security import resolve_acting_approver
+
+        matrix = get_applicable_matrix("Admin Weekly Vendor Claim", company, amount)
+        if matrix:
+            rule = get_current_level_rule(matrix, level_number)
+            if rule and rule.designated_approver:
+                primary_user = rule.designated_approver
+                acting_user = resolve_acting_approver(primary_user) if rule.allow_delegation else primary_user
+                recipients = [primary_user]
+                if acting_user and acting_user != primary_user:
+                    recipients.append(acting_user)
+                return [_resolve_email(u) for u in recipients if _resolve_email(u)]
+    except Exception as e:
+        frappe.log_error(title="Failed to resolve admin weekly matrix approver", message=str(e))
+
+    # Graceful fallback by level
+    role_map = {
+        1: "Admin L1 Approver",
+        2: "Admin L2 Approver",
+        3: "Accounts L1 Auditor",
+        4: "Accounts Director"
+    }
+    fallback_role = role_map.get(level_number, "Accounts User")
+    users = frappe.db.get_values("Has Role", {"role": fallback_role, "parenttype": "User"}, "parent", pluck=True) or []
+    return [_resolve_email(u) for u in users if _resolve_email(u)]
+
+
+def notify_admin_weekly_submitted(docname: str) -> None:
+    """Triggered when Receptionist submits weekly claim. Alerts Level 1 Admin L1 user only."""
+    if not frappe.db.exists("Admin Weekly Vendor Claim", docname):
+        return
+    doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    amt_str = fmt_money(amount)
+    doc_url = _get_form_url("Admin Weekly Vendor Claim", docname)
+
+    recipients = _get_admin_weekly_matrix_approver(company, level_number=1, amount=amount)
+    if not recipients:
+        return
+
+    subject = f"[Weekly Voucher #{docname}] {company} - {doc.week_period or 'Weekly Claim'} (₹ {amt_str}) Submitted for Admin L1 Review"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fed7aa; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #ea580c; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #c2410c; font-weight: 700;">Admin Weekly Spend • Stage 1 Admin L1 Review</span>
+            <h2 style="margin: 4px 0 0 0; color: #7c2d12; font-size: 20px;">Weekly Vendor Claim Submitted</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Weekly Vendor Expense Claim <b>#{docname}</b> for <b>{company}</b> has been prepared by <b>{doc.prepared_by or 'Receptionist'}</b> and requires your operational sign-off.
+        </p>
+        <div style="background: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #9a3412; margin-bottom: 4px;">Voucher Period: <b style="color: #0f172a;">{doc.week_period or 'Current Week'}</b></div>
+            <div style="font-size: 13px; color: #9a3412; margin-bottom: 4px;">Total Bills Count: <b style="color: #0f172a;">{doc.total_lines or 0} Bills</b></div>
+            <div style="font-size: 13px; color: #9a3412; margin-bottom: 4px;">Tax Base: <b style="color: #0f172a;">₹ {fmt_money(doc.total_base_amount or 0.0)}</b> | GST: <b style="color: #0f172a;">₹ {fmt_money(doc.total_gst_amount or 0.0)}</b></div>
+            <div style="font-size: 13px; color: #9a3412; margin-bottom: 4px;">TDS Deducted: <b style="color: #dc2626;">-₹ {fmt_money(doc.total_tds_amount or 0.0)}</b></div>
+            <div style="font-size: 18px; font-weight: 800; color: #c2410c; margin-top: 8px;">Net Payable: ₹ {amt_str}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #ea580c; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Review Weekly Voucher #{docname} &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Admin Weekly Vendor Claim",
+        reference_name=docname,
+        alert_type="orange",
+        is_thread_reply=False
+    )
+
+
+def notify_admin_weekly_admin_l1_approved(docname: str) -> None:
+    """Triggered when Admin L1 approves. Alerts Level 2 Admin L2 user only."""
+    if not frappe.db.exists("Admin Weekly Vendor Claim", docname):
+        return
+    doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    amt_str = fmt_money(amount)
+    doc_url = _get_form_url("Admin Weekly Vendor Claim", docname)
+
+    recipients = _get_admin_weekly_matrix_approver(company, level_number=2, amount=amount)
+    if not recipients:
+        return
+
+    subject = f"[Weekly Voucher #{docname}] {company} - Admin L1 Approved • Awaiting Admin L2 Sign-Off"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bfdbfe; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #1d4ed8; font-weight: 700;">Admin Weekly Spend • Stage 2 Admin L2 Review</span>
+            <h2 style="margin: 4px 0 0 0; color: #1e3a8a; font-size: 20px;">Admin L1 Review Approved</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Weekly claim <b>#{docname}</b> ({doc.week_period}) for <b>{company}</b> has been verified and cleared by Admin L1 (<b>{doc.admin_l1_approver}</b>). It is now awaiting your Admin L2 Head authorization.
+        </p>
+        <div style="background: #eff6ff; border: 1px solid #dbeafe; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #1e40af; margin-bottom: 4px;">Total Bills: <b style="color: #0f172a;">{doc.total_lines or 0} line items</b></div>
+            <div style="font-size: 18px; font-weight: 800; color: #1d4ed8; margin-top: 8px;">Net Payable: ₹ {amt_str}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Sign Off Weekly Voucher #{docname} &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Admin Weekly Vendor Claim",
+        reference_name=docname,
+        alert_type="blue",
+        is_thread_reply=True
+    )
+
+
+def notify_admin_weekly_admin_l2_approved(docname: str) -> None:
+    """Triggered when Admin L2 approves. Alerts Level 3 Accounts L1 Auditor user only."""
+    if not frappe.db.exists("Admin Weekly Vendor Claim", docname):
+        return
+    doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    amt_str = fmt_money(amount)
+    doc_url = _get_form_url("Admin Weekly Vendor Claim", docname)
+
+    recipients = _get_admin_weekly_matrix_approver(company, level_number=3, amount=amount)
+    if not recipients:
+        return
+
+    subject = f"[Weekly Voucher #{docname}] {company} - Admin Clearances Complete • Awaiting Accounts L1 Tax Audit"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #cbd5e1; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #475569; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #334155; font-weight: 700;">Admin Weekly Spend • Stage 3 Accounts L1 Audit</span>
+            <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 20px;">Ready for Accounts & Tax Audit</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Operational sign-offs by Admin L1 and Admin L2 (<b>{doc.admin_l2_approver}</b>) are complete for voucher <b>#{docname}</b>. Please perform GST rate verification, statutory TDS deduction checks, and Penny Drop audit.
+        </p>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #475569; margin-bottom: 4px;">Company: <b style="color: #0f172a;">{company}</b> | Period: <b style="color: #0f172a;">{doc.week_period or 'Weekly Claim'}</b></div>
+            <div style="font-size: 13px; color: #475569; margin-bottom: 4px;">Total Bills: <b style="color: #0f172a;">{doc.total_lines or 0} line items</b></div>
+            <div style="font-size: 18px; font-weight: 800; color: #0f172a; margin-top: 8px;">Net Payable: ₹ {amt_str}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #475569; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Audit Weekly Voucher #{docname} &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Admin Weekly Vendor Claim",
+        reference_name=docname,
+        alert_type="blue",
+        is_thread_reply=True
+    )
+
+
+def notify_admin_weekly_accounts_l1_approved(docname: str) -> None:
+    """Triggered when Accounts L1 clears audit. Alerts Level 4 Accounts L2 / Director user only."""
+    if not frappe.db.exists("Admin Weekly Vendor Claim", docname):
+        return
+    doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    amt_str = fmt_money(amount)
+    doc_url = _get_form_url("Admin Weekly Vendor Claim", docname)
+
+    recipients = _get_admin_weekly_matrix_approver(company, level_number=4, amount=amount)
+    if not recipients:
+        return
+
+    subject = f"[Weekly Voucher #{docname}] {company} - Accounts L1 Verified • Awaiting Accounts L2 Payout Sanction"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #c7d2fe; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #4f46e5; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #4338ca; font-weight: 700;">Admin Weekly Spend • Stage 4 Accounts L2 Sanction</span>
+            <h2 style="margin: 4px 0 0 0; color: #312e81; font-size: 20px;">Accounts L1 Audit Complete</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Weekly claim <b>#{docname}</b> has been audited by Accounts L1 (<b>{doc.accounts_l1_approver or doc.accounts_reviewer}</b>). Tax computations and invoice proofs have been verified. It is now awaiting your final Accounts L2 / Director payout sanction.
+        </p>
+        <div style="background: #eef2ff; border: 1px solid #e0e7ff; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #3730a3; margin-bottom: 4px;">Company: <b style="color: #0f172a;">{company}</b></div>
+            <div style="font-size: 13px; color: #3730a3; margin-bottom: 4px;">Tax Base: <b>₹ {fmt_money(doc.total_base_amount or 0.0)}</b> | GST: <b>₹ {fmt_money(doc.total_gst_amount or 0.0)}</b> | TDS: <b style="color: #dc2626;">-₹ {fmt_money(doc.total_tds_amount or 0.0)}</b></div>
+            <div style="font-size: 20px; font-weight: 800; color: #4338ca; margin-top: 8px;">Net Payable: ₹ {amt_str}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #4f46e5; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Sanction Weekly Payout #{docname} &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Admin Weekly Vendor Claim",
+        reference_name=docname,
+        alert_type="blue",
+        is_thread_reply=True
+    )
+
+
+def notify_admin_weekly_accounts_l2_approved(docname: str) -> None:
+    """Triggered when Accounts L2 sanctions payout. Alerts Submitter & Payment Releasers."""
+    if not frappe.db.exists("Admin Weekly Vendor Claim", docname):
+        return
+    doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    amt_str = fmt_money(amount)
+    doc_url = _get_form_url("Admin Weekly Vendor Claim", docname)
+
+    recipients = []
+    if doc.prepared_by and _resolve_email(doc.prepared_by):
+        recipients.append(_resolve_email(doc.prepared_by))
+
+    releasers = frappe.db.get_values("Has Role", {"role": ["in", ["Payment Releaser", "Accounts Manager"]], "parenttype": "User"}, "parent", pluck=True) or []
+    for r in releasers:
+        em = _resolve_email(r)
+        if em and em not in recipients:
+            recipients.append(em)
+
+    if not recipients:
+        return
+
+    subject = f"[Weekly Voucher #{docname}] {company} - Sanctioned & Queued for Payment Release (Batch: {doc.batch_id or 'Queued'})"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bbf7d0; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #16a34a; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #15803d; font-weight: 700;">Admin Weekly Spend • Payout Sanctioned</span>
+            <h2 style="margin: 4px 0 0 0; color: #14532d; font-size: 20px;">Queued for Payment Release</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Weekly claim <b>#{docname}</b> ({doc.week_period}) has been fully sanctioned by Accounts L2 (<b>{doc.accounts_l2_approver or doc.director_approver}</b>). It is queued in batch <b>{doc.batch_id}</b> for bank disbursement.
+        </p>
+        <div style="background: #f0fdf4; border: 1px solid #dcfce7; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #15803d; margin-bottom: 4px;">Company: <b style="color: #0f172a;">{company}</b> | Batch: <b style="color: #0f172a;">{doc.batch_id}</b></div>
+            <div style="font-size: 18px; font-weight: 800; color: #16a34a; margin-top: 8px;">Total Net Disbursement: ₹ {amt_str}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #16a34a; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                View Voucher & Disburse &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Admin Weekly Vendor Claim",
+        reference_name=docname,
+        alert_type="green",
+        is_thread_reply=True
+    )
+
+
+def notify_admin_weekly_paid(docname: str, utr: str) -> None:
+    """Triggered when Payment Releaser stamps UTR. Alerts Submitter & Accounts."""
+    if not frappe.db.exists("Admin Weekly Vendor Claim", docname):
+        return
+    doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
+    amt_str = fmt_money(amount)
+    doc_url = _get_form_url("Admin Weekly Vendor Claim", docname)
+
+    recipients = []
+    if doc.prepared_by and _resolve_email(doc.prepared_by):
+        recipients.append(_resolve_email(doc.prepared_by))
+    if doc.accounts_l1_approver and _resolve_email(doc.accounts_l1_approver):
+        recipients.append(_resolve_email(doc.accounts_l1_approver))
+    if doc.accounts_l2_approver and _resolve_email(doc.accounts_l2_approver):
+        recipients.append(_resolve_email(doc.accounts_l2_approver))
+
+    recipients = list(set([r for r in recipients if r]))
+    if not recipients:
+        return
+
+    subject = f"💳 [Settled] [Weekly Voucher #{docname}] {company} - Disbursed via Bank (UTR: {utr})"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bae6fd; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #0284c7; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #0369a1; font-weight: 700;">Admin Weekly Spend • Payout Settled</span>
+            <h2 style="margin: 4px 0 0 0; color: #0c4a6e; font-size: 20px;">Bank Payment Disbursed</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Weekly claim <b>#{docname}</b> has been settled and disbursed via bank by <b>{doc.payment_releaser or frappe.session.user}</b>.
+        </p>
+        <div style="background: #f0f9ff; border: 1px solid #e0f2fe; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #0369a1; margin-bottom: 4px;">Bank UTR Reference: <b style="color: #0f172a; font-family: monospace; font-size: 14px;">{utr}</b></div>
+            <div style="font-size: 13px; color: #0369a1; margin-bottom: 4px;">Total Bills Settled: <b style="color: #0f172a;">{doc.total_lines or 0} line items</b></div>
+            <div style="font-size: 18px; font-weight: 800; color: #0284c7; margin-top: 8px;">Total Amount Disbursed: ₹ {amt_str}</div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #0284c7; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                View Voucher Details &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Admin Weekly Vendor Claim",
+        reference_name=docname,
+        alert_type="green",
+        is_thread_reply=True
+    )

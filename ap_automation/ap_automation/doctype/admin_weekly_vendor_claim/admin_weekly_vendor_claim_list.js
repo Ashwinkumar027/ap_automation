@@ -2,7 +2,7 @@
 // List View Settings for Admin Weekly Vendor Claim
 
 frappe.listview_settings['Admin Weekly Vendor Claim'] = {
-    add_fields: ['status', 'total_amount', 'total_lines', 'week_period', 'posting_date'],
+    add_fields: ['status', 'total_amount', 'total_lines', 'week_period', 'posting_date', 'designated_approver', 'company'],
     get_indicator: function (doc) {
         if (doc.status === 'Draft') {
             return [__('Draft'), 'gray', 'status,=,Draft'];
@@ -10,12 +10,12 @@ frappe.listview_settings['Admin Weekly Vendor Claim'] = {
             return [__('Pending Admin L1'), 'orange', 'status,=,Pending Admin L1'];
         } else if (doc.status === 'Pending Admin L2') {
             return [__('Pending Admin L2'), 'yellow', 'status,=,Pending Admin L2'];
-        } else if (doc.status === 'Pending Accounts Review') {
-            return [__('Pending Accounts Review'), 'blue', 'status,=,Pending Accounts Review'];
-        } else if (doc.status === 'Approved for Payment') {
-            return [__('Approved for Payment'), 'purple', 'status,=,Approved for Payment'];
-        } else if (doc.status === 'Queued in Batch') {
-            return [__('Queued in Batch'), 'cyan', 'status,=,Queued in Batch'];
+        } else if (doc.status === 'Pending Accounts L1 Review' || doc.status === 'Pending Accounts Review') {
+            return [__('Pending Accounts L1'), 'blue', 'status,=,' + doc.status];
+        } else if (doc.status === 'Pending Accounts L2 Approval' || doc.status === 'Approved for Payment') {
+            return [__('Pending Accounts L2'), 'purple', 'status,=,' + doc.status];
+        } else if (doc.status === 'Queued for Payment Release' || doc.status === 'Queued in Batch') {
+            return [__('Queued for Release'), 'cyan', 'status,=,' + doc.status];
         } else if (doc.status === 'Paid') {
             return [__('Paid'), 'green', 'status,=,Paid'];
         } else if (doc.status === 'Rejected' || doc.status === 'Disputed') {

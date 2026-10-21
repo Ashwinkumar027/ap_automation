@@ -9,6 +9,7 @@
  "field_order": [
   "sb_header",
   "posting_date",
+  "company",
   "claim_title",
   "week_period",
   "prepared_by",
@@ -31,7 +32,19 @@
   "admin_rejection_reason",
   "return_to",
   "sb_lines",
-  "vendor_lines"
+  "vendor_lines",
+  "total_base_amount",
+  "total_gst_amount",
+  "total_tds_amount",
+  "return_origin_stage",
+  "current_approval_level",
+  "designated_approver",
+  "accounts_l1_approver",
+  "accounts_l1_date",
+  "accounts_l2_approver",
+  "accounts_l2_date",
+  "payment_releaser",
+  "disbursement_date"
  ],
  "fields": [
   {
@@ -45,6 +58,14 @@
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
    "reqd": 1
   },
   {
@@ -77,7 +98,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Lifecycle Status",
-   "options": "Draft\nPending Admin L1\nPending Admin L2\nPending Accounts Review\nApproved for Payment\nQueued in Batch\nPaid\nRejected\nDisputed",
+   "options": "Draft\nPending Admin L1\nPending Admin L2\nPending Accounts L1 Review\nPending Accounts L2 Approval\nApproved for Payment\nQueued in Batch\nQueued for Payment Release\nPaid\nRejected\nDisputed",
    "read_only": 1
   },
   {
@@ -180,7 +201,7 @@
    "fieldname": "return_to",
    "fieldtype": "Select",
    "label": "Returned To",
-   "options": "Draft\nPending Admin L1\nPending Admin L2\nPending Accounts Review",
+   "options": "Draft\nPending Admin L1\nPending Admin L2\nPending Accounts L1 Review",
    "read_only": 1
   },
   {
@@ -218,6 +239,60 @@
    "label": "Return Origin Stage",
    "read_only": 1,
    "fieldname": "return_origin_stage"
+  },
+  {
+   "fieldname": "current_approval_level",
+   "fieldtype": "Int",
+   "default": "0",
+   "label": "Current Approval Level #",
+   "read_only": 1
+  },
+  {
+   "fieldname": "designated_approver",
+   "fieldtype": "Link",
+   "options": "User",
+   "in_list_view": 1,
+   "label": "Designated Approver (Current Level)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "accounts_l1_approver",
+   "fieldtype": "Link",
+   "label": "Accounts L1 Approver",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
+   "fieldname": "accounts_l1_date",
+   "fieldtype": "Datetime",
+   "label": "Accounts L1 Timestamp",
+   "read_only": 1
+  },
+  {
+   "fieldname": "accounts_l2_approver",
+   "fieldtype": "Link",
+   "label": "Accounts L2 / Director Approver",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
+   "fieldname": "accounts_l2_date",
+   "fieldtype": "Datetime",
+   "label": "Accounts L2 Timestamp",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_releaser",
+   "fieldtype": "Link",
+   "label": "Payment Disbursed By",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
+   "fieldname": "disbursement_date",
+   "fieldtype": "Datetime",
+   "label": "Payment Disbursement Timestamp",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

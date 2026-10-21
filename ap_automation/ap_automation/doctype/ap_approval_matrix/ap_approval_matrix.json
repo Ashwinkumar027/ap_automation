@@ -36,7 +36,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Document Lane",
-   "options": "Petty Cash Entry\nEmployee Reimbursement Claim\nAP Vendor Invoice\nEvent Advance Request",
+   "options": "Petty Cash Entry\nEmployee Reimbursement Claim\nAP Vendor Invoice\nEvent Advance Request\nAdmin Weekly Vendor Claim",
    "reqd": 1
   },
   {

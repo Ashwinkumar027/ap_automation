@@ -206,19 +206,19 @@ function render_admin_vendor_stepper(frm) {
 
     if (status === 'Pending Admin L1') active_step = 2;
     else if (status === 'Pending Admin L2') active_step = 3;
-    else if (status === 'Pending Accounts Review') active_step = 4;
-    else if (status === 'Approved for Payment' || status === 'Queued in Batch') active_step = 5;
+    else if (status === 'Pending Accounts L1 Review' || status === 'Pending Accounts Review') active_step = 4;
+    else if (status === 'Pending Accounts L2 Approval' || status === 'Approved for Payment' || status === 'Queued in Batch' || status === 'Queued for Payment Release') active_step = 5;
     else if (status === 'Paid') active_step = 6;
 
     const is_rejected = status === 'Rejected' || status === 'Disputed';
 
     const steps = [
-        { num: 1, title: 'Bill Entry', icon: '📝', desc: 'Admin Desk' },
+        { num: 1, title: 'Bill Entry', icon: '📝', desc: 'Receptionist' },
         { num: 2, title: 'Admin L1', icon: '👤', desc: 'Lead Review' },
         { num: 3, title: 'Admin L2', icon: '👥', desc: 'Operations Head' },
-        { num: 4, title: 'Accounts', icon: '🔍', desc: 'Finance Audit' },
-        { num: 5, title: 'Director', icon: '⭐', desc: 'Payout Sanction' },
-        { num: 6, title: 'Paid', icon: '🎉', desc: 'Bank UTR Stamped' }
+        { num: 4, title: 'Accounts L1', icon: '🔍', desc: 'Tax & Compliance' },
+        { num: 5, title: 'Accounts L2', icon: '⭐', desc: 'Payout Sanction' },
+        { num: 6, title: 'Paid', icon: '💳', desc: 'Bank Disbursed' }
     ];
 
     let html = `<div id="admin-vendor-flow-stepper" class="ap-stepper-container">`;
@@ -290,26 +290,26 @@ function render_status_guidance_banner(frm) {
             title: 'Stage 2: Awaiting Admin Department Head (L2) Sign-Off',
             message: `Admin L1 (<b>${frm.doc.admin_l1_approver || 'L1 Lead'}</b>) approved. Awaiting Head of Administration sign-off.`
         };
-    } else if (status === 'Pending Accounts Review') {
+    } else if (status === 'Pending Accounts L1 Review' || status === 'Pending Accounts Review') {
         cfg = {
             class: 'banner-submitted',
             icon: '🔍',
-            title: 'Stage 3: Accounts & Tax Audit (Finance Review)',
-            message: `Admin approvals complete. Accounts auditor verifies GST rates, computes statutory TDS per row, checks vendor bank proofs, and approves.`
+            title: 'Stage 3: Accounts L1 Audit (Tax & Compliance Verification)',
+            message: `Admin approvals complete. Assigned to <b>${frm.doc.designated_approver || 'Accounts L1'}</b>. Verifies GST rates, computes statutory TDS per row, checks vendor bank proofs, and clears audit.`
         };
-    } else if (status === 'Approved for Payment') {
+    } else if (status === 'Pending Accounts L2 Approval' || status === 'Approved for Payment') {
         cfg = {
             class: 'banner-approved',
             icon: '⭐',
-            title: 'Stage 4: Audited & Awaiting Director Payout Sanction',
-            message: `Accounts verified <b>₹ ${amount_str}</b> (Tax Base: ₹ ${base_str}, GST: ₹ ${gst_str}, TDS: -₹ ${tds_str}). Ready for Executive Director sanction.`
+            title: 'Stage 4: Audited & Awaiting Accounts L2 Sanction',
+            message: `Accounts L1 verified <b>₹ ${amount_str}</b>. Assigned to <b>${frm.doc.designated_approver || 'Accounts L2'}</b> for final financial payout authorization.`
         };
-    } else if (status === 'Queued in Batch') {
+    } else if (status === 'Queued for Payment Release' || status === 'Queued in Batch') {
         cfg = {
             class: 'banner-approved',
             icon: '🔐',
-            title: 'Stage 5: Sanctioned & Queued in Payment Batch',
-            message: `Director sanctioned payout (Batch: <b>${frm.doc.batch_id || 'Queued'}</b>). Ready for Payment Releaser bank release.`
+            title: 'Stage 5: Sanctioned & Queued for Payment Release',
+            message: `Accounts L2 sanctioned payout (Batch: <b>${frm.doc.batch_id || 'Queued'}</b>). Ready for Payment Releaser bank disbursement.`
         };
     } else if (status === 'Paid') {
         cfg = {
@@ -432,12 +432,12 @@ function render_role_based_action_buttons(frm) {
         }).addClass('btn-danger');
     }
 
-    if (status === 'Pending Accounts Review') {
-        frm.add_custom_button(__('✅ Clear Accounts Audit'), function () {
+    if (status === 'Pending Accounts L1 Review' || status === 'Pending Accounts Review') {
+        frm.add_custom_button(__('✅ Clear Accounts L1 Audit'), function () {
             frappe.confirm(
-                __('Confirm accounts verification, GST/TDS tax calculations, and forward to Director for payout sanction?'),
+                __('Confirm accounts verification, GST/TDS tax calculations, and forward to Accounts L2 for payout sanction?'),
                 function () {
-                    call_workflow_method(frm, 'approve_accounts');
+                    call_workflow_method(frm, 'approve_accounts_l1');
                 }
             );
         }).addClass('btn-success').css({ 'font-weight': '700' });
@@ -447,22 +447,22 @@ function render_role_based_action_buttons(frm) {
         }).addClass('btn-danger');
     }
 
-    if (status === 'Approved for Payment') {
-        frm.add_custom_button(__('⭐ Sanction Payout (Director)'), function () {
+    if (status === 'Pending Accounts L2 Approval' || status === 'Approved for Payment') {
+        frm.add_custom_button(__('⭐ Sanction Payout (Accounts L2)'), function () {
             frappe.confirm(
-                __('Authorize director payout sanction of <b>₹ {0}</b>?', [format_inr(frm.doc.total_amount)]),
+                __('Authorize Accounts L2 payout sanction of <b>₹ {0}</b>?', [format_inr(frm.doc.total_amount)]),
                 function () {
-                    call_workflow_method(frm, 'sanction_director');
+                    call_workflow_method(frm, 'approve_accounts_l2');
                 }
             );
         }).addClass('btn-primary').css({ 'background-color': '#4f46e5', 'color': '#ffffff', 'font-weight': '700' });
 
         frm.add_custom_button(__('↩️ Return / Reject Voucher'), function () {
-            open_rejection_modal(frm, ['Draft', 'Pending Admin L1', 'Pending Admin L2', 'Pending Accounts Review']);
+            open_rejection_modal(frm, ['Draft', 'Pending Admin L1', 'Pending Accounts L1 Review']);
         }).addClass('btn-danger');
     }
 
-    if (status === 'Queued in Batch') {
+    if (status === 'Queued for Payment Release' || status === 'Queued in Batch') {
         frm.add_custom_button(__('💳 Disburse & Stamp UTR'), function () {
             frappe.prompt(
                 [
