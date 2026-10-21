@@ -383,7 +383,7 @@ class PettyCashEntry(Document):
                     frappe.log_error(f"Notification error on L1 verified for {self.name}: {str(e)}")
             elif self.status == "Approved for Payment":
                 try:
-                    notification_service.notify_admin_on_l2_approved(self.doctype, self.name)
+                    notification_service.notify_on_director_sanction_approved(self.doctype, self.name)
                 except Exception as e:
                     frappe.log_error(f"Notification error on L2 approve for {self.name}: {str(e)}")
 

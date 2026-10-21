@@ -486,6 +486,54 @@ def notify_director_on_l1_audit_completed(voucher_doctype: str, voucher_name: st
     )
 
 
+def notify_on_director_sanction_approved(voucher_doctype: str, voucher_name: str) -> None:
+    """Notifies Custodian, Admin, and Payment Releaser when Director sanctions voucher for payment."""
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        return
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or getattr(doc, "net_payable_amount", 0.0) or 0.0)
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
+
+    recipient = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
+    releasers = _get_role_recipients(["Payment Releaser", "Accounts Manager"])
+    cc_users = _get_claim_rolling_cc(doc, exclude_users=[recipient] + releasers)
+
+    all_recipients = [recipient] + [r for r in releasers if r and r != recipient]
+
+    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Director Sanctioned (Approved for Payment)"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bbf7d0; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #16a34a; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #15803d; font-weight: 700;">Executive Sanction Completed</span>
+            <h2 style="margin: 4px 0 0 0; color: #14532d; font-size: 20px;">Voucher Approved for Payment</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Accounts Director has sanctioned voucher <b>#{voucher_name}</b> for <b>{company}</b>. The claim has passed all approval tiers and is queued for corporate banking payment release.
+        </p>
+        <div style="background: #f0fdf4; border: 1px solid #dcfce7; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <div style="font-size: 13px; color: #166534;">Approved Amount: <b style="font-size: 18px; color: #16a34a;">₹ {fmt_money(amount)}</b></div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #16a34a; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                View Voucher Details &rarr;
+            </a>
+        </div>
+    </div>
+    """
+    _send_email_and_desk_alert(
+        recipients=all_recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="green",
+        cc=cc_users,
+        is_thread_reply=True
+    )
+
+
 # --------------------------------------------------------------------------------------
 # 5. STAGE 5: REJECTION / RETURN NOTIFICATION (Thread Reply)
 # --------------------------------------------------------------------------------------

@@ -167,7 +167,7 @@ def sanction_accounts_director(
 
     # Trigger notifications
     try:
-        notification_service.notify_admin_on_l2_approved(doc.doctype, doc.name)
+        notification_service.notify_on_director_sanction_approved(doc.doctype, doc.name)
         frappe.db.commit()
     except Exception as e:
         frappe.log_error(f"Failed to send director approval notification for {voucher_name}: {str(e)}")
