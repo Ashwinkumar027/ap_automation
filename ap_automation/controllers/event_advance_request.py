@@ -41,9 +41,19 @@ class EventAdvanceRequest(APDocument):
             self.letter_head = frappe.db.get_value("Company", self.company, "default_letter_head")
 
         # Process itemized imprest rows
+        items = getattr(self, "imprest_items", []) or []
+        req_amt = float(getattr(self, "requested_advance_amount", 0.0) or 0.0)
+        if not items and req_amt > 0:
+            self.append("imprest_items", {
+                "particulars": getattr(self, "purpose", None) or "Event Operations Advance",
+                "payment_mode": "Direct Vendor Payment",
+                "beneficiary_name": getattr(self, "spoc_name", None) or "Vendor",
+                "amount": req_amt
+            })
+            items = self.imprest_items
+
         direct_total = 0.0
         cash_total = 0.0
-        items = getattr(self, "imprest_items", []) or []
 
         if items:
             for idx, row in enumerate(items, start=1):
@@ -147,7 +157,7 @@ def approve_by_business_head(advance_name: str, comments: Optional[str] = None) 
 
 
 @frappe.whitelist()
-def disburse_event_advance(advance_name: str, disbursement_ref: str = "IDFC-DISB-MOCK") -> Dict[str, Any]:
+def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dict[str, Any]:
     """
     Stage 2: Accounts Team executes IDFC payout for the sanctioned imprest.
     Marks status as 'Disbursed via IDFC' and updates Event Master live budget ledger.
@@ -162,11 +172,14 @@ def disburse_event_advance(advance_name: str, disbursement_ref: str = "IDFC-DISB
     if not user_roles.intersection(authorized_roles):
         raise APSecurityError("Unauthorized: Only Accounts Team or Payment Releasers can execute imprest disbursal.")
 
+    if not disbursement_ref or str(disbursement_ref).strip() in ("", "IDFC-DISB-MOCK"):
+        raise APValidationError("A valid corporate bank transaction / UTR reference is mandatory.")
+
     doc = frappe.get_doc("Event Advance Request", advance_name)
     frappe.db.set_value("Event Advance Request", advance_name, {
         "status": "Disbursed via IDFC",
         "approved_advance_amount": doc.requested_advance_amount,
-        "disbursement_reference": disbursement_ref
+        "disbursement_reference": str(disbursement_ref).strip()
     }, update_modified=True)
     frappe.db.commit()
     doc.reload()
@@ -194,15 +207,50 @@ def disburse_event_advance(advance_name: str, disbursement_ref: str = "IDFC-DISB
 
 @frappe.whitelist()
 def reject_event_advance(advance_name: str, reason: str) -> Dict[str, Any]:
-    """Rejects the Event Imprest Proposal."""
+    """
+    Rejects the Event Imprest Proposal with strict role validation and notification dispatch.
+    """
     if not frappe.db.exists("Event Advance Request", advance_name):
         raise APValidationError(f"Event Advance Request '{advance_name}' not found.")
 
+    user = frappe.session.user
+    user_roles = set(frappe.get_roles(user))
+    authorized = {"Business Head", "Director", "Accounts Director", "Accounts Manager", "Director Tier", "System Manager", "Administrator"}
+    if not user_roles.intersection(authorized):
+        raise APSecurityError("Unauthorized: Only Business Head or Accounts Directors can reject Event Imprest Proposals.")
+
+    if not reason or len(str(reason).strip()) < 5:
+        raise APValidationError("A descriptive rejection reason (minimum 5 characters) is mandatory.")
+
     doc = frappe.get_doc("Event Advance Request", advance_name)
-    doc.status = "Rejected"
-    doc.business_head_comments = f"Rejected: {reason}"
+    clean_reason = str(reason).strip()
+
+    frappe.db.set_value("Event Advance Request", advance_name, {
+        "status": "Rejected",
+        "business_head_comments": f"Rejected by {user}: {clean_reason}"
+    }, update_modified=True)
+
+    # Append to immutable approval trail
+    doc.append("approval_trail", {
+        "level_number": 1,
+        "level_name": "Stage 1: Imprest Proposal Sanction",
+        "designated_approver": doc.spoc,
+        "action_taken_by": user,
+        "action": "REJECTED",
+        "action_timestamp": frappe.utils.now_datetime(),
+        "remarks": clean_reason
+    })
     doc.save(ignore_permissions=True)
-    frappe.db.commit()
+    doc.add_comment("Comment", text=f"🚫 <b>Imprest Proposal Rejected:</b> {clean_reason}")
+
+    # Dispatch rejection notification
+    try:
+        from ap_automation.services.employee_reimbursement_notification_service import (
+            notify_event_advance_rejected
+        )
+        notify_event_advance_rejected(doc, clean_reason)
+    except Exception as e:
+        frappe.log_error(f"Failed to dispatch Event Advance rejection notification: {e}", "Event Notif Error")
 
     return {
         "status": "SUCCESS",

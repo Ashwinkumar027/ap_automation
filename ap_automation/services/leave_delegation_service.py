@@ -163,7 +163,7 @@ def reroute_inflight_pending_claims() -> Dict[str, Any]:
                     "level_name": "In-Flight Leave Reroute",
                     "designated_approver": new_approver,
                     "action_taken_by": "System Autonomous Engine",
-                    "action": "APPROVED",
+                    "action": "REROUTED",
                     "action_timestamp": frappe.utils.now_datetime(),
                     "remarks": f"In-Flight Absence: {leave_status.get('reason')}. Diverted from '{curr_approver}' to '{new_approver}'."
                 })

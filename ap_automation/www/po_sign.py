@@ -7,7 +7,8 @@ no_cache = 1
 def normalize_token(t: str) -> str:
     if not t:
         return ""
-    return str(t).strip().replace("I", "l").replace("1", "l").lower()
+    return str(t).strip().lower()
+
 
 def is_token_matching(stored_token: str, input_token: str) -> bool:
     if not stored_token or not input_token:
@@ -43,7 +44,7 @@ def get_context(context):
         params = urllib.parse.parse_qs(parsed.query)
         token_in_doc = params.get("token", [None])[0]
 
-    if token_in_doc and not is_token_matching(token_in_doc, token):
+    if not token_in_doc or not is_token_matching(token_in_doc, token):
         context.error_message = "Security token mismatch or link has expired. Please contact the company SPOC for a refreshed link."
         return context
 
@@ -79,7 +80,7 @@ def submit_vendor_esign(po_name: str = None, token: str = None, signer_name: str
         params = urllib.parse.parse_qs(parsed.query)
         token_in_doc = params.get("token", [None])[0]
 
-    if token_in_doc and not is_token_matching(token_in_doc, token):
+    if not token_in_doc or not is_token_matching(token_in_doc, token):
         frappe.throw("Invalid or expired digital signature token.")
 
     if po.vendor_sign_status == "Digitally Signed":

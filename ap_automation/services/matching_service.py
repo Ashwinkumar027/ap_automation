@@ -99,18 +99,37 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
             "message": claim_doc.match_variance_details
         }
 
-    # 3. Price Tolerance Check
+    # 3. Price Tolerance Check with Cumulative Over-Invoicing Guard
     billed_base = float(claim_doc.base_amount or 0.0)
+
+    # Query cumulative billed base on prior approved/submitted claims for this PO
+    prior_invoiced = 0.0
+    if po_name:
+        prior_res = frappe.db.sql(
+            """
+            SELECT SUM(base_amount) as total
+            FROM `tabVendor Invoice Claim`
+            WHERE purchase_order = %s
+            AND name != %s
+            AND docstatus != 2
+            AND status NOT IN ('Disputed', 'Draft', 'Cancelled')
+            """,
+            (po_name, getattr(claim_doc, "name", "NEW") or "NEW"),
+            as_dict=True
+        )
+        prior_invoiced = float(prior_res[0].total or 0.0) if prior_res else 0.0
+
+    cumulative_billed = round(prior_invoiced + billed_base, 2)
     tolerance = min((po_contracted_total * (MAX_PRICE_TOLERANCE_PERCENT / 100.0)), MAX_PRICE_TOLERANCE_INR)
     allowed_max_base = round(po_contracted_total + tolerance, 2)
 
-    if billed_base > allowed_max_base:
-        variance = round(billed_base - po_contracted_total, 2)
+    if cumulative_billed > allowed_max_base:
+        variance = round(cumulative_billed - po_contracted_total, 2)
         claim_doc.match_status = "Price Mismatch Flagged"
         claim_doc.match_variance_details = (
-            f"Price Variance Alert: Billed base amount (INR {billed_base:,.2f}) exceeds contracted PO value "
-            f"(INR {po_contracted_total:,.2f}) by INR {variance:,.2f} beyond allowable tolerance (INR {tolerance:,.2f}). "
-            "Requires Accounts L1 review or PO amendment."
+            f"Price Variance Alert: Cumulative billed amount exceeds PO contracted value! PO Over-Invoicing Alert: Cumulative billed amount (Prior INR {prior_invoiced:,.2f} + Current INR {billed_base:,.2f} = INR {cumulative_billed:,.2f}) "
+            f"exceeds contracted PO value (INR {po_contracted_total:,.2f}) by INR {variance:,.2f} beyond allowable tolerance (INR {tolerance:,.2f}). "
+            "Requires Accounts review or PO amendment."
         )
         return {
             "status": "price_mismatch",

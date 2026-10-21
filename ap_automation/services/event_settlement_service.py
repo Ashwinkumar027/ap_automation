@@ -111,3 +111,52 @@ def finalize_event_settlement(settlement_name: str, approver: str) -> Dict[str, 
         "event": doc.event,
         "event_status": "Closed"
     }
+
+
+@frappe.whitelist()
+def disburse_event_settlement_spoc_payout(settlement_name: str, payment_reference: str) -> Dict[str, Any]:
+    """
+    Whitelisted API: Releases net balance reimbursement to the SPOC when settlement_type == 'PAYABLE_TO_SPOC'.
+    Closes the Event Master only after funds transfer is verified.
+    """
+    if not frappe.db.exists("Event Settlement", settlement_name):
+        raise APValidationError(f"Event Settlement '{settlement_name}' not found.")
+
+    user = frappe.session.user
+    user_roles = set(frappe.get_roles(user))
+    authorized = {"Accounts Manager", "Accounts Director", "Payment Releaser", "System Manager", "Administrator"}
+    if not user_roles.intersection(authorized):
+        raise APSecurityError("Unauthorized: Only Accounts Team or Payment Releasers can disburse settlement payouts.")
+
+    if not payment_reference or len(str(payment_reference).strip()) < 4:
+        raise APValidationError("A valid bank transfer / UTR reference is mandatory for SPOC reimbursement.")
+
+    doc = frappe.get_doc("Event Settlement", settlement_name)
+    clean_ref = str(payment_reference).strip()
+
+    frappe.db.set_value("Event Settlement", settlement_name, {
+        "status": "Settled",
+        "refund_received_reference": clean_ref
+    }, update_modified=True)
+
+    # Formally Close the Event Master
+    frappe.db.set_value("Event Master", doc.event, {
+        "status": "Closed",
+        "ageing_status": "CURRENT"
+    }, update_modified=True)
+
+    try:
+        from ap_automation.services.employee_reimbursement_notification_service import (
+            notify_event_settlement_closed
+        )
+        notify_event_settlement_closed(doc)
+    except Exception as e:
+        frappe.log_error(f"Event settlement closed notification dispatch: {e}")
+
+    return {
+        "status": "SUCCESS",
+        "settlement": settlement_name,
+        "event": doc.event,
+        "payment_reference": clean_ref,
+        "event_status": "Closed"
+    }

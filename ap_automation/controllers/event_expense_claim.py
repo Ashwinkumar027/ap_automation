@@ -45,7 +45,7 @@ class EventExpenseClaim(APDocument):
                 )
 
             # Check internal duplicate within this voucher
-            bill_key = (row.bill_number.strip(), float(row.amount))
+            bill_key = ((row.bill_number or "").strip(), float(row.amount or 0.0))
             if bill_key in seen_bills:
                 raise APValidationError(
                     f"Row #{idx}: Duplicate bill #{row.bill_number} for INR {row.amount:,.2f} "
@@ -71,8 +71,16 @@ class EventExpenseClaim(APDocument):
 
     def on_submit(self):
         """Submit hook: synchronizes Event Master SPOC actual spends."""
-        # Re-aggregate SPOC actual spends on Event Master
-        spoc_total = frappe.db.sql(
+        self._sync_event_spends()
+
+    def on_cancel(self):
+        """Cancel hook: synchronizes Event Master SPOC actual spends when claim is revoked."""
+        super().on_cancel()
+        self._sync_event_spends()
+
+    def _sync_event_spends(self):
+        """Re-aggregates active SPOC actual spends on Event Master."""
+        spoc_res = frappe.db.sql(
             """
             SELECT SUM(total_claim_amount) as total
             FROM `tabEvent Expense Claim`
@@ -80,8 +88,8 @@ class EventExpenseClaim(APDocument):
             """,
             (self.event,),
             as_dict=True
-        )[0].total or 0.0
-
+        )
+        spoc_total = float(spoc_res[0].total or 0.0) if spoc_res else 0.0
         frappe.db.set_value("Event Master", self.event, "spoc_actual_spends", float(spoc_total))
         update_event_budget_ledger(self.event)
 

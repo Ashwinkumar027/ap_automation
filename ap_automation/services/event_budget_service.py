@@ -26,7 +26,7 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
         float(r.approved_advance_amount or r.requested_advance_amount or 0.0)
         for r in adv_records
     )
-    total_disbursed_advance = max(db_disbursed, float(event.disbursed_advance or 0.0))
+    total_disbursed_advance = round(float(db_disbursed), 2) if db_disbursed > 0 else round(float(event.disbursed_advance or 0.0), 2)
 
     # 2. Dynamic Stream A: Direct Finance Spends from tabVendor Invoice Claim
     direct_spends_query = frappe.db.sql(
@@ -39,7 +39,7 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
         as_dict=True
     )
     db_direct_finance = float(direct_spends_query[0].total or 0.0)
-    direct_finance = max(db_direct_finance, float(event.direct_finance_spends or 0.0))
+    direct_finance = round(float(db_direct_finance), 2) if db_direct_finance > 0 else round(float(event.direct_finance_spends or 0.0), 2)
 
     # 3. Dynamic Stream B: SPOC Actual Spends from tabEvent Expense Claim
     spoc_spends_query = frappe.db.sql(
@@ -52,7 +52,7 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
         as_dict=True
     )
     db_spoc_actual = float(spoc_spends_query[0].total or 0.0)
-    spoc_actual = max(db_spoc_actual, float(event.spoc_actual_spends or 0.0))
+    spoc_actual = round(float(db_spoc_actual), 2) if db_spoc_actual > 0 else round(float(event.spoc_actual_spends or 0.0), 2)
 
     # 4. Enterprise Committed Spend Formula
     committed_spend = round(direct_finance + max(total_disbursed_advance, spoc_actual), 2)

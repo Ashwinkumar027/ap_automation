@@ -37,18 +37,36 @@ def check_unsettled_event_advances(mock_today: Optional[str] = None) -> Dict[str
 
         days_overdue = (today - end_date).days
 
+        # Check if SPOC has already accounted for the advance via expense claims or settlement
+        disbursed = float(ev.disbursed_advance or 0.0)
+        spoc_actuals = float(frappe.db.get_value("Event Master", ev.name, "spoc_actual_spends") or 0.0)
+        unaccounted = max(disbursed - spoc_actuals, 0.0)
+
+        # Also check if an active Event Settlement is submitted or in progress
+        has_active_settlement = frappe.db.exists(
+            "Event Settlement",
+            {"event": ev.name, "docstatus": ["!=", 2]}
+        )
+        if unaccounted <= 0.0 and has_active_settlement:
+            continue
+
         if days_overdue >= 14:
             frappe.db.set_value("Event Master", ev.name, {
                 "ageing_status": "OVERDUE_14_DAYS_PAYROLL_ALERT",
-                "payroll_deduction_flagged": 1
+                "payroll_deduction_flagged": 1 if unaccounted > 0 else 0
             })
             escalations_14_days.append({
                 "event": ev.name,
                 "spoc": ev.event_spoc,
                 "days_overdue": days_overdue,
-                "unsettled_advance": ev.disbursed_advance,
+                "unsettled_advance": unaccounted,
                 "action": "PAYROLL_DEDUCTION_ALERT_FLAGGED"
             })
+            try:
+                from ap_automation.services.employee_reimbursement_notification_service import notify_event_ageing_reminder
+                notify_event_ageing_reminder(ev, days_overdue, unaccounted, level=14)
+            except Exception as e:
+                frappe.log_error(f"Event 14-day ageing alert failed for {ev.name}: {e}")
         elif days_overdue >= 7:
             frappe.db.set_value("Event Master", ev.name, {
                 "ageing_status": "OVERDUE_7_DAYS_REMINDER"
@@ -57,9 +75,14 @@ def check_unsettled_event_advances(mock_today: Optional[str] = None) -> Dict[str
                 "event": ev.name,
                 "spoc": ev.event_spoc,
                 "days_overdue": days_overdue,
-                "unsettled_advance": ev.disbursed_advance,
+                "unsettled_advance": unaccounted,
                 "action": "7_DAY_EMAIL_REMINDER_DISPATCHED"
             })
+            try:
+                from ap_automation.services.employee_reimbursement_notification_service import notify_event_ageing_reminder
+                notify_event_ageing_reminder(ev, days_overdue, unaccounted, level=7)
+            except Exception as e:
+                frappe.log_error(f"Event 7-day ageing reminder failed for {ev.name}: {e}")
 
     frappe.db.commit()
 

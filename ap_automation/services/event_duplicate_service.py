@@ -30,16 +30,19 @@ def screen_cross_stream_event_spend(
     # 1. Cross-Stream Check against Stream A (tabVendor Invoice Claim)
     stream_a_matches = frappe.db.sql(
         """
-        SELECT name, vendor, tax_invoice_number, base_amount, net_payable_amount, status
-        FROM `tabVendor Invoice Claim`
-        WHERE event = %s 
+        SELECT vic.name, vic.vendor, vic.vendor_name, vic.tax_invoice_number, vic.base_amount, vic.net_payable_amount, vic.status
+        FROM `tabVendor Invoice Claim` vic
+        WHERE vic.event = %s 
         AND (
-            tax_invoice_number = %s 
-            OR (vendor = %s AND (base_amount = %s OR net_payable_amount = %s))
+            vic.tax_invoice_number = %s 
+            OR (
+                (vic.vendor = %s OR LOWER(TRIM(COALESCE(vic.vendor_name, ''))) = LOWER(TRIM(%s))) 
+                AND (vic.base_amount = %s OR vic.net_payable_amount = %s)
+            )
         )
-        AND docstatus != 2
+        AND vic.docstatus != 2
         """,
-        (event_name, bill_no, vendor, amount, amount),
+        (event_name, bill_no, vendor, vendor, amount, amount),
         as_dict=True
     )
 
@@ -47,11 +50,11 @@ def screen_cross_stream_event_spend(
         match = stream_a_matches[0]
         raise APValidationError(
             f"🚨 CROSS-STREAM DUPLICATE DETECTED: Bill #{bill_no} for INR {amount:,.2f} "
-            f"from '{vendor}' has already been paid directly by Finance under Stream A "
+            f"from '{vendor}' has already been processed by Finance under Stream A "
             f"(Vendor Invoice Claim #{match.name}, Status: '{match.status}')! Dual payment is strictly prohibited."
         )
 
-    # 2. Intra-Stream Check against other SPOC claims for the same event
+    # 2. Intra-Stream Check against other SPOC claims for the same event (matching bill # AND vendor name)
     intra_matches = frappe.db.sql(
         """
         SELECT item.parent, item.vendor_name, item.bill_number, item.amount
@@ -60,10 +63,11 @@ def screen_cross_stream_event_spend(
         WHERE claim.event = %s 
         AND item.bill_number = %s 
         AND item.amount = %s
+        AND LOWER(TRIM(COALESCE(item.vendor_name, ''))) = LOWER(TRIM(%s))
         AND item.parent != %s
         AND claim.docstatus != 2
         """,
-        (event_name, bill_no, amount, current_claim_name or "NEW"),
+        (event_name, bill_no, amount, vendor, current_claim_name or "NEW"),
         as_dict=True
     )
 

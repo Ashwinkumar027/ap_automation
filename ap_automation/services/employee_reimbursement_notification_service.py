@@ -934,11 +934,17 @@ def notify_event_imprest_submitted(advance_doc) -> None:
         advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
 
     company = advance_doc.company or ""
-    # Determine Business Head
-    if "quanticus" in company.lower():
-        bh_email = "dileep@quanticus.com"
-    else:
-        bh_email = "anish@quanticus.com"
+    # Dynamically resolve Business Head from Company or AP Approval Matrix
+    bh_email = frappe.db.get_value("Company", company, "ap_business_head") if company else None
+    if not bh_email:
+        from ap_automation.services.approval_service import get_applicable_matrix
+        amt = float(getattr(advance_doc, "requested_advance_amount", 0.0) or 0.0)
+        matrix = get_applicable_matrix("Event Advance Request", company, amt)
+        if matrix:
+            for lvl in getattr(matrix, "approval_levels", []):
+                if lvl.designated_approver and ("@" in lvl.designated_approver):
+                    bh_email = lvl.designated_approver
+                    break
 
     # Fetch Business Head users
     bh_users = _get_role_recipients(["Business Head", "Director"])
@@ -1062,3 +1068,127 @@ def notify_event_imprest_disbursed(advance_doc) -> None:
     )
 
     _dispatch_reimbursement_email(list(set(recipients)), subject, body, "Event Advance Request", advance_doc.name, alert_color="blue")
+
+
+def notify_event_advance_rejected(advance_doc, reason: str) -> None:
+    """Triggered when an Event Advance Proposal is rejected."""
+    if isinstance(advance_doc, str):
+        advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
+
+    spoc_email = _resolve_email_address(advance_doc.spoc)
+    if not spoc_email:
+        return
+
+    event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
+    amount = float(getattr(advance_doc, "requested_advance_amount", 0.0) or 0.0)
+    doc_url = _get_form_url("Event Advance Request", advance_doc.name)
+
+    subject = f"🚫 [REJECTED] Event Imprest Proposal #{advance_doc.name} - {event_name}"
+    body = _build_html_template(
+        title="Event Imprest Proposal Rejected",
+        subtitle="Sanction Denied &bull; Revision Required",
+        greeting_name=advance_doc.spoc_name or "Event SPOC",
+        main_message=(
+            f"Your Imprest Proposal for <b>'{event_name}'</b> (₹ {_safe_fmt_money(amount)}) has been rejected.<br><br>"
+            f"<b>Rejection Reason:</b> {reason}<br><br>"
+            f"Please update the proposal or line items according to feedback and resubmit."
+        ),
+        metric_label_1="Requested Advance",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="Status",
+        metric_val_2="Rejected",
+        doc_url=doc_url,
+        button_text="Review Rejected Proposal",
+        badge_color="#dc2626"
+    )
+    _dispatch_reimbursement_email([spoc_email], subject, body, "Event Advance Request", advance_doc.name, alert_color="red")
+
+
+def notify_event_settlement_closed(settlement_doc) -> None:
+    """Triggered when an Event Settlement is formally finalized and Event Master is closed."""
+    if isinstance(settlement_doc, str):
+        settlement_doc = frappe.get_doc("Event Settlement", settlement_doc)
+
+    spoc_email = _resolve_email_address(settlement_doc.spoc)
+    recipients = [spoc_email] if spoc_email else []
+    accounts_users = _get_role_recipients(["Accounts L1 Auditor", "Accounts Director"])
+    recipients.extend(accounts_users)
+
+    doc_url = _get_form_url("Event Settlement", settlement_doc.name)
+    event_name = frappe.db.get_value("Event Master", settlement_doc.event, "event_name") or settlement_doc.event
+
+    subject = f"🏁 [Settlement Closed] Event '{event_name}' Financial Reconciliation Complete"
+    body = _build_html_template(
+        title="Event Financial Settlement Closed",
+        subtitle="Lifecycle Complete &bull; Accounts Balanced",
+        greeting_name=settlement_doc.spoc_name or "Event SPOC",
+        main_message=(
+            f"Post-event financial settlement for <b>'{event_name}'</b> has been formally verified and settled.<br><br>"
+            f"• <b>Total Disbursed Advance:</b> ₹ {_safe_fmt_money(settlement_doc.disbursed_advance)}<br>"
+            f"• <b>Total SPOC Actual Spends:</b> ₹ {_safe_fmt_money(settlement_doc.spoc_actual_spends)}<br>"
+            f"• <b>Settlement Type:</b> {settlement_doc.settlement_type}<br>"
+            f"• <b>Bank / UTR Reference:</b> {settlement_doc.refund_received_reference or 'VERIFIED'}<br><br>"
+            f"The Event Master has been formally marked as <b>Closed</b> with no pending liabilities."
+        ),
+        metric_label_1="Actual Spends",
+        metric_val_1=f"₹ {_safe_fmt_money(settlement_doc.spoc_actual_spends)}",
+        metric_label_2="Settlement Result",
+        metric_val_2=f"{settlement_doc.settlement_type}",
+        doc_url=doc_url,
+        button_text="View Final Settlement",
+        badge_color="#16a34a"
+    )
+    _dispatch_reimbursement_email(list(set(recipients)), subject, body, "Event Settlement", settlement_doc.name, alert_color="green")
+
+
+def notify_event_ageing_reminder(ev_dict, days_overdue: int, unsettled_advance: float, level: int = 7) -> None:
+    """Dispatches 7-day reminder or 14-day payroll escalation email for overdue event settlements."""
+    spoc_email = _resolve_email_address(ev_dict.get("event_spoc"))
+    if not spoc_email:
+        return
+
+    accounts_users = _get_role_recipients(["Accounts Director", "Accounts Manager"])
+    recipients = [spoc_email]
+    if level >= 14:
+        recipients.extend(accounts_users)
+
+    event_name = ev_dict.get("event_name") or ev_dict.get("name")
+    doc_url = _get_form_url("Event Master", ev_dict.get("name"))
+
+    if level >= 14:
+        subject = f"🚨 [PAYROLL ALERT] Event '{event_name}' Unsettled Advance ({days_overdue} Days Overdue)"
+        badge_color = "#dc2626"
+        alert_color = "red"
+        title = "14-Day Payroll Deduction Escalation"
+        sub = "Mandatory Action &bull; HRMS Payroll Deduction Pending"
+        msg = (
+            f"Event <b>'{event_name}'</b> concluded {days_overdue} days ago, but an unaccounted cash advance of "
+            f"<b>₹ {_safe_fmt_money(unsettled_advance)}</b> remains un-settled.<br><br>"
+            f"Per corporate policy, failure to submit expense receipts or refund unspent funds within 14 days "
+            f"results in an automatic payroll deduction in the upcoming salary cycle."
+        )
+    else:
+        subject = f"⏰ [Reminder] Event '{event_name}' Advance Settlement Due ({days_overdue} Days Overdue)"
+        badge_color = "#ea580c"
+        alert_color = "yellow"
+        title = "7-Day Post-Event Settlement Reminder"
+        sub = "Timely Settlement Required"
+        msg = (
+            f"Event <b>'{event_name}'</b> concluded on {ev_dict.get('end_date')}. Please submit your "
+            f"Event Expense Claim and Settlement voucher for remaining advance balance of <b>₹ {_safe_fmt_money(unsettled_advance)}</b>."
+        )
+
+    body = _build_html_template(
+        title=title,
+        subtitle=sub,
+        greeting_name=spoc_email.split("@")[0].title(),
+        main_message=msg,
+        metric_label_1="Unsettled Advance",
+        metric_val_1=f"₹ {_safe_fmt_money(unsettled_advance)}",
+        metric_label_2="Days Overdue",
+        metric_val_2=f"{days_overdue} Days",
+        doc_url=doc_url,
+        button_text="Submit Event Settlement",
+        badge_color=badge_color
+    )
+    _dispatch_reimbursement_email(list(set(recipients)), subject, body, "Event Master", ev_dict.get("name"), alert_color=alert_color)
