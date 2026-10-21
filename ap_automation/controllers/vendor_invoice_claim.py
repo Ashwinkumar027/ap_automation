@@ -441,28 +441,87 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
                 exc=APSecurityError
             )
 
-    now_ts = frappe.utils.now_datetime()
+        now_ts = frappe.utils.now_datetime()
     doc.manager_approver = user
     doc.manager_approved_on = now_ts
-    doc.status = "Pending Director Approval"
-    doc.workflow_state = "Awaiting Executive Director Approval" 
 
-    doc.append("approval_trail", {
-        "level_number": 1,
-        "level_name": "Stage 1: Reporting Manager Approval",
-        "action_taken_by": user,
-        "action": "APPROVED",
-        "action_timestamp": now_ts,
-        "remarks": remarks or "Approved by Reporting Manager"
-    })
-    doc.save(ignore_permissions=True)
-    doc.add_comment("Comment", text=f"âœ… <b>Approved by Manager:</b> {user} â€” {remarks or 'Approved'}")
-    try:
-        notify_vendor_claim_manager_approved(docname)
-    except Exception as e:
-        frappe.log_error(f"Vendor manager approval notification dispatch: {e}")
+    # Check if Manager is also the Director / Business Head for this company
+    company = getattr(doc, "company", None)
+    bus_head = frappe.db.get_value("Company", company, "ap_business_head") if company else None
+    from ap_automation.services.notification_service import _get_matrix_or_role_approvers
+    matrix_dirs = _get_matrix_or_role_approvers(
+        company=company,
+        document_lane="AP Vendor Invoice",
+        level_number=1,
+        fallback_roles=["Accounts Director", "Director Tier"],
+        stage_keyword="Director"
+    )
+    user_roles = frappe.get_roles(user)
+    is_also_director = (
+        user == bus_head or
+        user in matrix_dirs or
+        "Accounts Director" in user_roles or
+        "Director Tier" in user_roles
+    )
 
-    return {"status": doc.status, "message": f"Claim #{docname} successfully approved by Manager."}
+    if is_also_director:
+        # Unified 1-Click Executive Approval: Manager and Director are same person
+        doc.director_approver = user
+        doc.director_approved_on = now_ts
+        doc.status = "Pending Accounts Review"
+        doc.workflow_state = "Awaiting Accounts L1 Review"
+
+        doc.append("approval_trail", {
+            "level_number": 1,
+            "level_name": "Stage 1: Reporting Manager Review",
+            "action_taken_by": user,
+            "action": "APPROVED",
+            "action_timestamp": now_ts,
+            "remarks": remarks or "Approved by Reporting Manager"
+        })
+        doc.append("approval_trail", {
+            "level_number": 2,
+            "level_name": "Stage 2: Executive Director Approval (Unified with Manager Signoff)",
+            "action_taken_by": user,
+            "action": "APPROVED",
+            "action_timestamp": now_ts,
+            "remarks": remarks or "Executive Sanction granted (Reporting Manager & Director are same)"
+        })
+        doc.save(ignore_permissions=True)
+        doc.add_comment(
+            "Comment",
+            text=f"👑 <b>Unified Executive Approval:</b> {user} approved as both Reporting Manager & Director. Auto-routed directly to Accounts L1."
+        )
+        try:
+            from ap_automation.services.notification_service import notify_vendor_claim_director_approved
+            notify_vendor_claim_director_approved(docname)
+        except Exception as e:
+            frappe.log_error(f"Vendor director approval notification dispatch: {e}")
+
+        return {
+            "status": doc.status,
+            "message": f"Claim #{docname} approved! Since you are both Reporting Manager and Director, your single approval satisfies commercial sanction and routes directly to Accounts L1 (Gokulnath)."
+        }
+    else:
+        # Standard progression to Director
+        doc.status = "Pending Director Approval"
+        doc.workflow_state = "Awaiting Executive Director Approval"
+        doc.append("approval_trail", {
+            "level_number": 1,
+            "level_name": "Stage 1: Reporting Manager Approval",
+            "action_taken_by": user,
+            "action": "APPROVED",
+            "action_timestamp": now_ts,
+            "remarks": remarks or "Approved by Reporting Manager"
+        })
+        doc.save(ignore_permissions=True)
+        doc.add_comment("Comment", text=f"✅ <b>Approved by Manager:</b> {user} — {remarks or 'Approved'} (Next: Pending Director Approval)")
+        try:
+            notify_vendor_claim_manager_approved(docname)
+        except Exception as e:
+            frappe.log_error(f"Vendor manager approval notification dispatch: {e}")
+
+        return {"status": doc.status, "message": f"Claim #{docname} successfully approved by Manager. Routed to Director."}
 
 
 @frappe.whitelist()
