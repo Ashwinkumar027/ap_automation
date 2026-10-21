@@ -105,6 +105,19 @@ class VendorInvoiceClaim(APDocument):
             self.status = "Pending Manager Approval"
             self.workflow_state = "Awaiting Manager Approval (PRD Stage 3)"
 
+        # Auto-resolve and bind claimant's dynamic HRMS reporting manager with O(1) indexed lookup
+        if self.status == "Pending Manager Approval" and not getattr(self, "designated_approver", None) and getattr(self, "owner", None):
+            claimant_emp = frappe.db.get_value(
+                "Employee",
+                {"user_id": self.owner, "status": "Active"},
+                ["reports_to"],
+                as_dict=True
+            )
+            if claimant_emp and claimant_emp.reports_to:
+                mgr_user = frappe.db.get_value("Employee", claimant_emp.reports_to, "user_id")
+                if mgr_user:
+                    self.designated_approver = mgr_user
+
         # Execute parent base validations (duplicate hash, immutability, tamper guard)
         super().validate()
 
@@ -378,28 +391,52 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
                 title="Self-Approval Prohibited",
                 exc=APSecurityError
             )
-        # Check authorization via Matrix or Role or Reports To
-        from ap_automation.services.notification_service import _get_matrix_or_role_approvers
-        company = getattr(doc, "company", None)
-        matrix_mgrs = _get_matrix_or_role_approvers(
-            company=company,
-            document_lane="AP Vendor Invoice",
-            level_number=1,
-            fallback_roles=["Admin L1 Approver", "Admin Manager"],
-            stage_keyword="Manager"
+        is_auth = False
+        mgr_user = getattr(doc, "designated_approver", None)
+        claimant_emp = frappe.db.get_value(
+            "Employee",
+            {"user_id": doc.owner, "status": "Active"},
+            ["name", "employee_name", "reports_to"],
+            as_dict=True
         )
-        user_roles = frappe.get_roles(user)
-        is_auth = (user in matrix_mgrs or any(r in user_roles for r in ["Admin L1 Approver", "Admin Manager", "Reporting Manager"]))
-        if not is_auth:
-            emp = frappe.db.get_value("Employee", {"user_id": doc.owner}, ["reports_to"], as_dict=True)
-            if emp and emp.reports_to:
-                mgr_user = frappe.db.get_value("Employee", emp.reports_to, "user_id")
-                if mgr_user == user:
+
+        # 1. Primary Gate: Dynamic HRMS Reporting Manager of Claimant (O(1))
+        if claimant_emp and claimant_emp.reports_to:
+            direct_mgr_user = frappe.db.get_value("Employee", claimant_emp.reports_to, "user_id")
+            if direct_mgr_user:
+                mgr_user = direct_mgr_user
+                if direct_mgr_user == user:
                     is_auth = True
+                else:
+                    # Check active HRMS Leave / Approval Delegation
+                    try:
+                        from ap_automation.services.security import resolve_acting_approver
+                        if resolve_acting_approver(direct_mgr_user) == user:
+                            is_auth = True
+                    except Exception:
+                        pass
+
+        # 2. Fallback Gate: If claimant has no reports_to in HRMS, check AP Matrix or Admin Manager roles
+        if not is_auth and not mgr_user:
+            from ap_automation.services.notification_service import _get_matrix_or_role_approvers
+            company = getattr(doc, "company", None)
+            matrix_mgrs = _get_matrix_or_role_approvers(
+                company=company,
+                document_lane="AP Vendor Invoice",
+                level_number=1,
+                fallback_roles=["Admin L1 Approver", "Admin Manager"],
+                stage_keyword="Manager"
+            )
+            user_roles = frappe.get_roles(user)
+            if user in matrix_mgrs or any(r in user_roles for r in ["Admin L1 Approver", "Admin Manager", "Reporting Manager"]):
+                is_auth = True
+
         if not is_auth:
+            mgr_label = f"Reporting Manager ({mgr_user})" if mgr_user else "the designated Reporting Manager"
             frappe.throw(
-                f"Access Denied: You ('{user}') are not designated as Manager or Admin L1 for '{company}'.",
-                title="Manager Authorization Required",
+                f"Access Denied: You ('{user}') are not authorized to approve this claim. "
+                f"This claim is specifically assigned to claimant's {mgr_label}.",
+                title="Reporting Manager Authorization Required",
                 exc=APSecurityError
             )
 

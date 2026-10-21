@@ -51,28 +51,26 @@ def validate_company_access(company: str, user: Optional[str] = None) -> bool:
 def resolve_acting_approver(primary_approver: str) -> str:
     """
     Resolves acting approver if the primary manager is on approved leave.
-    Integrates seamlessly with HRMS Leave Application.
+    Dynamically integrates with HRMS Leave Application and Employee hierarchy.
     """
-    if not primary_approver:
+    if not primary_approver or primary_approver == "Administrator":
         return primary_approver
 
-    # Check if HRMS Leave Application exists and employee is currently on leave
-    today = frappe.utils.nowdate()
-    on_leave = frappe.db.exists(
-        "Leave Application",
-        {
-            "user": primary_approver,
-            "status": "Approved",
-            "from_date": ["<=", today],
-            "to_date": [">=", today]
-        }
-    )
-    if on_leave:
-        # Check if user has an active Delegation rule
-        delegated_user = frappe.db.get_value(
-            "User", primary_approver, "reports_to"
-        )
-        if delegated_user:
-            return delegated_user
+    try:
+        from ap_automation.services.leave_delegation_service import is_user_away
+        leave_info = is_user_away(primary_approver)
+        if leave_info.get("is_away"):
+            emp = frappe.db.get_value(
+                "Employee",
+                {"user_id": primary_approver},
+                ["name", "reports_to"],
+                as_dict=True
+            )
+            if emp and emp.reports_to:
+                mgr_user = frappe.db.get_value("Employee", emp.reports_to, "user_id")
+                if mgr_user:
+                    return mgr_user
+    except Exception as e:
+        frappe.log_error(f"Failed to resolve acting approver for {primary_approver}: {e}", "AP Delegation")
 
     return primary_approver

@@ -1441,18 +1441,34 @@ def notify_vendor_claim_submitted(claim_name: str) -> None:
     amount = float(getattr(doc, "net_payable_amount", 0.0) or getattr(doc, "total_invoice_amount", 0.0) or 0.0)
     doc_url = _get_form_url("Vendor Invoice Claim", claim_name)
 
-    recipients = _get_matrix_or_role_approvers(
-        company=company,
-        document_lane="AP Vendor Invoice",
-        level_number=1,
-        fallback_roles=["Admin L1 Approver", "Admin Manager"],
-        stage_keyword="Manager"
-    )
-    emp = frappe.db.get_value("Employee", {"user_id": doc.owner}, ["reports_to"], as_dict=True)
-    if emp and emp.reports_to:
-        mgr_user = frappe.db.get_value("Employee", emp.reports_to, "user_id")
-        if mgr_user and mgr_user not in recipients:
-            recipients.append(mgr_user)
+    recipients = []
+    mgr_user = getattr(doc, "designated_approver", None)
+
+    # 1. Primary Dynamic Dispatch: Resolve claimant's active HRMS Reporting Manager (O(1))
+    if not mgr_user and getattr(doc, "owner", None):
+        emp = frappe.db.get_value("Employee", {"user_id": doc.owner, "status": "Active"}, ["reports_to"], as_dict=True)
+        if emp and emp.reports_to:
+            mgr_user = frappe.db.get_value("Employee", emp.reports_to, "user_id")
+
+    if mgr_user:
+        recipients.append(mgr_user)
+        # Check active leave delegation for manager
+        try:
+            from ap_automation.services.security import resolve_acting_approver
+            acting_mgr = resolve_acting_approver(mgr_user)
+            if acting_mgr and acting_mgr != mgr_user and acting_mgr not in recipients:
+                recipients.append(acting_mgr)
+        except Exception:
+            pass
+    else:
+        # Fallback to Matrix / Role ONLY if claimant has no HRMS manager assigned
+        recipients = _get_matrix_or_role_approvers(
+            company=company,
+            document_lane="AP Vendor Invoice",
+            level_number=1,
+            fallback_roles=["Admin L1 Approver", "Admin Manager"],
+            stage_keyword="Manager"
+        )
 
     subject = f"[Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)}) Submitted for Manager Review"
     html = f"""

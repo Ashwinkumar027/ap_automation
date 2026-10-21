@@ -296,7 +296,8 @@ function render_vendor_claim_approval_buttons(frm) {
 
     // Stage 1: Pending Manager Approval
     if (status === "Pending Manager Approval") {
-        let is_mgr = frappe.user.has_role(["Admin L1 Approver", "Admin Manager", "System Manager"]) || is_admin;
+        let is_designated_mgr = frm.doc.designated_approver && frappe.session.user === frm.doc.designated_approver;
+        let is_mgr = frappe.user.has_role(["Admin L1 Approver", "Admin Manager", "Reporting Manager", "System Manager"]) || is_designated_mgr || is_admin;
         if ((!is_owner && is_mgr) || is_admin) {
             frm.add_custom_button(__('✅ Approve (Manager)'), function() {
                 frappe.prompt([
