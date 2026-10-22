@@ -121,6 +121,18 @@
    "label": "Event Advances",
    "link_to": "Event Advance Request",
    "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "label": "Ground Spends (Stream B)",
+   "link_to": "Event Expense Claim",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "label": "Event Settlements",
+   "link_to": "Event Settlement",
+   "type": "DocType"
   }
  ],
  "title": "Lane 4: Event Spends",

@@ -1,28 +1,6 @@
-// Event Advance Request Controller (Lane 4: Imprest & Advance Spends)
-// Features:
-// 1. Live Imprest Item Calculation (Direct Vendor vs Cash Imprest Split).
-// 2. Direct Desk PDF Download & Print Preview buttons.
-// 3. Stage 1: Business Head Sanction Modal.
-// 4. Stage 2: Accounts Team IDFC Disbursal Modal.
-// 5. One-Click Expense Claim Generator.
-
-function calculate_imprest_totals(frm) {
-    let direct_total = 0.0;
-    let cash_total = 0.0;
-
-    (frm.doc.imprest_items || []).forEach(row => {
-        let amt = flt(row.amount);
-        if (row.payment_mode === 'Direct Vendor Payment') {
-            direct_total += amt;
-        } else {
-            cash_total += amt;
-        }
-    });
-
-    frm.set_value('total_direct_vendor_amount', direct_total);
-    frm.set_value('total_cash_imprest_amount', cash_total);
-    frm.set_value('requested_advance_amount', direct_total + cash_total);
-}
+// Copyright (c) 2026, Quanti and contributors
+// Event Advance Request Controller (Lane 4 Intake & Governance)
+// 100% Mobile & Desktop Responsive
 
 frappe.ui.form.on("Event Advance Request", {
     setup: function(frm) {
@@ -32,9 +10,12 @@ frappe.ui.form.on("Event Advance Request", {
     },
 
     refresh: function(frm) {
-        // --- 1. Direct Download & Print Preview Buttons (Always Available on Saved Docs) ---
+        render_advance_event_context(frm);
+        calculate_imprest_totals(frm);
+
+        // --- Print & View Actions ---
         if (!frm.is_new()) {
-            frm.add_custom_button(__('📥 Download PDF Report'), function() {
+            frm.add_custom_button(__('📄 Download Imprest PDF'), function() {
                 const pdf_url = frappe.urllib.get_full_url(
                     `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(frm.doc.doctype)}&name=${encodeURIComponent(frm.doc.name)}&format=Event%20Expense%20Report&no_letterhead=0`
                 );
@@ -47,7 +28,7 @@ frappe.ui.form.on("Event Advance Request", {
             }, __('Print / Download'));
         }
 
-        // --- 2. Workflow Stage Actions ---
+        // --- Workflow Stage Actions ---
         if (frm.doc.docstatus === 1) {
             const user_roles = frappe.user_roles || [];
             const is_sys_mgr = user_roles.includes('System Manager') || frappe.session.user === 'Administrator';
@@ -118,7 +99,7 @@ frappe.ui.form.on("Event Advance Request", {
             else if (frm.doc.status === 'Pending Accounts Disbursal') {
                 frm.page.set_indicator(__('Pending Accounts Disbursal'), 'blue');
                 if (is_accounts) {
-                    frm.add_custom_button(__('💳 Disburse Advance (Accounts)'), function() {
+                    frm.add_custom_button(__('💳 Execute Bank Disbursal (Accounts)'), function() {
                         frappe.prompt([
                             {
                                 fieldname: 'disbursement_ref',
@@ -179,10 +160,77 @@ frappe.ui.form.on("Event Advance Request", {
                         }
                     });
                 }
+                render_advance_event_context(frm);
             });
         }
     }
 });
+
+function render_advance_event_context(frm) {
+    if (!frm.doc.event) return;
+
+    frappe.db.get_value('Event Master', frm.doc.event, ['event_name', 'allocated_budget', 'remaining_budget', 'total_committed_spend']).then(r => {
+        if (!r || !r.message) return;
+        const ev = r.message;
+        const budget = parseFloat(ev.allocated_budget || 0.0);
+        const committed = parseFloat(ev.total_committed_spend || 0.0);
+        const remaining = parseFloat(ev.remaining_budget || (budget - committed));
+
+        const format_curr = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(val || 0);
+
+        const banner_html = `
+            <div class="ap-advance-context-banner" style="
+                background: #f0fdf4;
+                border: 1px solid #86efac;
+                border-radius: 8px;
+                padding: 12px 16px;
+                margin-bottom: 16px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                flex-wrap: wrap;
+                gap: 10px;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            ">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 20px;">💡</span>
+                    <div>
+                        <div style="font-size: 13px; font-weight: 700; color: #166534;">Linked Event: ${ev.event_name || frm.doc.event}</div>
+                        <div style="font-size: 11px; color: #15803d; margin-top: 2px;">
+                            Board Budget: <b>${format_curr(budget)}</b> &nbsp;|&nbsp; Committed: <b>${format_curr(committed)}</b>
+                        </div>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 11px; text-transform: uppercase; color: #15803d; font-weight: 700;">Available For Advance</div>
+                    <div style="font-size: 18px; font-weight: 800; color: #166534;">${format_curr(remaining)}</div>
+                </div>
+            </div>
+        `;
+
+        if (frm.dashboard) {
+            frm.dashboard.set_headline(banner_html);
+        }
+    });
+}
+
+function calculate_imprest_totals(frm) {
+    let direct = 0.0;
+    let cash = 0.0;
+
+    (frm.doc.imprest_items || []).forEach(row => {
+        let amt = parseFloat(row.amount || 0.0);
+        if (row.payment_mode === "Direct Vendor Payment") {
+            direct += amt;
+        } else {
+            cash += amt;
+        }
+    });
+
+    frm.set_value('direct_vendor_total', direct);
+    frm.set_value('cash_imprest_total', cash);
+    frm.set_value('requested_advance_amount', direct + cash);
+}
 
 // Child Table Calculations
 frappe.ui.form.on("Event Imprest Item", {
