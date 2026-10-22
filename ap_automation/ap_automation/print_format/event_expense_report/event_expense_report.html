@@ -38,16 +38,10 @@
     .brand-sub {
         font-size: 12px;
         color: #64748b;
-        max-width: 380px;
+        max-width: 480px;
         line-height: 1.4;
     }
-    .meta-box-row {
-        display: flex;
-        gap: 16px;
-        margin-bottom: 24px;
-    }
     .meta-box {
-        flex: 1;
         border: 1.5px solid #fef08a;
         background: #fefce8;
         border-radius: 8px;
@@ -62,29 +56,29 @@
         margin-bottom: 4px;
     }
     .meta-box-value {
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 700;
         color: #1e293b;
     }
     .section-title {
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 800;
         color: #0f172a;
-        margin: 0 0 12px 0;
+        margin: 20px 0 10px 0;
     }
     .event-details-card {
         background: #f8fafc;
         border: 1px solid #e2e8f0;
         border-radius: 10px;
-        padding: 16px;
-        margin-bottom: 28px;
+        padding: 14px 18px;
+        margin-bottom: 20px;
     }
     .event-details-table {
         width: 100%;
         border-collapse: collapse;
     }
     .event-details-table td {
-        padding: 8px 12px;
+        padding: 6px 12px;
         vertical-align: top;
     }
     .event-field-label {
@@ -93,7 +87,7 @@
         letter-spacing: 0.1em;
         text-transform: uppercase;
         color: #64748b;
-        margin-bottom: 4px;
+        margin-bottom: 3px;
     }
     .event-field-value {
         font-size: 13px;
@@ -103,7 +97,7 @@
     .items-table {
         width: 100%;
         border-collapse: collapse;
-        margin-bottom: 28px;
+        margin-bottom: 24px;
     }
     .items-table th {
         background: #0f172a;
@@ -116,7 +110,7 @@
         text-align: left;
     }
     .items-table td {
-        padding: 12px;
+        padding: 10px 12px;
         font-size: 12px;
         border-bottom: 1px solid #f1f5f9;
         vertical-align: middle;
@@ -124,270 +118,284 @@
     .items-table tr:nth-child(even) td {
         background: #f8fafc;
     }
-    .badge-mode {
-        display: inline-block;
-        font-size: 10px;
-        font-weight: 700;
-        padding: 3px 8px;
-        border-radius: 4px;
-    }
-    .badge-direct {
-        background: #dbeafe;
-        color: #1d4ed8;
-        border: 1px solid #bfdbfe;
-    }
-    .badge-cash {
-        background: #fef3c7;
-        color: #b45309;
-        border: 1px solid #fde68a;
-    }
     .summary-card {
+        width: 380px;
+        margin-left: auto;
         background: #f8fafc;
         border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 16px 20px;
-        width: 320px;
-        margin-left: auto;
-        margin-bottom: 36px;
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin-bottom: 24px;
     }
     .summary-row {
         display: flex;
         justify-content: space-between;
         font-size: 12px;
         color: #475569;
-        padding: 6px 0;
+        margin-bottom: 6px;
     }
     .summary-row.total {
-        border-top: 2px solid #cbd5e1;
-        margin-top: 8px;
-        padding-top: 10px;
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 800;
-        color: #b91c1c;
-    }
-    .approval-trail-section {
-        border-top: 1px solid #e2e8f0;
-        padding-top: 24px;
-        margin-top: 24px;
-    }
-    .approval-grid {
-        display: flex;
-        justify-content: space-between;
-        margin-top: 36px;
-    }
-    .approval-box {
-        text-align: center;
-        width: 28%;
+        color: #0f172a;
         border-top: 1.5px solid #cbd5e1;
         padding-top: 8px;
-        font-size: 12px;
+        margin-top: 8px;
     }
-    .approval-role {
-        color: #64748b;
-        font-size: 11px;
-    }
-    .approval-name {
+    .badge-mode {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 10px;
         font-weight: 700;
-        color: #0f172a;
-        margin-top: 2px;
+        text-transform: uppercase;
+    }
+    .badge-direct {
+        background: #eff6ff;
+        color: #1d4ed8;
+        border: 1px solid #bfdbfe;
+    }
+    .badge-cash {
+        background: #fefce8;
+        color: #a16207;
+        border: 1px solid #fef08a;
     }
 </style>
 </head>
 <body>
 
-<!-- Dynamic Header from Offer Letter Print Settings or Letter Head -->
-{% set company_settings = get_company_print_settings(doc.company) if doc.company and get_company_print_settings is defined else None %}
-{% if company_settings and (company_settings.company_logo_base64 or company_settings.company_logo_url) %}
-    <table class="header-table" style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
-        <tr>
-            <td style="vertical-align: middle; width: 45%;">
-                <img src="{{ company_settings.company_logo_base64 or company_settings.company_logo_url }}" style="max-height: 60px; max-width: 250px; object-fit: contain;" alt="{{ doc.company }}">
-                <div style="font-size: 10px; font-weight: 700; color: #ea580c; text-transform: uppercase; margin-top: 6px; letter-spacing: 0.1em;">
-                    EXPENSE CLAIMS / IMPREST PROPOSAL
-                </div>
-            </td>
-            <td style="text-align: right; vertical-align: top; width: 55%; font-size: 11px; color: #475569; line-height: 1.45;">
-                <div style="font-weight: 800; font-size: 13px; color: #0f172a; text-transform: uppercase;">{{ doc.company }}</div>
-                {% if company_settings.registered_address %}
-                    <div style="font-size: 10px; color: #64748b; white-space: pre-line;">{{ company_settings.registered_address.strip() }}</div>
-                {% endif %}
-                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">
-                    {% if company_settings.cin_number %}<span>CIN: {{ company_settings.cin_number }}</span>{% endif %}
-                    {% if company_settings.compliance_email %} | <span>{{ company_settings.compliance_email }}</span>{% endif %}
-                </div>
-                <div style="margin-top: 6px;">
-                    <span style="font-size: 10px; color: #64748b;">Proposal Ref:</span>
-                    <span style="font-size: 12px; font-weight: 800; color: #ea580c;">{{ doc.name }}</span>
-                    <span style="font-size: 10px; color: #64748b; margin-left: 8px;">Date: {{ frappe.utils.format_datetime(doc.creation, "dd/MM/yyyy") }}</span>
-                </div>
-            </td>
-        </tr>
-    </table>
-{% else %}
-    {% set letter_head_content = frappe.db.get_value("Letter Head", doc.letter_head or (doc.company and frappe.db.get_value("Company", doc.company, "default_letter_head")), "content") %}
-    {% if letter_head_content %}
-        <div style="margin-bottom: 16px;">
-            {{ letter_head_content }}
-        </div>
-    {% else %}
-        <table class="header-table">
-            <tr>
-                <td style="vertical-align: top;">
-                    <div class="tag-title">EXPENSE CLAIMS / IMPREST PROPOSAL</div>
-                    <h1 class="brand-name">{{ doc.company or "Corona Creative Solutions" }}</h1>
-                    <div class="brand-sub">Automated financial proposal, approval routing, and accounting handoff for event spends.</div>
-                </td>
-                <td style="text-align: right; vertical-align: top;">
-                    <div style="font-size: 11px; color: #64748b;">Generated On</div>
-                    <div style="font-size: 12px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">
-                        {{ frappe.utils.format_datetime(frappe.utils.now_datetime(), "dd/MM/yyyy, hh:mm:ss a") }}
-                    </div>
-                    <div style="font-size: 11px; color: #64748b;">Proposal Ref</div>
-                    <div style="font-size: 13px; font-weight: 800; color: #ea580c;">{{ doc.name }}</div>
-                </td>
-            </tr>
-        </table>
-    {% endif %}
-{% endif %}
+{% set is_event_master = (doc.doctype == "Event Master") %}
+{% set event_id = doc.name if is_event_master else doc.get("event") %}
+{% set event_doc = doc if is_event_master else (frappe.get_doc("Event Master", event_id) if event_id else None) %}
+
+<!-- Header -->
+<table class="header-table">
+    <tr>
+        <td style="vertical-align: top;">
+            <div class="tag-title">
+                {{ "CORPORATE EVENT SPEND & BUDGET STATEMENT" if is_event_master else "EXPENSE CLAIMS / IMPREST PROPOSAL" }}
+            </div>
+            <h1 class="brand-name">{{ doc.company or "Quanticus Solutions" }}</h1>
+            <div class="brand-sub">
+                {{ "Comprehensive multi-stream spend reconciliation & budget utilization ledger." if is_event_master else "Automated financial proposal, approval routing, and accounting handoff for event spends." }}
+            </div>
+        </td>
+        <td style="text-align: right; vertical-align: top;">
+            <div style="font-size: 11px; color: #64748b;">Generated On</div>
+            <div style="font-size: 12px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">
+                {{ frappe.utils.format_datetime(frappe.utils.now_datetime(), "dd/MM/yyyy, hh:mm:ss a") }}
+            </div>
+            <div style="font-size: 11px; color: #64748b;">Document Ref</div>
+            <div style="font-size: 13px; font-weight: 800; color: #ea580c;">{{ doc.name }}</div>
+        </td>
+    </tr>
+</table>
 
 <div class="header-orange-bar"></div>
 
 <!-- Metadata Badges -->
-<table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
     <tr>
-        <td style="width: 32%; padding-right: 8px;">
+        <td style="width: 33%; padding-right: 6px;">
             <div class="meta-box">
-                <div class="meta-box-label">PREPARED BY</div>
-                <div class="meta-box-value">{{ doc.spoc_name or doc.spoc or "Event SPOC" }}</div>
+                <div class="meta-box-label">DESIGNATED SPOC</div>
+                <div class="meta-box-value">{{ doc.get("spoc_name") or doc.get("spoc") or (event_doc.spoc_name if event_doc else "Event SPOC") }}</div>
             </div>
         </td>
-        <td style="width: 32%; padding: 0 4px;">
+        <td style="width: 33%; padding: 0 4px;">
             <div class="meta-box">
-                <div class="meta-box-label">SANCTIONED BY (BUSINESS HEAD)</div>
-                <div class="meta-box-value">{{ doc.approved_by_business_head or "Pending Approval" }}</div>
+                <div class="meta-box-label">{{ "LIFECYCLE STATUS" if is_event_master else "SANCTION STATUS" }}</div>
+                <div class="meta-box-value">{{ doc.get("status") or doc.get("approved_by_business_head") or "Active" }}</div>
             </div>
         </td>
-        <td style="width: 32%; padding-left: 8px;">
+        <td style="width: 33%; padding-left: 6px;">
             <div class="meta-box">
                 <div class="meta-box-label">ACCOUNTING COPY</div>
-                <div class="meta-box-value">Accounts L1 & Accounts Director (Auto CC)</div>
+                <div class="meta-box-value">Accounts L1 & Accounts Director (Verified)</div>
             </div>
         </td>
     </tr>
 </table>
 
-<!-- Event Details Card -->
-<div class="section-title">Event Details</div>
+<!-- Event Context Card -->
+<div class="section-title">Event Context</div>
 <div class="event-details-card">
-    {% set event_doc = frappe.get_doc("Event Master", doc.event) if doc.event else None %}
     <table class="event-details-table">
         <tr>
             <td style="width: 50%;">
-                <div class="event-field-label">EVENT NAME</div>
-                <div class="event-field-value">{{ event_doc.event_name if event_doc else doc.event }}</div>
+                <div class="event-field-label">EVENT TITLE</div>
+                <div class="event-field-value">
+                    {{ event_doc.event_name if event_doc else (doc.get("event_name") or doc.get("event") or "-") }}
+                </div>
             </td>
             <td style="width: 50%;">
                 <div class="event-field-label">EVENT DATE</div>
-                <div class="event-field-value">{{ frappe.utils.formatdate(doc.event_date or (event_doc.start_date if event_doc else doc.creation)) }}</div>
+                <div class="event-field-value">
+                    {% if event_doc and event_doc.start_date %}
+                        {{ frappe.utils.formatdate(event_doc.start_date) }} {% if event_doc.end_date %} to {{ frappe.utils.formatdate(event_doc.end_date) }}{% endif %}
+                    {% else %}
+                        {{ frappe.utils.formatdate(doc.get("event_date") or doc.creation) }}
+                    {% endif %}
+                </div>
             </td>
         </tr>
         <tr>
             <td>
-                <div class="event-field-label">VENUE</div>
-                <div class="event-field-value">{{ doc.venue or (event_doc.event_location if event_doc else "Bhavan's Pottipati Ganamba Obul Reddy Auditorium") }}</div>
+                <div class="event-field-label">VENUE / LOCATION</div>
+                <div class="event-field-value">
+                    {{ doc.get("venue") or (event_doc.event_location if event_doc else "Convention Centre") }}
+                </div>
             </td>
             <td>
-                <div class="event-field-label">CONTACT PHONE</div>
-                <div class="event-field-value">{{ doc.contact_phone or "9791212413" }}</div>
+                <div class="event-field-label">LINKED EVENT REF</div>
+                <div class="event-field-value">
+                    {{ event_id or doc.name }}
+                </div>
             </td>
         </tr>
     </table>
 </div>
 
-<!-- Expense Details Table -->
-<div class="section-title">Expense Details</div>
-<table class="items-table">
-    <thead>
-        <tr>
-            <th style="width: 5%;">S.NO</th>
-            <th style="width: 28%;">PARTICULARS</th>
-            <th style="width: 18%;">PAYMENT MODE</th>
-            <th style="width: 25%;">BENEFICIARY / BANK DETAILS</th>
-            <th style="width: 14%; text-align: right;">EXPENSES</th>
-            <th style="width: 10%;">REMARKS</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for row in doc.imprest_items %}
-        <tr>
-            <td style="font-weight: 700; color: #64748b;">{{ loop.index }}</td>
-            <td style="font-weight: 700; color: #0f172a;">{{ row.particulars }}</td>
-            <td>
-                {% if row.payment_mode == 'Direct Vendor Payment' %}
-                    <span class="badge-mode badge-direct">Direct Vendor</span>
-                {% else %}
-                    <span class="badge-mode badge-cash">Cash Imprest</span>
-                {% endif %}
-            </td>
-            <td>
-                <div style="font-weight: 700; color: #1e293b;">{{ row.beneficiary_name or "-" }}</div>
-                {% if row.bank_account_number %}
-                    <div style="font-size: 11px; color: #64748b;">A/C: {{ row.bank_account_number }} | IFSC: {{ row.bank_ifsc_code or "-" }}</div>
-                    {% if row.bank_name %}<div style="font-size: 10px; color: #94a3b8;">{{ row.bank_name }}</div>{% endif %}
-                {% endif %}
-            </td>
-            <td style="text-align: right; font-weight: 800; color: #b91c1c;">
-                ₹ {{ frappe.utils.fmt_money(row.amount, precision=2) }}
-            </td>
-            <td style="color: #64748b; font-size: 11px;">{{ row.remarks or "-" }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+{% if is_event_master %}
+    <!-- Event Master Multi-Stream Financial Breakdown -->
+    <div class="section-title">Budget Ledger & Multi-Stream Breakdown</div>
+    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 8px; font-weight: 700; color: #1e3a8a;">Board Approved Budget</td>
+                <td style="padding: 8px; text-align: right; font-weight: 800; color: #1e3a8a; font-size: 14px;">
+                    ₹ {{ frappe.utils.fmt_money(doc.allocated_budget or 0, precision=2) }}
+                </td>
+            </tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+                <td style="padding: 8px; color: #6d28d9;">Stream A: Direct Finance Vendor Spends</td>
+                <td style="padding: 8px; text-align: right; font-weight: 700; color: #6d28d9;">
+                    ₹ {{ frappe.utils.fmt_money(doc.direct_finance_spends or 0, precision=2) }}
+                </td>
+            </tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+                <td style="padding: 8px; color: #b45309;">Stream B: SPOC Ground Spends Filed</td>
+                <td style="padding: 8px; text-align: right; font-weight: 700; color: #b45309;">
+                    ₹ {{ frappe.utils.fmt_money(doc.spoc_actual_spends or 0, precision=2) }}
+                </td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 8px; color: #475569;">Disbursed Advances to SPOC</td>
+                <td style="padding: 8px; text-align: right; font-weight: 700; color: #475569;">
+                    ₹ {{ frappe.utils.fmt_money(doc.disbursed_advance or 0, precision=2) }}
+                </td>
+            </tr>
+            <tr style="border-bottom: 1.5px solid #cbd5e1; background: #f1f5f9;">
+                <td style="padding: 8px; font-weight: 800; color: #0f172a;">Total Committed Spend</td>
+                <td style="padding: 8px; text-align: right; font-weight: 800; color: #0f172a; font-size: 14px;">
+                    {% set max_g = [doc.disbursed_advance or 0, doc.spoc_actual_spends or 0] | max %}
+                    {% set comm = doc.total_committed_spend or ((doc.direct_finance_spends or 0) + max_g) %}
+                    ₹ {{ frappe.utils.fmt_money(comm, precision=2) }}
+                </td>
+            </tr>
+            <tr style="background: #ecfdf5;">
+                <td style="padding: 8px; font-weight: 800; color: #065f46;">Remaining Available Budget</td>
+                <td style="padding: 8px; text-align: right; font-weight: 800; color: #065f46; font-size: 15px;">
+                    {% set rem = doc.remaining_budget or ((doc.allocated_budget or 0) - comm) %}
+                    ₹ {{ frappe.utils.fmt_money(rem, precision=2) }}
+                </td>
+            </tr>
+        </table>
+    </div>
 
-<!-- Financial Summary Box -->
-<div class="summary-card">
-    <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">
-        Summary
-    </div>
-    <div class="summary-row">
-        <span>Direct Vendor Payments:</span>
-        <span style="font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.total_direct_vendor_amount or 0, precision=2) }}</span>
-    </div>
-    <div class="summary-row">
-        <span>On-Ground Cash Imprest:</span>
-        <span style="font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.total_cash_imprest_amount or 0, precision=2) }}</span>
-    </div>
-    <div class="summary-row total">
-        <span>Grand Total:</span>
-        <span>₹ {{ frappe.utils.fmt_money(doc.requested_advance_amount or 0, precision=2) }}</span>
-    </div>
-    <div style="font-size: 11px; color: #64748b; margin-top: 10px; line-height: 1.4;">
-        Prepared by {{ doc.spoc_name or doc.spoc }}, routed to Business Head for approval, and CCed to Accounts automatically.
-    </div>
-</div>
+    <!-- Active Advances Table -->
+    {% set advances = frappe.get_all("Event Advance Request", filters={"event": doc.name, "docstatus": ["!=", 2]}, fields=["name", "requested_advance_amount", "approved_advance_amount", "status", "disbursement_reference"]) %}
+    {% if advances %}
+        <div class="section-title">Disbursed & Pipeline Imprest Advances</div>
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">ADVANCE REF</th>
+                    <th style="width: 25%;">REQUESTED</th>
+                    <th style="width: 25%;">SANCTIONED / PAID</th>
+                    <th style="width: 25%;">STATUS / UTR</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for adv in advances %}
+                <tr>
+                    <td style="font-weight: 700;">{{ adv.name }}</td>
+                    <td>₹ {{ frappe.utils.fmt_money(adv.requested_advance_amount or 0, precision=2) }}</td>
+                    <td style="font-weight: 700; color: #059669;">₹ {{ frappe.utils.fmt_money(adv.approved_advance_amount or adv.requested_advance_amount or 0, precision=2) }}</td>
+                    <td>{{ adv.status }} {% if adv.disbursement_reference %}<br><small style="color: #64748b;">Ref: {{ adv.disbursement_reference }}</small>{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
 
-<!-- Approval Trail Signatures -->
-<div class="approval-trail-section">
-    <div class="section-title">Approval Trail</div>
-    <div class="approval-grid">
-        <div class="approval-box">
-            <div class="approval-role">Prepared by</div>
-            <div class="approval-name">{{ doc.spoc_name or doc.spoc or "Event SPOC" }}</div>
+{% else %}
+    <!-- Advance Request Itemized Imprest Proposal Table -->
+    <div class="section-title">Expense Details (Imprest Proposal Breakdown)</div>
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th style="width: 5%;">S.NO</th>
+                <th style="width: 28%;">PARTICULARS</th>
+                <th style="width: 18%;">PAYMENT MODE</th>
+                <th style="width: 25%;">BENEFICIARY / BANK DETAILS</th>
+                <th style="width: 14%; text-align: right;">EXPENSES</th>
+                <th style="width: 10%;">REMARKS</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in (doc.get("imprest_items") or []) %}
+            <tr>
+                <td style="font-weight: 700; color: #64748b;">{{ loop.index }}</td>
+                <td style="font-weight: 700; color: #0f172a;">{{ row.particulars }}</td>
+                <td>
+                    {% if row.payment_mode == 'Direct Vendor Payment' %}
+                        <span class="badge-mode badge-direct">Direct Vendor</span>
+                    {% else %}
+                        <span class="badge-mode badge-cash">Cash Imprest</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div style="font-weight: 700; color: #1e293b;">{{ row.beneficiary_name or "-" }}</div>
+                    {% if row.bank_account_number %}
+                        <div style="font-size: 11px; color: #64748b;">A/C: {{ row.bank_account_number }} | IFSC: {{ row.bank_ifsc_code or "-" }}</div>
+                        {% if row.bank_name %}<div style="font-size: 10px; color: #94a3b8;">{{ row.bank_name }}</div>{% endif %}
+                    {% endif %}
+                </td>
+                <td style="text-align: right; font-weight: 800; color: #b91c1c;">
+                    ₹ {{ frappe.utils.fmt_money(row.amount, precision=2) }}
+                </td>
+                <td style="color: #64748b; font-size: 11px;">{{ row.remarks or "-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Financial Summary Box -->
+    <div class="summary-card">
+        <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">
+            Summary
         </div>
-        <div class="approval-box">
-            <div class="approval-role">Approved by (Business Head)</div>
-            <div class="approval-name">{{ doc.approved_by_business_head or "Pending Approval" }}</div>
+        <div class="summary-row">
+            <span>Direct Vendor Payments:</span>
+            <span style="font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.get("total_direct_vendor_amount") or 0, precision=2) }}</span>
         </div>
-        <div class="approval-box">
-            <div class="approval-role">CC to</div>
-            <div class="approval-name">Accounting Team</div>
+        <div class="summary-row">
+            <span>On-Ground Cash Imprest:</span>
+            <span style="font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.get("total_cash_imprest_amount") or 0, precision=2) }}</span>
+        </div>
+        <div class="summary-row total">
+            <span>Grand Total:</span>
+            <span>₹ {{ frappe.utils.fmt_money(doc.get("requested_advance_amount") or 0, precision=2) }}</span>
+        </div>
+        <div style="font-size: 11px; color: #64748b; margin-top: 10px; line-height: 1.4;">
+            Prepared by {{ doc.get("spoc_name") or doc.get("spoc") }}, routed to Business Head for approval, and CCed to Accounts automatically.
         </div>
     </div>
-</div>
+{% endif %}
 
 <div style="font-size: 10px; color: #94a3b8; text-align: center; margin-top: 40px; border-top: 1px dashed #cbd5e1; padding-top: 12px;">
-    This is an enterprise system-generated event imprest & expense proposal. All vendor bills and vouchers must be submitted for final post-event delta settlement.
+    This is an enterprise system-generated corporate event statement. All vendor bills and vouchers must be submitted for final post-event delta settlement.
 </div>
 
 </body>

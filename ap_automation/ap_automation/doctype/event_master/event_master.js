@@ -29,11 +29,16 @@ function render_event_master_dashboard(frm) {
 
     const budget = parseFloat(frm.doc.allocated_budget || 0.0);
     const direct_finance = parseFloat(frm.doc.direct_finance_spends || 0.0);
+    const disbursed_adv = parseFloat(frm.doc.disbursed_advance || 0.0);
     const spoc_actuals = parseFloat(frm.doc.spoc_actual_spends || 0.0);
-    const committed = parseFloat(frm.doc.total_committed_spend || 0.0);
-    const remaining = parseFloat(frm.doc.remaining_budget || (budget - committed));
-    const util_pct = budget > 0 ? Math.min(Math.round((committed / budget) * 1000) / 10, 100) : 0;
+
+    // Dynamic fallback: compute true committed spend if database value is lagging
+    const max_ground = Math.max(disbursed_adv, spoc_actuals);
+    const calc_committed = direct_finance + max_ground;
+    const committed = parseFloat(frm.doc.total_committed_spend || 0.0) > 0 ? parseFloat(frm.doc.total_committed_spend) : calc_committed;
+    const remaining = budget > 0 ? Math.round((budget - committed) * 100) / 100 : 0;
     const raw_pct = budget > 0 ? (committed / budget) * 100 : 0;
+    const util_pct = budget > 0 ? Math.min(Math.round(raw_pct * 10) / 10, 100) : 0;
 
     // Overrun status colors
     let bar_color = "#10b981"; // Emerald
@@ -210,6 +215,22 @@ function setup_event_master_actions(frm) {
             frappe.new_doc("Event Settlement");
         }, __('Actions'));
     }
+
+    // Quick Action 4: Refresh Live Ledger
+    frm.add_custom_button(__('🔄 Sync Live Ledger'), function() {
+        frappe.call({
+            method: 'ap_automation.services.event_budget_service.update_event_budget_ledger',
+            args: { event_name: frm.doc.name },
+            freeze: true,
+            freeze_message: __('Synchronizing Event Ledger...'),
+            callback: function(r) {
+                if (r.message) {
+                    frm.reload_doc();
+                    frappe.show_alert({ message: __('Event budget ledger synchronized successfully!'), indicator: 'green' });
+                }
+            }
+        });
+    }, __('Actions'));
 
     // View Live Report
     frm.add_custom_button(__('📊 View Spend Statement'), function() {
