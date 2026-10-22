@@ -60,8 +60,8 @@ class EventAdvanceRequest(APDocument):
                 else:
                     cash_total += amt
 
-            self.direct_vendor_total = round(direct_total, 2)
-            self.cash_imprest_total = round(cash_total, 2)
+            self.total_direct_vendor_amount = round(direct_total, 2)
+            self.total_cash_imprest_amount = round(cash_total, 2)
             self.requested_advance_amount = round(direct_total + cash_total, 2)
             self.total_amount = self.requested_advance_amount
         else:

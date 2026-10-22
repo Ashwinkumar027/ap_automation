@@ -227,9 +227,18 @@ function calculate_imprest_totals(frm) {
         }
     });
 
-    frm.set_value('direct_vendor_total', direct);
-    frm.set_value('cash_imprest_total', cash);
-    frm.set_value('requested_advance_amount', direct + cash);
+    if (frm.fields_dict.total_direct_vendor_amount) {
+        frm.set_value('total_direct_vendor_amount', direct);
+    }
+    if (frm.fields_dict.total_cash_imprest_amount) {
+        frm.set_value('total_cash_imprest_amount', cash);
+    }
+    if (frm.fields_dict.requested_advance_amount) {
+        frm.set_value('requested_advance_amount', direct + cash);
+    }
+    if (frm.fields_dict.total_amount) {
+        frm.set_value('total_amount', direct + cash);
+    }
 }
 
 // Child Table Calculations
