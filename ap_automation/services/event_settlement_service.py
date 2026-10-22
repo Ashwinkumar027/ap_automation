@@ -5,11 +5,11 @@ Enforces:
 2. Case 1 (Delta > 0): PAYABLE_TO_SPOC (net balance to SPOC).
 3. Case 2 (Delta < 0): REFUND_FROM_SPOC (unspent cash return; mandates bank UTR reference).
 4. Case 3 (Delta == 0): ZERO_BALANCE_BALANCED (perfect mathematical closure).
-5. Event Master formal closure upon settlement finalization.
+5. Event Master formal closure upon Accounts audit and finalization.
 """
 from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
-from ap_automation.exceptions import APValidationError
+from ap_automation.exceptions import APValidationError, APSecurityError
 
 
 def calculate_event_settlement_delta(event_name: str) -> Dict[str, Any]:
@@ -105,11 +105,59 @@ def finalize_event_settlement(settlement_name: str, approver: str) -> Dict[str, 
     })
     frappe.db.commit()
 
+    try:
+        from ap_automation.services.employee_reimbursement_notification_service import (
+            notify_event_settlement_closed
+        )
+        notify_event_settlement_closed(doc)
+    except Exception:
+        pass
+
     return {
         "status": "SUCCESS",
         "settlement": settlement_name,
         "event": doc.event,
         "event_status": "Closed"
+    }
+
+
+@frappe.whitelist()
+def audit_and_settle_refund(settlement_name: str, verified_utr: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Accounts Action: Audits and confirms bank refund received from SPOC, then finalizes settlement.
+    """
+    if not frappe.db.exists("Event Settlement", settlement_name):
+        raise APValidationError(f"Event Settlement '{settlement_name}' not found.")
+
+    user = frappe.session.user
+    user_roles = set(frappe.get_roles(user))
+    authorized = {"Accounts Manager", "Accounts L1 Auditor", "Accounts Director", "Payment Releaser", "System Manager", "Administrator"}
+    if not user_roles.intersection(authorized):
+        raise APSecurityError("Unauthorized: Only Accounts Team can audit and verify refunds.")
+
+    doc = frappe.get_doc("Event Settlement", settlement_name)
+    utr = verified_utr or doc.refund_received_reference
+    if not utr or len(str(utr).strip()) < 4:
+        raise APValidationError("A valid bank credit UTR reference is required to verify refund.")
+
+    clean_utr = str(utr).strip()
+    frappe.db.set_value("Event Settlement", settlement_name, {
+        "status": "Settled",
+        "refund_received_reference": clean_utr,
+        "refund_date": frappe.utils.nowdate()
+    }, update_modified=True)
+
+    frappe.db.set_value("Event Master", doc.event, {
+        "status": "Closed",
+        "ageing_status": "CURRENT"
+    }, update_modified=True)
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "message": f"Refund verified and Event #{doc.event} successfully closed.",
+        "settlement": settlement_name,
+        "event": doc.event
     }
 
 

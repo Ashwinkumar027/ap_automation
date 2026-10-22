@@ -4,8 +4,9 @@ Enforces:
 1. Daily monitoring of un-settled event advances past event end date.
 2. 7-Day Rule: Flags OVERDUE_7_DAYS_REMINDER for un-settled events > 7 days.
 3. 14-Day Rule: Flags OVERDUE_14_DAYS_PAYROLL_ALERT and triggers HRMS Payroll Deduction Escalation.
+High Performance: O(1) in-memory checks with zero N+1 database queries.
 """
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, Set
 import datetime
 import frappe
 
@@ -13,10 +14,12 @@ import frappe
 def check_unsettled_event_advances(mock_today: Optional[str] = None) -> Dict[str, Any]:
     """
     Scans all open events past their end date with disbursed advances and triggers escalations.
+    Optimized with batch pre-fetching to eliminate N+1 queries in loops.
     """
     today_str = mock_today or frappe.utils.nowdate()
     today = datetime.datetime.strptime(today_str, "%Y-%m-%d").date()
 
+    # Pre-fetch all open events with spoc_actual_spends directly to avoid loop queries
     open_events = frappe.get_all(
         "Event Master",
         filters={
@@ -24,7 +27,28 @@ def check_unsettled_event_advances(mock_today: Optional[str] = None) -> Dict[str
             "disbursed_advance": [">", 0],
             "end_date": ["<", today_str]
         },
-        fields=["name", "event_name", "company", "event_spoc", "end_date", "disbursed_advance", "ageing_status"]
+        fields=["name", "event_name", "company", "event_spoc", "end_date", "disbursed_advance", "spoc_actual_spends", "ageing_status"]
+    )
+
+    if not open_events:
+        return {
+            "status": "COMPLETED",
+            "evaluation_date": today_str,
+            "events_evaluated": 0,
+            "reminders_7_days_count": 0,
+            "payroll_alerts_14_days_count": 0,
+            "escalations_7_days": [],
+            "escalations_14_days": []
+        }
+
+    # Batch pre-fetch all active Event Settlements for these open events in 1 query
+    event_names = [ev.name for ev in open_events]
+    active_settlements: Set[str] = set(
+        frappe.get_all(
+            "Event Settlement",
+            filters={"event": ["in", event_names], "docstatus": ["!=", 2]},
+            pluck="event"
+        )
     )
 
     escalations_7_days = []
@@ -39,14 +63,11 @@ def check_unsettled_event_advances(mock_today: Optional[str] = None) -> Dict[str
 
         # Check if SPOC has already accounted for the advance via expense claims or settlement
         disbursed = float(ev.disbursed_advance or 0.0)
-        spoc_actuals = float(frappe.db.get_value("Event Master", ev.name, "spoc_actual_spends") or 0.0)
+        spoc_actuals = float(ev.spoc_actual_spends or 0.0)
         unaccounted = max(disbursed - spoc_actuals, 0.0)
 
-        # Also check if an active Event Settlement is submitted or in progress
-        has_active_settlement = frappe.db.exists(
-            "Event Settlement",
-            {"event": ev.name, "docstatus": ["!=", 2]}
-        )
+        # O(1) Check if active Event Settlement exists
+        has_active_settlement = ev.name in active_settlements
         if unaccounted <= 0.0 and has_active_settlement:
             continue
 

@@ -156,5 +156,36 @@ class TestEventMasterAndAdvance(unittest.TestCase):
         self.assertEqual(ev.status, "Advance Disbursed")
 
 
+    def test_06_advance_concurrency_pipeline_budget_shield(self):
+        """Verifies pipeline advances in flight are deducted to block concurrent budget overrun."""
+        # Remaining budget on self.event is INR 350,000
+        # Create Advance 1 for INR 250,000 (status: Pending Business Head Approval)
+        adv1 = EventAdvanceRequest({
+            "doctype": "Event Advance Request",
+            "event": self.event.name,
+            "requested_advance_amount": 250000.00,
+            "purpose": "Logistics and booth fabrication.",
+            "status": "Pending Business Head Approval"
+        })
+        adv1.validate()
+        adv1.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Advance 2 requests INR 150,000.
+        # Although 150k <= 350k remaining, 250k is in flight. 350k - 250k = 100k effective uncommitted.
+        # Therefore, requesting 150k must be hard blocked!
+        adv2 = EventAdvanceRequest({
+            "doctype": "Event Advance Request",
+            "event": self.event.name,
+            "requested_advance_amount": 150000.00,
+            "purpose": "VIP hospitality."
+        })
+        with self.assertRaises(APValidationError) as ctx:
+            adv2.validate()
+
+        self.assertIn("Budget Exceeded", str(ctx.exception))
+        self.assertIn("advance proposals in flight", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -201,5 +201,63 @@ class TestEventSettlementAndAgeing(unittest.TestCase):
         self.assertEqual(updated_ev.payroll_deduction_flagged, 1)
 
 
+    def test_06_settlement_role_separation_and_accounts_audit(self):
+        """Verifies SPOC submission transitions to 'Under Accounts Review' and Accounts audit finalizes it."""
+        from ap_automation.services.event_settlement_service import audit_and_settle_refund
+
+        today = frappe.utils.nowdate()
+        ev = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"Settlement Audit Test Event {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "event_spoc": self.spoc_user,
+            "spoc_name": "Azar Mohammed",
+            "start_date": today,
+            "end_date": today,
+            "allocated_budget": 500000.00,
+            "disbursed_advance": 100000.00,
+            "spoc_actual_spends": 80000.00 # 20k refund receivable
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Simulate SPOC filing settlement
+        old_user = frappe.session.user
+        frappe.set_user(self.spoc_user)
+        try:
+            est = EventSettlement({
+                "doctype": "Event Settlement",
+                "event": ev.name,
+                "settlement_date": today,
+                "refund_received_reference": "UTR-CASH-RETURN-7788",
+                "refund_date": today
+            })
+            est.validate()
+            est.insert(ignore_permissions=True)
+
+            # Temporarily clear flags.in_test to test real-world role separation
+            frappe.flags.in_test = False
+            est.submit()
+            frappe.flags.in_test = True
+            frappe.db.commit()
+
+            # SPOC cannot self-close; must be in Under Accounts Review
+            self.assertEqual(est.status, "Under Accounts Review")
+            ev_check = frappe.get_doc("Event Master", ev.name)
+            self.assertNotEqual(ev_check.status, "Closed")
+
+            # Accounts auditor audits and verifies refund credit
+            frappe.set_user("Administrator")
+            audit_res = audit_and_settle_refund(est.name, verified_utr="UTR-VERIFIED-9999")
+            self.assertEqual(audit_res["status"], "SUCCESS")
+
+            est.reload()
+            self.assertEqual(est.status, "Settled")
+            ev_closed = frappe.get_doc("Event Master", ev.name)
+            self.assertEqual(ev_closed.status, "Closed")
+        finally:
+            frappe.flags.in_test = True
+            frappe.set_user(old_user)
+
+
 if __name__ == "__main__":
     unittest.main()

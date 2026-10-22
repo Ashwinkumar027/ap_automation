@@ -5,8 +5,8 @@ Enforces:
 1. Row-wise Imprest Proposal Breakdown (Direct Vendor Payments vs On-Ground Cash Spends).
 2. Automated Totals Calculation (Direct Vendor Total + Cash Imprest Total = Total Proposal Amount).
 3. Hard budget ceiling check against Event Master uncommitted budget.
-4. Business Head Approval Governance (Anish Sir / Dileep Sir).
-5. Accounts Team Payout Queue (Gokulnath / Accounts Director) via IDFC Bank Batch.
+4. Business Head Approval Governance with AP Matrix integration.
+5. Accounts Team Payout Queue via Corporate Bank Disbursement.
 6. Automated Event Master live budget ledger synchronization.
 """
 from typing import Dict, Any, Optional
@@ -29,14 +29,8 @@ class EventAdvanceRequest(APDocument):
         if not getattr(self, "event", None):
             raise APValidationError("Linked Event Master is mandatory.")
 
-        event_doc = frappe.get_doc("Event Master", self.event)
-        self.company = getattr(self, "company", None) or event_doc.company
-        self.spoc = getattr(self, "spoc", None) or event_doc.event_spoc
-        self.spoc_name = getattr(self, "spoc_name", None) or event_doc.spoc_name
-
-        if not getattr(self, "event_date", None):
-            self.event_date = event_doc.start_date
-
+        if not getattr(self, "company", None):
+            self.company = frappe.db.get_value("Event Master", self.event, "company")
         if not getattr(self, "letter_head", None) and self.company:
             self.letter_head = frappe.db.get_value("Company", self.company, "default_letter_head")
 
@@ -59,35 +53,23 @@ class EventAdvanceRequest(APDocument):
             for idx, row in enumerate(items, start=1):
                 amt = float(getattr(row, "amount", 0.0) or 0.0)
                 if amt <= 0:
-                    raise APValidationError(f"Row #{idx}: Amount must be greater than zero.")
-                if not getattr(row, "particulars", None):
-                    raise APValidationError(f"Row #{idx}: Particulars / Purpose is required.")
-
-                mode = getattr(row, "payment_mode", "Direct Vendor Payment")
+                    raise APValidationError(f"Row #{idx}: Amount must be strictly greater than 0.")
+                mode = getattr(row, "payment_mode", "Cash / Petty Imprest")
                 if mode == "Direct Vendor Payment":
                     direct_total += amt
                 else:
                     cash_total += amt
 
-            self.total_direct_vendor_amount = round(direct_total, 2)
-            self.total_cash_imprest_amount = round(cash_total, 2)
+            self.direct_vendor_total = round(direct_total, 2)
+            self.cash_imprest_total = round(cash_total, 2)
             self.requested_advance_amount = round(direct_total + cash_total, 2)
+            self.total_amount = self.requested_advance_amount
         else:
-            # Fallback if no itemized rows provided
-            self.total_direct_vendor_amount = 0.0
-            self.total_cash_imprest_amount = float(getattr(self, "requested_advance_amount", 0.0) or 0.0)
-
-        self.total_amount = float(self.requested_advance_amount or 0.0)
-        self.payee_name = getattr(self, "spoc_name", "") or getattr(self, "spoc", "")
-
-        # Auto-generate purpose text if empty
-        if not (getattr(self, "purpose", "") or "").strip():
-            self.purpose = (
-                f"Imprest Proposal for '{event_doc.event_name}': "
-                f"Direct Vendor Payments = INR {self.total_direct_vendor_amount:,.2f}, "
-                f"Cash Imprest = INR {self.total_cash_imprest_amount:,.2f}. "
-                f"Total Proposed: INR {self.requested_advance_amount:,.2f}."
-            )
+            if getattr(self, "docstatus", 0) == 1:
+                raise APValidationError(
+                    "Itemized Imprest Breakdown Mandatory: You must add at least one line item "
+                    "specifying either Direct Vendor Payment or Cash / Petty Imprest before submitting."
+                )
 
         validate_advance_request(self)
         super().validate()
@@ -110,25 +92,40 @@ class EventAdvanceRequest(APDocument):
 @frappe.whitelist()
 def approve_by_business_head(advance_name: str, comments: Optional[str] = None) -> Dict[str, Any]:
     """
-    Stage 1: Business Head (Anish Sir / Dileep Sir) sanctions the Event Imprest Proposal.
-    Routes to Accounts Team (Gokulnath & Accounts Director) for IDFC Bank Disbursal.
+    Stage 1: Business Head sanctions the Event Imprest Proposal.
+    Integrates with AP Matrix when configured, with seamless role fallback.
+    Routes to Accounts Team for Corporate Bank Disbursal.
     """
     if not frappe.db.exists("Event Advance Request", advance_name):
         raise APValidationError(f"Event Advance Request '{advance_name}' not found.")
 
     user = frappe.session.user
     user_roles = set(frappe.get_roles(user))
-
-    # Allow Business Head, Director, Accounts Director, or System Manager
-    authorized_roles = {"Business Head", "Director", "Accounts Director", "Director Tier", "System Manager", "Administrator"}
-    if not user_roles.intersection(authorized_roles):
-        raise APSecurityError("Unauthorized: Only the Business Head or Executive Directors can sanction Event Imprest Proposals.")
-
     doc = frappe.get_doc("Event Advance Request", advance_name)
+
+    authorized_roles = {"Business Head", "Director", "Accounts Director", "Director Tier", "System Manager", "Administrator"}
+
+    # AP Matrix Governance check
+    try:
+        from ap_automation.services.approval_service import get_applicable_matrix, validate_approver_identity
+        matrix = get_applicable_matrix("Event Advance Request", doc.company, doc.requested_advance_amount)
+        if matrix and getattr(matrix, "approval_levels", None):
+            try:
+                validate_approver_identity(doc, matrix, current_level=1, user=user)
+            except Exception as e:
+                if not user_roles.intersection(authorized_roles):
+                    raise APSecurityError(f"Approval Matrix Enforcement: {str(e)}")
+        else:
+            if not user_roles.intersection(authorized_roles):
+                raise APSecurityError("Unauthorized: Only the Business Head or Executive Directors can sanction Event Imprest Proposals.")
+    except ImportError:
+        if not user_roles.intersection(authorized_roles):
+            raise APSecurityError("Unauthorized: Only the Business Head or Executive Directors can sanction Event Imprest Proposals.")
+
     if doc.status != "Pending Business Head Approval":
         raise APValidationError(f"Cannot approve proposal #{advance_name}: current status is '{doc.status}', expected 'Pending Business Head Approval'.")
 
-    bh_name = "Anish Sir" if user in ("Administrator", "anish@quanticus.com") else user
+    bh_name = frappe.utils.get_fullname(user) or user
     frappe.db.set_value("Event Advance Request", advance_name, {
         "status": "Pending Accounts Disbursal",
         "approved_by_business_head": bh_name,
@@ -139,7 +136,7 @@ def approve_by_business_head(advance_name: str, comments: Optional[str] = None) 
     frappe.db.commit()
     doc.reload()
 
-    # Notify Accounts Team (Gokulnath & Accounts Director)
+    # Notify Accounts Team
     try:
         from ap_automation.services.employee_reimbursement_notification_service import (
             notify_event_imprest_sanctioned
@@ -150,7 +147,7 @@ def approve_by_business_head(advance_name: str, comments: Optional[str] = None) 
 
     return {
         "status": "SUCCESS",
-        "message": f"Event Imprest Proposal #{advance_name} sanctioned successfully! Forwarded to Accounts for IDFC Disbursal.",
+        "message": f"Event Imprest Proposal #{advance_name} sanctioned successfully! Forwarded to Accounts for Bank Disbursal.",
         "advance": advance_name,
         "new_status": doc.status
     }
@@ -159,8 +156,8 @@ def approve_by_business_head(advance_name: str, comments: Optional[str] = None) 
 @frappe.whitelist()
 def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dict[str, Any]:
     """
-    Stage 2: Accounts Team executes IDFC payout for the sanctioned imprest.
-    Marks status as 'Disbursed via IDFC' and updates Event Master live budget ledger.
+    Stage 2: Accounts Team executes corporate payout for the sanctioned imprest.
+    Marks status as 'Disbursed' and updates Event Master live budget ledger.
     """
     if not frappe.db.exists("Event Advance Request", advance_name):
         raise APValidationError(f"Event Advance Request '{advance_name}' not found.")
@@ -176,10 +173,12 @@ def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dic
         raise APValidationError("A valid corporate bank transaction / UTR reference is mandatory.")
 
     doc = frappe.get_doc("Event Advance Request", advance_name)
+    clean_ref = str(disbursement_ref).strip()
+
     frappe.db.set_value("Event Advance Request", advance_name, {
-        "status": "Disbursed via IDFC",
+        "status": "Disbursed",
         "approved_advance_amount": doc.requested_advance_amount,
-        "disbursement_reference": str(disbursement_ref).strip()
+        "disbursement_reference": clean_ref
     }, update_modified=True)
     frappe.db.commit()
     doc.reload()
@@ -187,7 +186,7 @@ def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dic
     # Synchronize Event Master live budget ledger
     ledger_res = update_event_budget_ledger(doc.event)
 
-    # Notify SPOC and Vendors
+    # Notify SPOC
     try:
         from ap_automation.services.employee_reimbursement_notification_service import (
             notify_event_imprest_disbursed
@@ -201,6 +200,7 @@ def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dic
         "message": f"Funds disbursed successfully for #{advance_name}. Event Master ledger synchronized.",
         "advance": advance_name,
         "disbursed_amount": doc.approved_advance_amount,
+        "disbursement_reference": clean_ref,
         "ledger": ledger_res
     }
 

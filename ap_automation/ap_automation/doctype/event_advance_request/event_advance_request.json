@@ -200,7 +200,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Business Head Approval\nApproved by Business Head\nPending Accounts Disbursal\nQueued in Batch\nDisbursed via IDFC\nRejected",
+   "options": "Draft\nPending Business Head Approval\nApproved by Business Head\nPending Accounts Disbursal\nQueued in Batch\nDisbursed\nDisbursed via IDFC\nRejected",
    "allow_on_submit": 1
   },
   {

@@ -387,5 +387,77 @@ window.APReceiptGallery = {
 frappe.ui.form.on("Event Settlement", {
     refresh: function(frm) {
         window.APReceiptGallery.setup(frm);
+
+        if (frm.doc.docstatus === 1) {
+            const user_roles = frappe.user_roles || [];
+            const is_sys_mgr = user_roles.includes('System Manager') || frappe.session.user === 'Administrator';
+            const is_accounts = user_roles.includes('Accounts L1 Auditor') || user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || user_roles.includes('Payment Releaser') || is_sys_mgr;
+
+            if (frm.doc.status === 'Under Accounts Review') {
+                frm.page.set_indicator(__('Under Accounts Review'), 'orange');
+
+                if (is_accounts) {
+                    if (frm.doc.settlement_type === 'REFUND_FROM_SPOC') {
+                        frm.add_custom_button(__('✅ Audit & Verify Bank Refund'), function() {
+                            frappe.prompt([
+                                {
+                                    fieldname: 'verified_utr',
+                                    fieldtype: 'Data',
+                                    label: __('Verified Bank Credit UTR / Transaction Reference'),
+                                    default: frm.doc.refund_received_reference || '',
+                                    reqd: 1
+                                }
+                            ], function(vals) {
+                                frappe.call({
+                                    method: 'ap_automation.services.event_settlement_service.audit_and_settle_refund',
+                                    args: {
+                                        settlement_name: frm.doc.name,
+                                        verified_utr: vals.verified_utr
+                                    },
+                                    freeze: true,
+                                    freeze_message: __('Verifying Bank Credit & Closing Event...'),
+                                    callback: function(r) {
+                                        if (r.message && r.message.status === 'SUCCESS') {
+                                            frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                            frm.reload_doc();
+                                        }
+                                    }
+                                });
+                            }, __('Verify Bank Credit & Close Settlement'), __('Audit & Close'));
+                        }).addClass('btn-success');
+                    } else if (frm.doc.settlement_type === 'PAYABLE_TO_SPOC') {
+                        frm.add_custom_button(__('💳 Execute SPOC Reimbursement'), function() {
+                            frappe.prompt([
+                                {
+                                    fieldname: 'payment_ref',
+                                    fieldtype: 'Data',
+                                    label: __('Bank Disbursal UTR / Transaction Reference'),
+                                    default: 'UTR-SPOC-' + Math.floor(100000 + Math.random() * 900000),
+                                    reqd: 1
+                                }
+                            ], function(vals) {
+                                frappe.call({
+                                    method: 'ap_automation.services.event_settlement_service.disburse_event_settlement_spoc_payout',
+                                    args: {
+                                        settlement_name: frm.doc.name,
+                                        payment_reference: vals.payment_ref
+                                    },
+                                    freeze: true,
+                                    freeze_message: __('Releasing SPOC Reimbursement & Closing Event...'),
+                                    callback: function(r) {
+                                        if (r.message && r.message.status === 'SUCCESS') {
+                                            frappe.show_alert({ message: __('Reimbursement executed successfully! Event closed.'), indicator: 'green' });
+                                            frm.reload_doc();
+                                        }
+                                    }
+                                });
+                            }, __('Execute SPOC Reimbursement'), __('Disburse Funds'));
+                        }).addClass('btn-primary');
+                    }
+                }
+            } else if (frm.doc.status === 'Settled') {
+                frm.page.set_indicator(__('Settled & Closed'), 'green');
+            }
+        }
     }
 });

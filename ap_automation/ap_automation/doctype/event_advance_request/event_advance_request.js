@@ -118,13 +118,13 @@ frappe.ui.form.on("Event Advance Request", {
             else if (frm.doc.status === 'Pending Accounts Disbursal') {
                 frm.page.set_indicator(__('Pending Accounts Disbursal'), 'blue');
                 if (is_accounts) {
-                    frm.add_custom_button(__('💳 Disburse via IDFC (Accounts)'), function() {
+                    frm.add_custom_button(__('💳 Disburse Advance (Accounts)'), function() {
                         frappe.prompt([
                             {
                                 fieldname: 'disbursement_ref',
                                 fieldtype: 'Data',
                                 label: __('Bank UTR / Disbursal Reference'),
-                                default: 'IDFC-TXN-' + Math.floor(100000 + Math.random() * 900000),
+                                default: 'UTR-' + Math.floor(100000 + Math.random() * 900000),
                                 reqd: 1
                             }
                         ], function(values) {
@@ -149,8 +149,8 @@ frappe.ui.form.on("Event Advance Request", {
             }
 
             // STAGE 3: Disbursed -> Ready for Post-Event Expense Claim
-            else if (frm.doc.status === 'Disbursed via IDFC') {
-                frm.page.set_indicator(__('Disbursed via IDFC'), 'green');
+            else if (frm.doc.status === 'Disbursed' || frm.doc.status === 'Disbursed via IDFC') {
+                frm.page.set_indicator(__('Disbursed'), 'green');
                 frm.add_custom_button(__('📋 Create Expense Claim from Proposal'), function() {
                     frappe.route_options = {
                         "event": frm.doc.event,

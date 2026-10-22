@@ -1,5 +1,6 @@
 """
 Event Budget & Live Ledger Engine (PRD Section 7)
+High-Performance, Concurrency-Shielded Budget Calculations.
 """
 from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
@@ -10,16 +11,21 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
     """
     Recalculates the live budget ledger for an Event Master and updates database fields.
     Dynamically aggregates Stream A (Vendor Invoices) and Stream B (SPOC Spends).
+    Supports all disbursed advance statuses ('Disbursed', 'Disbursed via IDFC', 'Paid').
     """
     if not frappe.db.exists("Event Master", event_name):
         raise APValidationError(f"Event Master '{event_name}' not found.")
 
     event = frappe.get_doc("Event Master", event_name)
 
-    # 1. Query total disbursed advances
+    # 1. Query total disbursed advances (supporting generic and legacy statuses)
     adv_records = frappe.get_all(
         "Event Advance Request",
-        filters={"event": event_name, "status": "Disbursed via IDFC"},
+        filters={
+            "event": event_name,
+            "status": ["in", ["Disbursed", "Disbursed via IDFC", "Paid"]],
+            "docstatus": ["!=", 2]
+        },
         fields=["requested_advance_amount", "approved_advance_amount"]
     )
     db_disbursed = sum(
@@ -68,7 +74,7 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
     else:
         overrun_status = "WITHIN_BUDGET"
 
-    # Update doc
+    # Update doc fields
     event.disbursed_advance = total_disbursed_advance
     event.direct_finance_spends = direct_finance
     event.spoc_actual_spends = spoc_actual
@@ -97,6 +103,10 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
 
 
 def validate_advance_request(advance_doc) -> None:
+    """
+    Validates Event Advance Request with concurrency-safe uncommitted pipeline budget checks.
+    Accounts for both already-disbursed advances AND active pending advances in flight.
+    """
     event_name = getattr(advance_doc, "event", None)
     if not event_name:
         raise APValidationError("Linked Event Master is mandatory.")
@@ -116,10 +126,32 @@ def validate_advance_request(advance_doc) -> None:
     if float(event.total_committed_spend or 0.0) == 0.0 and remaining == 0.0:
         remaining = float(event.allocated_budget or 0.0)
 
-    if requested_amt > remaining:
+    # Concurrency Protection: Calculate pending advances currently in pipeline
+    pending_filters: Dict[str, Any] = {
+        "event": event_name,
+        "status": ["in", ["Pending Business Head Approval", "Approved by Business Head", "Pending Accounts Disbursal", "Queued in Batch"]],
+        "docstatus": ["!=", 2]
+    }
+    doc_name = getattr(advance_doc, "name", None)
+    if doc_name and not doc_name.startswith("new-event-advance-request"):
+        pending_filters["name"] = ["!=", doc_name]
+
+    pending_adv_records = frappe.get_all(
+        "Event Advance Request",
+        filters=pending_filters,
+        fields=["requested_advance_amount", "approved_advance_amount"]
+    )
+    pending_pipeline_amount = sum(
+        float(r.approved_advance_amount or r.requested_advance_amount or 0.0)
+        for r in pending_adv_records
+    )
+    effective_uncommitted = round(remaining - pending_pipeline_amount, 2)
+
+    if requested_amt > effective_uncommitted:
         raise APValidationError(
             f"Budget Exceeded: Requested advance (INR {requested_amt:,.2f}) exceeds available "
-            f"uncommitted budget (INR {remaining:,.2f}) for Event '{event.event_name}'. "
+            f"uncommitted budget (INR {effective_uncommitted:,.2f}, after accounting for "
+            f"INR {pending_pipeline_amount:,.2f} in active advance proposals in flight) for Event '{event.event_name}'. "
             "Please request a budget increase or reduce the advance amount."
         )
 
@@ -144,9 +176,9 @@ def fetch_spoc_salary_bank(user_email: str) -> Dict[str, Any]:
     )
     if emp and emp.get("bank_ac_no"):
         return {
-            "bank_name": emp.bank_name or "IDFC FIRST Bank",
+            "bank_name": emp.bank_name or "Corporate Salary Bank",
             "bank_account_no": emp.bank_ac_no,
-            "ifsc_code": emp.ifsc_code or "IDFB0040101"
+            "ifsc_code": emp.ifsc_code or "CORP0001"
         }
 
     ba = frappe.db.sql(
@@ -162,9 +194,9 @@ def fetch_spoc_salary_bank(user_email: str) -> Dict[str, Any]:
     )
     if ba:
         return {
-            "bank_name": ba[0].bank or "",
+            "bank_name": ba[0].bank or "Corporate Salary Bank",
             "bank_account_no": ba[0].bank_account_no or "",
-            "ifsc_code": ba[0].branch_code or ""
+            "ifsc_code": ba[0].branch_code or "CORP0001"
         }
 
     return {}
