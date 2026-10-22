@@ -86,7 +86,7 @@ class EventAdvanceRequest(APDocument):
             )
             notify_event_imprest_submitted(self)
         except Exception as e:
-            frappe.log_error(f"Failed to send Event Imprest submission email for {self.name}: {str(e)}", "Event Notif Error")
+            frappe.log_error(title="Event Imprest Submission Email Error", message=f"Failed to send submission email for {self.name}: {frappe.get_traceback()}")
 
 
 @frappe.whitelist()
@@ -143,7 +143,7 @@ def approve_by_business_head(advance_name: str, comments: Optional[str] = None) 
         )
         notify_event_imprest_sanctioned(doc)
     except Exception as e:
-        frappe.log_error(f"Failed to notify Accounts of Imprest Sanction {advance_name}: {str(e)}", "Event Notif Error")
+        frappe.log_error(title="Event Imprest Sanction Email Error", message=f"Failed to notify Accounts of Sanction {advance_name}: {frappe.get_traceback()}")
 
     return {
         "status": "SUCCESS",
@@ -193,7 +193,7 @@ def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dic
         )
         notify_event_imprest_disbursed(doc)
     except Exception as e:
-        frappe.log_error(f"Failed to notify SPOC of Imprest Disbursal {advance_name}: {str(e)}", "Event Notif Error")
+        frappe.log_error(title="Event Imprest Disbursal Email Error", message=f"Failed to notify SPOC of Disbursal {advance_name}: {frappe.get_traceback()}")
 
     return {
         "status": "SUCCESS",
@@ -250,7 +250,7 @@ def reject_event_advance(advance_name: str, reason: str) -> Dict[str, Any]:
         )
         notify_event_advance_rejected(doc, clean_reason)
     except Exception as e:
-        frappe.log_error(f"Failed to dispatch Event Advance rejection notification: {e}", "Event Notif Error")
+        frappe.log_error(title="Event Advance Rejection Email Error", message=f"Failed to dispatch rejection email for {advance_name}: {frappe.get_traceback()}")
 
     return {
         "status": "SUCCESS",

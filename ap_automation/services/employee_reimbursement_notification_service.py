@@ -1047,7 +1047,7 @@ def notify_event_imprest_disbursed(advance_doc) -> None:
     event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
     amount = float(getattr(advance_doc, "approved_advance_amount", advance_doc.requested_advance_amount) or 0.0)
 
-    subject = f"💳 [Funds Disbursed] Event Imprest #{advance_doc.name} Released via IDFC (₹ {_safe_fmt_money(amount)})"
+    subject = f"💳 [Funds Disbursed] Event Imprest #{advance_doc.name} Released via Corporate Bank (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
         title="Event Imprest Funds Disbursed",
         subtitle=f"Stage 3 &bull; Bank Disbursal Complete",
@@ -1055,13 +1055,13 @@ def notify_event_imprest_disbursed(advance_doc) -> None:
         main_message=(
             f"Funds for Event <b>'{event_name}'</b> have been successfully disbursed via corporate banking.<br><br>"
             f"• <b>Total Disbursed:</b> ₹ {_safe_fmt_money(amount)}<br>"
-            f"• <b>Bank Reference / UTR:</b> {advance_doc.disbursement_reference or 'IDFC-PROCESSED'}<br><br>"
+            f"• <b>Bank Reference / UTR:</b> {advance_doc.disbursement_reference or 'BANK-PROCESSED'}<br><br>"
             f"Please ensure all vendors are settled and retain all GST tax invoices and receipts for post-event settlement."
         ),
         metric_label_1="Disbursed Amount",
         metric_val_1=f"₹ {_safe_fmt_money(amount)}",
         metric_label_2="Bank Reference",
-        metric_val_2=f"{advance_doc.disbursement_reference or 'IDFC'}",
+        metric_val_2=f"{advance_doc.disbursement_reference or 'PROCESSED'}",
         doc_url=doc_url,
         button_text="View Disbursal Details",
         badge_color="#2563eb"
@@ -1102,6 +1102,85 @@ def notify_event_advance_rejected(advance_doc, reason: str) -> None:
         badge_color="#dc2626"
     )
     _dispatch_reimbursement_email([spoc_email], subject, body, "Event Advance Request", advance_doc.name, alert_color="red")
+
+
+
+def notify_event_settlement_submitted(settlement_doc) -> None:
+    """
+    Triggered when Event SPOC submits an Event Settlement voucher.
+    TO: Accounts Team (Accounts L1 Auditor, Accounts Manager, Accounts Director)
+    CC: Event SPOC
+    """
+    if isinstance(settlement_doc, str):
+        settlement_doc = frappe.get_doc("Event Settlement", settlement_doc)
+
+    accounts_users = _get_role_recipients(["Accounts L1 Auditor", "Accounts Manager", "Accounts Director"])
+    spoc_email = _resolve_email_address(settlement_doc.spoc)
+    recipients = list(set(accounts_users + ([spoc_email] if spoc_email else [])))
+
+    doc_url = _get_form_url("Event Settlement", settlement_doc.name)
+    event_name = frappe.db.get_value("Event Master", settlement_doc.event, "event_name") or settlement_doc.event
+    s_type = settlement_doc.settlement_type
+    adv = float(getattr(settlement_doc, "disbursed_advance", 0.0) or 0.0)
+    actuals = float(getattr(settlement_doc, "spoc_actual_spends", 0.0) or 0.0)
+    payable = float(getattr(settlement_doc, "net_payable_to_spoc", 0.0) or 0.0)
+    refund = float(getattr(settlement_doc, "refund_receivable_from_spoc", 0.0) or 0.0)
+
+    if s_type == "REFUND_FROM_SPOC":
+        subject = f"⚖️ [Audit Required] Event Settlement #{settlement_doc.name} - Refund Receivable (₹ {_safe_fmt_money(refund)})"
+        title = "Event Settlement Submitted (Refund Verification)"
+        subtitle = "Accounts Audit Required &bull; Bank Credit Verification"
+        msg = (
+            f"Event SPOC has submitted settlement for <b>'{event_name}'</b> with an unspent cash refund of <b>₹ {_safe_fmt_money(refund)}</b>.<br><br>"
+            f"• <b>Disbursed Advance:</b> ₹ {_safe_fmt_money(adv)}<br>"
+            f"• <b>Ground Spends:</b> ₹ {_safe_fmt_money(actuals)}<br>"
+            f"• <b>Refund UTR Provided:</b> {settlement_doc.refund_received_reference or 'Pending Verification'}<br><br>"
+            f"Please verify the bank credit and click <b>Audit & Verify Bank Refund</b> to close the event."
+        )
+        badge_color = "#ea580c"
+        alert_color = "orange"
+        metric_label = "Refund Due to Company"
+        metric_val = f"₹ {_safe_fmt_money(refund)}"
+    elif s_type == "PAYABLE_TO_SPOC":
+        subject = f"⚖️ [Audit Required] Event Settlement #{settlement_doc.name} - Reimbursement Payable (₹ {_safe_fmt_money(payable)})"
+        title = "Event Settlement Submitted (Reimbursement)"
+        subtitle = "Accounts Audit Required &bull; Payout Execution"
+        msg = (
+            f"Event SPOC has submitted settlement for <b>'{event_name}'</b> with an out-of-pocket balance of <b>₹ {_safe_fmt_money(payable)}</b>.<br><br>"
+            f"• <b>Disbursed Advance:</b> ₹ {_safe_fmt_money(adv)}<br>"
+            f"• <b>Ground Spends:</b> ₹ {_safe_fmt_money(actuals)}<br><br>"
+            f"Please audit the receipts and click <b>Execute SPOC Reimbursement</b> to disburse funds to the SPOC's verified salary account."
+        )
+        badge_color = "#2563eb"
+        alert_color = "blue"
+        metric_label = "Reimbursement Due to SPOC"
+        metric_val = f"₹ {_safe_fmt_money(payable)}"
+    else:
+        subject = f"⚖️ [Audit Required] Event Settlement #{settlement_doc.name} - Balanced (₹ 0.00)"
+        title = "Event Settlement Submitted (Balanced)"
+        subtitle = "Accounts Audit &bull; Ready for Closure"
+        msg = (
+            f"Event SPOC has submitted settlement for <b>'{event_name}'</b>. Actual ground spends match the advance exactly (₹ 0.00 balance)."
+        )
+        badge_color = "#16a34a"
+        alert_color = "green"
+        metric_label = "Settlement Result"
+        metric_val = "Perfect Balance"
+
+    body = _build_html_template(
+        title=title,
+        subtitle=subtitle,
+        greeting_name="Accounts Team",
+        main_message=msg,
+        metric_label_1="Ground Spends",
+        metric_val_1=f"₹ {_safe_fmt_money(actuals)}",
+        metric_label_2=metric_label,
+        metric_val_2=metric_val,
+        doc_url=doc_url,
+        button_text="Audit & Settle Event",
+        badge_color=badge_color
+    )
+    _dispatch_reimbursement_email(recipients, subject, body, "Event Settlement", settlement_doc.name, alert_color=alert_color)
 
 
 def notify_event_settlement_closed(settlement_doc) -> None:

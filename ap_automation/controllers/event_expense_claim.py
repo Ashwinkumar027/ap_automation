@@ -72,16 +72,20 @@ class EventExpenseClaim(APDocument):
         self._sync_event_spends()
 
     def _sync_event_spends(self):
-        """Re-aggregates active SPOC actual spends on Event Master."""
-        spoc_res = frappe.db.sql(
-            """
-            SELECT SUM(total_claim_amount) as total
-            FROM `tabEvent Expense Claim`
-            WHERE event = %s AND docstatus = 1
-            """,
-            (self.event,),
-            as_dict=True
-        )
-        spoc_total = float(spoc_res[0].total or 0.0) if spoc_res else 0.0
-        frappe.db.set_value("Event Master", self.event, "spoc_actual_spends", float(spoc_total))
-        update_event_budget_ledger(self.event)
+        """Re-aggregates active SPOC actual spends on Event Master with full error logging."""
+        try:
+            spoc_res = frappe.db.sql(
+                """
+                SELECT SUM(total_claim_amount) as total
+                FROM `tabEvent Expense Claim`
+                WHERE event = %s AND docstatus = 1
+                """,
+                (self.event,),
+                as_dict=True
+            )
+            spoc_total = float(spoc_res[0].total or 0.0) if spoc_res else 0.0
+            frappe.db.set_value("Event Master", self.event, "spoc_actual_spends", float(spoc_total))
+            update_event_budget_ledger(self.event)
+        except Exception as e:
+            frappe.log_error(title="Event Expense Claim Spend Sync Error", message=f"Failed to sync ground spends for Event '{self.event}' from Claim '{self.name}': {frappe.get_traceback()}")
+            raise

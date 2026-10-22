@@ -39,7 +39,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Payment Mode",
-   "options": "Direct Vendor Payment\nOn-Ground Cash Imprest",
+   "options": "Direct Vendor Payment\nOn-Ground Cash Imprest\nCash / Petty Imprest",
    "reqd": 1,
    "columns": 1
   },

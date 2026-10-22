@@ -68,5 +68,6 @@ class EventSettlement(APDocument):
                     notify_event_settlement_submitted
                 )
                 notify_event_settlement_submitted(self)
-            except Exception:
+            except Exception as e:
+                frappe.log_error(title="Event Settlement Submission Email Error", message=f"Failed for {self.name}: {frappe.get_traceback()}")
                 pass

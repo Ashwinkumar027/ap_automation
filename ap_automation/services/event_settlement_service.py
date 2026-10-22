@@ -110,7 +110,8 @@ def finalize_event_settlement(settlement_name: str, approver: str) -> Dict[str, 
             notify_event_settlement_closed
         )
         notify_event_settlement_closed(doc)
-    except Exception:
+    except Exception as e:
+        frappe.log_error(title="Event Settlement Finalize Email Error", message=f"Failed for {settlement_name}: {frappe.get_traceback()}")
         pass
 
     return {
@@ -152,6 +153,14 @@ def audit_and_settle_refund(settlement_name: str, verified_utr: Optional[str] = 
         "ageing_status": "CURRENT"
     }, update_modified=True)
     frappe.db.commit()
+
+    try:
+        from ap_automation.services.employee_reimbursement_notification_service import (
+            notify_event_settlement_closed
+        )
+        notify_event_settlement_closed(doc)
+    except Exception as e:
+        frappe.log_error(title="Event Settlement Audit Closure Email Error", message=f"Failed to dispatch closure email for {settlement_name}: {frappe.get_traceback()}")
 
     return {
         "status": "SUCCESS",
@@ -199,7 +208,7 @@ def disburse_event_settlement_spoc_payout(settlement_name: str, payment_referenc
         )
         notify_event_settlement_closed(doc)
     except Exception as e:
-        frappe.log_error(f"Event settlement closed notification dispatch: {e}")
+        frappe.log_error(title="Event SPOC Payout Settlement Email Error", message=f"Failed to dispatch email for {settlement_name}: {frappe.get_traceback()}")
 
     return {
         "status": "SUCCESS",
