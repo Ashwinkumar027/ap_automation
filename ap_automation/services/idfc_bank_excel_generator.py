@@ -613,3 +613,68 @@ def download_idfc_employee_reimbursement_excel(voucher_name: str):
     frappe.response["filename"] = filename
     frappe.response["filecontent"] = filebytes
     frappe.response["type"] = "binary"
+
+
+@frappe.whitelist()
+def download_idfc_vendor_invoice_excel(voucher_name: str):
+    """
+    Direct endpoint: Generates and downloads the official IDFC Bank Bulk Disbursal Excel (.xlsx)
+    for Vendor Invoice Claim after Accounts L2 / Director Approval.
+    """
+    if not voucher_name:
+        frappe.throw(_("Voucher name is required."))
+
+    doc = frappe.get_doc("Vendor Invoice Claim", voucher_name)
+    company = doc.company or frappe.defaults.get_user_default("Company")
+    debit_account = get_company_debit_account(company)
+
+    # Format transaction date (DD/MM/YYYY)
+    p_date = getdate(doc.get("posting_date") or doc.get("invoice_date") or nowdate())
+    tx_date_str = p_date.strftime("%d/%m/%Y")
+
+    b_name = doc.get("vendor_name") or doc.get("vendor") or "VENDOR"
+    b_ac = doc.get("bank_account_number") or ""
+    b_ifsc = doc.get("bank_ifsc_code") or ""
+
+    # Net payable amount
+    amount = flt(doc.get("net_payable_amount") or doc.get("total_amount") or doc.get("total_invoice_amount") or 0.0)
+    if amount <= 0:
+        frappe.throw(_("No payable amount found on this vendor invoice claim."))
+
+    # Vendor notification email
+    email = ""
+    if doc.get("vendor"):
+        email = frappe.db.get_value("Supplier", doc.vendor, "email_id") or ""
+
+    # Transaction Type resolution per IDFC Banking Rules:
+    clean_ifsc = str(b_ifsc).strip().upper()
+    if clean_ifsc.startswith("IDFB"):
+        tx_type = "IFT"
+    elif amount >= 200000.0:
+        tx_type = "RTGS"
+    else:
+        tx_type = "NEFT"
+
+    payment_row = {
+        "beneficiary_name": str(b_name).strip().upper(),
+        "beneficiary_account_number": str(b_ac).strip(),
+        "ifsc": clean_ifsc,
+        "transaction_type": tx_type,
+        "debit_account_number": debit_account,
+        "transaction_date": tx_date_str,
+        "amount": amount,
+        "currency": "INR",
+        "beneficiary_email": email,
+        "remarks": f"VINV {doc.name}"[:30],
+    }
+
+    filename, filebytes = generate_idfc_bank_excel_bytes(
+        payment_rows=[payment_row],
+        debit_account_no=debit_account,
+        transaction_date_str=tx_date_str,
+        filename_prefix=f"IDFC_Bank_Vendor_{doc.name}"
+    )
+
+    frappe.response["filename"] = filename
+    frappe.response["filecontent"] = filebytes
+    frappe.response["type"] = "binary"

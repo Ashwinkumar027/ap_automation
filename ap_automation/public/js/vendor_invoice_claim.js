@@ -451,6 +451,22 @@ function render_vendor_claim_approval_buttons(frm) {
         }
     }
 
+    // POST-DIRECTOR APPROVAL: Official IDFC Bank Bulk Disbursal Template (.xlsx)
+    const post_director_statuses = ['Approved for Payment', 'Queued in Batch', 'Paid'];
+    if (post_director_statuses.includes(status)) {
+        frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
+            window.open(`/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_vendor_invoice_excel?voucher_name=${encodeURIComponent(frm.doc.name)}`, '_blank');
+        }).addClass('btn-info idfc-excel-btn').css({
+            'background-color': '#1e3a8a',
+            'border-color': '#172554',
+            'color': '#ffffff',
+            'font-weight': '700',
+            'min-height': '36px',
+            'display': 'inline-flex',
+            'align-items': 'center'
+        });
+    }
+
 }
 
 // --------------------------------------------------------------------------------------
