@@ -408,8 +408,6 @@ function render_vendor_claim_approval_buttons(frm) {
             }).addClass('btn-primary').css({ 'background-color': '#059669', 'border-color': '#047857', 'color': '#fff' });
         }
     }
-}
-
 
     // Stage 6: Approved for Payment / Queued in Batch (Payment Releaser)
     else if (status === "Approved for Payment" || status === "Queued in Batch") {
