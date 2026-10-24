@@ -637,6 +637,29 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
             const url = `/api/method/ap_automation.services.reimbursement_excel_generator.download_reimbursement_excel?voucher_name=${encodeURIComponent(frm.doc.name)}`;
             window.open(url, '_blank');
         });
+
+        // POST-DIRECTOR APPROVAL: Official IDFC Bank Bulk Disbursal Template (.xlsx)
+        const post_director_statuses = [
+            'Approved for Payment',
+            'Ready for Payment Batch',
+            'Queued in Batch',
+            'Queued in Admin Batch',
+            'Paid via Bank Transfer',
+            'Paid'
+        ];
+        if (post_director_statuses.includes(status)) {
+            frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
+                window.open(`/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_employee_reimbursement_excel?voucher_name=${encodeURIComponent(frm.doc.name)}`, '_blank');
+            }).addClass('btn-info idfc-excel-btn').css({
+                'background-color': '#1e3a8a',
+                'border-color': '#172554',
+                'color': '#ffffff',
+                'font-weight': '700',
+                'min-height': '36px',
+                'display': 'inline-flex',
+                'align-items': 'center'
+            });
+        }
     },
 
     calculate_totals: function(frm) {

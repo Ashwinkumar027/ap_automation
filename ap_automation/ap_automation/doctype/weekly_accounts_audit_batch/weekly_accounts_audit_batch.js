@@ -807,6 +807,53 @@ function render_audit_workstation_view(frm) {
         const vNo = $(this).data('voucher');
         prompt_send_back_voucher(frm, vNo);
     });
+
+    // 7. Voucher-level Individual Set JV Button
+    $(wrapper).find('.btn-set-voucher-jv').on('click', function(e) {
+        e.preventDefault();
+        const vNo = $(this).attr('data-voucher');
+        const curJv = $(this).attr('data-jv') || '';
+        const curDate = $(this).attr('data-date') || frm.doc.batch_date || frappe.datetime.nowdate();
+
+        frappe.prompt([
+            {
+                fieldname: 'jv_number',
+                fieldtype: 'Data',
+                label: __('Journal Voucher (JV) Number'),
+                default: curJv,
+                reqd: 1,
+                placeholder: __('e.g. 744 or JV-2026-0012')
+            },
+            {
+                fieldname: 'jv_date',
+                fieldtype: 'Date',
+                label: __('JV Date'),
+                default: curDate,
+                reqd: 1
+            }
+        ], function(values) {
+            frappe.call({
+                method: 'ap_automation.services.weekly_accounts_batch_service.set_voucher_jv',
+                args: {
+                    batch_name: frm.doc.name,
+                    voucher_no: vNo,
+                    jv_number: values.jv_number,
+                    jv_date: values.jv_date
+                },
+                freeze: true,
+                freeze_message: __('Saving JV Number...'),
+                callback: function(r) {
+                    if (r.message && r.message.status === 'SUCCESS') {
+                        frappe.show_alert({
+                            message: r.message.message,
+                            indicator: 'green'
+                        });
+                        frm.reload_doc();
+                    }
+                }
+            });
+        }, __('Set JV Number for ' + vNo), __('Save JV'));
+    });
 }
 
 function open_employee_aggregated_receipts(frm, emp_name, vouchers) {

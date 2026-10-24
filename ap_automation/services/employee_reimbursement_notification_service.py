@@ -906,7 +906,7 @@ def notify_releaser_on_weekly_batch_approved(batch_name: str) -> None:
         greeting_name="Payment Releaser",
         main_message=(
             f"Weekly Reimbursement Batch <b>#{batch.name}</b> has completed all administrative and finance approvals. "
-            f"Total sanctioned funds of <b>₹ {_safe_fmt_money(amount)}</b> are ready for bank transfer / IDFC payout."
+            f"Total sanctioned funds of <b>₹ {_safe_fmt_money(amount)}</b> are ready for corporate bank transfer and payment release."
         ),
         metric_label_1="Total Net Payable",
         metric_val_1=f"₹ {_safe_fmt_money(amount)}",
@@ -1008,21 +1008,21 @@ def notify_event_imprest_sanctioned(advance_doc) -> None:
     subject = f"✅ [Ready for Disbursal] Event Imprest #{advance_doc.name} Sanctioned by Business Head (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
         title="Event Imprest Sanctioned by Business Head",
-        subtitle=f"Stage 2 &bull; Accounts IDFC Disbursal Queue",
+        subtitle=f"Stage 2 &bull; Accounts Corporate Bank Disbursal Queue",
         greeting_name="Accounts Team",
         main_message=(
             f"Business Head has officially sanctioned the Imprest Proposal for <b>'{event_name}'</b>.<br><br>"
             f"• <b>Total Sanctioned:</b> ₹ {_safe_fmt_money(amount)}<br>"
             f"• <b>Direct Vendor Payments:</b> ₹ {_safe_fmt_money(direct_amt)} (Bank A/C verified)<br>"
             f"• <b>Cash Imprest to SPOC:</b> ₹ {_safe_fmt_money(cash_amt)}<br><br>"
-            f"Please verify beneficiary accounts and execute IDFC payment batch release."
+            f"Please verify beneficiary accounts and execute corporate bank payment release."
         ),
         metric_label_1="Sanctioned Payout",
         metric_val_1=f"₹ {_safe_fmt_money(amount)}",
         metric_label_2="Sanctioned By",
         metric_val_2=f"{advance_doc.approved_by_business_head or 'Business Head'}",
         doc_url=doc_url,
-        button_text="Queue IDFC Disbursal",
+        button_text="Review & Disburse",
         badge_color="#16a34a"
     )
 
@@ -1031,7 +1031,7 @@ def notify_event_imprest_sanctioned(advance_doc) -> None:
 
 def notify_event_imprest_disbursed(advance_doc) -> None:
     """
-    Triggered when Accounts disburses the advance / vendor payouts via IDFC.
+    Triggered when Accounts disburses the advance / vendor payouts via corporate bank.
     TO: Event SPOC
     CC: Accounts Team
     """

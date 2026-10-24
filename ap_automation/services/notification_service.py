@@ -230,7 +230,7 @@ def _send_email_and_desk_alert(
                 "message": message_html,
                 "reference_doctype": reference_doctype,
                 "reference_name": reference_name,
-                "now": True
+                "now": False
             }
             if valid_cc:
                 email_kwargs["cc"] = valid_cc
@@ -779,16 +779,16 @@ def notify_payee_and_admin_on_payout_dispatched(
         cc_users = _get_claim_rolling_cc(doc, exclude_users=[recipient]) if doc else []
         company = getattr(doc, "company", "Company") if doc else "Company"
 
-        subject = f"Re: [Voucher #{src_vch}] {company} {src_dt} (₹ {fmt_money(amt)}) - Disbursed via IDFC (UTR: {utr})"
+        subject = f"Re: [Voucher #{src_vch}] {company} {src_dt} (₹ {fmt_money(amt)}) - Disbursed via Corporate Bank Transfer (UTR: {utr})"
         html = f"""
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #d1fae5; border-radius: 10px; padding: 24px; background: #ffffff;">
             <div style="border-bottom: 2px solid #10b981; padding-bottom: 12px; margin-bottom: 16px;">
-                <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #059669; font-weight: 700;">IDFC FIRST Bank • Corporate Payout Advice</span>
+                <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #059669; font-weight: 700;">Corporate Banking • Official Payout Advice</span>
                 <h2 style="margin: 4px 0 0 0; color: #065f46; font-size: 20px;">Funds Disbursed to Bank Account</h2>
             </div>
             <p style="color: #334155; font-size: 14px; line-height: 1.5;">
                 Dear <b>{bene_name}</b>,<br>
-                Your claim for <b>{src_vch}</b> has been successfully disbursed via IDFC Bank API.
+                Your claim for <b>{src_vch}</b> has been successfully disbursed via Corporate Banking Direct Transfer.
             </p>
             <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
                 <div style="font-size: 13px; color: #166534;">Disbursed Amount: <b style="font-size: 18px; color: #15803d;">₹ {fmt_money(amt)}</b></div>
@@ -1778,7 +1778,7 @@ def notify_vendor_claim_accounts_l2_approved(claim_name: str) -> None:
             <h2 style="margin: 4px 0 0 0; color: #064e3b; font-size: 20px;">Vendor Invoice Approved for Payment</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            Accounts L2 (<b>{doc.accounts_l2_approver or 'Accounts Director'}</b>) has granted final clearance. This claim is now marked <b>Approved for Payment</b> and will be included in the Thursday payment batch for IDFC 2FA release.
+            Accounts L2 (<b>{doc.accounts_l2_approver or 'Accounts Director'}</b>) has granted final clearance. This claim is now marked <b>Approved for Payment</b> and will be included in the corporate payment batch for dual-authorization bank release.
         </p>
         <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <div style="font-size: 13px; color: #047857; margin-bottom: 4px;">Vendor: <b style="color: #0f172a;">{vendor}</b></div>

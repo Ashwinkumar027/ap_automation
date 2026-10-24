@@ -110,11 +110,16 @@ def approve_by_business_head(advance_name: str, comments: Optional[str] = None) 
         from ap_automation.services.approval_service import get_applicable_matrix, validate_approver_identity
         matrix = get_applicable_matrix("Event Advance Request", doc.company, doc.requested_advance_amount)
         if matrix and getattr(matrix, "approval_levels", None):
-            try:
-                validate_approver_identity(doc, matrix, current_level=1, user=user)
-            except Exception as e:
-                if not user_roles.intersection(authorized_roles):
-                    raise APSecurityError(f"Approval Matrix Enforcement: {str(e)}")
+            rule = None
+            for r in matrix.approval_levels:
+                if "Business Head" in (r.level_name or "") or "Director" in (r.level_name or ""):
+                    rule = r
+                    break
+            if not rule and matrix.approval_levels:
+                rule = matrix.approval_levels[0]
+
+            if rule and rule.designated_approver:
+                validate_approver_identity(rule.designated_approver, user, allow_delegation=bool(getattr(rule, "allow_delegation", 1)))
         else:
             if not user_roles.intersection(authorized_roles):
                 raise APSecurityError("Unauthorized: Only the Business Head or Executive Directors can sanction Event Imprest Proposals.")
@@ -229,18 +234,24 @@ def reject_event_advance(advance_name: str, reason: str) -> Dict[str, Any]:
         "status": "Rejected",
         "business_head_comments": f"Rejected by {user}: {clean_reason}"
     }, update_modified=True)
+    frappe.db.commit()
+    doc.reload()
 
-    # Append to immutable approval trail
-    doc.append("approval_trail", {
-        "level_number": 1,
-        "level_name": "Stage 1: Imprest Proposal Sanction",
-        "designated_approver": doc.spoc,
-        "action_taken_by": user,
-        "action": "REJECTED",
-        "action_timestamp": frappe.utils.now_datetime(),
-        "remarks": clean_reason
-    })
-    doc.save(ignore_permissions=True)
+    # Append to immutable approval trail directly in child table
+    if frappe.db.table_exists("AP Approval Trail"):
+        trail_row = frappe.new_doc("AP Approval Trail")
+        trail_row.parent = advance_name
+        trail_row.parenttype = "Event Advance Request"
+        trail_row.parentfield = "approval_trail"
+        trail_row.level_number = 1
+        trail_row.level_name = "Stage 1: Imprest Proposal Sanction"
+        trail_row.designated_approver = doc.spoc
+        trail_row.action_taken_by = user
+        trail_row.action = "REJECTED"
+        trail_row.action_timestamp = frappe.utils.now_datetime()
+        trail_row.remarks = clean_reason
+        trail_row.insert(ignore_permissions=True)
+
     doc.add_comment("Comment", text=f"🚫 <b>Imprest Proposal Rejected:</b> {clean_reason}")
 
     # Dispatch rejection notification

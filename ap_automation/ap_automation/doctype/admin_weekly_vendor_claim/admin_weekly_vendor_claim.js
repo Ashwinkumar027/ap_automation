@@ -471,7 +471,7 @@ function render_role_based_action_buttons(frm) {
                         fieldtype: 'Data',
                         label: __('Bank UTR Reference Number'),
                         reqd: 0,
-                        description: __('Leave blank to generate automatic IDFC timestamp UTR.')
+                        description: __('Leave blank to generate automatic BANK timestamp UTR.')
                     }
                 ],
                 function (values) {
@@ -495,6 +495,21 @@ function render_role_based_action_buttons(frm) {
                 __('Disburse Payment')
             );
         }).addClass('btn-primary').css({ 'background-color': '#0284c7', 'color': '#ffffff', 'font-weight': '700' });
+    }
+
+    // POST-DIRECTOR APPROVAL: Official IDFC Bank Bulk Disbursal Template (.xlsx)
+    if (['Queued for Payment Release', 'Queued in Batch', 'Approved for Payment', 'Paid'].includes(status)) {
+        frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function () {
+            window.open(`/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_admin_weekly_excel?voucher_name=${encodeURIComponent(frm.doc.name)}`, '_blank');
+        }).addClass('btn-info idfc-excel-btn').css({
+            'background-color': '#1e3a8a',
+            'border-color': '#172554',
+            'color': '#ffffff',
+            'font-weight': '700',
+            'min-height': '36px',
+            'display': 'inline-flex',
+            'align-items': 'center'
+        });
     }
 }
 

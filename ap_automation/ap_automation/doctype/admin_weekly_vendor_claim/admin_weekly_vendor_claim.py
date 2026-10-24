@@ -524,7 +524,7 @@ def disburse_payment(docname, utr_number=None):
     if not any(r in roles for r in ["Payment Releaser", "Accounts Manager", "Accounts Director", "System Manager", "Administrator"]):
         frappe.throw(_("Unauthorized: Only users with 'Payment Releaser' role can disburse payments."), exc=APSecurityError)
 
-    utr = utr_number or f"IDFC{now_datetime().strftime('%Y%m%d%H%M%S')}"
+    utr = utr_number or f"BANK{now_datetime().strftime('%Y%m%d%H%M%S')}"
 
     doc.disbursement_utr = utr
     doc.payment_releaser = user

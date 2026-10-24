@@ -228,7 +228,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Manager Approval\nPending HoD Approval\nPending Director Approval\nPending Accounts Review\nPending Accounts L2 Approval\nApproved for Payment\nQueued in Batch\nPaid\nDisputed\nRejected",
+   "options": "Draft\nPending Manager Approval\nPending Director Approval\nPending Accounts Review\nPending Accounts L2 Approval\nApproved for Payment\nQueued in Batch\nPaid\nDisputed\nRejected",
    "read_only": 1
   },
   {

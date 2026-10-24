@@ -51,8 +51,6 @@ frappe.listview_settings["Vendor Invoice Claim"] = {
             return [__("Approved for Payment"), "green", "status,=,Approved for Payment"];
         } else if (status === "Pending Manager Approval") {
             return [__("Pending Manager Approval"), "blue", "status,=,Pending Manager Approval"];
-        } else if (status === "Pending HoD Approval") {
-            return [__("Pending HoD Approval"), "purple", "status,=,Pending HoD Approval"];
         } else if (status === "Pending Director Approval") {
             return [__("Pending Director Approval"), "darkred", "status,=,Pending Director Approval"];
         } else if (status === "Pending Accounts Review") {

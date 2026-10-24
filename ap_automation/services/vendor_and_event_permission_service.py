@@ -72,7 +72,7 @@ def has_vendor_invoice_permission(doc, user: Optional[str] = None, ptype: str = 
 def get_admin_weekly_vendor_permission_query_conditions(user: Optional[str] = None) -> str:
     """
     Accounts team sees ALL Admin Weekly Vendor Claims.
-    Admins / Receptionists / Employees only see claims created by themselves or assigned to them.
+    Admins / Receptionists / Approvers only see claims created by themselves or assigned to them.
     """
     if not user:
         user = frappe.session.user
@@ -84,9 +84,13 @@ def get_admin_weekly_vendor_permission_query_conditions(user: Optional[str] = No
     return f"""(
         `tabAdmin Weekly Vendor Claim`.`owner` = {escaped_user}
         OR `tabAdmin Weekly Vendor Claim`.`prepared_by` = {escaped_user}
+        OR `tabAdmin Weekly Vendor Claim`.`designated_approver` = {escaped_user}
         OR `tabAdmin Weekly Vendor Claim`.`admin_l1_approver` = {escaped_user}
         OR `tabAdmin Weekly Vendor Claim`.`admin_l2_approver` = {escaped_user}
+        OR `tabAdmin Weekly Vendor Claim`.`accounts_l1_approver` = {escaped_user}
+        OR `tabAdmin Weekly Vendor Claim`.`accounts_l2_approver` = {escaped_user}
         OR `tabAdmin Weekly Vendor Claim`.`director_approver` = {escaped_user}
+        OR `tabAdmin Weekly Vendor Claim`.`payment_releaser` = {escaped_user}
     )"""
 
 
@@ -102,7 +106,15 @@ def has_admin_weekly_vendor_permission(doc, user: Optional[str] = None, ptype: s
     if getattr(doc, "owner", None) == user or getattr(doc, "prepared_by", None) == user:
         return True
 
-    for approver_field in ["admin_l1_approver", "admin_l2_approver", "director_approver"]:
+    for approver_field in [
+        "designated_approver",
+        "admin_l1_approver",
+        "admin_l2_approver",
+        "accounts_l1_approver",
+        "accounts_l2_approver",
+        "director_approver",
+        "payment_releaser"
+    ]:
         if getattr(doc, approver_field, None) == user:
             return True
 

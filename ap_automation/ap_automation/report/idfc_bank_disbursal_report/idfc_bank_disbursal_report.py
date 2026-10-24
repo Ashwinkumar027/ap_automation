@@ -267,7 +267,7 @@ def get_claims_fallback_data(filters: Dict[str, Any], debit_account: str, tx_dat
         b_ac = claim.get("bank_account_number") or emp_info.get("bank_ac_no") or ""
         b_ifsc = claim.get("bank_ifsc_code") or emp_info.get("ifsc_code") or ""
         email = claim.get("employee_email") or emp_info.get("company_email") or emp_info.get("personal_email") or ""
-        amount = flt(claim.total_sanctioned_amount or claim.total_claim_amount or 0.0)
+        amount = flt(claim.get("sanctioned_amount") or claim.get("net_payable_amount") or claim.get("total_amount") or claim.get("total_claim_amount") or 0.0)
 
         if emp_id not in emp_groups:
             emp_groups[emp_id] = {

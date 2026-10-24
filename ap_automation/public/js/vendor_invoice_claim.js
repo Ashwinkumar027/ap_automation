@@ -49,8 +49,6 @@ frappe.listview_settings["Vendor Invoice Claim"] = {
             return [__("Approved for Payment"), "green", "status,=,Approved for Payment"];
         } else if (status === "Pending Manager Approval") {
             return [__("Pending Manager Approval"), "blue", "status,=,Pending Manager Approval"];
-        } else if (status === "Pending HoD Approval") {
-            return [__("Pending HoD Approval"), "purple", "status,=,Pending HoD Approval"];
         } else if (status === "Pending Director Approval") {
             return [__("Pending Director Approval"), "darkred", "status,=,Pending Director Approval"];
         } else if (status === "Pending Accounts Review") {
@@ -104,7 +102,7 @@ frappe.ui.form.on("Vendor Invoice Claim", {
 
         // Action: 🚫 Flag Dispute / Rejection (Never Silent)
         if (!frm.is_new() && frm.doc.docstatus !== 2) {
-            frm.add_custom_button(__('🚫 Reject / Flag Dispute'), function() {
+            frm.add_custom_button(__('↩️ Dispute / Return Claim'), function() {
                 open_vendor_dispute_modal(frm);
             }, __('Actions'));
 
@@ -320,36 +318,11 @@ function render_vendor_claim_approval_buttons(frm) {
         }
     }
 
-    // Stage 2: Pending HoD Approval
-    else if (status === "Pending HoD Approval") {
-        let is_hod = frappe.user.has_role(["Admin L2 Approver", "HoD", "System Manager"]) || is_admin;
-        if ((!is_owner && is_hod) || is_admin) {
-            frm.add_custom_button(__('✅ Approve (HoD)'), function() {
-                frappe.prompt([
-                    { fieldname: 'remarks', fieldtype: 'Small Text', label: __('HoD Remarks (Optional)') }
-                ], function(values) {
-                    frappe.call({
-                        method: 'ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.approve_vendor_claim_by_hod',
-                        args: { docname: frm.doc.name, remarks: values.remarks || "" },
-                        freeze: true,
-                        freeze_message: __('Processing HoD Approval...'),
-                        callback: function(r) {
-                            if (r.message) {
-                                frappe.show_alert({ message: __(r.message.message), indicator: 'green' });
-                                frm.reload_doc();
-                            }
-                        }
-                    });
-                }, __('HoD Departmental Approval'), __('Approve & Advance'));
-            }).addClass('btn-primary').css({ 'background-color': '#059669', 'border-color': '#047857', 'color': '#fff' });
-        }
-    }
-
-    // Stage 3: Pending Director Approval (> 2L)
+// Stage 3: Pending Director Approval (> 2L)
     else if (status === "Pending Director Approval") {
         let is_dir = frappe.user.has_role(["Accounts Director", "Director Tier", "System Manager"]) || is_admin;
         if ((!is_owner && is_dir) || is_admin) {
-            frm.add_custom_button(__('👑 Approve (Executive Director)'), function() {
+            frm.add_custom_button(__('⭐ Approve (Director)'), function() {
                 frappe.prompt([
                     { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Director Remarks (Optional)') }
                 ], function(values) {
@@ -374,7 +347,7 @@ function render_vendor_claim_approval_buttons(frm) {
     else if (status === "Pending Accounts Review") {
         let is_accounts = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager']) || is_admin;
         if (is_accounts) {
-            frm.add_custom_button(__('📋 Verify & Post Tally Voucher (Accounts L1)'), function() {
+            frm.add_custom_button(__('✅ Verify & Post Tally JV'), function() {
                 frappe.prompt([
                     {
                         fieldname: 'tally_reference',
@@ -414,7 +387,7 @@ function render_vendor_claim_approval_buttons(frm) {
     else if (status === "Pending Accounts L2 Approval") {
         let is_l2 = frappe.user.has_role(['Accounts Manager', 'Accounts Director']) || is_admin;
         if (is_l2) {
-            frm.add_custom_button(__('💳 Approve for Payment Disbursal (Accounts L2)'), function() {
+            frm.add_custom_button(__('⭐ Approve Payment (L2)'), function() {
                 frappe.confirm(
                     __('Are you sure you want to grant final Accounts L2 clearance for this claim? It will be marked Approved for Payment and queued for the payment batch.'),
                     function() {
@@ -435,6 +408,49 @@ function render_vendor_claim_approval_buttons(frm) {
             }).addClass('btn-primary').css({ 'background-color': '#059669', 'border-color': '#047857', 'color': '#fff' });
         }
     }
+}
+
+
+    // Stage 6: Approved for Payment / Queued in Batch (Payment Releaser)
+    else if (status === "Approved for Payment" || status === "Queued in Batch") {
+        let is_releaser = frappe.user.has_role(['Accounts Director', 'Accounts Manager', 'System Manager']) || is_admin;
+        if (is_releaser) {
+            frm.add_custom_button(__('💳 Disburse & Stamp UTR'), function() {
+                frappe.prompt([
+                    {
+                        fieldname: 'utr_reference',
+                        fieldtype: 'Data',
+                        label: __('Bank UTR Reference Number'),
+                        description: __('Enter the official banking UTR reference number from corporate banking portal.'),
+                        reqd: 1
+                    },
+                    {
+                        fieldname: 'remarks',
+                        fieldtype: 'Small Text',
+                        label: __('Disbursement Remarks (Optional)')
+                    }
+                ], function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.disburse_vendor_claim',
+                        args: {
+                            docname: frm.doc.name,
+                            utr_reference: values.utr_reference,
+                            remarks: values.remarks || ""
+                        },
+                        freeze: true,
+                        freeze_message: __('Recording Bank Disbursement & Stamping UTR...'),
+                        callback: function(r) {
+                            if (r.message) {
+                                frappe.show_alert({ message: __(r.message.message), indicator: 'green' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Bank Disbursement (Stage 6)'), __('Disburse & Stamp UTR'));
+            }).addClass('btn-primary').css({ 'background-color': '#047857', 'border-color': '#065f46', 'color': '#fff' });
+        }
+    }
+
 }
 
 // --------------------------------------------------------------------------------------
@@ -1101,7 +1117,7 @@ function render_vendor_invoice_dashboard(frm) {
     let active_idx = 0;
     if (current_status === "Draft") active_idx = 0;
     else if (current_status === "Pending Manager Approval") active_idx = 1;
-    else if (current_status === "Pending HoD Approval" || current_status === "Pending Director Approval") active_idx = 2;
+    else if (current_status === "Pending Director Approval") active_idx = 2;
     else if (current_status === "Pending Accounts Review") active_idx = 3;
     else if (current_status === "Pending Accounts L2 Approval") active_idx = 4;
     else if (current_status === "Approved for Payment" || current_status === "Queued in Batch") active_idx = 4;

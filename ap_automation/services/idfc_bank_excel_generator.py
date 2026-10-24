@@ -173,7 +173,7 @@ def generate_idfc_bank_excel_bytes(
         beneficiary_name = str(item.get("beneficiary_name") or "").strip().upper()
         account_no = str(item.get("beneficiary_account_number") or "").strip()
         ifsc = str(item.get("ifsc") or "").strip().upper()
-        tx_type = "NEFT"
+        tx_type = str(item.get("transaction_type") or "NEFT").strip().upper()
         debit_acc = str(item.get("debit_account_number") or debit_account_no or "10173678610").strip()
         tx_date = str(item.get("transaction_date") or transaction_date_str).strip()
         amount = flt(item.get("amount") or 0.0)
@@ -289,7 +289,7 @@ def download_idfc_bank_batch_excel(batch_name: str):
             or ""
         )
 
-        sanctioned_amt = flt(claim.total_sanctioned_amount or claim.total_claim_amount or it.claimed_amount or 0.0)
+        sanctioned_amt = flt(claim.get("sanctioned_amount") or claim.get("net_payable_amount") or claim.get("total_amount") or claim.get("total_claim_amount") or it.get("claimed_amount") or 0.0)
 
         if emp_id not in emp_groups:
             emp_groups[emp_id] = {
@@ -437,6 +437,177 @@ def download_idfc_petty_cash_excel(voucher_name: str):
         debit_account_no=debit_account,
         transaction_date_str=tx_date_str,
         filename_prefix=f"IDFC_Bank_Petty_Cash_{doc.name}"
+    )
+
+    frappe.response["filename"] = filename
+    frappe.response["filecontent"] = filebytes
+    frappe.response["type"] = "binary"
+
+
+@frappe.whitelist()
+def download_idfc_admin_weekly_excel(voucher_name: str):
+    """
+    Direct endpoint: Generates and downloads the official IDFC Bank Bulk Disbursal Excel (.xlsx)
+    for Admin Weekly Vendor Claim after Accounts L2 / Director Approval.
+    Contains only valid vendor line items.
+    """
+    if not voucher_name:
+        frappe.throw(_("Voucher name is required."))
+
+    doc = frappe.get_doc("Admin Weekly Vendor Claim", voucher_name)
+    company = doc.company or frappe.defaults.get_user_default("Company")
+    debit_account = get_company_debit_account(company)
+
+    # Format transaction date (DD/MM/YYYY)
+    p_date = getdate(doc.posting_date or nowdate())
+    tx_date_str = p_date.strftime("%d/%m/%Y")
+
+    payment_rows = []
+    for idx, row in enumerate(doc.vendor_lines or [], start=1):
+        if getattr(row, "line_status", "Pending") == "Disputed / Discrepancy":
+            continue
+
+        b_name = (
+            getattr(row, "bank_beneficiary_name", None)
+            or getattr(row, "vendor_name", None)
+            or getattr(row, "vendor", f"Vendor {idx}")
+        )
+        b_ac = getattr(row, "bank_account_number", "") or ""
+        b_ifsc = getattr(row, "bank_ifsc_code", "") or ""
+        amount = flt(getattr(row, "amount", 0.0) or 0.0)
+
+        # Skip non-payable rows
+        if amount <= 0:
+            continue
+
+        # Transaction Type resolution per IDFC Banking Rules:
+        # 1. IFT: Within IDFC First Bank transfer (IFSC starts with IDFB)
+        # 2. RTGS: Inter-bank transfer where amount >= 200,000 (2 Lakhs)
+        # 3. NEFT: Standard Inter-bank transfer
+        if b_ifsc.upper().startswith("IDFB"):
+            tx_type = "IFT"
+        elif amount >= 200000.0:
+            tx_type = "RTGS"
+        else:
+            tx_type = "NEFT"
+
+        # Fetch Supplier email if available
+        supplier_email = ""
+        if getattr(row, "vendor", None):
+            supplier_email = frappe.db.get_value("Supplier", row.vendor, "email_id") or ""
+
+        inv_ref = getattr(row, "invoice_number", "") or f"L{idx}"
+        remarks = f"ADMIN {doc.name} {inv_ref}".strip()[:30]
+
+        payment_rows.append({
+            "beneficiary_name": str(b_name).strip().upper(),
+            "beneficiary_account_number": str(b_ac).strip(),
+            "ifsc": str(b_ifsc).strip().upper(),
+            "transaction_type": tx_type,
+            "debit_account_number": debit_account,
+            "transaction_date": tx_date_str,
+            "amount": amount,
+            "currency": "INR",
+            "beneficiary_email": supplier_email,
+            "remarks": remarks,
+        })
+
+    if not payment_rows:
+        frappe.throw(_("No payable vendor line items found in this weekly claim to generate IDFC bank file."))
+
+    filename, filebytes = generate_idfc_bank_excel_bytes(
+        payment_rows=payment_rows,
+        debit_account_no=debit_account,
+        transaction_date_str=tx_date_str,
+        filename_prefix=f"IDFC_Bank_Admin_Weekly_{doc.name}"
+    )
+
+    frappe.response["filename"] = filename
+    frappe.response["filecontent"] = filebytes
+    frappe.response["type"] = "binary"
+
+
+@frappe.whitelist()
+def download_idfc_employee_reimbursement_excel(voucher_name: str):
+    """
+    Direct endpoint: Generates and downloads the official IDFC Bank Bulk Disbursal Excel (.xlsx)
+    for Employee Reimbursement Claim after Accounts L2 / Director Approval.
+    Valid for all 5 reimbursement categories.
+    """
+    if not voucher_name:
+        frappe.throw(_("Voucher name is required."))
+
+    doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
+    company = doc.company or frappe.defaults.get_user_default("Company")
+    debit_account = get_company_debit_account(company)
+
+    # Format transaction date (DD/MM/YYYY)
+    p_date = getdate(doc.posting_date or nowdate())
+    tx_date_str = p_date.strftime("%d/%m/%Y")
+
+    # Fetch employee bank details if not present on doc
+    emp_info = {}
+    if doc.employee:
+        emp_info = frappe.db.get_value(
+            "Employee",
+            doc.employee,
+            ["employee_name", "company_email", "personal_email", "bank_name", "bank_ac_no", "ifsc_code", "custom_ifsc_code"],
+            as_dict=True
+        ) or {}
+
+    b_name = (
+        doc.get("employee_name")
+        or emp_info.get("employee_name")
+        or doc.employee
+    )
+    b_ac = (
+        doc.get("bank_account_number")
+        or emp_info.get("bank_ac_no")
+        or ""
+    )
+    b_ifsc = (
+        doc.get("bank_ifsc_code")
+        or emp_info.get("custom_ifsc_code")
+        or emp_info.get("ifsc_code")
+        or ""
+    )
+    email = emp_info.get("company_email") or emp_info.get("personal_email") or ""
+
+    # Net payable amount (sanctioned_amount -> net_payable_amount -> total_amount)
+    amount = flt(doc.get("sanctioned_amount") or doc.get("net_payable_amount") or doc.get("total_amount") or 0.0)
+    if amount <= 0:
+        frappe.throw(_("No payable amount found on this reimbursement claim."))
+
+    # Transaction Type resolution per IDFC Banking Rules:
+    # 1. IFT: Within IDFC First Bank transfer (IFSC starts with IDFB)
+    # 2. RTGS: Inter-bank transfer where amount >= 200,000 (2 Lakhs)
+    # 3. NEFT: Standard Inter-bank transfer
+    clean_ifsc = str(b_ifsc).strip().upper()
+    if clean_ifsc.startswith("IDFB"):
+        tx_type = "IFT"
+    elif amount >= 200000.0:
+        tx_type = "RTGS"
+    else:
+        tx_type = "NEFT"
+
+    payment_row = {
+        "beneficiary_name": str(b_name).strip().upper(),
+        "beneficiary_account_number": str(b_ac).strip(),
+        "ifsc": clean_ifsc,
+        "transaction_type": tx_type,
+        "debit_account_number": debit_account,
+        "transaction_date": tx_date_str,
+        "amount": amount,
+        "currency": "INR",
+        "beneficiary_email": email,
+        "remarks": f"REIMB {doc.name}"[:30],
+    }
+
+    filename, filebytes = generate_idfc_bank_excel_bytes(
+        payment_rows=[payment_row],
+        debit_account_no=debit_account,
+        transaction_date_str=tx_date_str,
+        filename_prefix=f"IDFC_Bank_Reimbursement_{doc.name}"
     )
 
     frappe.response["filename"] = filename

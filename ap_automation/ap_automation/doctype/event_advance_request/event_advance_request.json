@@ -192,7 +192,7 @@
   {
    "fieldname": "sb_lifecycle",
    "fieldtype": "Section Break",
-   "label": "Approval & IDFC Payout Status"
+   "label": "Approval & Bank Disbursal Status"
   },
   {
    "default": "Draft",
@@ -200,7 +200,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Business Head Approval\nApproved by Business Head\nPending Accounts Disbursal\nQueued in Batch\nDisbursed\nDisbursed via IDFC\nRejected",
+   "options": "Draft\nPending Business Head Approval\nApproved by Business Head\nPending Accounts Disbursal\nQueued in Batch\nDisbursed\nRejected",
    "allow_on_submit": 1
   },
   {
@@ -234,7 +234,7 @@
   {
    "fieldname": "disbursement_reference",
    "fieldtype": "Data",
-   "label": "IDFC UTR / Reference",
+   "label": "Bank UTR / Disbursal Reference",
    "read_only": 1,
    "allow_on_submit": 1
   },

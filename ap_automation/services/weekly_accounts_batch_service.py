@@ -732,10 +732,12 @@ def set_voucher_jv(batch_name: str, voucher_no: str, jv_number: str, jv_date: Op
 
     # Sync to Employee Reimbursement Claim
     if frappe.db.exists("Employee Reimbursement Claim", voucher_no):
-        claim = frappe.get_doc("Employee Reimbursement Claim", voucher_no)
-        claim.jv_number = clean_jv
-        claim.jv_date = clean_date
-        claim.save(ignore_permissions=True)
+        frappe.db.set_value(
+            "Employee Reimbursement Claim",
+            voucher_no,
+            {"jv_number": clean_jv, "jv_date": clean_date},
+            update_modified=False
+        )
 
     frappe.db.commit()
 
@@ -785,10 +787,12 @@ def bulk_assign_batch_jv(batch_name: str, start_jv_number: Any, jv_date: Optiona
 
         # Sync to claim doc
         if it.voucher_no and frappe.db.exists("Employee Reimbursement Claim", it.voucher_no):
-            claim = frappe.get_doc("Employee Reimbursement Claim", it.voucher_no)
-            claim.jv_number = assigned_jv
-            claim.jv_date = clean_date
-            claim.save(ignore_permissions=True)
+            frappe.db.set_value(
+                "Employee Reimbursement Claim",
+                it.voucher_no,
+                {"jv_number": assigned_jv, "jv_date": clean_date},
+                update_modified=False
+            )
 
     batch.save(ignore_permissions=True)
     frappe.db.commit()
