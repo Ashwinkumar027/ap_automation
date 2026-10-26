@@ -1,3 +1,17 @@
+
+function setup_expense_subtype_query(frm) {
+    frm.set_query('expense_type', 'expense_lines', function(doc, cdt, cdn) {
+        let cat = (frm && frm.doc && frm.doc.claim_category) || (doc && doc.claim_category) || 'General Expense';
+        if (cat === 'Team Bonding') cat = 'Team Lunch / Outing';
+        if (cat === 'Branch Expense') cat = 'Branch Expense & Maintenance';
+        return {
+            filters: {
+                parent_claim_category: cat,
+                is_active: 1
+            }
+        };
+    });
+}
 // Copyright (c) 2026, Quantique and contributors
 // For license information, please see license.txt
 
@@ -35,11 +49,23 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     },
     setup: function(frm) {
         apply_claim_flow_styles();
+        setup_expense_subtype_query(frm);
         frm.set_query('pre_travel_request', function() {
             return {
                 filters: {
                     employee: frm.doc.employee || '',
                     status: 'Approved'
+                }
+            };
+        });
+        frm.set_query('expense_type', 'expense_lines', function(doc, cdt, cdn) {
+            let cat = doc.claim_category || 'General Expense';
+            if (cat === 'Team Bonding') cat = 'Team Lunch / Outing';
+            if (cat === 'Branch Expense') cat = 'Branch Expense & Maintenance';
+            return {
+                filters: {
+                    parent_claim_category: cat,
+                    is_active: 1
                 }
             };
         });
@@ -88,6 +114,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
         }
 
         toggle_category_sections(frm, false);
+        setup_expense_subtype_query(frm);
         frm.trigger('setup_dashboard_alerts');
         frm.trigger('render_stage_action_buttons');
         frm.trigger('setup_receipt_gallery_and_tools');
@@ -148,9 +175,11 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
         }
 
         toggle_category_sections(frm, true);
+        setup_expense_subtype_query(frm);
         update_multi_leg_travel_calculations(frm);
         update_team_lunch_calculations(frm);
         frm.trigger('calculate_totals');
+        frm.refresh_field('expense_lines');
         disable_auto_save_on_attach(frm); setTimeout(() => bind_custom_grid_uploaders(frm), 250);
     },
 
@@ -166,10 +195,23 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     },
 
     is_per_diem_claimed: function(frm) {
+        toggle_per_diem_fields(frm);
         update_multi_leg_travel_calculations(frm);
     },
 
     per_diem_days: function(frm) {
+        update_multi_leg_travel_calculations(frm);
+    },
+
+    claim_breakfast: function(frm) {
+        update_multi_leg_travel_calculations(frm);
+    },
+
+    claim_lunch: function(frm) {
+        update_multi_leg_travel_calculations(frm);
+    },
+
+    claim_dinner: function(frm) {
         update_multi_leg_travel_calculations(frm);
     },
 
@@ -676,6 +718,13 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
                 per_diem = days * rate;
             }
             total = mileage + tolls + per_diem;
+        } else if (cat === 'Dinner Allowance') {
+            let bill_amount = 0.0;
+            (frm.doc.expense_lines || []).forEach(row => {
+                bill_amount += parseFloat(row.amount || 0.0);
+            });
+            const dinner_rate = parseFloat(frm.doc.dinner_allowance_amount || 0.0);
+            total = bill_amount > 0 ? bill_amount : dinner_rate;
         } else if (cat === 'Team Lunch / Outing') {
             let bill_amount = 0.0;
             (frm.doc.expense_lines || []).forEach(row => {
@@ -714,9 +763,22 @@ frappe.ui.form.on('Employee Reimbursement Line', {
         frm.trigger('calculate_totals');
         setTimeout(() => bind_custom_grid_uploaders(frm), 200);
     },
-    expense_lines_add: function(frm) {
+    expense_lines_add: function(frm, cdt, cdn) {
         frm.trigger('calculate_totals');
         setTimeout(() => bind_custom_grid_uploaders(frm), 200);
+        let cat = frm.doc.claim_category || 'General Expense';
+        if (cat === 'Team Bonding') cat = 'Team Lunch / Outing';
+        if (cat === 'Branch Expense') cat = 'Branch Expense & Maintenance';
+        frappe.db.get_list('AP Expense Subtype Master', {
+            filters: { parent_claim_category: cat, is_active: 1 },
+            fields: ['name'],
+            order_by: 'sort_order asc',
+            limit: 1
+        }).then(res => {
+            if (res && res.length > 0 && cdt && cdn) {
+                frappe.model.set_value(cdt, cdn, 'expense_type', res[0].name);
+            }
+        });
     },
     form_render: function(frm) {
         setTimeout(() => bind_custom_grid_uploaders(frm), 200);
@@ -1163,6 +1225,15 @@ function render_unified_claim_header(frm) {
     });
 }
 
+
+function toggle_per_diem_fields(frm) {
+    const is_claimed = Boolean(frm.doc.is_per_diem_claimed);
+    // Keep them always visible so employees clearly see the meal allocation structure
+    frm.toggle_display(['per_diem_days', 'claim_breakfast', 'claim_lunch', 'claim_dinner', 'per_diem_meals_note', 'per_diem_amount'], true);
+    // Enable or disable fields based on is_per_diem_claimed
+    frm.toggle_enable(['per_diem_days', 'claim_breakfast', 'claim_lunch', 'claim_dinner', 'per_diem_meals_note'], is_claimed);
+}
+
 function toggle_category_sections(frm, should_scroll) {
     const cat = frm.doc.claim_category || 'General Expense';
     const is_client_travel = (cat === 'Client Visit Travel');
@@ -1235,9 +1306,19 @@ function update_multi_leg_travel_calculations(frm) {
 
     let per_diem = 0.0;
     if (frm.doc.is_per_diem_claimed) {
+        let daily_rate = 0.0;
+        if (frm.doc.claim_breakfast !== 0) daily_rate += 100.0;
+        if (frm.doc.claim_lunch !== 0) daily_rate += 200.0;
+        if (frm.doc.claim_dinner !== 0) daily_rate += 200.0;
         const days = parseInt(frm.doc.per_diem_days || 1, 10);
-        const rate = parseFloat(frm.doc.per_diem_amount || 500.0);
-        per_diem = days * rate;
+        per_diem = days * daily_rate;
+        if (Math.abs(parseFloat(frm.doc.per_diem_amount || 0.0) - per_diem) > 0.001) {
+            frm.set_value('per_diem_amount', per_diem);
+        }
+    } else {
+        if (parseFloat(frm.doc.per_diem_amount || 0.0) !== 0.0) {
+            frm.set_value('per_diem_amount', 0.0);
+        }
     }
 
     const total_entitlement = Math.round((total_mileage + total_tolls + per_diem) * 100) / 100;

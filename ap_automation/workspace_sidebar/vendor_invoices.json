@@ -1,6 +1,6 @@
 {
  "app": "ap_automation",
- "creation": "2026-09-15 17:36:08.773376",
+ "creation": "2026-10-18 11:56:39.752707",
  "docstatus": 0,
  "doctype": "Workspace Sidebar",
  "idx": 0,
@@ -17,7 +17,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-10-15 12:31:06.215002",
+ "modified": "2026-10-26 14:57:12.876392",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Vendor Invoices",

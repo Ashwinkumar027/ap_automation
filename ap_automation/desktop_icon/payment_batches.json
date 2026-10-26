@@ -1,7 +1,7 @@
 {
  "app": "ap_automation",
  "bg_color": "blue",
- "creation": "2026-09-12 15:19:47.356552",
+ "creation": "2026-10-18 11:56:39.466189",
  "docstatus": 0,
  "doctype": "Desktop Icon",
  "hidden": 0,
@@ -11,7 +11,7 @@
  "label": "Payment Batches",
  "link_to": "Payment Batches",
  "link_type": "Workspace Sidebar",
- "modified": "2026-10-15 12:31:06.307384",
+ "modified": "2026-10-26 14:57:12.937972",
  "modified_by": "Administrator",
  "name": "Payment Batches",
  "owner": "Administrator",

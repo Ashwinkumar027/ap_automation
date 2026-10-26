@@ -72,7 +72,10 @@ def calculate_multi_leg_itinerary(
     legs: List[Dict[str, Any]],
     is_per_diem_claimed: bool = False,
     per_diem_days: int = 1,
-    per_diem_daily_rate: float = 500.0
+    per_diem_daily_rate: float = None,
+    claim_breakfast: bool = True,
+    claim_lunch: bool = True,
+    claim_dinner: bool = True
 ) -> Dict[str, Any]:
     """
     Computes aggregated mileage, tolls, and per diem across multiple client visit stops.
@@ -106,7 +109,14 @@ def calculate_multi_leg_itinerary(
         })
 
     days = max(int(per_diem_days or 1), 1)
-    per_diem_val = round(days * flt(per_diem_daily_rate or 500.0), 2) if is_per_diem_claimed else 0.0
+    if per_diem_daily_rate is None:
+        meal_rate = 0.0
+        if claim_breakfast: meal_rate += 100.0
+        if claim_lunch: meal_rate += 200.0
+        if claim_dinner: meal_rate += 200.0
+    else:
+        meal_rate = flt(per_diem_daily_rate)
+    per_diem_val = round(days * meal_rate, 2) if is_per_diem_claimed else 0.0
     total_travel_entitlement = round(total_mileage + total_tolls + per_diem_val, 2)
 
     return {

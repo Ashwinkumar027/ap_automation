@@ -250,6 +250,18 @@ def validate_team_bonding_claim(doc):
     participants = doc.get("participants") or []
     is_submitting = (doc.docstatus == 1) or (doc.status not in ("Draft", "Returned to Employee", None, ""))
 
+    # Prevent duplicate participants in the same claim
+    seen_participants = set()
+    for p in participants:
+        pid = getattr(p, "employee_id", None) or getattr(p, "employee", None)
+        if pid:
+            if pid in seen_participants:
+                frappe.throw(
+                    f"⚠️ <b>Duplicate Participant Detected</b>:<br>Employee <b>{getattr(p, 'employee_name', '') or pid}</b> ({pid}) is added more than once. Each participant can only be listed once.",
+                    frappe.ValidationError
+                )
+            seen_participants.add(pid)
+
     # 1. Mandatory Participant List and Photo Check ONLY on final submission
     if is_submitting:
         if not participants:

@@ -1,7 +1,7 @@
 {
  "app": "ap_automation",
  "bg_color": "gray",
- "creation": "2026-09-12 15:19:47.334521",
+ "creation": "2026-10-18 11:56:39.437205",
  "docstatus": 0,
  "doctype": "Desktop Icon",
  "hidden": 0,
@@ -12,7 +12,7 @@
  "link_to": "AP Automation",
  "link_type": "Workspace Sidebar",
  "logo_url": "/assets/ap_automation/images/ap-logo.svg",
- "modified": "2026-10-15 12:31:06.317047",
+ "modified": "2026-10-26 14:57:12.946112",
  "modified_by": "Administrator",
  "name": "AP Automation",
  "owner": "Administrator",

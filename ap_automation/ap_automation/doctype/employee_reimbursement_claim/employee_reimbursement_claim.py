@@ -324,6 +324,13 @@ class EmployeeReimbursementClaim(APDocument):
 
         elif cat in ("Dinner Allowance", "Late Night Dinner Allowance"):
             self.claim_category = "Dinner Allowance"
+            if not getattr(self, "dinner_allowance_amount", None) or flt(self.dinner_allowance_amount) <= 0:
+                self.dinner_allowance_amount = 200.0
+            if is_submitting and getattr(self, "swipe_out_time", None):
+                from ap_automation.services.reimbursement_policy_service import validate_dinner_allowance
+                is_valid, msg = validate_dinner_allowance(self.swipe_out_time, self.dinner_allowance_amount or 200.0)
+                if not is_valid:
+                    raise APValidationError(msg)
 
         elif cat in ("Branch Expense & Maintenance", "Branch Expenses"):
             self.claim_category = "Branch Expense & Maintenance"
@@ -339,6 +346,12 @@ class EmployeeReimbursementClaim(APDocument):
             if is_submitting and not legs:
                 raise APValidationError("Client Visit Travel claim must list at least one client visit travel leg.")
             return
+
+        if getattr(self, "claim_category", "") == "Dinner Allowance":
+            # Dinner Allowance is a flat ₹200 overtime food entitlement; does not require line items if none added
+            lines = getattr(self, "expense_lines", []) or []
+            if not lines:
+                return
 
         lines = getattr(self, "expense_lines", []) or []
         is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved", "Returned to Employee")
@@ -412,12 +425,26 @@ class EmployeeReimbursementClaim(APDocument):
             total_km = sum(flt(getattr(r, "distance_km", 0.0) or 0.0) for r in legs)
             total_mileage = sum(flt(getattr(r, "leg_amount", 0.0) or 0.0) for r in legs)
             total_tolls = sum(flt(getattr(r, "toll_parking_amount", 0.0) or 0.0) for r in legs)
-            per_diem = (flt(getattr(self, "per_diem_days", 1) or 1) * flt(getattr(self, "per_diem_amount", 0.0) or 0.0)) if getattr(self, "is_per_diem_claimed", 0) else 0.0
+            per_diem = 0.0
+            if getattr(self, "is_per_diem_claimed", 0):
+                daily_rate = 0.0
+                if getattr(self, "claim_breakfast", 1):
+                    daily_rate += 100.0
+                if getattr(self, "claim_lunch", 1):
+                    daily_rate += 200.0
+                if getattr(self, "claim_dinner", 1):
+                    daily_rate += 200.0
+                days = max(int(getattr(self, "per_diem_days", 1) or 1), 1)
+                per_diem = round(days * daily_rate, 2)
+                self.per_diem_amount = per_diem
+            else:
+                self.per_diem_amount = 0.0
 
             self.total_trip_distance_km = round(total_km, 2)
             self.total_leg_mileage_amount = round(total_mileage, 2)
             self.total_toll_parking_amount = round(total_tolls, 2)
             total_spend = total_mileage + total_tolls + per_diem
+            self.travel_calculated_amount = round(total_spend, 2)
         elif getattr(self, "claim_category", "") == "Team Lunch / Outing":
             lines = getattr(self, "expense_lines", []) or []
             gross_spend = sum(flt(getattr(r, "amount", 0.0) or 0.0) for r in lines)
@@ -426,12 +453,21 @@ class EmployeeReimbursementClaim(APDocument):
                 total_spend = min(gross_spend, capped)
             else:
                 total_spend = gross_spend
+        elif getattr(self, "claim_category", "") == "Dinner Allowance":
+            lines = getattr(self, "expense_lines", []) or []
+            line_spend = sum(flt(getattr(r, "amount", 0.0) or 0.0) for r in lines)
+            dinner_amt = flt(getattr(self, "dinner_allowance_amount", 0.0) or 0.0)
+            if dinner_amt <= 0:
+                dinner_amt = 200.0
+                self.dinner_allowance_amount = 200.0
+            total_spend = line_spend if line_spend > 0 else dinner_amt
         else:
             lines = getattr(self, "expense_lines", []) or []
             total_spend = sum(flt(getattr(r, "amount", 0.0) or 0.0) for r in lines)
 
         self.total_claim_amount = round(total_spend, 2)
-        if not getattr(self, "sanctioned_amount", None) or flt(self.sanctioned_amount) <= 0:
+        is_pre_audit = getattr(self, "status", "Draft") in ("Draft", "Not Saved", "Returned to Employee", "Pending Employee Resubmission", "Pending Manager Approval", "Pending Receptionist Verification", "Pending Admin L1 Review", "Pending Admin L2 Sign-Off", None)
+        if is_pre_audit or not getattr(self, "sanctioned_amount", None) or flt(self.sanctioned_amount) <= 0:
             self.sanctioned_amount = self.total_claim_amount
         advance = flt(getattr(self, "advance_amount", 0.0) or 0.0)
         self.net_payable_amount = max(round(flt(self.sanctioned_amount) - advance, 2), 0.0)

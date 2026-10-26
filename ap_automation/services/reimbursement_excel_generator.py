@@ -209,7 +209,7 @@ def generate_reimbursement_excel_bytes(voucher_name: str):
             ws.row_dimensions[curr_row].height = 20
             ws.cell(row=curr_row, column=1, value=idx).alignment = align_center
             ws.cell(row=curr_row, column=2, value=formatdate(line.expense_date, "dd-mm-yyyy") if line.expense_date else "").alignment = align_center
-            ws.cell(row=curr_row, column=3, value=str(line.out_time or "")).alignment = align_center
+            ws.cell(row=curr_row, column=3, value=str(getattr(line, "out_time", "") or "")).alignment = align_center
             ws.cell(row=curr_row, column=4, value=line.description or "Overtime Dinner").alignment = align_left
             
             c5 = ws.cell(row=curr_row, column=5, value=flt(line.amount or 0.0))
@@ -520,7 +520,7 @@ def generate_consolidated_employee_excel_bytes(claim_names: Any, employee_name: 
                     desc = line.description or line.expense_type or "Expense"
                     amt = flt(line.amount or 0.0)
                     rem = line.payment_mode_used or ""
-                    if line.out_time:
+                    if getattr(line, "out_time", None):
                         rem += f" (Out: {line.out_time})"
                     all_lines.append({
                         "sno": global_sno,
