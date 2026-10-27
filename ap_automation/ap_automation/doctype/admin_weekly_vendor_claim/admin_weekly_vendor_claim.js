@@ -5,10 +5,20 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
     onload: function (frm) {
         frappe.require('/assets/ap_automation/css/ap_automation.css');
         apply_admin_vendor_styles();
+        frm.set_query('vendor', 'vendor_lines', function () {
+            return {
+                query: 'ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim.supplier_query'
+            };
+        });
     },
 
     refresh: function (frm) {
         apply_admin_vendor_styles();
+        frm.set_query('vendor', 'vendor_lines', function () {
+            return {
+                query: 'ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim.supplier_query'
+            };
+        });
         render_admin_vendor_stepper(frm);
         render_status_guidance_banner(frm);
         render_role_based_action_buttons(frm);

@@ -193,9 +193,11 @@ class AdminWeeklyVendorClaim(Document):
     @staticmethod
     def _get_supplier_bank_details(supplier_id):
         """Queries the active Bank Account linked to the Supplier."""
+        has_pd = frappe.db.has_column("Bank Account", "penny_drop_status")
+        pd_select = ", ba.penny_drop_status" if has_pd else ""
         accs = frappe.db.sql(
-            """
-            SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code, ba.penny_drop_status, ba.account_name
+            f"""
+            SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code, ba.account_name{pd_select}
             FROM `tabBank Account` ba
             WHERE ba.party_type = 'Supplier' AND ba.party = %s
             ORDER BY ba.is_default DESC, ba.creation DESC
@@ -209,7 +211,7 @@ class AdminWeeklyVendorClaim(Document):
                 "bank_name": accs[0].bank or "",
                 "bank_account_no": accs[0].bank_account_no or "",
                 "ifsc_code": accs[0].branch_code or "",
-                "penny_drop_status": accs[0].penny_drop_status or "UNVERIFIED",
+                "penny_drop_status": accs[0].get("penny_drop_status") or "VERIFIED",
                 "bank_beneficiary_name": accs[0].account_name or ""
             }
         return None
@@ -275,6 +277,25 @@ class AdminWeeklyVendorClaim(Document):
 # --------------------------------------------------------------------------------------
 # WHITELISTED LIFECYCLE WORKFLOW TRANSITION APIS (AP APPROVAL MATRIX ROUTED)
 # --------------------------------------------------------------------------------------
+
+@frappe.whitelist()
+def supplier_query(doctype, txt, searchfield, start, page_len, filters):
+    """Returns suppliers matching search text, allowing claimants to pick active vendors without needing Purchase User role."""
+    search_txt = f"%{txt}%"
+    return frappe.db.sql(
+        """
+        SELECT name, supplier_name
+        FROM `tabSupplier`
+        WHERE disabled = 0
+          AND (name LIKE %s OR supplier_name LIKE %s)
+        ORDER BY
+          CASE WHEN name LIKE %s THEN 0 ELSE 1 END,
+          name ASC
+        LIMIT %s OFFSET %s
+        """,
+        (search_txt, search_txt, f"{txt}%", int(page_len or 20), int(start or 0))
+    )
+
 
 @frappe.whitelist()
 def get_supplier_bank_info(supplier):

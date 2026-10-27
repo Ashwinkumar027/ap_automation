@@ -70,6 +70,11 @@ frappe.listview_settings["Vendor Invoice Claim"] = {
 
 frappe.ui.form.on("Vendor Invoice Claim", {
     refresh: function(frm) {
+        frm.set_query("vendor", function() {
+            return {
+                query: "ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim.supplier_query"
+            };
+        });
         frappe.require('/assets/ap_automation/css/ap_automation.css');
         frm.set_df_property('status', 'read_only', 1);
         frm.set_df_property('workflow_state', 'read_only', 1);
@@ -229,7 +234,7 @@ frappe.ui.form.on("Vendor Invoice Claim", {
                 args: {
                     doctype: "Bank Account",
                     filters: { party_type: "Supplier", party: frm.doc.vendor },
-                    fields: ["name", "bank", "bank_account_no", "branch_code", "penny_drop_status", "penny_drop_score"],
+                    fields: ["name", "bank", "bank_account_no", "branch_code"],
                     limit: 1
                 },
                 callback: function(res) {
