@@ -55,12 +55,45 @@ def calculate_event_settlement_delta(event_name: str) -> Dict[str, Any]:
 def validate_event_settlement(settlement_doc) -> None:
     """
     Validates post-event settlement before submission.
+    Enforces:
+    1. Uniqueness: Prevents duplicate active settlements for the same Event Master.
+    2. Lifecycle Guard: Prevents premature settlement on un-executed events or already closed events.
+    3. Mandatory refund UTR when unspent cash advance exists.
     """
     if not getattr(settlement_doc, "event", None):
         raise APValidationError("Linked Event Master is mandatory.")
 
+    # Prevent duplicate active settlements for the same event
+    existing_settlement = frappe.db.get_value(
+        "Event Settlement",
+        {
+            "event": settlement_doc.event,
+            "docstatus": ["!=", 2],
+            "name": ["!=", getattr(settlement_doc, "name", "")]
+        },
+        "name"
+    )
+    if existing_settlement:
+        raise APValidationError(
+            f"An active Event Settlement ({existing_settlement}) already exists for Event '{settlement_doc.event}'. "
+            "Multiple settlements for a single event are strictly prohibited."
+        )
+
     # Synchronize math
     delta_res = calculate_event_settlement_delta(settlement_doc.event)
+    event_status = frappe.db.get_value("Event Master", settlement_doc.event, "status")
+
+    if event_status == "Closed":
+        raise APValidationError(f"Event '{settlement_doc.event}' is already formally Closed. No new settlements can be filed.")
+
+    # Guard against premature settlement on un-executed events
+    if float(delta_res["disbursed_advance"]) == 0.0 and float(delta_res["spoc_actual_spends"]) == 0.0:
+        if event_status not in ("In Progress", "Advance Disbursed", "Settlement Pending"):
+            raise APValidationError(
+                f"Premature Settlement Blocked: Event '{settlement_doc.event}' has zero disbursed advances "
+                "and zero actual ground spends. Settlements cannot be created for events that have not executed."
+            )
+
     settlement_doc.company = delta_res["company"]
     settlement_doc.spoc = delta_res["spoc"]
     settlement_doc.spoc_name = delta_res["spoc_name"]

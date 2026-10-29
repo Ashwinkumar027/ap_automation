@@ -154,9 +154,9 @@ def get_data(filters: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "Employee Reimbursement Claim",
                 claim_name,
                 [
-                    "name", "employee", "employee_name", "bank_account_name",
-                    "bank_account_number", "bank_ifsc_code", "employee_email",
-                    "total_sanctioned_amount", "total_claim_amount", "company"
+                    "name", "employee", "employee_name", "bank_name",
+                    "bank_account_number", "bank_ifsc_code",
+                    "sanctioned_amount", "total_claim_amount", "company"
                 ],
                 as_dict=True
             )
@@ -195,7 +195,7 @@ def get_data(filters: Dict[str, Any]) -> List[Dict[str, Any]]:
             or ""
         )
 
-        amount = flt((claim.get("total_sanctioned_amount") if claim else None) or (claim.get("total_claim_amount") if claim else None) or it.claimed_amount or 0.0)
+        amount = flt((claim.get("sanctioned_amount") if claim else None) or (claim.get("total_claim_amount") if claim else None) or it.claimed_amount or 0.0)
 
         group_key = f"{emp_id}_{it.parent}"
         if group_key not in emp_groups:
@@ -239,9 +239,9 @@ def get_claims_fallback_data(filters: Dict[str, Any], debit_account: str, tx_dat
         "Employee Reimbursement Claim",
         filters=claim_cond,
         fields=[
-            "name", "employee", "employee_name", "bank_account_name",
-            "bank_account_number", "bank_ifsc_code", "employee_email",
-            "total_sanctioned_amount", "total_claim_amount", "company"
+            "name", "employee", "employee_name", "bank_name",
+            "bank_account_number", "bank_ifsc_code", 
+            "sanctioned_amount", "total_claim_amount", "company"
         ]
     )
 

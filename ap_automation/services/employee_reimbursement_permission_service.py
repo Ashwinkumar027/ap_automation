@@ -21,7 +21,8 @@ GLOBAL_VIEW_ROLES = {
     "Receptionist",
     "Admin L1 Approver",
     "Admin L2 Approver",
-    "Admin Manager"
+    "Admin Manager",
+    "AP Director"
 }
 
 EMPLOYEE_EDITABLE_STATUSES = {"Draft", "Returned for Correction", "Returned to Employee", "Rejected", None, ""}

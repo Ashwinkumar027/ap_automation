@@ -1,6 +1,7 @@
 # Copyright (c) 2026, Quanti and contributors
 import urllib.parse
 import frappe
+import frappe.sessions
 
 no_cache = 1
 
@@ -25,7 +26,10 @@ def get_context(context):
     context.no_cache = 1
     context.show_sidebar = False
     context.title = "Purchase Order Digital Signature Portal"
-    context.csrf_token = frappe.session.csrf_token if hasattr(frappe, "session") else ""
+    try:
+        context.csrf_token = frappe.sessions.get_csrf_token()
+    except Exception:
+        context.csrf_token = getattr(getattr(frappe.local, "session", None), "data", {}).get("csrf_token", "")
 
     if not po_name or not token:
         context.error_message = "Invalid link parameters. Purchase Order # and Token are required."

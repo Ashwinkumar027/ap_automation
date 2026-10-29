@@ -316,6 +316,17 @@ class VendorInvoiceClaim(APDocument):
             self.tds_amount = getattr(self, "tds_amount", 0.0) or 0.0
 
         tds = float(getattr(self, "tds_amount", 0.0) or 0.0)
+        total_deductions = round(advance + tds, 2)
+        if is_submitting and total_deductions > total:
+            log_and_throw(
+                f"Total Deductions Exceed Invoice Total: Prior Advance Deducted (INR {advance:,.2f}) + "
+                f"Statutory TDS Withholding (INR {tds:,.2f}) = INR {total_deductions:,.2f}, which exceeds "
+                f"Total Invoice Amount (INR {total:,.2f}). Net payable cannot be negative. "
+                f"Please adjust Advance Deducted to at most INR {round(max(total - tds, 0.0), 2):,.2f}.",
+                title="Deductions Exceed Invoice Amount",
+                doc=self
+            )
+
         net = round(max(total - advance - tds, 0.0), 2)
         self.net_payable_amount = net
         self.total_amount = net
@@ -796,6 +807,12 @@ def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[st
     Stage 6: Bank Disbursement & UTR Stamping (Payment Releaser).
     Validates claim status and stamps bank UTR reference, marking claim as 'Paid'.
     """
+    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+    user_roles = set(frappe.get_roles(user)) if user else set()
+    authorized_roles = {"Payment Releaser", "Accounts Director", "System Manager", "Administrator"}
+    if user != "Administrator" and not user_roles.intersection(authorized_roles):
+        raise APSecurityError("Unauthorized: Only Payment Releaser or Accounts Director can disburse commercial vendor invoices.")
+
     if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
         frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
 
@@ -803,7 +820,6 @@ def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[st
         frappe.throw("Bank UTR Reference Number is strictly mandatory for disbursement signoff.", title="UTR Required")
 
     doc = frappe.get_doc("Vendor Invoice Claim", docname)
-    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
 
     if doc.status not in ("Approved for Payment", "Queued in Batch"):
         frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not ready for bank disbursement.")

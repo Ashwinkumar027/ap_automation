@@ -475,7 +475,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "PO Status",
-   "options": "Draft\nPending Manager Approval\nPending HoD Approval\nPending Signatory Approval\nAwaiting Vendor E-Signature\nActive PO\nCompleted / Invoiced\nCancelled",
+   "options": "Draft\nPending HoD Approval\nAwaiting Vendor E-Signature\nActive PO\nCompleted / Invoiced\nCancelled",
    "read_only": 1
   }
  ],

@@ -315,6 +315,17 @@ class VendorInvoiceClaim(APDocument):
             self.tds_amount = getattr(self, "tds_amount", 0.0) or 0.0
 
         tds = float(getattr(self, "tds_amount", 0.0) or 0.0)
+        total_deductions = round(advance + tds, 2)
+        if is_submitting and total_deductions > total:
+            log_and_throw(
+                f"Total Deductions Exceed Invoice Total: Prior Advance Deducted (INR {advance:,.2f}) + "
+                f"Statutory TDS Withholding (INR {tds:,.2f}) = INR {total_deductions:,.2f}, which exceeds "
+                f"Total Invoice Amount (INR {total:,.2f}). Net payable cannot be negative. "
+                f"Please adjust Advance Deducted to at most INR {round(max(total - tds, 0.0), 2):,.2f}.",
+                title="Deductions Exceed Invoice Amount",
+                doc=self
+            )
+
         net = round(max(total - advance - tds, 0.0), 2)
         self.net_payable_amount = net
         self.total_amount = net
@@ -457,7 +468,7 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
                 exc=APSecurityError
             )
 
-        now_ts = frappe.utils.now_datetime()
+    now_ts = frappe.utils.now_datetime()
     doc.manager_approver = user
     doc.manager_approved_on = now_ts
 
@@ -469,15 +480,17 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
         company=company,
         document_lane="AP Vendor Invoice",
         level_number=1,
-        fallback_roles=["Accounts Director", "Director Tier"],
+        fallback_roles=["AP Director", "Accounts Director", "Director Tier", "Director"],
         stage_keyword="Director"
     )
     user_roles = frappe.get_roles(user)
     is_also_director = (
         user == bus_head or
         user in matrix_dirs or
+        "AP Director" in user_roles or
         "Accounts Director" in user_roles or
-        "Director Tier" in user_roles
+        "Director Tier" in user_roles or
+        "Director" in user_roles
     )
 
     if is_also_director:
@@ -582,11 +595,11 @@ def approve_vendor_claim_by_director(docname: str, remarks: Optional[str] = None
             company=company,
             document_lane="AP Vendor Invoice",
             level_number=2,
-            fallback_roles=["Accounts Director", "Director Tier"],
+            fallback_roles=["AP Director", "Accounts Director", "Director Tier", "Director"],
             stage_keyword="Director"
         )
         user_roles = frappe.get_roles(user)
-        is_auth = (user == bus_head or user in matrix_dirs or "Accounts Director" in user_roles or "Director Tier" in user_roles)
+        is_auth = (user == bus_head or user in matrix_dirs or "AP Director" in user_roles or "Accounts Director" in user_roles or "Director Tier" in user_roles or "Director" in user_roles)
         if not is_auth:
             frappe.throw(
                 f"Access Denied: You ('{user}') are not the designated Business Head or Director for '{company}'.",
@@ -715,10 +728,10 @@ def approve_vendor_claim_by_accounts_l2(docname: str, remarks: Optional[str] = N
             company=company,
             document_lane="AP Vendor Invoice",
             level_number=4,
-            fallback_roles=["Accounts Director", "Accounts Manager"],
+            fallback_roles=["AP Director", "Accounts Director", "Accounts Manager"],
             stage_keyword="Accounts L2"
         )
-        if not (user in matrix_l2 or any(r in user_roles for r in ["Accounts Director", "Accounts Manager"])):
+        if not (user in matrix_l2 or any(r in user_roles for r in ["AP Director", "Accounts Director", "Accounts Manager"])):
             frappe.throw(
                 "Access Denied: Accounts L2 Approval requires designated Accounts L2 Approver or 'Accounts Director' role.",
                 title="Accounts Director Required",
@@ -795,6 +808,12 @@ def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[st
     Stage 6: Bank Disbursement & UTR Stamping (Payment Releaser).
     Validates claim status and stamps bank UTR reference, marking claim as 'Paid'.
     """
+    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+    user_roles = set(frappe.get_roles(user)) if user else set()
+    authorized_roles = {"Payment Releaser", "AP Director", "Accounts Director", "System Manager", "Administrator"}
+    if user != "Administrator" and not user_roles.intersection(authorized_roles):
+        raise APSecurityError("Unauthorized: Only Payment Releaser or Accounts Director can disburse commercial vendor invoices.")
+
     if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
         frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
 
@@ -802,7 +821,6 @@ def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[st
         frappe.throw("Bank UTR Reference Number is strictly mandatory for disbursement signoff.", title="UTR Required")
 
     doc = frappe.get_doc("Vendor Invoice Claim", docname)
-    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
 
     if doc.status not in ("Approved for Payment", "Queued in Batch"):
         frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not ready for bank disbursement.")

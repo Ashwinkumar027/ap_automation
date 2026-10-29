@@ -48,6 +48,15 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
 
     if is_ap_po:
         ap_po = frappe.get_doc("AP Purchase Order", po_name)
+        allowed_po_statuses = ("Approved / Issued", "Signed by Vendor", "Issued", "Approved", "Completed")
+        if getattr(ap_po, "status", None) and ap_po.status not in allowed_po_statuses:
+            claim_doc.match_status = "Invalid PO Status"
+            claim_doc.match_variance_details = (
+                f"Cannot match against AP Purchase Order #{po_name}: current PO status is '{ap_po.status}', "
+                f"expected an approved/issued PO (one of {allowed_po_statuses})."
+            )
+            return {"status": "invalid_po_status", "message": claim_doc.match_variance_details}
+
         po_contracted_total = float(getattr(ap_po, "net_taxable_value", 0.0) or getattr(ap_po, "grand_total", 0.0) or getattr(ap_po, "net_total", 0.0) or 0.0)
         po_advance_amount = float(getattr(ap_po, "advance_amount", 0.0) or 0.0)
         # Check if service-based PO
@@ -87,12 +96,12 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
             pr_name = linked_prs[0].parent
             claim_doc.purchase_receipt = pr_name
 
-    # Missing GRN Guard for physical goods on ERPNext PO
-    if not pr_name and is_std_po and not po_is_service:
+    # Missing GRN Guard for physical goods (both Standard PO and AP Purchase Order)
+    if not pr_name and not po_is_service:
         claim_doc.match_status = "Missing GRN Flagged"
         claim_doc.match_variance_details = (
-            f"Missing GRN Alert: No submitted Goods Receipt Note (Purchase Receipt) exists for PO #{po_name}. "
-            "Goods must be physically received in warehouse before payment approval."
+            f"Missing GRN Alert: No Goods Receipt Note (Purchase Receipt) is linked for PO #{po_name}. "
+            "Physical items must be physically received in warehouse and verified before payment approval."
         )
         return {
             "status": "missing_grn",

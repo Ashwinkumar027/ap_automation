@@ -927,14 +927,14 @@ def notify_releaser_on_weekly_batch_approved(batch_name: str) -> None:
 def notify_event_imprest_submitted(advance_doc) -> None:
     """
     Triggered when Event SPOC submits an Event Imprest Proposal.
-    TO: Business Head (Anish Sir / Dileep Sir based on entity / role)
+    TO: Executive Director (Anish Sir / Dileep Sir based on entity / role)
     CC: Accounts Team (Gokulnath - Accounts L1 & Accounts Director)
     """
     if isinstance(advance_doc, str):
         advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
 
     company = advance_doc.company or ""
-    # Dynamically resolve Business Head from Company or AP Approval Matrix
+    # Dynamically resolve Director / Business Head from Company or AP Approval Matrix
     bh_email = frappe.db.get_value("Company", company, "ap_business_head") if company else None
     if not bh_email:
         from ap_automation.services.approval_service import get_applicable_matrix
@@ -946,8 +946,8 @@ def notify_event_imprest_submitted(advance_doc) -> None:
                     bh_email = lvl.designated_approver
                     break
 
-    # Fetch Business Head users
-    bh_users = _get_role_recipients(["Business Head", "Director"])
+    # Fetch Director & Business Head users
+    bh_users = _get_role_recipients(["Director", "Business Head"])
     if bh_email and bh_email not in bh_users:
         bh_users.append(bh_email)
 
@@ -963,8 +963,8 @@ def notify_event_imprest_submitted(advance_doc) -> None:
     subject = f"🎟️ [Approval Required] Event Imprest Proposal #{advance_doc.name} - {event_name} (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
         title="Event Imprest Proposal Submitted",
-        subtitle=f"Stage 1 &bull; Business Head Sanction Required",
-        greeting_name="Business Head",
+        subtitle=f"Stage 1 &bull; Director Sanction Required",
+        greeting_name="Director",
         main_message=(
             f"An itemized Imprest Proposal has been submitted for upcoming event <b>'{event_name}'</b> ({company}).<br><br>"
             f"• <b>Direct Vendor Payments:</b> ₹ {_safe_fmt_money(direct_amt)}<br>"
@@ -987,7 +987,7 @@ def notify_event_imprest_submitted(advance_doc) -> None:
 
 def notify_event_imprest_sanctioned(advance_doc) -> None:
     """
-    Triggered when Business Head sanctions the Event Imprest Proposal.
+    Triggered when Director sanctions the Event Imprest Proposal.
     TO: Accounts Team (Gokulnath - Accounts L1 & Accounts Director)
     CC: Event SPOC
     """
@@ -1005,13 +1005,13 @@ def notify_event_imprest_sanctioned(advance_doc) -> None:
     direct_amt = float(getattr(advance_doc, "total_direct_vendor_amount", 0.0) or 0.0)
     cash_amt = float(getattr(advance_doc, "total_cash_imprest_amount", 0.0) or 0.0)
 
-    subject = f"✅ [Ready for Disbursal] Event Imprest #{advance_doc.name} Sanctioned by Business Head (₹ {_safe_fmt_money(amount)})"
+    subject = f"✅ [Ready for Disbursal] Event Imprest #{advance_doc.name} Sanctioned by Director (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
-        title="Event Imprest Sanctioned by Business Head",
+        title="Event Imprest Sanctioned by Director",
         subtitle=f"Stage 2 &bull; Accounts Corporate Bank Disbursal Queue",
         greeting_name="Accounts Team",
         main_message=(
-            f"Business Head has officially sanctioned the Imprest Proposal for <b>'{event_name}'</b>.<br><br>"
+            f"Director has officially sanctioned the Imprest Proposal for <b>'{event_name}'</b>.<br><br>"
             f"• <b>Total Sanctioned:</b> ₹ {_safe_fmt_money(amount)}<br>"
             f"• <b>Direct Vendor Payments:</b> ₹ {_safe_fmt_money(direct_amt)} (Bank A/C verified)<br>"
             f"• <b>Cash Imprest to SPOC:</b> ₹ {_safe_fmt_money(cash_amt)}<br><br>"
@@ -1020,7 +1020,7 @@ def notify_event_imprest_sanctioned(advance_doc) -> None:
         metric_label_1="Sanctioned Payout",
         metric_val_1=f"₹ {_safe_fmt_money(amount)}",
         metric_label_2="Sanctioned By",
-        metric_val_2=f"{advance_doc.approved_by_business_head or 'Business Head'}",
+        metric_val_2=f"{advance_doc.approved_by_business_head or 'Director'}",
         doc_url=doc_url,
         button_text="Review & Disburse",
         badge_color="#16a34a"

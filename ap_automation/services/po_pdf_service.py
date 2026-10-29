@@ -470,6 +470,18 @@ def approve_and_digitally_sign_po(po_name: str, signatory_name: str = None):
     if current_user == "Guest":
         frappe.throw(_("Please login to approve and digitally sign this Purchase Order."))
 
+    # Role & Permission Check
+    roles = frappe.get_roles(current_user)
+    is_admin = "System Manager" in roles or current_user == "Administrator"
+    is_director = any(r in roles for r in ["AP Director", "Director", "Accounts Director"])
+    is_signatory = (getattr(doc, "authorised_signatory", None) and doc.authorised_signatory == current_user)
+
+    if not (is_admin or is_director or is_signatory):
+        frappe.throw(_("Access Denied: Only the Authorised Signatory or Director can approve and digitally sign this Purchase Order."))
+
+    if doc.status not in ("Pending HoD Approval", "Draft"):
+        frappe.throw(_(f"Purchase Order cannot be approved in '{doc.status}' status."))
+
     # Generate Cryptographic SHA-256 seal
     timestamp_str = now_datetime().strftime("%Y-%m-%d %H:%M:%S")
     ip_addr = frappe.local.request_ip or "127.0.0.1"
@@ -477,19 +489,31 @@ def approve_and_digitally_sign_po(po_name: str, signatory_name: str = None):
     full_hash = hashlib.sha256(raw_payload.encode("utf-8")).hexdigest()
     short_hash = f"SHA256:{full_hash[:4].upper()}-{full_hash[4:8].upper()}-{full_hash[8:12].upper()}-{full_hash[12:16].upper()}"
 
-    # Update PO Document
-    doc.status = "Active PO"
+    # Update PO Document to Awaiting Vendor E-Signature (Vendor has not signed yet)
+    doc.status = "Awaiting Vendor E-Signature"
     doc.signatory_name = chosen_signatory
     doc.signatory_designation = designation
     doc.signatory_signature_hash = short_hash
-    doc.vendor_signed_timestamp = now_datetime()
-    doc.vendor_signed_ip = ip_addr
-    doc.vendor_signed_by = f"{chosen_signatory} ({current_user})"
+    if not getattr(doc, "date_of_issue", None):
+        doc.date_of_issue = frappe.utils.nowdate()
+    doc.ensure_vendor_esign_token()
     doc.flags.ignore_permissions = True
     doc.save()
 
+    # Automatically dispatch E-Sign Link to Vendor via Email
+    try:
+        doc.send_po_to_vendor_for_esign()
+    except Exception as e:
+        frappe.log_error(f"Error auto-dispatching PO to vendor for e-sign: {e}")
+
     # Add system comment / audit log
-    doc.add_comment("Comment", f"🎉 Purchase Order approved & digitally certified by <b>{chosen_signatory}</b> ({designation}) on {timestamp_str} IST. Auth Hash: <code>{short_hash}</code>")
+    doc.add_comment(
+        "Comment",
+        f"🎉 Purchase Order approved & digitally certified by <b>{chosen_signatory}</b> ({designation}) on {timestamp_str} IST.<br>"
+        f"Auth Hash: <code>{short_hash}</code><br>"
+        f"Status transitioned to: <span class='indicator-pill orange'>Awaiting Vendor E-Signature</span>.<br>"
+        f"Secure digital signing link dispatched to Vendor (<b>{doc.vendor_email}</b>)."
+    )
 
     return {
         "status": "success",

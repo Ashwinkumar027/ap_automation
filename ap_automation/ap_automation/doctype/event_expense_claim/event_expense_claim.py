@@ -26,6 +26,9 @@ class EventExpenseClaim(APDocument):
             raise APValidationError("Linked Event Master is mandatory.")
 
         event_doc = frappe.get_doc("Event Master", self.event)
+        if event_doc.status in ("Closed", "Cancelled"):
+            raise APValidationError(f"Event '{self.event}' is {event_doc.status}. No expense claims can be filed against a closed or cancelled event.")
+
         self.company = event_doc.company
         self.spoc = event_doc.event_spoc
 

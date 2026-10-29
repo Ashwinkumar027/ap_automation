@@ -129,7 +129,7 @@ def validate_advance_request(advance_doc) -> None:
     # Concurrency Protection: Calculate pending advances currently in pipeline
     pending_filters: Dict[str, Any] = {
         "event": event_name,
-        "status": ["in", ["Pending Business Head Approval", "Approved by Business Head", "Pending Accounts Disbursal", "Queued in Batch"]],
+        "status": ["in", ["Pending Director Sanction", "Pending Business Head Approval", "Approved by Director", "Approved by Business Head", "Pending Accounts Disbursal", "Queued in Batch"]],
         "docstatus": ["!=", 2]
     }
     doc_name = getattr(advance_doc, "name", None)

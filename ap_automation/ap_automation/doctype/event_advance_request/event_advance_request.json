@@ -200,13 +200,13 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Business Head Approval\nApproved by Business Head\nPending Accounts Disbursal\nQueued in Batch\nDisbursed\nRejected",
+   "options": "Draft\nPending Director Sanction\nPending Business Head Approval\nApproved by Director\nApproved by Business Head\nPending Accounts Disbursal\nQueued in Batch\nDisbursed\nRejected",
    "allow_on_submit": 1
   },
   {
    "fieldname": "approved_by_business_head",
    "fieldtype": "Link",
-   "label": "Sanctioned By (Business Head)",
+   "label": "Sanctioned By (Director)",
    "options": "User",
    "read_only": 1,
    "allow_on_submit": 1
@@ -214,14 +214,14 @@
   {
    "fieldname": "business_head_approval_date",
    "fieldtype": "Datetime",
-   "label": "Business Head Sanction Timestamp",
+   "label": "Director Sanction Timestamp",
    "read_only": 1,
    "allow_on_submit": 1
   },
   {
    "fieldname": "business_head_comments",
    "fieldtype": "Small Text",
-   "label": "Business Head Comments",
+   "label": "Director Comments",
    "read_only": 1,
    "allow_on_submit": 1
   },

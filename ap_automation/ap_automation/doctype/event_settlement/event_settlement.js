@@ -17,6 +17,12 @@ frappe.ui.form.on("Event Settlement", {
         }
     },
 
+    onload: function(frm) {
+        if (frm.is_new() && frm.doc.event) {
+            frm.trigger('event');
+        }
+    },
+
     refresh: function(frm) {
         render_settlement_verdict_card(frm);
         setup_settlement_workflow_actions(frm);

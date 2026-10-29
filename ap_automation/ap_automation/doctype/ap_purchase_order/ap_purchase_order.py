@@ -198,9 +198,13 @@ class APPurchaseOrder(Document):
         if not getattr(self, "date_of_issue", None):
             self.date_of_issue = nowdate()
 
+        if getattr(self, "signatory_signature_hash", None) and self.signatory_signature_hash.startswith("SHA256:"):
+            return
+
         sign_name = getattr(self, "signatory_name", "Anshul Gupta") or "Anshul Gupta"
         raw = f"PO|{self.name or 'DRAFT'}|{self.company_entity}|{getattr(self, 'vendor', '')}|{flt(self.grand_total):.2f}|{self.date_of_issue}|{sign_name}"
-        self.signatory_signature_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        full_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        self.signatory_signature_hash = f"SHA256:{full_hash[:4].upper()}-{full_hash[4:8].upper()}-{full_hash[8:12].upper()}-{full_hash[12:16].upper()}" 
 
     def ensure_vendor_esign_token(self):
         """Generates secure token and public signing URL for vendor once, keeping it immutable."""
@@ -280,3 +284,99 @@ class APPurchaseOrder(Document):
         except Exception as e:
             frappe.log_error(f"PO rejection notification error: {e}")
         return {"status": "success", "message": "Purchase Order marked as rejected by vendor."}
+
+    @frappe.whitelist()
+    def submit_for_hod_approval(self):
+        """Transitions PO from Draft to Pending HoD Approval after rigorous validation."""
+        if self.status not in ("Draft", "", None):
+            frappe.throw(f"Only Draft Purchase Orders can be submitted for HoD approval. Current status is '{self.status}'.")
+
+        if not self.get("items") or len(self.get("items")) == 0:
+            frappe.throw("Cannot submit Purchase Order without line items.")
+
+        for idx, item in enumerate(self.get("items"), 1):
+            if flt(item.qty) <= 0:
+                frappe.throw(f"Row #{idx}: Quantity must be greater than zero.")
+            if flt(item.rate) <= 0:
+                frappe.throw(f"Row #{idx}: Rate must be greater than zero.")
+
+        if not getattr(self, "vendor_email", None):
+            frappe.throw("Vendor Email is mandatory for Purchase Order submission.")
+
+        if not getattr(self, "spoc_email", None) or not getattr(self, "spoc_name", None):
+            frappe.throw("SPOC Name and Official Email are mandatory for Purchase Order submission.")
+
+        # Ensure Authorised Signatory is specified
+        if not getattr(self, "authorised_signatory", None) and not getattr(self, "signatory_name", None):
+            frappe.throw("Authorised Signatory must be selected before submitting for approval.")
+
+        self.status = "Pending HoD Approval"
+        self.save(ignore_permissions=True)
+
+        # Add timeline audit comment
+        self.add_comment(
+            "Comment",
+            f"🚀 <b>PO Submitted for HoD / Director Approval</b> by <b>{frappe.session.user}</b>.<br>"
+            f"Awaiting review and digital signature by <b>{self.signatory_name or self.authorised_signatory}</b>."
+        )
+
+        # Dispatch HoD notification and In-Desk Notification Log
+        try:
+            from ap_automation.services.notification_service import notify_hod_for_po_approval
+            notify_hod_for_po_approval(self.name)
+        except Exception as e:
+            frappe.log_error(f"Error dispatching HoD notification: {e}")
+
+        return {"status": "success", "message": f"Purchase Order #{self.name} submitted for HoD / Director Approval."}
+
+    @frappe.whitelist()
+    def reject_by_hod(self, remarks: str = "Commercial discrepancy"):
+        """Allows HoD / Signatory / Director to return PO to Draft with specific remarks."""
+        current_user = frappe.session.user
+        roles = frappe.get_roles(current_user)
+        is_admin = "System Manager" in roles or current_user == "Administrator"
+        is_director = any(r in roles for r in ["AP Director", "Director", "Accounts Director"])
+        is_signatory = (getattr(self, "authorised_signatory", None) and self.authorised_signatory == current_user)
+
+        if not (is_admin or is_director or is_signatory):
+            frappe.throw("Only the Authorised Signatory, Director, or System Manager can return this Purchase Order.")
+
+        if self.status != "Pending HoD Approval":
+            frappe.throw(f"Only Purchase Orders in 'Pending HoD Approval' can be returned. Current status is '{self.status}'.")
+
+        self.status = "Draft"
+        self.save(ignore_permissions=True)
+
+        # Add timeline comment
+        self.add_comment(
+            "Comment",
+            f"❌ <b>Returned to Draft by HoD / Signatory</b> ({current_user}).<br>"
+            f"Remarks: <span style='color: #dc2626;'>{remarks}</span>"
+        )
+
+        # Notify SPOC
+        try:
+            from ap_automation.services.notification_service import notify_spoc_po_rejected_by_hod
+            notify_spoc_po_rejected_by_hod(self.name, remarks)
+        except Exception as e:
+            frappe.log_error(f"Error dispatching PO return notification: {e}")
+
+        return {"status": "success", "message": f"Purchase Order #{self.name} returned to Draft."}
+
+
+@frappe.whitelist()
+def submit_for_hod_approval(po_name: str):
+    """Module-level whitelisted API to submit PO for HoD approval."""
+    if not po_name:
+        frappe.throw("PO Name is required.")
+    doc = frappe.get_doc("AP Purchase Order", po_name)
+    return doc.submit_for_hod_approval()
+
+
+@frappe.whitelist()
+def reject_by_hod(po_name: str, remarks: str = "Commercial discrepancy"):
+    """Module-level whitelisted API to return PO from HoD review."""
+    if not po_name:
+        frappe.throw("PO Name is required.")
+    doc = frappe.get_doc("AP Purchase Order", po_name)
+    return doc.reject_by_hod(remarks)

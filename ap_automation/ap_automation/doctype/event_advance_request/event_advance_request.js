@@ -35,17 +35,17 @@ frappe.ui.form.on("Event Advance Request", {
             const is_bh = user_roles.includes('Business Head') || user_roles.includes('Director') || user_roles.includes('Director Tier') || is_sys_mgr;
             const is_accounts = user_roles.includes('Accounts L1 Auditor') || user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || user_roles.includes('Payment Releaser') || is_sys_mgr;
 
-            // STAGE 1: Business Head Sanction Action
-            if (frm.doc.status === 'Pending Business Head Approval') {
-                frm.page.set_indicator(__('Pending Business Head Approval'), 'orange');
+            // STAGE 1: Director Sanction Action
+            if (frm.doc.status === 'Pending Director Sanction' || frm.doc.status === 'Pending Business Head Approval') {
+                frm.page.set_indicator(__('Pending Director Sanction'), 'orange');
                 if (is_bh) {
-                    frm.add_custom_button(__('✅ Sanction Imprest (Business Head)'), function() {
+                    frm.add_custom_button(__('✅ Sanction Imprest (Director)'), function() {
                         frappe.prompt([
                             {
                                 fieldname: 'comments',
                                 fieldtype: 'Small Text',
-                                label: __('Sanction Notes / Justification (Optional)'),
-                                default: 'Approved for event operations.'
+                                label: __('Director Sanction Notes / Justification (Optional)'),
+                                default: 'Sanctioned for event operations.'
                             }
                         ], function(values) {
                             frappe.call({
@@ -63,7 +63,7 @@ frappe.ui.form.on("Event Advance Request", {
                                     }
                                 }
                             });
-                        }, __('Sanction Event Imprest'), __('Sanction'));
+                        }, __('Sanction Event Imprest (Director)'), __('Sanction'));
                     }).addClass('btn-success');
 
                     frm.add_custom_button(__('❌ Reject Proposal'), function() {

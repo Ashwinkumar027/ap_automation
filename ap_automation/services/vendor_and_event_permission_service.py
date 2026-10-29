@@ -8,6 +8,7 @@ ACCOUNTS_GLOBAL_ROLES = {
     "Accounts Director",
     "Accounts Manager",
     "Payment Releaser",
+    "AP Director",
 }
 
 
@@ -128,8 +129,8 @@ def has_admin_weekly_vendor_permission(doc, user: Optional[str] = None, ptype: s
 def get_event_advance_permission_query_conditions(user: Optional[str] = None) -> str:
     """
     Accounts team sees ALL Event Advance Requests.
-    Receptionists, Admins, and Employees ONLY see requests created by themselves
-    or where they are designated SPOC / Business Head.
+    Business Heads & Directors see all requests in 'Pending Business Head Approval' or where they approved.
+    Receptionists, Admins, and Employees ONLY see requests created by themselves or where they are SPOC.
     """
     if not user:
         user = frappe.session.user
@@ -138,6 +139,17 @@ def get_event_advance_permission_query_conditions(user: Optional[str] = None) ->
         return ""
 
     escaped_user = frappe.db.escape(user)
+    user_roles = set(frappe.get_roles(user)) if user else set()
+    is_bh = bool(user_roles.intersection({"Business Head", "Director", "Director Tier", "Business Head Approver", "AP Director"}))
+
+    if is_bh:
+        return f"""(
+            `tabEvent Advance Request`.`owner` = {escaped_user}
+            OR `tabEvent Advance Request`.`spoc` = {escaped_user}
+            OR `tabEvent Advance Request`.`status` IN ('Pending Director Sanction', 'Pending Business Head Approval')
+            OR `tabEvent Advance Request`.`approved_by_business_head` = {escaped_user}
+        )"""
+
     return f"""(
         `tabEvent Advance Request`.`owner` = {escaped_user}
         OR `tabEvent Advance Request`.`spoc` = {escaped_user}
@@ -152,6 +164,11 @@ def has_event_advance_permission(doc, user: Optional[str] = None, ptype: str = "
         return None
 
     if is_accounts_user(user):
+        return True
+
+    user_roles = set(frappe.get_roles(user)) if user else set()
+    is_bh = bool(user_roles.intersection({"Business Head", "Director", "Director Tier", "Business Head Approver", "AP Director"}))
+    if is_bh and getattr(doc, "status", "") in ("Pending Director Sanction", "Pending Business Head Approval"):
         return True
 
     return bool(

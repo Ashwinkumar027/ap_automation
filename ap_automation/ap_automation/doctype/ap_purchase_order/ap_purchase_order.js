@@ -4,6 +4,15 @@
 frappe.ui.form.on('AP Purchase Order', {
     refresh: function(frm) {
         frm.set_df_property('status', 'read_only', 1);
+        let is_draft = (!frm.doc.status || frm.doc.status === 'Draft');
+        frm.set_df_property('items', 'read_only', !is_draft);
+        frm.set_df_property('vendor', 'read_only', !is_draft);
+        frm.set_df_property('company_entity', 'read_only', !is_draft);
+        frm.set_df_property('advance_percentage', 'read_only', !is_draft);
+        frm.set_df_property('payment_terms_clause', 'read_only', !is_draft);
+        frm.set_df_property('authorised_signatory', 'read_only', !is_draft);
+        frm.set_df_property('signatory_name', 'read_only', !is_draft);
+
         render_entity_letterhead_banner(frm);
         render_custom_po_actions(frm);
         update_dynamic_commercial_pills(frm);
@@ -261,24 +270,55 @@ function update_dynamic_commercial_pills(frm) {
 }
 
 function render_custom_po_actions(frm) {
-    if (!frm.is_new()) {
-        // 1. Download PO PDF Button
-        frm.add_custom_button(__('📄 Download PO (PDF)'), function() {
-            const url = `/api/method/ap_automation.services.po_pdf_service.download_purchase_order_pdf?po_name=${encodeURIComponent(frm.doc.name)}`;
-            window.open(url, '_blank');
+    if (frm.is_new()) return;
+
+    // 1. Download PO PDF Button (Universal)
+    frm.add_custom_button(__('📄 Download PO (PDF)'), function() {
+        const url = `/api/method/ap_automation.services.po_pdf_service.download_purchase_order_pdf?po_name=${encodeURIComponent(frm.doc.name)}`;
+        window.open(url, '_blank');
+    }).addClass('btn-secondary');
+
+    // 2. Draft Status: Submitter Action -> Submit for HoD Approval
+    if (frm.doc.status === 'Draft' || !frm.doc.status) {
+        frm.add_custom_button(__('🚀 Submit for HoD Approval'), function() {
+            frappe.confirm(
+                `Are you sure you want to submit Purchase Order <strong>#${frm.doc.name}</strong> for HoD / Director Approval?`,
+                function() {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.ap_purchase_order.ap_purchase_order.submit_for_hod_approval',
+                        args: { po_name: frm.doc.name },
+                        freeze: true,
+                        freeze_message: __('Submitting PO for HoD Review...'),
+                        callback: function(r) {
+                            if (r.message && r.message.status === 'success') {
+                                frappe.show_alert({ message: __('🚀 ' + r.message.message), indicator: 'green' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }
+            );
         }).addClass('btn-primary').css({
-            'background-color': '#1e3a8a',
-            'border-color': '#172554',
+            'background-color': '#1d4ed8',
+            'border-color': '#1e40af',
             'color': '#ffffff',
             'font-weight': '700'
         });
+    }
 
-        // 2. Approve & Digitally Sign PO Button
-        if (frm.doc.status !== 'Active PO') {
+    // 3. Pending HoD Approval Status: HoD / Director / Signatory Review
+    if (frm.doc.status === 'Pending HoD Approval') {
+        let current_user = frappe.session.user;
+        let is_signatory = (frm.doc.authorised_signatory && frm.doc.authorised_signatory === current_user);
+        let is_admin = frappe.user.has_role('System Manager') || current_user === 'Administrator';
+        let is_director = frappe.user.has_role('AP Director') || frappe.user.has_role('Director') || frappe.user.has_role('Accounts Director');
+
+        if (is_signatory || is_admin || is_director) {
+            // Approve & Sign Button
             frm.add_custom_button(__('✔ Approve & Sign PO'), function() {
                 let current_sig = frm.doc.signatory_name || 'Director';
                 frappe.confirm(
-                    `Are you sure you want to <strong>Approve & Digitally Sign</strong> Purchase Order <strong>#${frm.doc.name}</strong> as <strong>${current_sig}</strong>?`,
+                    `Are you sure you want to <strong>Approve & Digitally Sign</strong> Purchase Order <strong>#${frm.doc.name}</strong> as <strong>${current_sig}</strong>?<br><small style="color: #64748b;">This will apply your digital SHA-256 seal and automatically dispatch the E-Sign link to the vendor.</small>`,
                     function() {
                         frappe.call({
                             method: 'ap_automation.services.po_pdf_service.approve_and_digitally_sign_po',
@@ -287,11 +327,11 @@ function render_custom_po_actions(frm) {
                                 signatory_name: frm.doc.signatory_name
                             },
                             freeze: true,
-                            freeze_message: __('Certifying Digital Signature & Activating PO...'),
+                            freeze_message: __('Certifying Digital Signature & Dispatching to Vendor...'),
                             callback: function(r) {
                                 if (r.message && r.message.status === 'success') {
                                     frappe.show_alert({
-                                        message: __('🎉 PO Approved & Digitally Certified by ' + r.message.signatory_name),
+                                        message: __('🎉 PO Approved & Certified by ' + r.message.signatory_name + '. Dispatched to vendor.'),
                                         indicator: 'green'
                                     }, 6);
                                     frm.reload_doc();
@@ -306,30 +346,80 @@ function render_custom_po_actions(frm) {
                 'color': '#ffffff',
                 'font-weight': '700'
             });
-        }
 
-        // Actions menu for other utilities
-        if (frm.doc.grand_total > 0) {
-            if (frm.doc.vendor_sign_url) {
-                frm.add_custom_button(__('📋 Copy E-Sign Link'), function() {
-                    if (navigator.clipboard && navigator.clipboard.writeText) {
-                        navigator.clipboard.writeText(frm.doc.vendor_sign_url).then(() => {
-                            frappe.show_alert({
-                                message: __('📋 Vendor E-Sign Portal URL copied to clipboard!'),
-                                indicator: 'green'
-                            }, 5);
-                        });
-                    } else {
-                        frappe.prompt([
-                            { fieldname: 'sign_url', fieldtype: 'Small Text', label: 'Vendor Signing URL', default: frm.doc.vendor_sign_url, read_only: 1 }
-                        ], null, __('Vendor Signing URL'));
-                    }
-                }, __('Actions'));
-
-                frm.add_custom_button(__('↗️ Open Signing Portal'), function() {
-                    window.open(frm.doc.vendor_sign_url, '_blank');
-                }, __('Actions'));
-            }
+            // Return to Draft Button
+            frm.add_custom_button(__('❌ Return to Draft'), function() {
+                frappe.prompt([
+                    { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Return Reason / Discrepancy Remarks'), reqd: 1 }
+                ], function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.ap_purchase_order.ap_purchase_order.reject_by_hod',
+                        args: { po_name: frm.doc.name, remarks: values.remarks },
+                        freeze: true,
+                        freeze_message: __('Returning PO to Draft...'),
+                        callback: function(r) {
+                            frappe.show_alert({ message: __('❌ PO Returned to Draft'), indicator: 'orange' });
+                            frm.reload_doc();
+                        }
+                    });
+                }, __('Reject & Return PO'), __('Return to Draft'));
+            }).addClass('btn-danger').css({
+                'background-color': '#dc2626',
+                'border-color': '#b91c1c',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
         }
     }
+
+    // 4. Awaiting Vendor E-Signature Status
+    if (frm.doc.status === 'Awaiting Vendor E-Signature') {
+        frm.add_custom_button(__('✉️ Resend E-Sign Link'), function() {
+            frappe.call({
+                method: 'send_po_to_vendor_for_esign',
+                doc: frm.doc,
+                freeze: true,
+                freeze_message: __('Resending E-Sign Link to Vendor...'),
+                callback: function() {
+                    frappe.show_alert({ message: __('✉️ E-Sign link resent to ' + frm.doc.vendor_email), indicator: 'green' });
+                }
+            });
+        }, __('Actions'));
+    }
+
+    // Actions menu for link sharing
+    if (frm.doc.vendor_sign_url) {
+        frm.add_custom_button(__('📋 Copy E-Sign Link'), function() {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(frm.doc.vendor_sign_url).then(() => {
+                    frappe.show_alert({
+                        message: __('📋 Vendor E-Sign Portal URL copied to clipboard!'),
+                        indicator: 'green'
+                    }, 5);
+                });
+            } else {
+                frappe.prompt([
+                    { fieldname: 'sign_url', fieldtype: 'Small Text', label: 'Vendor Signing URL', default: frm.doc.vendor_sign_url, read_only: 1 }
+                ], null, __('Vendor Signing URL'));
+            }
+        }, __('Actions'));
+
+        frm.add_custom_button(__('↗️ Open Signing Portal'), function() {
+            window.open(frm.doc.vendor_sign_url, '_blank');
+        }, __('Actions'));
+    }
+}
+
+// Global realtime listener for instant desk notification when vendor signs
+if (frappe.realtime) {
+    frappe.realtime.off('po_vendor_signed');
+    frappe.realtime.on('po_vendor_signed', function(data) {
+        if (cur_frm && cur_frm.doc && cur_frm.doc.name === data.po_name) {
+            frappe.show_alert({
+                message: __('🎉 ' + (data.text || 'PO digitally signed by vendor! It is now ACTIVE.')),
+                indicator: 'green'
+            }, 10);
+            cur_frm.reload_doc();
+        }
+    });
 }

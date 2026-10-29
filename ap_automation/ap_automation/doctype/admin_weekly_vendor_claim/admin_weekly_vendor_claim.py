@@ -14,6 +14,7 @@ from ap_automation.services.approval_service import (
     validate_approver_identity
 )
 from ap_automation.services.security import resolve_acting_approver
+from ap_automation.services.duplicate_engine import calculate_invoice_fingerprint
 from ap_automation.services.notification_service import (
     notify_admin_weekly_submitted,
     notify_admin_weekly_admin_l1_approved,
@@ -105,6 +106,7 @@ class AdminWeeklyVendorClaim(Document):
             )
 
         is_submitting = getattr(self, "status", "Draft") not in ("Draft", "Rejected")
+        seen_bills = set()
 
         for idx, row in enumerate(self.vendor_lines, start=1):
             if not row.vendor:
@@ -153,6 +155,49 @@ class AdminWeeklyVendorClaim(Document):
                     )
             elif is_submitting:
                 row.bank_beneficiary_name = row.bank_beneficiary_name or supp.supplier_name
+
+            # 1. Intra-Voucher Duplicate Invoice Protection
+            vendor_key = (row.vendor or "").strip()
+            inv_no = (getattr(row, "invoice_number", None) or "").strip().lower()
+            if vendor_key and inv_no:
+                bill_tuple = (vendor_key, inv_no)
+                if bill_tuple in seen_bills:
+                    frappe.throw(
+                        _("Row #{0}: Duplicate Invoice detected! Invoice '{1}' for Vendor '{2}' is entered multiple times in this claim. "
+                          "Duplicate line items within the same claim are strictly prohibited.").format(
+                            idx, row.invoice_number, row.vendor_name or row.vendor
+                        ),
+                        title=_("Duplicate Line Item in Claim"),
+                        exc=APValidationError
+                    )
+                seen_bills.add(bill_tuple)
+
+                # 2. Group-Wide Cross-Lane Duplicate Spend Detection (AP Spend Fingerprint)
+                row_amt = flt(row.total_invoice_amount) or flt(row.amount) or val
+                if row_amt > 0:
+                    inv_hash = calculate_invoice_fingerprint(row.vendor_name or row.vendor, row.invoice_number, row_amt)
+                    collisions = frappe.get_all(
+                        "AP Spend Fingerprint",
+                        filters={
+                            "fingerprint_hash": inv_hash,
+                            "tier": "EXACT_INVOICE",
+                            "status": "ACTIVE"
+                        },
+                        fields=["document_type", "document_name", "company", "invoice_number", "amount"],
+                        limit=1
+                    )
+                    for c in collisions:
+                        if c["document_name"] == self.name:
+                            continue
+                        frappe.throw(
+                            _("Row #{0}: Cross-Lane Duplicate Spend Detected! Invoice '{1}' from '{2}' "
+                              "(Amount: ₹{3:,.2f}) has already been claimed in {4} #{5} under Company '{6}'. "
+                              "Duplicate submissions across spend lanes are strictly blocked.").format(
+                                idx, row.invoice_number, row.vendor_name or row.vendor, row_amt, c["document_type"], c["document_name"], c["company"]
+                            ),
+                            title=_("Cross-Lane Duplicate Spend Detected"),
+                            exc=APValidationError
+                        )
 
     def validate_role_field_permissions(self):
         """
@@ -273,6 +318,54 @@ class AdminWeeklyVendorClaim(Document):
             if old_count != len(self.vendor_lines):
                 frappe.throw(_("Immutability Violation: Approved weekly vouchers cannot be modified."), exc=APSecurityError)
 
+    def before_delete(self):
+        """Hard-blocks deletion of approved or in-process weekly vendor claims."""
+        if getattr(self, "status", "Draft") not in ("Draft", "Rejected"):
+            raise APSecurityError(
+                f"Cannot delete Admin Weekly Vendor Claim '{self.name}' in status '{self.status}'. "
+                "Only Draft or Rejected vouchers can be deleted."
+            )
+
+    def on_cancel(self):
+        """Releases spend fingerprints if claim is cancelled."""
+        self._release_line_spend_fingerprints()
+
+    def _register_line_spend_fingerprints(self):
+        """Registers active line items in AP Spend Fingerprint ledger upon submission."""
+        for row in (self.vendor_lines or []):
+            vendor = (row.vendor_name or row.vendor or "").strip()
+            inv = (getattr(row, "invoice_number", None) or "").strip()
+            amt = flt(row.total_invoice_amount) or flt(row.amount) or flt(row.base_amount)
+            if vendor and inv and amt > 0:
+                inv_hash = calculate_invoice_fingerprint(vendor, inv, amt)
+                if not frappe.db.exists("AP Spend Fingerprint", {"fingerprint_hash": inv_hash, "tier": "EXACT_INVOICE", "status": "ACTIVE"}):
+                    frappe.get_doc({
+                        "doctype": "AP Spend Fingerprint",
+                        "fingerprint_hash": inv_hash,
+                        "tier": "EXACT_INVOICE",
+                        "company": row.company or self.company,
+                        "document_type": self.doctype,
+                        "document_name": self.name,
+                        "payee_name": vendor,
+                        "invoice_number": inv,
+                        "amount": amt,
+                        "status": "ACTIVE"
+                    }).insert(ignore_permissions=True)
+
+    def _release_line_spend_fingerprints(self):
+        """Releases line fingerprints if rejected or returned to Draft."""
+        frappe.db.sql(
+            "UPDATE `tabAP Spend Fingerprint` SET status = 'RELEASED' WHERE document_name = %s AND document_type = %s",
+            (self.name, self.doctype)
+        )
+
+    def _settle_line_spend_fingerprints(self):
+        """Marks line fingerprints as settled upon bank disbursement."""
+        frappe.db.sql(
+            "UPDATE `tabAP Spend Fingerprint` SET status = 'SETTLED' WHERE document_name = %s AND document_type = %s",
+            (self.name, self.doctype)
+        )
+
 
 # --------------------------------------------------------------------------------------
 # WHITELISTED LIFECYCLE WORKFLOW TRANSITION APIS (AP APPROVAL MATRIX ROUTED)
@@ -362,6 +455,9 @@ def submit_to_admin_l1(docname):
     doc.designated_approver = rule_1.designated_approver
     doc.admin_rejection_reason = ""
     doc.save(ignore_permissions=True)
+
+    # Register line spend fingerprints in AP Spend Fingerprint ledger
+    doc._register_line_spend_fingerprints()
 
     doc.add_comment("Comment", text=f"🚀 <b>Submitted to Admin L1:</b> Forwarded to designated approver <b>{doc.designated_approver}</b>.")
 
@@ -555,6 +651,9 @@ def disburse_payment(docname, utr_number=None):
     doc.designated_approver = ""
     doc.save(ignore_permissions=True)
 
+    # Permanently settle fingerprints in ledger
+    doc._settle_line_spend_fingerprints()
+
     doc.add_comment("Comment", text=f"💳 <b>Disbursed & Paid via Bank:</b> UTR Reference #{utr} by {user}.")
 
     # Notification email to Submitter + Accounts
@@ -590,6 +689,7 @@ def reject_or_return(docname, reason_code, remarks, return_to="Draft"):
         doc.status = "Draft"
         doc.current_approval_level = 0
         doc.designated_approver = doc.prepared_by
+        doc._release_line_spend_fingerprints()
     elif return_to == "Pending Admin L1":
         doc.status = "Pending Admin L1"
         doc.current_approval_level = 1

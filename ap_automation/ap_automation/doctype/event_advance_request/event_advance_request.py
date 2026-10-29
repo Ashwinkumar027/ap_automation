@@ -29,6 +29,10 @@ class EventAdvanceRequest(APDocument):
         if not getattr(self, "event", None):
             raise APValidationError("Linked Event Master is mandatory.")
 
+        ev_status = frappe.db.get_value("Event Master", self.event, "status")
+        if ev_status in ("Closed", "Cancelled"):
+            raise APValidationError(f"Event '{self.event}' is {ev_status}. No advance requests can be filed against a closed or cancelled event.")
+
         if not getattr(self, "company", None):
             self.company = frappe.db.get_value("Event Master", self.event, "company")
         if not getattr(self, "letter_head", None) and self.company:
@@ -57,6 +61,15 @@ class EventAdvanceRequest(APDocument):
                 mode = getattr(row, "payment_mode", "Cash / Petty Imprest")
                 if mode == "Direct Vendor Payment":
                     direct_total += amt
+                    is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved")
+                    if is_submitting:
+                        bene = (getattr(row, "beneficiary_name", "") or "").strip()
+                        ac_no = (getattr(row, "bank_account_number", "") or "").strip()
+                        ifsc = (getattr(row, "bank_ifsc_code", "") or "").strip()
+                        if not bene:
+                            raise APValidationError(f"Row #{idx}: Beneficiary / Vendor Name is mandatory for Direct Vendor Payment.")
+                        if not ac_no or not ifsc:
+                            raise APValidationError(f"Row #{idx}: Bank Account Number and IFSC Code are mandatory for Direct Vendor Payment ('{bene or 'Vendor'}').")
                 else:
                     cash_total += amt
 
@@ -76,7 +89,7 @@ class EventAdvanceRequest(APDocument):
 
     def before_submit(self):
         """Set initial status upon submission."""
-        self.status = "Pending Business Head Approval"
+        self.status = "Pending Director Sanction"
 
     def on_submit(self):
         """Trigger notifications to Business Head and Accounts."""
@@ -87,6 +100,11 @@ class EventAdvanceRequest(APDocument):
             notify_event_imprest_submitted(self)
         except Exception as e:
             frappe.log_error(title="Event Imprest Submission Email Error", message=f"Failed to send submission email for {self.name}: {frappe.get_traceback()}")
+
+    def on_cancel(self):
+        """Cancel hook: reverts Event Master budget ledger upon voucher cancellation."""
+        super().on_cancel()
+        update_event_budget_ledger(self.event)
 
 
 @frappe.whitelist()
@@ -103,7 +121,7 @@ def approve_by_business_head(advance_name: str, comments: Optional[str] = None) 
     user_roles = set(frappe.get_roles(user))
     doc = frappe.get_doc("Event Advance Request", advance_name)
 
-    authorized_roles = {"Business Head", "Director", "Accounts Director", "Director Tier", "System Manager", "Administrator"}
+    authorized_roles = {"AP Director", "Business Head", "Director", "Accounts Director", "Director Tier", "System Manager", "Administrator"}
 
     # AP Matrix Governance check
     try:
@@ -127,15 +145,15 @@ def approve_by_business_head(advance_name: str, comments: Optional[str] = None) 
         if not user_roles.intersection(authorized_roles):
             raise APSecurityError("Unauthorized: Only the Business Head or Executive Directors can sanction Event Imprest Proposals.")
 
-    if doc.status != "Pending Business Head Approval":
-        raise APValidationError(f"Cannot approve proposal #{advance_name}: current status is '{doc.status}', expected 'Pending Business Head Approval'.")
+    if doc.status not in ("Pending Director Sanction", "Pending Business Head Approval"):
+        raise APValidationError(f"Cannot approve proposal #{advance_name}: current status is '{doc.status}', expected 'Pending Director Sanction'.")
 
     bh_name = frappe.utils.get_fullname(user) or user
     frappe.db.set_value("Event Advance Request", advance_name, {
         "status": "Pending Accounts Disbursal",
         "approved_by_business_head": bh_name,
         "business_head_approval_date": frappe.utils.now_datetime(),
-        "business_head_comments": comments or "Sanctioned for event operations.",
+        "business_head_comments": comments or "Sanctioned by Director for event operations.",
         "approved_advance_amount": doc.requested_advance_amount
     }, update_modified=True)
     frappe.db.commit()
@@ -152,7 +170,7 @@ def approve_by_business_head(advance_name: str, comments: Optional[str] = None) 
 
     return {
         "status": "SUCCESS",
-        "message": f"Event Imprest Proposal #{advance_name} sanctioned successfully! Forwarded to Accounts for Bank Disbursal.",
+        "message": f"Event Imprest Proposal #{advance_name} sanctioned by Director successfully! Forwarded to Accounts for Bank Disbursal.",
         "advance": advance_name,
         "new_status": doc.status
     }
@@ -169,7 +187,7 @@ def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dic
 
     user = frappe.session.user
     user_roles = set(frappe.get_roles(user))
-    authorized_roles = {"Accounts Manager", "Accounts L1 Auditor", "Accounts Director", "Payment Releaser", "System Manager", "Administrator"}
+    authorized_roles = {"AP Director", "Accounts Manager", "Accounts L1 Auditor", "Accounts Director", "Payment Releaser", "System Manager", "Administrator"}
 
     if not user_roles.intersection(authorized_roles):
         raise APSecurityError("Unauthorized: Only Accounts Team or Payment Releasers can execute imprest disbursal.")

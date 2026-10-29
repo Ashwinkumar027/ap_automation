@@ -1227,6 +1227,160 @@ def check_and_escalate_accounts_l1_slas() -> Dict[str, Any]:
 
 import frappe
 
+def create_desk_notification_log(for_user: str, subject: str, document_type: str, document_name: str, content: str = None) -> None:
+    """Creates a persistent Notification Log entry in Frappe Desk that lights up the top-right bell icon."""
+    if not for_user or for_user == "Guest":
+        return
+    try:
+        # Check if user exists
+        if not frappe.db.exists("User", for_user):
+            # Try to lookup by email
+            user_by_email = frappe.db.get_value("User", {"email": for_user}, "name")
+            if user_by_email:
+                for_user = user_by_email
+            else:
+                return
+
+        if frappe.db.exists("DocType", "Notification Log"):
+            nlog = frappe.new_doc("Notification Log")
+            nlog.for_user = for_user
+            nlog.type = "Alert"
+            nlog.document_type = document_type
+            nlog.document_name = document_name
+            nlog.subject = subject
+            nlog.email_content = content or subject
+            nlog.from_user = frappe.session.user if hasattr(frappe, "session") and frappe.session.user != "Guest" else "Administrator"
+            nlog.insert(ignore_permissions=True)
+            frappe.db.commit()
+    except Exception as e:
+        frappe.log_error(f"Failed to create Notification Log for {for_user}: {e}")
+
+
+def notify_hod_for_po_approval(po_name: str) -> None:
+    """Dispatches email and in-desk notification to HoD / Authorised Signatory for review."""
+    if not frappe.db.exists("AP Purchase Order", po_name):
+        return
+
+    po = frappe.get_doc("AP Purchase Order", po_name)
+    company = po.company_entity
+    vendor_name = po.vendor_name
+    grand_total = float(po.grand_total or 0.0)
+    spoc_name = po.spoc_name or "Department SPOC"
+
+    # Identify HoD recipient
+    approver_user = getattr(po, "authorised_signatory", None)
+    if not approver_user and getattr(po, "company_entity", None):
+        comp = frappe.get_doc("Company", po.company_entity)
+        approver_user = comp.get("ap_business_head") or comp.get("ap_alternate_signatory")
+
+    recipient_email = approver_user
+    if approver_user and "@" not in approver_user:
+        recipient_email = frappe.db.get_value("User", approver_user, "email")
+
+    if not recipient_email:
+        recipient_email = "admin@example.com"
+
+    base_url = frappe.utils.get_url()
+    desk_url = f"{base_url}/desk/ap-purchase-order/{po.name}"
+
+    subject = f"⏳ [PO Approval Needed] #{po.name} - {vendor_name} (₹ {grand_total:,.2f})"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #cbd5e1; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #1e3a8a; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #1e3a8a; font-weight: 700;">Purchase Order Workflow • HoD / Signatory Approval</span>
+            <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 20px;">PO #{po.name} Awaiting Digital Signature</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Department SPOC <b>{spoc_name}</b> has submitted Purchase Order <b>#{po.name}</b> for <b>{vendor_name}</b> for your review and digital signature.
+        </p>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin: 16px 0;">
+            <div style="font-size: 13px; color: #475569;">Company Entity: <b>{company}</b></div>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">Vendor: <b>{vendor_name}</b></div>
+            <div style="font-size: 14px; color: #1e3a8a; font-weight: 700; margin-top: 4px;">Contracted Total: ₹ {grand_total:,.2f}</div>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">Advance Obligation: <b>₹ {float(po.advance_amount or 0.0):,.2f} ({po.advance_percentage or '0%'})</b></div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{desk_url}" style="background: #1e3a8a; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Review & Digitally Sign in Desk &rarr;
+            </a>
+        </div>
+    </div>
+    """
+
+    try:
+        frappe.sendmail(
+            recipients=[recipient_email],
+            subject=subject,
+            message=html,
+            reference_doctype="AP Purchase Order",
+            reference_name=po.name,
+            now=False
+        )
+    except Exception as e:
+        frappe.log_error(f"PO HoD approval email dispatch: {e}")
+
+    # Create persistent In-Desk Notification Log
+    if approver_user:
+        create_desk_notification_log(
+            for_user=approver_user,
+            subject=f"⏳ Action Required: PO #{po.name} ({vendor_name}) awaiting your digital approval",
+            document_type="AP Purchase Order",
+            document_name=po.name,
+            content=f"Submitted by {spoc_name} for ₹ {grand_total:,.2f}"
+        )
+
+
+def notify_spoc_po_rejected_by_hod(po_name: str, remarks: str) -> None:
+    """Notifies SPOC when PO is returned to Draft by HoD."""
+    if not frappe.db.exists("AP Purchase Order", po_name):
+        return
+
+    po = frappe.get_doc("AP Purchase Order", po_name)
+    spoc_email = po.spoc_email
+    spoc_user = po.spoc_user or po.owner
+
+    base_url = frappe.utils.get_url()
+    desk_url = f"{base_url}/desk/ap-purchase-order/{po.name}"
+
+    subject = f"❌ [PO Returned to Draft] #{po.name} - {po.vendor_name}"
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fecaca; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <h2 style="color: #991b1b; font-size: 20px; margin-top: 0;">Purchase Order #{po.name} Returned to Draft</h2>
+        <p style="color: #334155; font-size: 14px;">The Authorised Signatory has returned this PO for modifications.</p>
+        <div style="background: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px; padding: 14px; margin: 16px 0;">
+            <div style="font-size: 13px; color: #991b1b;">Return Remarks: <b style="color: #0f172a;">{remarks}</b></div>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{desk_url}" style="background: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                Open and Modify PO in Desk &rarr;
+            </a>
+        </div>
+    </div>
+    """
+
+    if spoc_email:
+        try:
+            frappe.sendmail(
+                recipients=[spoc_email],
+                subject=subject,
+                message=html,
+                reference_doctype="AP Purchase Order",
+                reference_name=po.name,
+                now=False
+            )
+        except Exception as e:
+            frappe.log_error(f"PO return email error: {e}")
+
+    if spoc_user:
+        create_desk_notification_log(
+            for_user=spoc_user,
+            subject=f"❌ PO #{po.name} Returned to Draft: {remarks}",
+            document_type="AP Purchase Order",
+            document_name=po.name,
+            content=remarks
+        )
+
+
 def notify_on_vendor_po_signed(po_name: str) -> None:
     """
     Dispatches automated post-signature notifications to both parties:
@@ -1336,25 +1490,67 @@ def notify_on_vendor_po_signed(po_name: str) -> None:
         except Exception as e:
             frappe.log_error(f"Vendor PO executed confirmation email: {e}")
 
-    # 3. Add Document Timeline Audit Stamp
+    # 3. Add Document Timeline Audit Stamp (Supports Public Guest executions)
     try:
-        po.add_comment(
-            "Comment",
-            text=f"🖋️ <b>Digital E-Signature Confirmed & Verified</b><br>"
-                 f"Signed by: <b>{signed_by}</b><br>"
-                 f"IP Address: <code>{ip}</code><br>"
-                 f"Timestamp: <code>{signed_time}</code><br>"
-                 f"Status transitioned to: <span class='indicator-pill green'>Active PO</span>"
+        comm = frappe.new_doc("Comment")
+        comm.comment_type = "Comment"
+        comm.reference_doctype = "AP Purchase Order"
+        comm.reference_name = po.name
+        comm.content = (
+            f"🖋️ <b>Digital E-Signature Confirmed & Verified</b><br>"
+            f"Signed by: <b>{signed_by}</b><br>"
+            f"IP Address: <code>{ip}</code><br>"
+            f"Timestamp: <code>{signed_time}</code><br>"
+            f"Status transitioned to: <span class='indicator-pill green'>Active PO</span>"
         )
+        comm.comment_by = "Administrator"
+        comm.comment_email = "administrator@example.com"
+        comm.insert(ignore_permissions=True)
+        frappe.db.commit()
     except Exception as e:
         frappe.log_error(f"PO timeline stamp error: {e}")
 
-    # 4. Real-time in-app Desk alert
+    # 4. In-Desk Notification Bell Log (Lights up bell icon for SPOC and Signatory)
     try:
+        spoc_target = getattr(po, "spoc_user", None) or getattr(po, "spoc_email", None) or getattr(po, "owner", None)
+        if spoc_target:
+            create_desk_notification_log(
+                for_user=spoc_target,
+                subject=f"🎉 PO #{po.name} Digitally Signed & Active ({vendor_name})",
+                document_type="AP Purchase Order",
+                document_name=po.name,
+                content=f"Signed by {signed_by} ({signed_time}). Grand Total: ₹ {grand_total:,.2f}"
+            )
+        if getattr(po, "authorised_signatory", None):
+            create_desk_notification_log(
+                for_user=po.authorised_signatory,
+                subject=f"🎉 PO #{po.name} Digitally Signed by Vendor {vendor_name}",
+                document_type="AP Purchase Order",
+                document_name=po.name,
+                content=f"Executed by {signed_by} on {signed_time}"
+            )
+    except Exception as e:
+        frappe.log_error(f"PO Notification Log error: {e}")
+
+    # 5. Real-time in-app Desk WebSocket alert
+    try:
+        spoc_user_target = getattr(po, "spoc_user", None) or getattr(po, "spoc_email", None)
+        frappe.publish_realtime(
+            event="po_vendor_signed",
+            message={
+                "po_name": po.name,
+                "vendor_name": vendor_name,
+                "signer_name": signed_by,
+                "grand_total": grand_total,
+                "status": "Active PO",
+                "text": f"Purchase Order #{po.name} was digitally signed by {vendor_name} ({signed_by})! It is now ACTIVE."
+            },
+            user=spoc_user_target
+        )
         frappe.publish_realtime(
             event="msgprint",
-            message=f"🎉 Purchase Order #{po.name} was just digitally signed by {vendor_name} ({signed_by})!",
-            user=po.spoc_email
+            message=f"🎉 Purchase Order #{po.name} was just digitally signed by {vendor_name} ({signed_by})! Status: ACTIVE PO",
+            user=spoc_user_target
         )
     except Exception:
         pass

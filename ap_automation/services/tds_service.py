@@ -23,7 +23,12 @@ def calculate_tds(base_amount: float, section: str) -> Dict[str, Any]:
     """
     Computes statutory TDS withholding amount on base taxable spend.
     """
-    rate = TDS_SECTION_RATES.get(section, 0.0)
+    rate = TDS_SECTION_RATES.get(section)
+    if rate is None:
+        import re
+        m = re.search(r"\((\d+(?:\.\d+)?)\s*%\)", section or "")
+        rate = float(m.group(1)) if m else 0.0
+
     base = float(base_amount or 0.0)
     tds_amt = round(base * (rate / 100.0), 2)
     return {

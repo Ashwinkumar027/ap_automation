@@ -4,16 +4,20 @@ app_publisher = "Quanti"
 app_description = "App for Accounts Payable"
 app_email = "quanti@example.com"
 app_license = "mit"
-app_home = "/desk/ap-automation"
 
 add_to_apps_screen = [
     {
         "name": "ap_automation",
         "logo": "/assets/ap_automation/images/ap-logo.svg",
         "title": "AP Automation",
-        "route": "/desk/ap-automation",
+        "route": "/ap",
         "has_permission": "ap_automation.utils.check_app_permission"
     }
+]
+
+website_route_rules = [
+    {"from_route": "/ap/<path:app_path>", "to_route": "ap"},
+    {"from_route": "/ap", "to_route": "ap"},
 ]
 
 app_include_js = [
@@ -54,6 +58,9 @@ has_permission = {
 # --------------------------------------------------------------------------------------
 scheduler_events = {
     "cron": {
+        "0 9 * * *": [
+            "ap_automation.services.event_ageing_service.check_unsettled_event_advances"
+        ],
         "0 10 * * 2": [
             "ap_automation.services.notification_service.send_pending_petty_cash_reminders"
         ],

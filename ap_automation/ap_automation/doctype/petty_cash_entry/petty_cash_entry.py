@@ -346,7 +346,7 @@ class PettyCashEntry(Document):
         user = frappe.session.user
         user_roles = frappe.get_roles(user) if user else []
         is_director = any(r in user_roles for r in [
-            "Accounts Director", "Director Tier", "Dileep Director", "Payment Releaser", "System Manager"
+            "AP Director", "Accounts Director", "Director Tier", "Director", "Dileep Director", "Payment Releaser", "System Manager"
         ]) or user in ("Administrator", "administrator@example.com")
 
         for idx, (o_row, n_row) in enumerate(zip(old_lines, new_lines), 1):

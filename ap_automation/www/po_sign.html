@@ -360,7 +360,7 @@
                     const poName = urlParams.get('po') || '';
                     const token = urlParams.get('token') || '';
 
-                    const csrf = getCookie('csrf_token') || '{{ csrf_token }}' || (document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '');
+                    const csrf = '{{ csrf_token }}' || (document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '') || getCookie('csrf_token') || (window.frappe && frappe.csrf_token) || '';
 
                     const formData = new FormData();
                     formData.append('po_name', poName);
@@ -368,29 +368,47 @@
                     formData.append('signer_name', signerName);
                     formData.append('signer_designation', signerDesig);
                     formData.append('signature_data', sigData);
+                    if (csrf) {
+                        formData.append('csrf_token', csrf);
+                    }
+
+                    const reqHeaders = {};
+                    if (csrf) {
+                        reqHeaders['X-Frappe-CSRF-Token'] = csrf;
+                    }
 
                     fetch('/api/method/ap_automation.www.po_sign.submit_vendor_esign', {
                         method: 'POST',
-                        headers: {
-                            'X-Frappe-CSRF-Token': csrf
-                        },
+                        headers: reqHeaders,
                         body: formData
                     })
                     .then(r => r.json())
                     .then(res => {
-                        if (res.message && res.message.status === 'success') {
+                        if (res.message && (res.message.status === 'success' || res.message.status === 'already_signed')) {
                             alert('🎉 Purchase Order #' + poName + ' successfully digitally signed and confirmed!');
                             window.location.reload();
-                        } else if (res.exc || res._server_messages) {
-                            alert('Notice: ' + (res._server_messages || res.exc || 'Signature recorded.'));
-                            window.location.reload();
+                        } else if (res._server_messages || res.exc || res.exception) {
+                            let errMsg = res.exc || res.exception || 'Signature verification failed.';
+                            try {
+                                if (res._server_messages) {
+                                    const msgs = JSON.parse(res._server_messages);
+                                    errMsg = msgs.map(m => {
+                                        const parsed = typeof m === 'string' ? JSON.parse(m) : m;
+                                        return parsed.message || parsed;
+                                    }).join('\n');
+                                }
+                            } catch(e) {}
+                            alert('Notice: ' + errMsg);
+                            btnSubmit.disabled = false;
+                            btnSubmit.innerText = 'Accept & Digitally Sign Purchase Order #' + poName;
                         } else {
                             window.location.reload();
                         }
                     })
                     .catch(err => {
-                        alert('Submission notification: ' + err);
-                        window.location.reload();
+                        alert('Submission error: ' + err);
+                        btnSubmit.disabled = false;
+                        btnSubmit.innerText = 'Accept & Digitally Sign Purchase Order #' + poName;
                     });
                 });
             }

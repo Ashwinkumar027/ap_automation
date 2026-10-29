@@ -44,6 +44,31 @@ frappe.ui.form.on("Event Expense Claim", {
                 });
             }).addClass('btn-primary');
         }
+
+        // Print & View Actions
+        if (!frm.is_new()) {
+            frm.add_custom_button(__('📄 Download Claim PDF'), function() {
+                const pdf_url = frappe.urllib.get_full_url(
+                    `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(frm.doc.doctype)}&name=${encodeURIComponent(frm.doc.name)}&format=Event%20Expense%20Report&no_letterhead=0`
+                );
+                window.open(pdf_url, '_blank');
+            }, __('Print / Download'));
+
+            frm.add_custom_button(__('🖨️ View Print Format'), function() {
+                const print_url = `/printview?doctype=${encodeURIComponent(frm.doc.doctype)}&name=${encodeURIComponent(frm.doc.name)}&format=Event%20Expense%20Report&no_letterhead=0`;
+                window.open(print_url, '_blank');
+            }, __('Print / Download'));
+        }
+
+        // Tweak 1: 1-Click Settlement Bridge
+        if (frm.doc.docstatus === 1 && frm.doc.event) {
+            frm.add_custom_button(__('⚖️ Settle Event Now'), function() {
+                frappe.route_options = {
+                    event: frm.doc.event
+                };
+                frappe.new_doc('Event Settlement');
+            }).addClass('btn-primary');
+        }
     },
 
     event: function(frm) {
