@@ -121,6 +121,10 @@ frappe.ui.form.on('Petty Cash Entry', {
         }
         enforce_permanent_grid_columns(frm);
         apply_petty_cash_styles();
+        refresh_grid_expense_head_options(frm);
+        frm.add_custom_button(__('➕ Add Expense Head'), function () {
+            open_manage_expense_heads_dialog(frm);
+        });
         render_petty_cash_stepper(frm);
         render_status_guidance_banner(frm);
         render_role_based_action_buttons(frm);
@@ -154,6 +158,40 @@ frappe.ui.form.on('Petty Cash Entry', {
 // CHILD GRID EVENT HANDLERS
 // --------------------------------------------------------------------------------------
 frappe.ui.form.on('Petty Cash Line Item', {
+    expense_head: function (frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (row.expense_head === '➕ Add New Expense Head...' || row.expense_head === 'Add New...') {
+            frappe.prompt([
+                {
+                    fieldname: 'new_head_name',
+                    fieldtype: 'Data',
+                    label: __('New Expense Head Name'),
+                    placeholder: __('e.g. MARKETING EXPENSES, FESTIVAL POOJA, VEHICLE FUEL'),
+                    reqd: 1
+                }
+            ], function (vals) {
+                const head_name = (vals.new_head_name || '').trim().toUpperCase();
+                if (!head_name) {
+                    frappe.model.set_value(cdt, cdn, 'expense_head', '');
+                    return;
+                }
+                frappe.call({
+                    method: 'ap_automation.services.attachment_service.create_or_edit_expense_head',
+                    args: { head_name: head_name },
+                    freeze: true,
+                    freeze_message: __('Creating Expense Head...'),
+                    callback: function (res) {
+                        if (res.message) {
+                            frappe.show_alert({ message: __(`✅ Added and selected: <b>${head_name}</b>`), indicator: 'green' }, 4);
+                            refresh_grid_expense_head_options(frm, function() {
+                                frappe.model.set_value(cdt, cdn, 'expense_head', head_name);
+                            });
+                        }
+                    }
+                });
+            }, __('➕ Add New Expense Head'), __('Add & Select'));
+        }
+    },
     amount: function (frm) {
         calculate_grid_totals(frm);
     },
@@ -1359,6 +1397,26 @@ function open_manage_expense_heads_dialog(frm) {
                 }
             });
             d.show();
+        }
+    });
+}
+
+
+function refresh_grid_expense_head_options(frm, callback) {
+    frappe.call({
+        method: 'ap_automation.services.attachment_service.get_active_expense_heads',
+        callback: function (r) {
+            let heads = r.message || [];
+            const all_options = [''].concat(heads).concat(['➕ Add New Expense Head...']);
+            if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].grid) {
+                const grid = frm.fields_dict['expense_lines'].grid;
+                const df = grid.docfields ? grid.docfields.find(f => f.fieldname === 'expense_head') : null;
+                if (df) {
+                    df.options = all_options.join('\n');
+                    grid.refresh();
+                }
+            }
+            if (callback) callback(heads);
         }
     });
 }
