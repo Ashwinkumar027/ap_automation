@@ -122,17 +122,9 @@ frappe.ui.form.on('Petty Cash Entry', {
         enforce_permanent_grid_columns(frm);
         apply_petty_cash_styles();
         refresh_grid_expense_head_options(frm);
-        frm.add_custom_button(__('➕ Add Expense Head'), function () {
-            open_manage_expense_heads_dialog(frm);
-        });
         if (window.APExpenseTypeManager) {
             window.APExpenseTypeManager.refreshGridOptions(frm, 'expense_lines', 'expense_category', 'Petty Cash');
         }
-        frm.add_custom_button(__('⚙️ Manage Expense Types'), function () {
-            if (window.APExpenseTypeManager) {
-                window.APExpenseTypeManager.openManageDialog(frm, 'expense_lines', 'expense_category', 'Petty Cash');
-            }
-        });
         render_petty_cash_stepper(frm);
         render_status_guidance_banner(frm);
         render_role_based_action_buttons(frm);
@@ -195,10 +187,44 @@ frappe.ui.form.on('Petty Cash Line Item', {
                     freeze_message: __('Creating Expense Head...'),
                     callback: function (res) {
                         if (res.message) {
-                            frappe.show_alert({ message: __(`✅ Added and selected: <b>${head_name}</b>`), indicator: 'green' }, 4);
-                            refresh_grid_expense_head_options(frm, function() {
+                            const grid = frm.fields_dict['expense_lines'] ? frm.fields_dict['expense_lines'].grid : null;
+                            if (grid) {
+                                const df = grid.docfields ? grid.docfields.find(f => f.fieldname === 'expense_head') : null;
+                                if (df) {
+                                    let opts = (typeof df.options === 'string') ? df.options.split('\n') : (df.options || []);
+                                    if (!opts.includes(head_name)) {
+                                        const trig_idx = opts.indexOf('➕ Add New Expense Head...');
+                                        if (trig_idx !== -1) opts.splice(trig_idx, 0, head_name);
+                                        else opts.push(head_name);
+                                        df.options = Array.isArray(df.options) ? opts : opts.join('\n');
+                                    }
+                                }
+
                                 frappe.model.set_value(cdt, cdn, 'expense_head', head_name);
-                            });
+
+                                const grid_row = grid.grid_rows_by_docname ? grid.grid_rows_by_docname[cdn] : null;
+                                if (grid_row) {
+                                    if (grid_row.doc) grid_row.doc.expense_head = head_name;
+                                    const $cell = $(grid_row.row).find('[data-fieldname="expense_head"]');
+                                    const $select = $cell.find('select');
+                                    if ($select.length) {
+                                        if (!$select.find(`option[value="${head_name}"]`).length) {
+                                            const $trig = $select.find('option:contains("➕ Add New Expense Head...")');
+                                            if ($trig.length) $(`<option value="${head_name}">${head_name}</option>`).insertBefore($trig);
+                                            else $select.append(`<option value="${head_name}">${head_name}</option>`);
+                                        }
+                                        $select.val(head_name);
+                                        $select.trigger('change');
+                                    }
+                                    const $static = $cell.find('.static-area, .grid-static-col, .ellipsis');
+                                    if ($static.length) $static.text(head_name);
+                                    if (typeof grid_row.refresh_field === 'function') grid_row.refresh_field('expense_head');
+                                }
+                                frm.refresh_field('expense_lines');
+                            }
+
+                            frappe.show_alert({ message: __(`✅ Added and selected: <b>${head_name}</b>`), indicator: 'green' }, 4);
+                            refresh_grid_expense_head_options(frm);
                         }
                     }
                 });

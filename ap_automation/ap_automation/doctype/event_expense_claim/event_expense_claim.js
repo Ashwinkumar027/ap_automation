@@ -73,11 +73,7 @@ frappe.ui.form.on("Event Expense Claim", {
         if (window.APExpenseTypeManager) {
             window.APExpenseTypeManager.refreshGridOptions(frm, 'expense_items', 'expense_category', 'Events');
         }
-        frm.add_custom_button(__('⚙️ Manage Expense Types'), function () {
-            if (window.APExpenseTypeManager) {
-                window.APExpenseTypeManager.openManageDialog(frm, 'expense_items', 'expense_category', 'Events');
-            }
-        });
+
     },
 
     event: function(frm) {

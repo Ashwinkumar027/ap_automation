@@ -29,11 +29,7 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
         if (window.APExpenseTypeManager) {
             window.APExpenseTypeManager.refreshGridOptions(frm, 'vendor_lines', 'vendor_category', 'Admin Weekly Vendor Claims');
         }
-        frm.add_custom_button(__('⚙️ Manage Expense Types'), function () {
-            if (window.APExpenseTypeManager) {
-                window.APExpenseTypeManager.openManageDialog(frm, 'vendor_lines', 'vendor_category', 'Admin Weekly Vendor Claims');
-            }
-        });
+
     },
 
     week_period: function (frm) {

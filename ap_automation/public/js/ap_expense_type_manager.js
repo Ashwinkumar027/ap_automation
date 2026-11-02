@@ -36,7 +36,6 @@ window.APExpenseTypeManager = {
                 const df = grid.docfields ? grid.docfields.find(f => f.fieldname === column_field) : null;
                 if (df) {
                     df.options = all_options.join('\n');
-                    grid.refresh();
                 }
             }
             if (callback) callback(types);
@@ -48,8 +47,17 @@ window.APExpenseTypeManager = {
         const row = locals[cdt][cdn];
         if (row[column_field] !== self.triggerOption) return;
 
-        // Reset the cell immediately so trigger string is not stored
+        // Reset the cell immediately so trigger string is not stored in data model
         frappe.model.set_value(cdt, cdn, column_field, '');
+
+        // Determine table_field
+        let table_field = '';
+        if (frm && frm.fields_dict) {
+            if (frm.fields_dict['expense_lines']) table_field = 'expense_lines';
+            else if (frm.fields_dict['vendor_lines']) table_field = 'vendor_lines';
+            else if (frm.fields_dict['expense_items']) table_field = 'expense_items';
+            else if (frm.fields_dict['reimbursement_lines']) table_field = 'reimbursement_lines';
+        }
 
         const d = new frappe.ui.Dialog({
             title: __('➕ Add New Expense Type'),
@@ -96,16 +104,73 @@ window.APExpenseTypeManager = {
                     callback: function (res) {
                         if (res.message && (res.message.status === 'created' || res.message.status === 'updated')) {
                             const final_name = res.message.type_name;
+
+                            // 1. Immediately inject the new type into grid docfield options BEFORE model update
+                            let grid = null;
+                            if (table_field && frm.fields_dict[table_field] && frm.fields_dict[table_field].grid) {
+                                grid = frm.fields_dict[table_field].grid;
+                                const df = grid.docfields ? grid.docfields.find(f => f.fieldname === column_field) : null;
+                                if (df) {
+                                    let opts = (typeof df.options === 'string') ? df.options.split('\n') : (df.options || []);
+                                    if (!opts.includes(final_name)) {
+                                        const trigger_idx = opts.indexOf(self.triggerOption);
+                                        if (trigger_idx !== -1) {
+                                            opts.splice(trigger_idx, 0, final_name);
+                                        } else {
+                                            opts.push(final_name);
+                                        }
+                                        df.options = Array.isArray(df.options) ? opts : opts.join('\n');
+                                    }
+                                }
+                            }
+
+                            // 2. Set the model value
                             frappe.model.set_value(cdt, cdn, column_field, final_name);
+
+                            // 3. Immediately update the active DOM cell in the grid row so it renders without delay!
+                            if (grid) {
+                                const grid_row = grid.grid_rows_by_docname ? grid.grid_rows_by_docname[cdn] : null;
+                                if (grid_row) {
+                                    if (grid_row.doc) {
+                                        grid_row.doc[column_field] = final_name;
+                                    }
+
+                                    // If cell has active select control in DOM, inject option and set value
+                                    const $cell = $(grid_row.row).find(`[data-fieldname="${column_field}"]`);
+                                    const $select = $cell.find('select');
+                                    if ($select.length) {
+                                        if (!$select.find(`option[value="${final_name}"]`).length) {
+                                            const $triggerOpt = $select.find(`option:contains("${self.triggerOption}")`);
+                                            if ($triggerOpt.length) {
+                                                $(`<option value="${final_name}">${final_name}</option>`).insertBefore($triggerOpt);
+                                            } else {
+                                                $select.append(`<option value="${final_name}">${final_name}</option>`);
+                                            }
+                                        }
+                                        $select.val(final_name);
+                                        $select.trigger('change');
+                                    }
+
+                                    // If static text area is present, update text directly
+                                    const $static = $cell.find('.static-area, .grid-static-col, .ellipsis');
+                                    if ($static.length) {
+                                        $static.text(final_name);
+                                    }
+
+                                    if (typeof grid_row.refresh_field === 'function') {
+                                        grid_row.refresh_field(column_field);
+                                    }
+                                }
+
+                                frm.refresh_field(table_field);
+                            }
+
                             frappe.show_alert({
-                                message: __(`✅ Expense Type <b>${final_name}</b> added successfully!`),
+                                message: __(`✅ Expense Type <b>${final_name}</b> added and selected!`),
                                 indicator: 'green'
                             }, 4);
 
-                            // Refresh options across table grid
-                            const table_field = (frm.fields_dict['expense_lines'] ? 'expense_lines' :
-                                                (frm.fields_dict['vendor_lines'] ? 'vendor_lines' :
-                                                (frm.fields_dict['expense_items'] ? 'expense_items' : '')));
+                            // 4. Background sync full options from server
                             if (table_field) {
                                 self.refreshGridOptions(frm, table_field, column_field, module_scope);
                             }
