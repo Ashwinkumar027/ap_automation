@@ -930,7 +930,20 @@ function enforce_default_grid_columns(frm) {
         });
     }
 
-    // 2. Check if user_defined_columns is missing any required field
+    // 2. Ensure in-memory user_settings has all 17 columns
+    if (!frappe.model.user_settings[frm.doctype]) {
+        frappe.model.user_settings[frm.doctype] = {};
+    }
+    if (!frappe.model.user_settings[frm.doctype]['GridView']) {
+        frappe.model.user_settings[frm.doctype]['GridView'] = {};
+    }
+    frappe.model.user_settings[frm.doctype]['GridView']['Admin Vendor Claim Item'] = REQUIRED_GRID_COLUMNS.map(col => ({
+        fieldname: col.fieldname,
+        columns: col.columns,
+        sticky: 0
+    }));
+
+    // 3. Check if user_defined_columns is missing any required field
     const current_cols = (grid.user_defined_columns || []).map(c => c.fieldname);
     const is_missing = REQUIRED_GRID_COLUMNS.some(c => !current_cols.includes(c.fieldname));
 
@@ -949,24 +962,24 @@ function enforce_default_grid_columns(frm) {
         }).filter(Boolean);
 
         grid.user_defined_columns = new_user_cols;
-
-        // Persist to user settings so Frappe Desk keeps it permanently
-        let user_settings = frappe.get_user_settings(frm.doctype, "GridView") || {};
-        user_settings["Admin Vendor Claim Item"] = REQUIRED_GRID_COLUMNS.map(col => ({
-            fieldname: col.fieldname,
-            columns: col.columns,
-            sticky: 0
-        }));
-        frappe.model.user_settings.save(frm.doctype, "GridView", user_settings);
-
         grid.visible_columns = null;
         grid.setup_visible_columns();
         grid.header_row = null;
         if (grid.wrapper) {
             grid.wrapper.find('.grid-heading-row').empty();
+            grid.wrapper.find('.form-grid').css({'left': '0px'});
+            grid.wrapper.find('.form-grid-container').scrollLeft(0);
         }
         grid.refresh();
     }
+
+    // Always reset left position and scroll to start on render
+    setTimeout(() => {
+        if (grid.wrapper) {
+            grid.wrapper.find('.form-grid').css({'left': '0px'});
+            grid.wrapper.find('.form-grid-container').scrollLeft(0);
+        }
+    }, 100);
 }
 
 function apply_admin_vendor_styles() {
@@ -1006,17 +1019,25 @@ function apply_admin_vendor_styles() {
         .banner-paid { background: #f0fdf4; border: 1.5px solid #86efac; color: #14532d; }
         .banner-rejected { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
 
-        /* Excel-Style Horizontal Scrolling Grid Row (All 17 Columns Side-by-Side without Wrapping) */
-        [data-fieldname="vendor_lines"] .form-grid {
-            border-radius: 8px;
+        /* Excel-Style Horizontal Scrolling Grid Row (All 17 Columns Side-by-Side starting from Left) */
+        [data-fieldname="vendor_lines"] .form-grid-container {
             overflow-x: auto !important;
+            position: relative !important;
+            width: 100% !important;
             -webkit-overflow-scrolling: touch;
+        }
+        [data-fieldname="vendor_lines"] .form-grid {
+            left: 0px !important;
+            position: relative !important;
+            width: max-content !important;
+            min-width: 100% !important;
+            border-radius: 8px;
         }
         [data-fieldname="vendor_lines"] .grid-heading-row,
         [data-fieldname="vendor_lines"] .grid-body .grid-row .data-row {
             display: flex !important;
             flex-wrap: nowrap !important;
-            min-width: 2300px !important;
+            min-width: 2350px !important;
         }
         [data-fieldname="vendor_lines"] .grid-static-col {
             flex-shrink: 0 !important;
@@ -1038,7 +1059,7 @@ function apply_admin_vendor_styles() {
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="gst_rate"] { min-width: 90px !important; text-align: center; }
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="gst_amount"] { min-width: 120px !important; text-align: right; }
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="total_invoice_amount"] { min-width: 130px !important; text-align: right; font-weight: 600; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_section"] { min-width: 230px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_section"] { min-width: 240px !important; }
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_amount"] { min-width: 120px !important; text-align: right; }
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="amount"] { min-width: 130px !important; text-align: right; font-weight: 700; color: #15803d; }
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="line_status"] { min-width: 110px !important; }

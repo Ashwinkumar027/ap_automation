@@ -7,232 +7,248 @@
  "engine": "InnoDB",
  "field_order": [
   "vendor_category",
+  "service_type",
   "vendor",
   "vendor_name",
   "company",
-  "amount",
   "invoice_number",
   "invoice_date",
   "receipt_attachment",
+  "base_amount",
+  "tax_type",
+  "gst_rate",
+  "gst_amount",
+  "total_invoice_amount",
+  "tds_section",
+  "tds_amount",
+  "amount",
+  "line_status",
+  "cgst_amount",
+  "sgst_amount",
+  "igst_amount",
+  "tds_rate",
+  "discrepancy_remarks",
   "bank_beneficiary_name",
   "bank_account_number",
   "bank_ifsc_code",
   "penny_drop_status",
-  "remarks",
-  "line_status"
+  "remarks"
  ],
  "fields": [
   {
-   "fieldname": "vendor_category",
-   "label": "Vendor Category",
    "columns": 2,
-   "in_list_view": 1,
+   "fieldname": "vendor_category",
    "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Vendor Category",
    "options": "Housekeeping\nPantry\nCourier\nStationery\nPrinting\nRepairs & Maintenance\nOffice Supplies\nIT Hardware\nSecurity & Facility\nMiscellaneous\n\u2795 Add New Expense Type..."
   },
   {
+   "columns": 2,
    "fieldname": "service_type",
    "fieldtype": "Link",
-   "label": "Service Type",
-   "options": "AP Service Type Master",
    "in_list_view": 1,
-   "columns": 2
+   "label": "Service Type",
+   "options": "AP Service Type Master"
   },
   {
+   "columns": 2,
    "fieldname": "vendor",
-   "label": "Supplier / Vendor",
-   "columns": 3,
-   "in_list_view": 1,
    "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Supplier / Vendor",
    "options": "Supplier",
    "reqd": 1
   },
   {
+   "columns": 2,
    "fieldname": "vendor_name",
-   "label": "Vendor Legal Name",
-   "read_only": 1,
-   "in_list_view": 1,
    "fieldtype": "Data",
-   "columns": 2
+   "in_list_view": 1,
+   "label": "Vendor Legal Name",
+   "read_only": 1
   },
   {
-   "fieldname": "company",
-   "label": "Company",
    "columns": 2,
-   "in_list_view": 1,
+   "fieldname": "company",
    "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
    "options": "Company",
    "reqd": 1
   },
   {
+   "columns": 2,
+   "fieldname": "invoice_number",
    "fieldtype": "Data",
-   "label": "Invoice # / Bill Ref",
    "in_list_view": 1,
-   "columns": 2,
-   "fieldname": "invoice_number"
+   "label": "Invoice # / Bill Ref"
   },
   {
+   "columns": 2,
+   "fieldname": "invoice_date",
    "fieldtype": "Date",
-   "label": "Invoice Date",
    "in_list_view": 1,
-   "columns": 2,
-   "fieldname": "invoice_date"
+   "label": "Invoice Date"
   },
   {
+   "columns": 2,
+   "fieldname": "receipt_attachment",
    "fieldtype": "Attach",
-   "label": "Proof / Attachment",
    "in_list_view": 1,
-   "columns": 2,
-   "fieldname": "receipt_attachment"
+   "label": "Proof / Attachment"
   },
   {
+   "columns": 2,
+   "fieldname": "base_amount",
    "fieldtype": "Currency",
-   "label": "Base Taxable (INR)",
    "in_list_view": 1,
-   "columns": 2,
-   "fieldname": "base_amount"
+   "label": "Base Taxable (INR)"
   },
   {
+   "columns": 2,
    "default": "Intra-State (CGST + SGST)",
    "fieldname": "tax_type",
    "fieldtype": "Select",
-   "label": "Tax Type",
-   "options": "Intra-State (CGST + SGST)\nInter-State (IGST)",
    "in_list_view": 1,
-   "columns": 2
+   "label": "Tax Type",
+   "options": "Intra-State (CGST + SGST)\nInter-State (IGST)"
   },
   {
-   "fieldname": "gst_rate",
-   "label": "GST %",
    "columns": 1,
-   "in_list_view": 1,
    "default": "18%",
+   "fieldname": "gst_rate",
    "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "GST %",
    "options": "0%\n5%\n12%\n18%\n28%"
+  },
+  {
+   "columns": 2,
+   "fieldname": "gst_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Calculated GST (INR)",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "total_invoice_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Bill (INR)",
+   "read_only": 1
+  },
+  {
+   "columns": 3,
+   "default": "None / Exempt",
+   "fieldname": "tds_section",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "TDS Section",
+   "options": "None / Exempt\n194C / 393(1) - Contractor (Individual/HUF) (1%)\n194C / 393(1) - Contractor (Other than Individual/HUF) (2%)\n194J / 393(1) - Technical Services / Royalty (2%)\n194J / 393(1) - Professional Services & Director Fees (10%)\n194-I / 393(1) - Rent for Plant & Machinery (2%)\n194-I / 393(1) - Rent for Land & Building (10%)\n194Q / 393(1) - Purchase of Goods (0.1%)\n194H / 393(1) - Commission & Brokerage (2%)\n194A / 393(1) - Interest on Securities (10%)\n194A / 393(1) - Interest other than securities (Senior Citizen) (10%)\n194A / 393(1) - Interest other than securities (Others) (10%)\n194A / 393(1) - Interest other than securities (Specified Person) (10%)\n194-IA / 393(1) - Transfer of Immovable Property (1%)\n194-IB / 393(1) - Rent by Non-Specified Person (2%)\n194M / 393(1) - Contract & Professional Fees by Non-Specified Person (2%)\n194R / 393(1) - Business & Profession Perquisite (10%)\n194T / 393(3) - Partner Remuneration & Interest (10%)\n192 / 392 - Salary (Slab Rate)\n206AB - Higher Non-Filer (20%)\n194C - Contractor (1%)\n194C - Contractor (2%)\n194J - Technical Fees (2%)\n194J - Professional Fees (10%)\n194Q - Purchase of Goods (0.1%)\n194I - Rent (10%)"
+  },
+  {
+   "columns": 2,
+   "fieldname": "tds_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Deducted TDS (INR)",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Net Pay (INR)",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "default": "Pending",
+   "fieldname": "line_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Line Status",
+   "options": "Pending\nAccepted\nDisputed / Discrepancy"
   },
   {
    "fieldname": "cgst_amount",
    "fieldtype": "Currency",
+   "in_list_view": 0,
    "label": "CGST (INR)",
    "read_only": 1
   },
   {
    "fieldname": "sgst_amount",
    "fieldtype": "Currency",
+   "in_list_view": 0,
    "label": "SGST (INR)",
    "read_only": 1
   },
   {
    "fieldname": "igst_amount",
    "fieldtype": "Currency",
+   "in_list_view": 0,
    "label": "IGST (INR)",
    "read_only": 1
   },
   {
-   "fieldname": "gst_amount",
-   "label": "Calculated GST (INR)",
-   "read_only": 1,
-   "in_list_view": 1,
-   "fieldtype": "Currency",
-   "columns": 2
-  },
-  {
-   "fieldname": "total_invoice_amount",
-   "label": "Total Bill (INR)",
-   "read_only": 1,
-   "in_list_view": 1,
-   "fieldtype": "Currency",
-   "columns": 2
-  },
-  {
-   "fieldname": "tds_section",
-   "label": "TDS Section",
-   "columns": 3,
-   "in_list_view": 1,
-   "default": "None / Exempt",
-   "fieldtype": "Select",
-   "options": "None / Exempt\n194C / 393(1) - Contractor (Individual/HUF) (1%)\n194C / 393(1) - Contractor (Other than Individual/HUF) (2%)\n194J / 393(1) - Technical Services / Royalty (2%)\n194J / 393(1) - Professional Services & Director Fees (10%)\n194-I / 393(1) - Rent for Plant & Machinery (2%)\n194-I / 393(1) - Rent for Land & Building (10%)\n194Q / 393(1) - Purchase of Goods (0.1%)\n194H / 393(1) - Commission & Brokerage (2%)\n194A / 393(1) - Interest on Securities (10%)\n194A / 393(1) - Interest other than securities (Senior Citizen) (10%)\n194A / 393(1) - Interest other than securities (Others) (10%)\n194A / 393(1) - Interest other than securities (Specified Person) (10%)\n194-IA / 393(1) - Transfer of Immovable Property (1%)\n194-IB / 393(1) - Rent by Non-Specified Person (2%)\n194M / 393(1) - Contract & Professional Fees by Non-Specified Person (2%)\n194R / 393(1) - Business & Profession Perquisite (10%)\n194T / 393(3) - Partner Remuneration & Interest (10%)\n192 / 392 - Salary (Slab Rate)\n206AB - Higher Non-Filer (20%)\n194C - Contractor (1%)\n194C - Contractor (2%)\n194J - Technical Fees (2%)\n194J - Professional Fees (10%)\n194Q - Purchase of Goods (0.1%)\n194I - Rent (10%)"
-  },
-  {
+   "columns": 1,
    "fieldname": "tds_rate",
-   "label": "TDS Rate (%)",
-   "read_only": 1,
-   "in_list_view": 0,
    "fieldtype": "Percent",
-   "columns": 1
-  },
-  {
-   "fieldname": "tds_amount",
-   "label": "Deducted TDS (INR)",
-   "read_only": 1,
-   "in_list_view": 1,
-   "fieldtype": "Currency",
-   "columns": 2
-  },
-  {
-   "fieldname": "amount",
-   "label": "Net Pay (INR)",
-   "read_only": 1,
-   "in_list_view": 1,
-   "fieldtype": "Currency",
-   "columns": 2
-  },
-  {
-   "fieldname": "line_status",
-   "label": "Line Status",
-   "columns": 2,
-   "in_list_view": 1,
-   "default": "Pending",
-   "fieldtype": "Select",
-   "options": "Pending\nAccepted\nDisputed / Discrepancy"
-  },
-  {
-   "fieldtype": "Small Text",
-   "label": "Auditor Remarks",
    "in_list_view": 0,
+   "label": "TDS Rate (%)",
+   "read_only": 1
+  },
+  {
    "columns": 3,
-   "fieldname": "discrepancy_remarks"
-  },
-  {
-   "fieldtype": "Data",
-   "label": "Name As Per Bank Records",
-   "read_only": 1,
-   "in_list_view": 0,
-   "fieldname": "bank_beneficiary_name"
-  },
-  {
-   "fieldtype": "Data",
-   "label": "Bank A/C No",
-   "read_only": 1,
-   "in_list_view": 0,
-   "fieldname": "bank_account_number"
-  },
-  {
-   "fieldtype": "Data",
-   "label": "IFSC Code",
-   "read_only": 1,
-   "in_list_view": 0,
-   "fieldname": "bank_ifsc_code"
-  },
-  {
-   "fieldtype": "Data",
-   "label": "Penny Drop Status",
-   "read_only": 1,
-   "in_list_view": 0,
-   "fieldname": "penny_drop_status"
-  },
-  {
+   "fieldname": "discrepancy_remarks",
    "fieldtype": "Small Text",
-   "label": "Operational Remarks",
    "in_list_view": 0,
-   "fieldname": "remarks"
+   "label": "Auditor Remarks"
+  },
+  {
+   "fieldname": "bank_beneficiary_name",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Name As Per Bank Records",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_account_number",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Bank A/C No",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_ifsc_code",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "IFSC Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "penny_drop_status",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Penny Drop Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "in_list_view": 0,
+   "label": "Operational Remarks"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-10-12 18:00:00.000000",
+ "modified": "2026-11-02 16:30:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Admin Vendor Claim Item",
