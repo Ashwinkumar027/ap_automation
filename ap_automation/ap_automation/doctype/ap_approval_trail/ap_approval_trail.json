@@ -19,45 +19,53 @@
    "fieldname": "level_number",
    "fieldtype": "Int",
    "in_list_view": 1,
-   "label": "Level"
+   "label": "Level",
+   "columns": 2
   },
   {
    "fieldname": "level_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Level Title"
+   "label": "Level Title",
+   "columns": 2
   },
   {
    "fieldname": "designated_approver",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Designated User",
-   "options": "User"
+   "options": "User",
+   "columns": 2
   },
   {
    "fieldname": "action_taken_by",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Action Taken By",
-   "options": "User"
+   "options": "User",
+   "columns": 2
   },
   {
    "fieldname": "action",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Action",
-   "options": "APPROVED\nVERIFIED\nDISPUTED\nREJECTED"
+   "options": "APPROVED\nVERIFIED\nDISPUTED\nREJECTED",
+   "columns": 2
   },
   {
    "fieldname": "action_timestamp",
    "fieldtype": "Datetime",
    "in_list_view": 1,
-   "label": "Timestamp"
+   "label": "Timestamp",
+   "columns": 2
   },
   {
    "fieldname": "remarks",
    "fieldtype": "Small Text",
-   "label": "Remarks / Audit Notes"
+   "label": "Remarks / Audit Notes",
+   "in_list_view": 1,
+   "columns": 3
   }
  ],
  "grid_page_length": 50,

@@ -31,7 +31,7 @@
    "columns": 2,
    "fieldname": "description",
    "fieldtype": "Small Text",
-   "in_list_view": 0,
+   "in_list_view": 1,
    "label": "Description / Scope of Work"
   },
   {
@@ -65,7 +65,7 @@
    "fieldname": "rate",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Rate / Unit (₹)",
+   "label": "Rate / Unit (\u20b9)",
    "reqd": 1
   },
   {
@@ -73,15 +73,15 @@
    "default": "0",
    "fieldname": "discount_amount",
    "fieldtype": "Currency",
-   "in_list_view": 0,
-   "label": "Discount (₹)"
+   "in_list_view": 1,
+   "label": "Discount (\u20b9)"
   },
   {
    "columns": 1,
    "fieldname": "taxable_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Taxable (₹)",
+   "label": "Taxable (\u20b9)",
    "read_only": 1
   },
   {
@@ -98,7 +98,7 @@
    "fieldname": "gst_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "GST (₹)",
+   "label": "GST (\u20b9)",
    "read_only": 1
   },
   {
@@ -106,7 +106,7 @@
    "fieldname": "total_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total (₹)",
+   "label": "Total (\u20b9)",
    "read_only": 1
   }
  ],

@@ -40,7 +40,9 @@
    "fieldtype": "Link",
    "label": "Department",
    "options": "Department",
-   "read_only": 1
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "branch_location",

@@ -18,14 +18,16 @@
    "fieldtype": "Int",
    "in_list_view": 1,
    "label": "Level #",
-   "reqd": 1
+   "reqd": 1,
+   "columns": 2
   },
   {
    "fieldname": "level_name",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Level Title",
-   "reqd": 1
+   "reqd": 1,
+   "columns": 2
   },
   {
    "fieldname": "designated_approver",
@@ -33,21 +35,25 @@
    "in_list_view": 1,
    "label": "Designated Approver (User)",
    "options": "User",
-   "reqd": 1
+   "reqd": 1,
+   "columns": 2
   },
   {
    "default": "1",
    "fieldname": "allow_delegation",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Allow HRMS Leave Delegation"
+   "label": "Allow HRMS Leave Delegation",
+   "columns": 1
   },
   {
    "default": "Full Approval",
    "fieldname": "action_type",
    "fieldtype": "Select",
    "label": "Action Scope",
-   "options": "Full Approval\nLine-Item Audit"
+   "options": "Full Approval\nLine-Item Audit",
+   "in_list_view": 1,
+   "columns": 2
   }
  ],
  "grid_page_length": 50,

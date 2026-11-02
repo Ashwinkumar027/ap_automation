@@ -15,23 +15,31 @@
   {
    "fieldname": "action_taken_by",
    "fieldtype": "Data",
-   "label": "Action Taken By"
+   "label": "Action Taken By",
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "action",
    "fieldtype": "Select",
    "label": "Action",
-   "options": "DRAFT\nSUBMITTED\nAPPROVED\nREJECTED"
+   "options": "DRAFT\nSUBMITTED\nAPPROVED\nREJECTED",
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "action_timestamp",
    "fieldtype": "Datetime",
-   "label": "Timestamp"
+   "label": "Timestamp",
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "remarks",
    "fieldtype": "Small Text",
-   "label": "Remarks / Reason"
+   "label": "Remarks / Reason",
+   "in_list_view": 1,
+   "columns": 3
   }
  ],
  "grid_page_length": 50,
