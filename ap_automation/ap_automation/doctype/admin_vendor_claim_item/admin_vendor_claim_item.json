@@ -17,16 +17,16 @@
   "base_amount",
   "tax_type",
   "gst_rate",
-  "gst_amount",
-  "total_invoice_amount",
-  "tds_section",
-  "tds_amount",
-  "amount",
-  "line_status",
   "cgst_amount",
   "sgst_amount",
   "igst_amount",
+  "gst_amount",
+  "total_invoice_amount",
+  "tds_section",
   "tds_rate",
+  "tds_amount",
+  "amount",
+  "line_status",
   "discrepancy_remarks",
   "bank_beneficiary_name",
   "bank_account_number",
@@ -124,6 +124,30 @@
    "options": "0%\n5%\n12%\n18%\n28%"
   },
   {
+   "fieldname": "cgst_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "CGST (INR)",
+   "read_only": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "sgst_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "SGST (INR)",
+   "read_only": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "igst_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "IGST (INR)",
+   "read_only": 1,
+   "columns": 2
+  },
+  {
    "columns": 2,
    "fieldname": "gst_amount",
    "fieldtype": "Currency",
@@ -147,6 +171,14 @@
    "in_list_view": 1,
    "label": "TDS Section",
    "options": "None / Exempt\n194C / 393(1) - Contractor (Individual/HUF) (1%)\n194C / 393(1) - Contractor (Other than Individual/HUF) (2%)\n194J / 393(1) - Technical Services / Royalty (2%)\n194J / 393(1) - Professional Services & Director Fees (10%)\n194-I / 393(1) - Rent for Plant & Machinery (2%)\n194-I / 393(1) - Rent for Land & Building (10%)\n194Q / 393(1) - Purchase of Goods (0.1%)\n194H / 393(1) - Commission & Brokerage (2%)\n194A / 393(1) - Interest on Securities (10%)\n194A / 393(1) - Interest other than securities (Senior Citizen) (10%)\n194A / 393(1) - Interest other than securities (Others) (10%)\n194A / 393(1) - Interest other than securities (Specified Person) (10%)\n194-IA / 393(1) - Transfer of Immovable Property (1%)\n194-IB / 393(1) - Rent by Non-Specified Person (2%)\n194M / 393(1) - Contract & Professional Fees by Non-Specified Person (2%)\n194R / 393(1) - Business & Profession Perquisite (10%)\n194T / 393(3) - Partner Remuneration & Interest (10%)\n192 / 392 - Salary (Slab Rate)\n206AB - Higher Non-Filer (20%)\n194C - Contractor (1%)\n194C - Contractor (2%)\n194J - Technical Fees (2%)\n194J - Professional Fees (10%)\n194Q - Purchase of Goods (0.1%)\n194I - Rent (10%)"
+  },
+  {
+   "columns": 1,
+   "fieldname": "tds_rate",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "TDS Rate (%)",
+   "read_only": 1
   },
   {
    "columns": 2,
@@ -174,74 +206,50 @@
    "options": "Pending\nAccepted\nDisputed / Discrepancy"
   },
   {
-   "fieldname": "cgst_amount",
-   "fieldtype": "Currency",
-   "in_list_view": 0,
-   "label": "CGST (INR)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "sgst_amount",
-   "fieldtype": "Currency",
-   "in_list_view": 0,
-   "label": "SGST (INR)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "igst_amount",
-   "fieldtype": "Currency",
-   "in_list_view": 0,
-   "label": "IGST (INR)",
-   "read_only": 1
-  },
-  {
-   "columns": 1,
-   "fieldname": "tds_rate",
-   "fieldtype": "Percent",
-   "in_list_view": 0,
-   "label": "TDS Rate (%)",
-   "read_only": 1
-  },
-  {
    "columns": 3,
    "fieldname": "discrepancy_remarks",
    "fieldtype": "Small Text",
-   "in_list_view": 0,
+   "in_list_view": 1,
    "label": "Auditor Remarks"
   },
   {
    "fieldname": "bank_beneficiary_name",
    "fieldtype": "Data",
-   "in_list_view": 0,
+   "in_list_view": 1,
    "label": "Name As Per Bank Records",
-   "read_only": 1
+   "read_only": 1,
+   "columns": 2
   },
   {
    "fieldname": "bank_account_number",
    "fieldtype": "Data",
-   "in_list_view": 0,
+   "in_list_view": 1,
    "label": "Bank A/C No",
-   "read_only": 1
+   "read_only": 1,
+   "columns": 2
   },
   {
    "fieldname": "bank_ifsc_code",
    "fieldtype": "Data",
-   "in_list_view": 0,
+   "in_list_view": 1,
    "label": "IFSC Code",
-   "read_only": 1
+   "read_only": 1,
+   "columns": 2
   },
   {
    "fieldname": "penny_drop_status",
    "fieldtype": "Data",
-   "in_list_view": 0,
+   "in_list_view": 1,
    "label": "Penny Drop Status",
-   "read_only": 1
+   "read_only": 1,
+   "columns": 2
   },
   {
    "fieldname": "remarks",
    "fieldtype": "Small Text",
-   "in_list_view": 0,
-   "label": "Operational Remarks"
+   "in_list_view": 1,
+   "label": "Operational Remarks",
+   "columns": 2
   }
  ],
  "grid_page_length": 50,
