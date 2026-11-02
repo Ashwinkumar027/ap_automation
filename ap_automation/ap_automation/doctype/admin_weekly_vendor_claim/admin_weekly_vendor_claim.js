@@ -5,6 +5,7 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
     onload: function (frm) {
         frappe.require('/assets/ap_automation/css/ap_automation.css');
         apply_admin_vendor_styles();
+        enforce_default_grid_columns(frm);
         frm.set_query('vendor', 'vendor_lines', function () {
             return {
                 query: 'ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim.supplier_query'
@@ -14,6 +15,7 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
 
     refresh: function (frm) {
         apply_admin_vendor_styles();
+        enforce_default_grid_columns(frm);
         frm.set_query('vendor', 'vendor_lines', function () {
             return {
                 query: 'ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim.supplier_query'
@@ -884,6 +886,89 @@ function open_admin_receipt_gallery(frm, start_idx) {
 // --------------------------------------------------------------------------------------
 // 9. LUXURY DESIGN SYSTEM CSS INJECTION
 // --------------------------------------------------------------------------------------
+
+// --------------------------------------------------------------------------------------
+// DEFAULT GRID COLUMNS ENFORCEMENT (SHOW ALL 17 COLUMNS IN ROW BY DEFAULT)
+// --------------------------------------------------------------------------------------
+const REQUIRED_GRID_COLUMNS = [
+    { fieldname: 'vendor_category', columns: 2 },
+    { fieldname: 'service_type', columns: 2 },
+    { fieldname: 'vendor', columns: 2 },
+    { fieldname: 'vendor_name', columns: 2 },
+    { fieldname: 'company', columns: 2 },
+    { fieldname: 'invoice_number', columns: 2 },
+    { fieldname: 'invoice_date', columns: 2 },
+    { fieldname: 'receipt_attachment', columns: 2 },
+    { fieldname: 'base_amount', columns: 2 },
+    { fieldname: 'tax_type', columns: 2 },
+    { fieldname: 'gst_rate', columns: 1 },
+    { fieldname: 'gst_amount', columns: 2 },
+    { fieldname: 'total_invoice_amount', columns: 2 },
+    { fieldname: 'tds_section', columns: 3 },
+    { fieldname: 'tds_amount', columns: 2 },
+    { fieldname: 'amount', columns: 2 },
+    { fieldname: 'line_status', columns: 2 }
+];
+
+function enforce_default_grid_columns(frm) {
+    if (!frm.fields_dict['vendor_lines'] || !frm.fields_dict['vendor_lines'].grid) return;
+    const grid = frm.fields_dict['vendor_lines'].grid;
+
+    // 1. Force docfields to have in_list_view: 1 and proper columns
+    if (grid.docfields) {
+        const req_map = {};
+        REQUIRED_GRID_COLUMNS.forEach(col => { req_map[col.fieldname] = col.columns; });
+
+        grid.docfields.forEach(df => {
+            if (req_map[df.fieldname] !== undefined) {
+                df.in_list_view = 1;
+                df.columns = req_map[df.fieldname];
+                df.hidden = 0;
+            } else {
+                df.in_list_view = 0;
+            }
+        });
+    }
+
+    // 2. Check if user_defined_columns is missing any required field
+    const current_cols = (grid.user_defined_columns || []).map(c => c.fieldname);
+    const is_missing = REQUIRED_GRID_COLUMNS.some(c => !current_cols.includes(c.fieldname));
+
+    if (is_missing || !grid.user_defined_columns || grid.user_defined_columns.length < REQUIRED_GRID_COLUMNS.length) {
+        const new_user_cols = REQUIRED_GRID_COLUMNS.map(col => {
+            let df = grid.docfields ? grid.docfields.find(f => f.fieldname === col.fieldname) : null;
+            if (!df) {
+                df = frappe.meta.get_docfield("Admin Vendor Claim Item", col.fieldname, frm.doc.name);
+            }
+            if (df) {
+                df.columns = col.columns;
+                df.in_list_view = 1;
+                df.hidden = 0;
+                return df;
+            }
+        }).filter(Boolean);
+
+        grid.user_defined_columns = new_user_cols;
+
+        // Persist to user settings so Frappe Desk keeps it permanently
+        let user_settings = frappe.get_user_settings(frm.doctype, "GridView") || {};
+        user_settings["Admin Vendor Claim Item"] = REQUIRED_GRID_COLUMNS.map(col => ({
+            fieldname: col.fieldname,
+            columns: col.columns,
+            sticky: 0
+        }));
+        frappe.model.user_settings.save(frm.doctype, "GridView", user_settings);
+
+        grid.visible_columns = null;
+        grid.setup_visible_columns();
+        grid.header_row = null;
+        if (grid.wrapper) {
+            grid.wrapper.find('.grid-heading-row').empty();
+        }
+        grid.refresh();
+    }
+}
+
 function apply_admin_vendor_styles() {
     if (document.getElementById('admin-vendor-flow-styles')) return;
 
@@ -920,6 +1005,43 @@ function apply_admin_vendor_styles() {
         .banner-approved { background: #f0fdf4; border: 1.5px solid #bbf7d0; color: #166534; }
         .banner-paid { background: #f0fdf4; border: 1.5px solid #86efac; color: #14532d; }
         .banner-rejected { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
+
+        /* Excel-Style Horizontal Scrolling Grid Row (All 17 Columns Side-by-Side without Wrapping) */
+        [data-fieldname="vendor_lines"] .form-grid {
+            border-radius: 8px;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+        }
+        [data-fieldname="vendor_lines"] .grid-heading-row,
+        [data-fieldname="vendor_lines"] .grid-body .grid-row .data-row {
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            min-width: 2300px !important;
+        }
+        [data-fieldname="vendor_lines"] .grid-static-col {
+            flex-shrink: 0 !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            white-space: nowrap !important;
+            padding: 6px 8px !important;
+        }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="vendor_category"] { min-width: 140px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="service_type"] { min-width: 150px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="vendor"] { min-width: 160px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="vendor_name"] { min-width: 160px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="company"] { min-width: 140px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="invoice_number"] { min-width: 120px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="invoice_date"] { min-width: 110px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="receipt_attachment"] { min-width: 130px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="base_amount"] { min-width: 120px !important; text-align: right; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tax_type"] { min-width: 160px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="gst_rate"] { min-width: 90px !important; text-align: center; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="gst_amount"] { min-width: 120px !important; text-align: right; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="total_invoice_amount"] { min-width: 130px !important; text-align: right; font-weight: 600; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_section"] { min-width: 230px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_amount"] { min-width: 120px !important; text-align: right; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="amount"] { min-width: 130px !important; text-align: right; font-weight: 700; color: #15803d; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="line_status"] { min-width: 110px !important; }
     `;
     document.head.appendChild(style);
 }

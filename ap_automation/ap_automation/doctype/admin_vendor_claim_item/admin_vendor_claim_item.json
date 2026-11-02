@@ -35,7 +35,8 @@
    "fieldtype": "Link",
    "label": "Service Type",
    "options": "AP Service Type Master",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "vendor",
@@ -97,12 +98,13 @@
    "fieldtype": "Select",
    "label": "Tax Type",
    "options": "Intra-State (CGST + SGST)\nInter-State (IGST)",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "gst_rate",
    "label": "GST %",
-   "columns": 2,
+   "columns": 1,
    "in_list_view": 1,
    "default": "18%",
    "fieldtype": "Select",
