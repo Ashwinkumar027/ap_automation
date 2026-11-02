@@ -100,6 +100,9 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
         if (!frm.doc.claim_category) {
             frm.doc.claim_category = 'General Expense';
         }
+        if (frm.doc.claim_category === 'Dinner Allowance' && (!frm.doc.dinner_allowance_amount || parseFloat(frm.doc.dinner_allowance_amount) <= 0)) {
+            frm.set_value('dinner_allowance_amount', 200.0);
+        }
 
         frm.trigger('setup_form_immutability');
         render_unified_claim_header(frm);
@@ -174,6 +177,11 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
             frm.set_df_property('jv_date', 'read_only', 1);
         }
 
+        if (frm.doc.claim_category === 'Dinner Allowance') {
+            if (!frm.doc.dinner_allowance_amount || parseFloat(frm.doc.dinner_allowance_amount) <= 0) {
+                frm.set_value('dinner_allowance_amount', 200.0);
+            }
+        }
         toggle_category_sections(frm, true);
         setup_expense_subtype_query(frm);
         update_multi_leg_travel_calculations(frm);
@@ -192,6 +200,14 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
     expense_type: function(frm) {
         frm.trigger('claim_category');
+    },
+
+    dinner_allowance_amount: function(frm) {
+        frm.trigger('calculate_totals');
+    },
+
+    swipe_out_time: function(frm) {
+        frm.trigger('calculate_totals');
     },
 
     is_per_diem_claimed: function(frm) {
@@ -723,7 +739,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
             (frm.doc.expense_lines || []).forEach(row => {
                 bill_amount += parseFloat(row.amount || 0.0);
             });
-            const dinner_rate = parseFloat(frm.doc.dinner_allowance_amount || 0.0);
+            const dinner_rate = parseFloat(frm.doc.dinner_allowance_amount || 200.0);
             total = bill_amount > 0 ? bill_amount : dinner_rate;
         } else if (cat === 'Team Lunch / Outing') {
             let bill_amount = 0.0;

@@ -918,15 +918,24 @@ function get_vendor_claim_attachments(frm) {
 }
 
 function setup_vendor_receipt_gallery_button(frm) {
-    let attachments = get_vendor_claim_attachments(frm);
+    let attachments = [];
+    if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.extractLocalAttachments === 'function') {
+        attachments = window.APReceiptGallery.extractLocalAttachments(frm);
+    } else {
+        attachments = get_vendor_claim_attachments(frm);
+    }
     if (attachments.length > 0) {
         frm.add_custom_button(__(`📁 Receipt Gallery (${attachments.length})`), function () {
-            open_vendor_receipt_gallery(frm);
+            open_vendor_receipt_gallery(frm, 0);
         }, __('Audit Proofs'));
     }
 }
 
-function open_vendor_receipt_gallery(frm) {
+function open_vendor_receipt_gallery(frm, start_idx) {
+    if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.show === 'function') {
+        window.APReceiptGallery.show(frm, { active_index: start_idx || 0 });
+        return;
+    }
     let attachments = get_vendor_claim_attachments(frm);
 
     if (attachments.length === 0) {

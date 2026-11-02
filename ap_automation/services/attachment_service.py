@@ -199,13 +199,21 @@ def view_receipt_file(file_url: str, doctype: Optional[str] = None, docname: Opt
         frappe.throw(_("File URL is required."))
 
     file_url = unquote(file_url.strip())
+    # Unpack nested view_url if passed
+    if "file_url=" in file_url:
+        import urllib.parse
+        parsed = urllib.parse.parse_qs(urllib.parse.urlparse(file_url).query)
+        if "file_url" in parsed and parsed["file_url"]:
+            file_url = parsed["file_url"][0]
+
+    clean_url = file_url.split("?")[0]
     site_path = frappe.get_site_path()
-    file_name = os.path.basename(file_url)
+    file_name = os.path.basename(clean_url)
 
     # Search paths in order of preference
     possible_paths = [
         # 1. Direct if relative to site
-        os.path.join(site_path, file_url.lstrip("/")),
+        os.path.join(site_path, clean_url.lstrip("/")),
         # 2. Public files
         os.path.join(site_path, "public", "files", file_name),
         # 3. Private files
