@@ -125,6 +125,14 @@ frappe.ui.form.on('Petty Cash Entry', {
         frm.add_custom_button(__('➕ Add Expense Head'), function () {
             open_manage_expense_heads_dialog(frm);
         });
+        if (window.APExpenseTypeManager) {
+            window.APExpenseTypeManager.refreshGridOptions(frm, 'expense_lines', 'expense_category', 'Petty Cash');
+        }
+        frm.add_custom_button(__('⚙️ Manage Expense Types'), function () {
+            if (window.APExpenseTypeManager) {
+                window.APExpenseTypeManager.openManageDialog(frm, 'expense_lines', 'expense_category', 'Petty Cash');
+            }
+        });
         render_petty_cash_stepper(frm);
         render_status_guidance_banner(frm);
         render_role_based_action_buttons(frm);
@@ -158,6 +166,11 @@ frappe.ui.form.on('Petty Cash Entry', {
 // CHILD GRID EVENT HANDLERS
 // --------------------------------------------------------------------------------------
 frappe.ui.form.on('Petty Cash Line Item', {
+    expense_category: function (frm, cdt, cdn) {
+        if (window.APExpenseTypeManager) {
+            window.APExpenseTypeManager.handleGridAddPrompt(frm, cdt, cdn, 'expense_category', 'Petty Cash');
+        }
+    },
     expense_head: function (frm, cdt, cdn) {
         const row = locals[cdt][cdn];
         if (row.expense_head === '➕ Add New Expense Head...' || row.expense_head === 'Add New...') {

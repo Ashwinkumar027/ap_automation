@@ -25,6 +25,15 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
         setup_grid_styling(frm);
         apply_grid_role_permissions(frm);
         setTimeout(() => bind_custom_grid_uploaders(frm), 300);
+
+        if (window.APExpenseTypeManager) {
+            window.APExpenseTypeManager.refreshGridOptions(frm, 'vendor_lines', 'vendor_category', 'Admin Weekly Vendor Claims');
+        }
+        frm.add_custom_button(__('⚙️ Manage Expense Types'), function () {
+            if (window.APExpenseTypeManager) {
+                window.APExpenseTypeManager.openManageDialog(frm, 'vendor_lines', 'vendor_category', 'Admin Weekly Vendor Claims');
+            }
+        });
     },
 
     week_period: function (frm) {
@@ -96,6 +105,11 @@ function calculate_row_statutory(cdt, cdn) {
 // CHILD TABLE ROW CONTROLLER (ADMIN VENDOR CLAIM ITEM)
 // --------------------------------------------------------------------------------------
 frappe.ui.form.on('Admin Vendor Claim Item', {
+    vendor_category: function (frm, cdt, cdn) {
+        if (window.APExpenseTypeManager) {
+            window.APExpenseTypeManager.handleGridAddPrompt(frm, cdt, cdn, 'vendor_category', 'Admin Weekly Vendor Claims');
+        }
+    },
     base_amount: function (frm, cdt, cdn) {
         calculate_row_statutory(cdt, cdn);
         calculate_grid_totals(frm);

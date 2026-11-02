@@ -106,6 +106,11 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         frm.trigger('setup_form_immutability');
         render_unified_claim_header(frm);
+        frm.add_custom_button(__('⚙️ Manage Expense Types'), function () {
+            if (window.APExpenseTypeManager) {
+                window.APExpenseTypeManager.openManageDialog(frm, 'expense_lines', 'expense_type', 'Employee Reimbursements');
+            }
+        });
         // Strict JV Number & JV Date Permissions: Only Accounts L1 Auditor, Accounts Director, System Manager
         const is_accounts_jv = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Director', 'System Manager']) || frappe.session.user === 'Administrator';
         if (is_accounts_jv) {

@@ -480,16 +480,20 @@ window.APReceiptGallery = {
                             <span style="font-size: 11px; font-weight: 700; color: #1e40af;">
                                 💼 Head: <span class="ap-active-head-text">${active_att.expense_head || 'Unassigned'}</span>
                             </span>
-                            <button type="button" class="btn btn-xs btn-default ap-btn-edit-head" data-idx="${current_index}" title="Edit Expenses of Head for this row" style="font-size: 10.5px; font-weight: 700; color: #1d4ed8; padding: 1px 7px; border: 1px solid #bfdbfe; background: #ffffff; border-radius: 4px;">
+                            <button type="button" class="btn btn-xs btn-default ap-btn-edit-head" data-idx="${current_index}" title="Edit Expenses of Head for this row" style="font-size: 10.5px; font-weight: 700; color: #1d4ed8; padding: 1px 7px; border: 1px solid #bfdbfe; background: #ffffff; border-radius: 4px; cursor: pointer;">
                                 ✏️ Edit
                             </button>
                         </div>
 
-                        ${active_att.category && active_att.category !== active_att.expense_head ? `
-                            <span style="font-size: 11px; font-weight: 600; color: #475569; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 2px 8px; border-radius: 4px;">
-                                🏷️ ${active_att.category}
+                        <!-- Prominent Expense Type Badge with In-Modal 1-Click Edit Button -->
+                        <div class="ap-type-badge-pill" style="display: inline-flex; align-items: center; background: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 6px; padding: 2px 8px; gap: 6px;">
+                            <span style="font-size: 11px; font-weight: 700; color: #047857;">
+                                🏷️ Type: <span class="ap-active-type-text">${active_att.category || 'General Expense'}</span>
                             </span>
-                        ` : ''}
+                            <button type="button" class="btn btn-xs btn-default ap-btn-edit-type" data-idx="${current_index}" title="Edit Expense Type for this row" style="font-size: 10.5px; font-weight: 700; color: #047857; padding: 1px 7px; border: 1px solid #a7f3d0; background: #ffffff; border-radius: 4px; cursor: pointer;">
+                                ✏️ Edit
+                            </button>
+                        </div>
                         ${active_att.description ? `
                             <span style="font-size: 11px; color: #334155; background: #f8fafc; border: 1px solid #cbd5e1; padding: 2px 8px; border-radius: 4px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${active_att.description}">
                                 📝 ${active_att.description}
@@ -754,6 +758,49 @@ window.APReceiptGallery = {
                 }
             });
         });
+
+        // In-Modal Expense Type Editor (1-Click Dynamic Master Update)
+        $main_content.off('click', '.ap-btn-edit-type').on('click', '.ap-btn-edit-type', function (e) {
+            e.stopPropagation();
+            const active_att = attachments[current_index];
+            const current_type = active_att.category || '';
+            const row_num = active_att.row_idx || (current_index + 1);
+            const dt = (frm && frm.doc && frm.doc.doctype) ? frm.doc.doctype : 'Petty Cash Entry';
+            const dn = (frm && frm.doc && frm.doc.name) ? frm.doc.name : '';
+
+            let module_scope = 'All';
+            if (dt === 'Petty Cash Entry') module_scope = 'Petty Cash';
+            else if (dt === 'Admin Weekly Vendor Claim') module_scope = 'Admin Weekly Vendor Claims';
+            else if (dt === 'Event Expense Claim') module_scope = 'Events';
+            else if (dt === 'Employee Reimbursement Claim') module_scope = 'Employee Reimbursements';
+
+            if (window.APExpenseTypeManager && typeof window.APExpenseTypeManager.openEditRowTypePrompt === 'function') {
+                window.APExpenseTypeManager.openEditRowTypePrompt(dt, dn, row_num, current_type, module_scope, function (new_type) {
+                    active_att.category = new_type;
+                    $main_content.find('.ap-active-type-text').text(new_type);
+
+                    const $thumb = $sidebar.find(`.ap-receipt-thumb-item[data-idx="${current_index}"]`);
+                    if (!active_att.expense_head) {
+                        $thumb.find('.ap-thumb-category-text').text(new_type);
+                    }
+
+                    if (frm && frm.doc) {
+                        const lines = frm.doc.expense_lines || frm.doc.vendor_lines || frm.doc.expense_items || frm.doc.reimbursement_lines || [];
+                        const r = lines.find(x => x.idx === row_num);
+                        if (r) {
+                            if (r.expense_category !== undefined) r.expense_category = new_type;
+                            if (r.vendor_category !== undefined) r.vendor_category = new_type;
+                            if (r.expense_type !== undefined) r.expense_type = new_type;
+                            if (frm.fields_dict['expense_lines']) frm.refresh_field('expense_lines');
+                            if (frm.fields_dict['vendor_lines']) frm.refresh_field('vendor_lines');
+                            if (frm.fields_dict['expense_items']) frm.refresh_field('expense_items');
+                            if (frm.fields_dict['reimbursement_lines']) frm.refresh_field('reimbursement_lines');
+                        }
+                    }
+                });
+            }
+        });
+
 
         // Helper to select an item with zero scroll reset
         const select_item = (idx, smooth_scroll_if_needed = false) => {

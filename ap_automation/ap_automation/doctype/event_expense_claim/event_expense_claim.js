@@ -69,6 +69,15 @@ frappe.ui.form.on("Event Expense Claim", {
                 frappe.new_doc('Event Settlement');
             }).addClass('btn-primary');
         }
+
+        if (window.APExpenseTypeManager) {
+            window.APExpenseTypeManager.refreshGridOptions(frm, 'expense_items', 'expense_category', 'Events');
+        }
+        frm.add_custom_button(__('⚙️ Manage Expense Types'), function () {
+            if (window.APExpenseTypeManager) {
+                window.APExpenseTypeManager.openManageDialog(frm, 'expense_items', 'expense_category', 'Events');
+            }
+        });
     },
 
     event: function(frm) {
@@ -145,6 +154,11 @@ function render_stream_demarcation_banner(frm) {
 }
 
 frappe.ui.form.on("Event Expense Item", {
+    expense_category: function(frm, cdt, cdn) {
+        if (window.APExpenseTypeManager) {
+            window.APExpenseTypeManager.handleGridAddPrompt(frm, cdt, cdn, 'expense_category', 'Events');
+        }
+    },
     amount: function(frm) {
         render_stream_demarcation_banner(frm);
     },

@@ -599,3 +599,229 @@ def update_claim_row_expense_head(doctype, docname, row_idx, expense_head, custo
         "new_head": clean_head,
         "message": f"Row #{row_idx} Expense Head updated to '{clean_head}'."
     }
+
+
+@frappe.whitelist()
+def get_active_expense_types(module_scope="All"):
+    """Returns sorted list of active expense types, optionally filtered by module scope."""
+    if module_scope and module_scope != "All":
+        types = frappe.db.sql("""
+            SELECT type_name, module_scope, sort_order, description
+            FROM `tabAP Expense Type Master`
+            WHERE is_active = 1 AND (module_scope = 'All' OR module_scope = %s OR module_scope IS NULL OR module_scope = '')
+            ORDER BY sort_order ASC, type_name ASC
+        """, (module_scope,), as_dict=True)
+    else:
+        types = frappe.get_all(
+            "AP Expense Type Master",
+            filters={"is_active": 1},
+            fields=["type_name", "module_scope", "sort_order", "description"],
+            order_by="sort_order asc, type_name asc"
+        )
+
+    if not types:
+        return [
+            "Tea & Refreshments", "Courier & Logistics", "Office Supplies & Stationery",
+            "Repairs & Maintenance", "Local Conveyance", "Cleaning & Housekeeping", "Miscellaneous"
+        ]
+    return [t["type_name"] for t in types]
+
+
+@frappe.whitelist()
+def get_expense_type_records(module_scope="All"):
+    """Returns all expense type records with their active status for management dialog."""
+    if module_scope and module_scope != "All":
+        records = frappe.db.sql("""
+            SELECT name, type_name, module_scope, is_active, sort_order, description
+            FROM `tabAP Expense Type Master`
+            WHERE module_scope = 'All' OR module_scope = %s OR module_scope IS NULL OR module_scope = ''
+            ORDER BY is_active DESC, sort_order ASC, type_name ASC
+        """, (module_scope,), as_dict=True)
+    else:
+        records = frappe.get_all(
+            "AP Expense Type Master",
+            fields=["name", "type_name", "module_scope", "is_active", "sort_order", "description"],
+            order_by="is_active desc, sort_order asc, type_name asc"
+        )
+    return records
+
+
+@frappe.whitelist()
+def create_or_edit_expense_type(type_name, module_scope="All", is_active=1, description=None, old_name=None):
+    """Allows Admin/Accounts to add or edit an Expense Type on the fly."""
+    if not type_name or not type_name.strip():
+        frappe.throw(_("Expense Type name cannot be empty."))
+
+    clean_name = type_name.strip()
+    target_name = (old_name or clean_name).strip()
+
+    if frappe.db.exists("AP Expense Type Master", target_name):
+        doc = frappe.get_doc("AP Expense Type Master", target_name)
+        if old_name and clean_name != old_name:
+            doc.type_name = clean_name
+        doc.module_scope = module_scope or "All"
+        doc.is_active = int(is_active)
+        if description is not None:
+            doc.description = description
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return {"status": "updated", "type_name": doc.type_name}
+    else:
+        doc = frappe.get_doc({
+            "doctype": "AP Expense Type Master",
+            "type_name": clean_name,
+            "module_scope": module_scope or "All",
+            "is_active": int(is_active),
+            "description": description or "",
+            "sort_order": 50
+        })
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return {"status": "created", "type_name": clean_name}
+
+
+@frappe.whitelist()
+def delete_or_deactivate_expense_type(type_name, permanent=0):
+    """Deactivates or deletes an Expense Type."""
+    if not type_name:
+        frappe.throw(_("Expense Type name is required."))
+
+    clean_name = type_name.strip()
+    if not frappe.db.exists("AP Expense Type Master", clean_name):
+        frappe.throw(_(f"Expense Type '{clean_name}' does not exist."))
+
+    if int(permanent) == 1:
+        try:
+            frappe.delete_doc("AP Expense Type Master", clean_name, ignore_permissions=True)
+            frappe.db.commit()
+            return {"status": "deleted", "type_name": clean_name}
+        except Exception:
+            frappe.db.set_value("AP Expense Type Master", clean_name, "is_active", 0)
+            frappe.db.commit()
+            return {"status": "deactivated", "type_name": clean_name, "fallback": True}
+    else:
+        frappe.db.set_value("AP Expense Type Master", clean_name, "is_active", 0)
+        frappe.db.commit()
+        return {"status": "deactivated", "type_name": clean_name}
+
+
+@frappe.whitelist()
+def update_claim_row_expense_type(doctype, docname, row_idx, expense_type):
+    """
+    Directly updates the Expense Type / Category on a voucher row from the View Receipt modal or form.
+    Maintains full audit integrity and updates child line item in DB.
+    Supports Petty Cash, Admin Weekly Vendor Claims, Event Expense Claims, and Reimbursements.
+    """
+    row_idx = int(row_idx)
+    doc = frappe.get_doc(doctype, docname)
+
+    table_field = None
+    type_field = "expense_category"
+
+    if hasattr(doc, "expense_lines"):
+        table_field = "expense_lines"
+        type_field = "expense_category"
+    elif hasattr(doc, "vendor_lines"):
+        table_field = "vendor_lines"
+        type_field = "vendor_category"
+    elif hasattr(doc, "expense_items"):
+        table_field = "expense_items"
+        type_field = "expense_category"
+    elif hasattr(doc, "reimbursement_lines"):
+        table_field = "reimbursement_lines"
+        type_field = "expense_type"
+
+    if not table_field or not getattr(doc, table_field, None):
+        frappe.throw(_(f"No expense rows found on {doctype} #{docname}."))
+
+    rows = getattr(doc, table_field)
+    target_row = None
+    for r in rows:
+        if getattr(r, "idx", 0) == row_idx:
+            target_row = r
+            break
+
+    if not target_row and 0 <= row_idx - 1 < len(rows):
+        target_row = rows[row_idx - 1]
+
+    if not target_row:
+        frappe.throw(_(f"Row #{row_idx} not found on {doctype} #{docname}."))
+
+    old_type = getattr(target_row, type_field, "")
+    clean_type = (expense_type or "").strip()
+    setattr(target_row, type_field, clean_type)
+
+    child_table = target_row.doctype
+    frappe.db.set_value(child_table, target_row.name, type_field, clean_type)
+
+    user_name = frappe.session.user
+    doc.add_comment(
+        "Edit",
+        f"Row #{row_idx} Expense Type updated from '{old_type}' to '{clean_type}' by {user_name} via Proof Gallery."
+    )
+    frappe.db.commit()
+
+    return {
+        "status": "success",
+        "row_idx": row_idx,
+        "new_type": clean_type,
+        "message": f"Row #{row_idx} Expense Type updated to '{clean_type}'."
+    }
+
+
+def seed_expense_types():
+    """Seeds default standard expense types for all modules into AP Expense Type Master."""
+    types = [
+        # Petty Cash
+        {"type_name": "Tea & Refreshments", "module_scope": "Petty Cash", "sort_order": 10},
+        {"type_name": "Courier & Logistics", "module_scope": "Petty Cash", "sort_order": 20},
+        {"type_name": "Office Supplies & Stationery", "module_scope": "Petty Cash", "sort_order": 30},
+        {"type_name": "Repairs & Maintenance", "module_scope": "Petty Cash", "sort_order": 40},
+        {"type_name": "Local Conveyance", "module_scope": "Petty Cash", "sort_order": 50},
+        {"type_name": "Cleaning & Housekeeping", "module_scope": "Petty Cash", "sort_order": 60},
+        {"type_name": "Miscellaneous", "module_scope": "Petty Cash", "sort_order": 70},
+
+        # Admin Weekly Vendor Claims
+        {"type_name": "Housekeeping", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 110},
+        {"type_name": "Pantry", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 120},
+        {"type_name": "Courier", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 130},
+        {"type_name": "Stationery", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 140},
+        {"type_name": "Printing", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 150},
+        {"type_name": "IT Hardware", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 160},
+        {"type_name": "Security & Facility", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 170},
+        {"type_name": "Office Supplies", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 180},
+
+        # Events
+        {"type_name": "Venue & Stage", "module_scope": "Events", "sort_order": 210},
+        {"type_name": "Travel & Flights", "module_scope": "Events", "sort_order": 220},
+        {"type_name": "Food & Catering", "module_scope": "Events", "sort_order": 230},
+        {"type_name": "Marketing & Collateral", "module_scope": "Events", "sort_order": 240},
+        {"type_name": "Stationery & Props", "module_scope": "Events", "sort_order": 250},
+        {"type_name": "Incidentals", "module_scope": "Events", "sort_order": 260},
+
+        # General / Reimbursements / Invoices
+        {"type_name": "Food & Meals", "module_scope": "Employee Reimbursements", "sort_order": 310},
+        {"type_name": "Travel & Conveyance", "module_scope": "Employee Reimbursements", "sort_order": 320},
+        {"type_name": "Client Entertainment", "module_scope": "Employee Reimbursements", "sort_order": 330},
+        {"type_name": "Accommodation & Hotel", "module_scope": "Employee Reimbursements", "sort_order": 340},
+        {"type_name": "Professional Fees", "module_scope": "Vendor Invoices", "sort_order": 410},
+        {"type_name": "IT & Cloud Services", "module_scope": "Vendor Invoices", "sort_order": 420},
+    ]
+
+    count = 0
+    for t in types:
+        name = t["type_name"]
+        if not frappe.db.exists("AP Expense Type Master", name):
+            doc = frappe.get_doc({
+                "doctype": "AP Expense Type Master",
+                "type_name": name,
+                "module_scope": t["module_scope"],
+                "sort_order": t["sort_order"],
+                "is_active": 1,
+                "description": f"Standard expense type for {t['module_scope']}"
+            })
+            doc.insert(ignore_permissions=True)
+            count += 1
+
+    frappe.db.commit()
+    return f"Seeded {count} new expense types."
