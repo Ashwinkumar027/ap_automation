@@ -1,0 +1,149 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:service_type_name",
+ "creation": "2026-11-02 15:10:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_main",
+  "service_type_name",
+  "category",
+  "cb_1",
+  "is_active",
+  "sort_order",
+  "sb_details",
+  "default_hsn_sac",
+  "default_tds_section",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_main",
+   "fieldtype": "Section Break",
+   "label": "Service Type Configuration"
+  },
+  {
+   "fieldname": "service_type_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Service Type Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "General",
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Service Category",
+   "options": "General\nIT & Technology\nFacilities & Admin\nOperations\nMarketing & Media\nProfessional Services"
+  },
+  {
+   "fieldname": "cb_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Is Active"
+  },
+  {
+   "default": "0",
+   "fieldname": "sort_order",
+   "fieldtype": "Int",
+   "label": "Sort Order Priority"
+  },
+  {
+   "fieldname": "sb_details",
+   "fieldtype": "Section Break",
+   "label": "Statutory & Tax Mapping"
+  },
+  {
+   "fieldname": "default_hsn_sac",
+   "fieldtype": "Data",
+   "label": "Default HSN / SAC Code"
+  },
+  {
+   "fieldname": "default_tds_section",
+   "fieldtype": "Data",
+   "label": "Default TDS Section"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description / Scope of Service"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-02 15:10:00.000000",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "AP Service Type Master",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Director",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 0
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "service_type_name,category",
+ "sort_field": "sort_order",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 1
+}

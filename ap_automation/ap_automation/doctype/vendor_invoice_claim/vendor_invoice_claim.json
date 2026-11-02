@@ -151,11 +151,29 @@
    "label": "Invoice Date"
   },
   {
+   "fieldname": "service_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Type of Service",
+   "options": "AP Service Type Master",
+   "description": "Select or add service classification (e.g. IT Hardware, Subscriptions, AMC, Facility)"
+  },
+  {
    "fieldname": "base_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Base Taxable Amount (INR)",
    "reqd": 1
+  },
+  {
+   "default": "Intra-State (CGST + SGST)",
+   "fieldname": "tax_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Tax Type (GST vs IGST)",
+   "options": "Intra-State (CGST + SGST)\nInter-State (IGST)",
+   "description": "Select Intra-State for 50:50 CGST & SGST split, or Inter-State for IGST."
   },
   {
    "default": "18%",
@@ -166,9 +184,45 @@
    "reqd": 1
   },
   {
+   "fieldname": "cgst_rate",
+   "fieldtype": "Percent",
+   "label": "CGST Rate (%)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cgst_amount",
+   "fieldtype": "Currency",
+   "label": "Calculated CGST (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sgst_rate",
+   "fieldtype": "Percent",
+   "label": "SGST Rate (%)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sgst_amount",
+   "fieldtype": "Currency",
+   "label": "Calculated SGST (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "igst_rate",
+   "fieldtype": "Percent",
+   "label": "IGST Rate (%)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "igst_amount",
+   "fieldtype": "Currency",
+   "label": "Calculated IGST (INR)",
+   "read_only": 1
+  },
+  {
    "fieldname": "gst_amount",
    "fieldtype": "Currency",
-   "label": "Calculated GST (INR)",
+   "label": "Total Calculated GST (INR)",
    "read_only": 1
   },
   {
@@ -301,8 +355,8 @@
    "fieldname": "tds_section",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Statutory Indian TDS Section",
-   "options": "None / Exempt\n194C - Contractor (1%)\n194C - Contractor (2%)\n194J - Technical Fees (2%)\n194J - Professional Fees (10%)\n194Q - Purchase of Goods (0.1%)\n194I - Rent (10%)\n206AB - Higher Non-Filer (20%)"
+   "label": "Statutory TDS Section (1961 & 2025 Act)",
+   "options": "None / Exempt\n194C / 393(1) - Contractor (Individual/HUF) (1%)\n194C / 393(1) - Contractor (Other than Individual/HUF) (2%)\n194J / 393(1) - Technical Services / Royalty (2%)\n194J / 393(1) - Professional Services & Director Fees (10%)\n194-I / 393(1) - Rent for Plant & Machinery (2%)\n194-I / 393(1) - Rent for Land & Building (10%)\n194Q / 393(1) - Purchase of Goods (0.1%)\n194H / 393(1) - Commission & Brokerage (2%)\n194A / 393(1) - Interest on Securities (10%)\n194A / 393(1) - Interest other than securities (Senior Citizen) (10%)\n194A / 393(1) - Interest other than securities (Others) (10%)\n194A / 393(1) - Interest other than securities (Specified Person) (10%)\n194-IA / 393(1) - Transfer of Immovable Property (1%)\n194-IB / 393(1) - Rent by Non-Specified Person (2%)\n194M / 393(1) - Contract & Professional Fees by Non-Specified Person (2%)\n194R / 393(1) - Business & Profession Perquisite (10%)\n194T / 393(3) - Partner Remuneration & Interest (10%)\n192 / 392 - Salary (Slab Rate)\n206AB - Higher Non-Filer (20%)\n194C - Contractor (1%)\n194C - Contractor (2%)\n194J - Technical Fees (2%)\n194J - Professional Fees (10%)\n194Q - Purchase of Goods (0.1%)\n194I - Rent (10%)"
   },
   {
    "fieldname": "tds_rate",
@@ -315,6 +369,12 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Deducted TDS Amount (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tds_threshold_warning",
+   "fieldtype": "Small Text",
+   "label": "TDS Threshold Diagnostic",
    "read_only": 1
   },
   {

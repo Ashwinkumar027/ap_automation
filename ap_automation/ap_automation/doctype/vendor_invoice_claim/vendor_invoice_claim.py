@@ -300,16 +300,38 @@ class VendorInvoiceClaim(APDocument):
                 doc=self
             )
 
+        # Automated 50:50 CGST & SGST Split vs. Inter-State IGST
+        tax_type = getattr(self, "tax_type", "Intra-State (CGST + SGST)") or "Intra-State (CGST + SGST)"
+        if "Inter-State" in tax_type or "IGST" in tax_type:
+            self.tax_type = "Inter-State (IGST)"
+            self.igst_rate = rate_val
+            self.igst_amount = gst
+            self.cgst_rate = 0.0
+            self.cgst_amount = 0.0
+            self.sgst_rate = 0.0
+            self.sgst_amount = 0.0
+        else:
+            self.tax_type = "Intra-State (CGST + SGST)"
+            half_rate = round(rate_val / 2.0, 2)
+            half_gst = round(gst / 2.0, 2)
+            self.cgst_rate = half_rate
+            self.cgst_amount = half_gst
+            self.sgst_rate = half_rate
+            self.sgst_amount = round(gst - half_gst, 2)
+            self.igst_rate = 0.0
+            self.igst_amount = 0.0
+
         self.gst_amount = gst
         self.total_invoice_amount = total
 
-        # Statutory Indian TDS Withholding calculation
+        # Statutory Indian TDS Withholding calculation (1961 & 2025 Act)
         try:
             from ap_automation.services.tds_service import calculate_tds
             section = getattr(self, "tds_section", "None / Exempt") or "None / Exempt"
             tds_info = calculate_tds(base, section)
             self.tds_rate = tds_info.get("rate", 0.0)
             self.tds_amount = tds_info.get("tds_amount", 0.0)
+            self.tds_threshold_warning = tds_info.get("threshold_warning") or ""
         except Exception:
             self.tds_rate = getattr(self, "tds_rate", 0.0) or 0.0
             self.tds_amount = getattr(self, "tds_amount", 0.0) or 0.0

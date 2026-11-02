@@ -228,6 +228,12 @@ class AdminWeeklyVendorClaim(Document):
                             title=_("Permission Denied"),
                             exc=APSecurityError
                         )
+                    if hasattr(old_r, "tax_type") and hasattr(row, "tax_type") and old_r.tax_type and row.tax_type and old_r.tax_type != row.tax_type:
+                        frappe.throw(
+                            _("Unauthorized: Only Accounts L1 and Accounts L2 are authorized to modify Tax Type classification."),
+                            title=_("Permission Denied"),
+                            exc=APSecurityError
+                        )
                     if old_r.tds_section and row.tds_section and old_r.tds_section != row.tds_section:
                         frappe.throw(
                             _("Unauthorized: Only Accounts L1 and Accounts L2 are authorized to classify TDS sections."),
@@ -280,14 +286,34 @@ class AdminWeeklyVendorClaim(Document):
             gst_amt = round(base * (gst_pct / 100.0), 2)
             total_bill = round(base + gst_amt, 2)
 
-            # Statutory Indian TDS computation
+            # GST vs IGST split (Automated 50:50 CGST & SGST Split vs Inter-State IGST)
+            tax_type = getattr(row, "tax_type", "Intra-State (CGST + SGST)") or "Intra-State (CGST + SGST)"
+            if "Inter-State" in tax_type or "IGST" in tax_type:
+                row.tax_type = "Inter-State (IGST)"
+                row.igst_amount = gst_amt
+                row.cgst_amount = 0.0
+                row.sgst_amount = 0.0
+            else:
+                row.tax_type = "Intra-State (CGST + SGST)"
+                half_gst = round(gst_amt / 2.0, 2)
+                row.cgst_amount = half_gst
+                row.sgst_amount = round(gst_amt - half_gst, 2)
+                row.igst_amount = 0.0
+
+            # Statutory Indian TDS Withholding computation (1961 & 2025 Act)
             section = row.tds_section or "None / Exempt"
-            tds_rate = TDS_SECTION_RATES.get(section)
-            if tds_rate is None:
-                import re
-                m = re.search(r"\((\d+(?:\.\d+)?)\s*%\)", section)
-                tds_rate = flt(m.group(1)) if m else flt(row.tds_rate)
-            tds_amt = round(base * (tds_rate / 100.0), 2)
+            try:
+                from ap_automation.services.tds_service import calculate_tds
+                tds_info = calculate_tds(base, section)
+                tds_rate = tds_info.get("rate", 0.0)
+                tds_amt = tds_info.get("tds_amount", 0.0)
+            except Exception:
+                tds_rate = TDS_SECTION_RATES.get(section)
+                if tds_rate is None:
+                    import re
+                    m = re.search(r"\((\d+(?:\.\d+)?)\s*%\)", section)
+                    tds_rate = flt(m.group(1)) if m else flt(row.tds_rate)
+                tds_amt = round(base * (tds_rate / 100.0), 2)
 
             net_pay = round(total_bill - tds_amt, 2)
 

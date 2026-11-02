@@ -246,6 +246,141 @@ class Test3WayMatchingAndTDS(unittest.TestCase):
         self.assertEqual(res_194q["rate"], 0.1)
         self.assertEqual(res_194q["tds_amount"], 5000.00)
 
+    def test_06_intra_state_50_50_cgst_sgst_split(self):
+        """Verifies automated 50:50 equal split between CGST and SGST on Intra-State invoices."""
+        claim = VendorInvoiceClaim({
+            "doctype": "Vendor Invoice Claim",
+            "invoice_type": "Without PO (Direct Tax Invoice)",
+            "company": self.company,
+            "vendor": self.vendor_id,
+            "tax_invoice_number": "INV-INTRA-GST-01",
+            "tax_invoice_date": "2026-09-21",
+            "base_amount": 150000.00,
+            "tax_type": "Intra-State (CGST + SGST)",
+            "gst_rate": "18%",
+            "tds_section": "None / Exempt",
+            "tax_invoice_attachment": "/files/invoice.pdf",
+            "email_approval_attachment": "/files/approval.pdf"
+        })
+        claim.validate()
+
+        self.assertEqual(claim.tax_type, "Intra-State (CGST + SGST)")
+        self.assertEqual(claim.gst_amount, 27000.00)
+        self.assertEqual(claim.cgst_rate, 9.0)
+        self.assertEqual(claim.cgst_amount, 13500.00)
+        self.assertEqual(claim.sgst_rate, 9.0)
+        self.assertEqual(claim.sgst_amount, 13500.00)
+        self.assertEqual(claim.igst_rate, 0.0)
+        self.assertEqual(claim.igst_amount, 0.0)
+        self.assertEqual(claim.total_invoice_amount, 177000.00)
+        self.assertEqual(claim.cgst_amount + claim.sgst_amount, claim.gst_amount)
+
+    def test_07_inter_state_igst_allocation(self):
+        """Verifies 100% assignment to IGST when Inter-State (IGST) is selected."""
+        claim = VendorInvoiceClaim({
+            "doctype": "Vendor Invoice Claim",
+            "invoice_type": "Without PO (Direct Tax Invoice)",
+            "company": self.company,
+            "vendor": self.vendor_id,
+            "tax_invoice_number": "INV-INTER-IGST-01",
+            "tax_invoice_date": "2026-09-21",
+            "base_amount": 150000.00,
+            "tax_type": "Inter-State (IGST)",
+            "gst_rate": "18%",
+            "tds_section": "None / Exempt",
+            "tax_invoice_attachment": "/files/invoice.pdf",
+            "email_approval_attachment": "/files/approval.pdf"
+        })
+        claim.validate()
+
+        self.assertEqual(claim.tax_type, "Inter-State (IGST)")
+        self.assertEqual(claim.gst_amount, 27000.00)
+        self.assertEqual(claim.igst_rate, 18.0)
+        self.assertEqual(claim.igst_amount, 27000.00)
+        self.assertEqual(claim.cgst_rate, 0.0)
+        self.assertEqual(claim.cgst_amount, 0.0)
+        self.assertEqual(claim.sgst_rate, 0.0)
+        self.assertEqual(claim.sgst_amount, 0.0)
+        self.assertEqual(claim.total_invoice_amount, 177000.00)
+
+    def test_08_statutory_tds_2025_act_provisions(self):
+        """Verifies statutory TDS calculations under Income-tax Act, 2025 section references."""
+        # 1. Section 393(1) Table 6 (iii) - Professional fees (10%)
+        res_prof = calculate_tds(100000.00, "Section 393(1) Table 6 (iii) / 194J - Professional Fees (10%)")
+        self.assertEqual(res_prof["rate"], 10.0)
+        self.assertEqual(res_prof["tds_amount"], 10000.00)
+        self.assertEqual(res_prof["is_taxable"], True)
+
+        # 2. Section 393(1) Table 6 (i) - Contractor payments (2%)
+        res_contr = calculate_tds(200000.00, "Section 393(1) Table 6 (i) / 194C - Contractor - Others (2%)")
+        self.assertEqual(res_contr["rate"], 2.0)
+        self.assertEqual(res_contr["tds_amount"], 4000.00)
+
+        # 3. Section 393(1) Table 2 (ii) - Rent Plant/Machinery (2%)
+        res_rent = calculate_tds(50000.00, "Section 393(1) Table 2 (ii) / 194-I - Rent - Plant & Machinery (2%)")
+        self.assertEqual(res_rent["rate"], 2.0)
+        self.assertEqual(res_rent["tds_amount"], 1000.00)
+
+    def test_09_threshold_limit_validation(self):
+        """Verifies threshold validation generates warnings when below threshold limit."""
+        # Section 194C single transaction threshold is INR 30,000.
+        # An invoice of INR 25,000 is below the threshold and should generate a threshold warning.
+        res = calculate_tds(25000.00, "Section 393(1) Table 6 (i) / 194C - Contractor - Others (2%)")
+        self.assertIsNotNone(res.get("threshold_warning"))
+        self.assertIn("threshold", res.get("threshold_warning").lower())
+
+    def test_10_admin_weekly_vendor_claim_multi_row_gst_and_tds(self):
+        """Verifies Admin Weekly Vendor Claim controller splits Intra-State and Inter-State rows."""
+        from ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim import AdminWeeklyVendorClaim
+
+        weekly_claim = AdminWeeklyVendorClaim({
+            "doctype": "Admin Weekly Vendor Claim",
+            "company": self.company,
+            "week_period": "Week 44 - October 2026",
+            "vendor_lines": [
+                {
+                    "vendor": self.vendor_id,
+                    "company": self.company,
+                    "invoice_number": "INV-ROW-1",
+                    "base_amount": 100000.00,
+                    "tax_type": "Intra-State (CGST + SGST)",
+                    "gst_rate": "18%",
+                    "tds_section": "Section 393(1) Table 6 (iii) / 194J - Professional Fees (10%)"
+                },
+                {
+                    "vendor": self.vendor_id,
+                    "company": self.company,
+                    "invoice_number": "INV-ROW-2",
+                    "base_amount": 50000.00,
+                    "tax_type": "Inter-State (IGST)",
+                    "gst_rate": "18%",
+                    "tds_section": "Section 393(1) Table 6 (i) / 194C - Contractor - Others (2%)"
+                }
+            ]
+        })
+        weekly_claim.calculate_totals()
+
+        row1 = weekly_claim.vendor_lines[0]
+        self.assertEqual(row1.cgst_amount, 9000.00)
+        self.assertEqual(row1.sgst_amount, 9000.00)
+        self.assertEqual(row1.igst_amount, 0.0)
+        self.assertEqual(row1.gst_amount, 18000.00)
+        self.assertEqual(row1.tds_amount, 10000.00)
+        self.assertEqual(row1.amount, 108000.00)
+
+        row2 = weekly_claim.vendor_lines[1]
+        self.assertEqual(row2.cgst_amount, 0.0)
+        self.assertEqual(row2.sgst_amount, 0.0)
+        self.assertEqual(row2.igst_amount, 9000.00)
+        self.assertEqual(row2.gst_amount, 9000.00)
+        self.assertEqual(row2.tds_amount, 1000.00)
+        self.assertEqual(row2.amount, 58000.00)
+
+        self.assertEqual(weekly_claim.total_base_amount, 150000.00)
+        self.assertEqual(weekly_claim.total_gst_amount, 27000.00)
+        self.assertEqual(weekly_claim.total_tds_amount, 11000.00)
+        self.assertEqual(weekly_claim.total_amount, 166000.00)
+
 
 if __name__ == "__main__":
     unittest.main()

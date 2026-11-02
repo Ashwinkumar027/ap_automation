@@ -30,6 +30,24 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
             window.APExpenseTypeManager.refreshGridOptions(frm, 'vendor_lines', 'vendor_category', 'Admin Weekly Vendor Claims');
         }
 
+        // Dynamically fetch active statutory TDS sections from AP TDS Master
+        frappe.call({
+            method: 'ap_automation.services.tds_service.get_all_active_tds_sections',
+            callback: function(r) {
+                if (r.message && r.message.length) {
+                    const opts = r.message.map(m => m.display_label || m.name);
+                    if (!opts.includes('None / Exempt')) opts.unshift('None / Exempt');
+                    const opt_str = opts.join('\n');
+                    frm.set_df_property('vendor_lines', 'tds_section', 'options', opt_str);
+                    const grid = frm.get_field('vendor_lines') && frm.get_field('vendor_lines').grid;
+                    if (grid) {
+                        const df = frappe.meta.get_docfield('Admin Vendor Claim Item', 'tds_section', frm.doc.name);
+                        if (df) df.options = opt_str;
+                    }
+                }
+            }
+        });
+
     },
 
     week_period: function (frm) {
@@ -78,6 +96,20 @@ function calculate_row_statutory(cdt, cdn) {
     const gst_amount = flt((base * gst_rate) / 100.0, 2);
     const total_inv = flt(base + gst_amount, 2);
 
+    // Automated 50:50 CGST & SGST Split vs Inter-State IGST
+    const tax_type = row.tax_type || 'Intra-State (CGST + SGST)';
+    let cgst_amt = 0.0;
+    let sgst_amt = 0.0;
+    let igst_amt = 0.0;
+
+    if (tax_type.indexOf('Inter-State') !== -1 || tax_type.indexOf('IGST') !== -1) {
+        igst_amt = gst_amount;
+    } else {
+        const half_gst = flt(gst_amount / 2.0, 2);
+        cgst_amt = half_gst;
+        sgst_amt = flt(gst_amount - half_gst, 2);
+    }
+
     let tds_rate = 0.0;
     if (row.tds_section && TDS_SECTION_RATES[row.tds_section] !== undefined) {
         tds_rate = TDS_SECTION_RATES[row.tds_section];
@@ -90,6 +122,10 @@ function calculate_row_statutory(cdt, cdn) {
     const tds_amount = flt((base * tds_rate) / 100.0, 2);
     const net_pay = flt(total_inv - tds_amount, 2);
 
+    frappe.model.set_value(cdt, cdn, 'tax_type', tax_type);
+    frappe.model.set_value(cdt, cdn, 'cgst_amount', cgst_amt);
+    frappe.model.set_value(cdt, cdn, 'sgst_amount', sgst_amt);
+    frappe.model.set_value(cdt, cdn, 'igst_amount', igst_amt);
     frappe.model.set_value(cdt, cdn, 'gst_amount', gst_amount);
     frappe.model.set_value(cdt, cdn, 'total_invoice_amount', total_inv);
     frappe.model.set_value(cdt, cdn, 'tds_rate', tds_rate);
@@ -106,6 +142,24 @@ frappe.ui.form.on('Admin Vendor Claim Item', {
             window.APExpenseTypeManager.handleGridAddPrompt(frm, cdt, cdn, 'vendor_category', 'Admin Weekly Vendor Claims');
         }
     },
+    service_type: function (frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (row.service_type) {
+            frappe.db.get_value('AP Service Type Master', row.service_type, 'default_tds_section').then(r => {
+                if (r.message && r.message.default_tds_section && (!row.tds_section || row.tds_section === 'None / Exempt')) {
+                    frappe.model.set_value(cdt, cdn, 'tds_section', r.message.default_tds_section);
+                    calculate_row_statutory(cdt, cdn);
+                    calculate_grid_totals(frm);
+                }
+            });
+        }
+    },
+
+    tax_type: function (frm, cdt, cdn) {
+        calculate_row_statutory(cdt, cdn);
+        calculate_grid_totals(frm);
+    },
+
     base_amount: function (frm, cdt, cdn) {
         calculate_row_statutory(cdt, cdn);
         calculate_grid_totals(frm);
@@ -643,7 +697,9 @@ function apply_grid_role_permissions(frm) {
     };
 
     safe_toggle_enable('gst_rate', is_acc);
+    safe_toggle_enable('tax_type', is_acc);
     safe_toggle_enable('tds_section', is_acc);
+    safe_toggle_enable('service_type', true);
     safe_toggle_enable('line_status', is_acc);
     safe_toggle_enable('discrepancy_remarks', is_acc);
 }

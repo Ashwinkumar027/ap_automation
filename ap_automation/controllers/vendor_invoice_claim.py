@@ -123,8 +123,7 @@ class VendorInvoiceClaim(APDocument):
 
     def before_submit(self):
         """Pre-submission verification guard: strictly halts any invalid or incomplete filing."""
-        is_in_test = getattr(frappe.flags, "in_test", False) or getattr(self.flags, "ignore_approval", False)
-        if not is_in_test and getattr(self, "status", "Draft") != "Approved for Payment":
+        if getattr(self, "status", "Draft") != "Approved for Payment":
             log_and_throw(
                 f"Direct Submission Blocked: Vendor Invoice Claim must complete all required approval stages (Manager -> Director -> Accounts L1 -> Accounts L2) before it can be submitted. Current status: '{self.status}'.",
                 title="Approval Stages Pending",
@@ -301,16 +300,38 @@ class VendorInvoiceClaim(APDocument):
                 doc=self
             )
 
+        # Automated 50:50 CGST & SGST Split vs. Inter-State IGST
+        tax_type = getattr(self, "tax_type", "Intra-State (CGST + SGST)") or "Intra-State (CGST + SGST)"
+        if "Inter-State" in tax_type or "IGST" in tax_type:
+            self.tax_type = "Inter-State (IGST)"
+            self.igst_rate = rate_val
+            self.igst_amount = gst
+            self.cgst_rate = 0.0
+            self.cgst_amount = 0.0
+            self.sgst_rate = 0.0
+            self.sgst_amount = 0.0
+        else:
+            self.tax_type = "Intra-State (CGST + SGST)"
+            half_rate = round(rate_val / 2.0, 2)
+            half_gst = round(gst / 2.0, 2)
+            self.cgst_rate = half_rate
+            self.cgst_amount = half_gst
+            self.sgst_rate = half_rate
+            self.sgst_amount = round(gst - half_gst, 2)
+            self.igst_rate = 0.0
+            self.igst_amount = 0.0
+
         self.gst_amount = gst
         self.total_invoice_amount = total
 
-        # Statutory Indian TDS Withholding calculation
+        # Statutory Indian TDS Withholding calculation (1961 & 2025 Act)
         try:
             from ap_automation.services.tds_service import calculate_tds
             section = getattr(self, "tds_section", "None / Exempt") or "None / Exempt"
             tds_info = calculate_tds(base, section)
             self.tds_rate = tds_info.get("rate", 0.0)
             self.tds_amount = tds_info.get("tds_amount", 0.0)
+            self.tds_threshold_warning = tds_info.get("threshold_warning") or ""
         except Exception:
             self.tds_rate = getattr(self, "tds_rate", 0.0) or 0.0
             self.tds_amount = getattr(self, "tds_amount", 0.0) or 0.0
@@ -469,7 +490,7 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
                 exc=APSecurityError
             )
 
-        now_ts = frappe.utils.now_datetime()
+    now_ts = frappe.utils.now_datetime()
     doc.manager_approver = user
     doc.manager_approved_on = now_ts
 
@@ -481,15 +502,17 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
         company=company,
         document_lane="AP Vendor Invoice",
         level_number=1,
-        fallback_roles=["Accounts Director", "Director Tier"],
+        fallback_roles=["AP Director", "Accounts Director", "Director Tier", "Director"],
         stage_keyword="Director"
     )
     user_roles = frappe.get_roles(user)
     is_also_director = (
         user == bus_head or
         user in matrix_dirs or
+        "AP Director" in user_roles or
         "Accounts Director" in user_roles or
-        "Director Tier" in user_roles
+        "Director Tier" in user_roles or
+        "Director" in user_roles
     )
 
     if is_also_director:
@@ -594,11 +617,11 @@ def approve_vendor_claim_by_director(docname: str, remarks: Optional[str] = None
             company=company,
             document_lane="AP Vendor Invoice",
             level_number=2,
-            fallback_roles=["Accounts Director", "Director Tier"],
+            fallback_roles=["AP Director", "Accounts Director", "Director Tier", "Director"],
             stage_keyword="Director"
         )
         user_roles = frappe.get_roles(user)
-        is_auth = (user == bus_head or user in matrix_dirs or "Accounts Director" in user_roles or "Director Tier" in user_roles)
+        is_auth = (user == bus_head or user in matrix_dirs or "AP Director" in user_roles or "Accounts Director" in user_roles or "Director Tier" in user_roles or "Director" in user_roles)
         if not is_auth:
             frappe.throw(
                 f"Access Denied: You ('{user}') are not the designated Business Head or Director for '{company}'.",
@@ -610,7 +633,7 @@ def approve_vendor_claim_by_director(docname: str, remarks: Optional[str] = None
     doc.director_approver = user
     doc.director_approved_on = now_ts
     doc.status = "Pending Accounts Review"
-    doc.workflow_state = "Awaiting Accounts L1 Review"
+    doc.workflow_state = "Awaiting Accounts L1 Review (Gokulnath)"
 
     doc.append("approval_trail", {
         "level_number": 2,
@@ -679,7 +702,7 @@ def verify_vendor_claim_by_accounts_l1(docname: str, tally_reference: str, remar
     doc.accounts_l1_verifier = user
     doc.accounts_l1_verified_on = now_ts
     doc.status = "Pending Accounts L2 Approval"
-    doc.workflow_state = "Awaiting Accounts L2 Signoff"
+    doc.workflow_state = "Awaiting Accounts L2 Signoff (Anshul Sir / Srinivasan Sir)"
 
     doc.append("approval_trail", {
         "level_number": 4,
@@ -687,7 +710,7 @@ def verify_vendor_claim_by_accounts_l1(docname: str, tally_reference: str, remar
         "action_taken_by": user,
         "action": "APPROVED",
         "action_timestamp": now_ts,
-        "remarks": f"Verified by Accounts L1 | Tally Ref: {clean_tally} | {remarks or 'Voucher Posted to Tally'}"
+        "remarks": f"Verified by L1 (Gokulnath) | Tally Ref: {clean_tally} | {remarks or 'Voucher Posted to Tally'}"
     })
     doc.save(ignore_permissions=True)
     doc.add_comment("Comment", text=f"âœ… <b>Accounts L1 Verified & Tally Logged:</b> {user} | Tally Ref: <code>{clean_tally}</code>")
@@ -727,10 +750,10 @@ def approve_vendor_claim_by_accounts_l2(docname: str, remarks: Optional[str] = N
             company=company,
             document_lane="AP Vendor Invoice",
             level_number=4,
-            fallback_roles=["Accounts Director", "Accounts Manager"],
+            fallback_roles=["AP Director", "Accounts Director", "Accounts Manager"],
             stage_keyword="Accounts L2"
         )
-        if not (user in matrix_l2 or any(r in user_roles for r in ["Accounts Director", "Accounts Manager"])):
+        if not (user in matrix_l2 or any(r in user_roles for r in ["AP Director", "Accounts Director", "Accounts Manager"])):
             frappe.throw(
                 "Access Denied: Accounts L2 Approval requires designated Accounts L2 Approver or 'Accounts Director' role.",
                 title="Accounts Director Required",
@@ -753,7 +776,7 @@ def approve_vendor_claim_by_accounts_l2(docname: str, remarks: Optional[str] = N
     doc.accounts_l2_approver = user
     doc.accounts_l2_approved_on = now_ts
     doc.status = "Approved for Payment"
-    doc.workflow_state = "Approved for Payment Release"
+    doc.workflow_state = "Approved for Shared Payment Core Release (Anish Sir)"
 
     doc.append("approval_trail", {
         "level_number": 5,
@@ -809,7 +832,7 @@ def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[st
     """
     user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
     user_roles = set(frappe.get_roles(user)) if user else set()
-    authorized_roles = {"Payment Releaser", "Accounts Director", "System Manager", "Administrator"}
+    authorized_roles = {"Payment Releaser", "AP Director", "Accounts Director", "System Manager", "Administrator"}
     if user != "Administrator" and not user_roles.intersection(authorized_roles):
         raise APSecurityError("Unauthorized: Only Payment Releaser or Accounts Director can disburse commercial vendor invoices.")
 
