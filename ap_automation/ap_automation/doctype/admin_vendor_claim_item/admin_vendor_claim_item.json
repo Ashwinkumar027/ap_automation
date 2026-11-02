@@ -32,6 +32,7 @@
   "bank_account_number",
   "bank_ifsc_code",
   "penny_drop_status",
+  "bank_proof_attachment",
   "remarks"
  ],
  "fields": [
@@ -241,6 +242,14 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Penny Drop Status",
+   "read_only": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "bank_proof_attachment",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "Bank Proof / Cheque",
    "read_only": 1,
    "columns": 2
   },

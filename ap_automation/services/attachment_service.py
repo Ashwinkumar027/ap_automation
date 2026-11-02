@@ -98,8 +98,8 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                     "extension": ext
                 })
 
-    # 3. Scan Generic other child tables (e.g. lines, items, instructions)
-    other_child_tables = ["lines", "items", "instructions"]
+    # 3. Scan Generic other child tables (e.g. lines, items, instructions, vendor_lines, expense_items, imprest_items)
+    other_child_tables = ["lines", "items", "instructions", "vendor_lines", "expense_items", "imprest_items"]
     for table_field in other_child_tables:
         rows = getattr(doc, table_field, []) or []
         for row in rows:
@@ -107,6 +107,16 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 getattr(row, "receipt_attachment", None)
                 or getattr(row, "attach_receipt", None)
                 or getattr(row, "attachment", None)
+                or getattr(row, "quote_attachment", None)
+                or getattr(row, "tax_invoice_attachment", None)
+            )
+            raw_v = (
+                getattr(row, "vendor_name", None)
+                or getattr(row, "beneficiary_name", None)
+                or getattr(row, "vendor", None)
+                or getattr(row, "merchant_name", None)
+                or getattr(row, "merchant", None)
+                or getattr(row, "particulars", "")
             )
             if file_url and isinstance(file_url, str) and file_url.strip():
                 file_url = file_url.strip()
@@ -118,11 +128,13 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 attachments.append({
                     "source": "row",
                     "row_idx": getattr(row, "idx", len(attachments) + 1),
-                    "merchant": getattr(row, "merchant_name", "") or getattr(row, "merchant", "Expense Item"),
-                    "category": getattr(row, "category", "") or getattr(row, "expense_type", "Expense Line"),
-                    "amount": float(getattr(row, "amount", 0.0) or 0.0),
-                    "date": str(getattr(row, "expense_date", "") or doc.get("posting_date", "")),
-                    "bill_no": getattr(row, "invoice_number", ""),
+                    "merchant": raw_v or getattr(row, "particulars", "Expense Item"),
+                    "vendor": raw_v,
+                    "vendor_name": raw_v,
+                    "category": getattr(row, "category", "") or getattr(row, "vendor_category", "") or getattr(row, "expense_type", "Expense Line"),
+                    "amount": float(getattr(row, "amount", 0.0) or getattr(row, "total_invoice_amount", 0.0) or getattr(row, "base_amount", 0.0) or 0.0),
+                    "date": str(getattr(row, "invoice_date", "") or getattr(row, "expense_date", "") or getattr(row, "bill_date", "") or doc.get("posting_date", "")),
+                    "bill_no": getattr(row, "invoice_number", "") or getattr(row, "bill_number", ""),
                     "file_url": file_url,
                     "view_url": view_url,
                     "file_name": file_name,
@@ -131,12 +143,38 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                     "extension": ext
                 })
 
+            # Check if row has Bank Proof attachment
+            row_bp = getattr(row, "bank_proof_attachment", None)
+            if row_bp and isinstance(row_bp, str) and row_bp.strip():
+                bp_url = row_bp.strip()
+                bp_name = bp_url.split("/")[-1]
+                bp_ext = os.path.splitext(bp_name)[1].lower()
+                attachments.append({
+                    "source": "row",
+                    "row_idx": getattr(row, "idx", len(attachments) + 1),
+                    "merchant": f"Bank Cheque Proof — {raw_v or 'Vendor'}",
+                    "vendor": raw_v,
+                    "vendor_name": raw_v,
+                    "category": "Bank Account Proof (Cancelled Cheque)",
+                    "amount": float(getattr(row, "amount", 0.0) or getattr(row, "total_invoice_amount", 0.0) or 0.0),
+                    "date": str(getattr(row, "invoice_date", "") or doc.get("posting_date", "")),
+                    "bill_no": getattr(row, "invoice_number", ""),
+                    "file_url": bp_url,
+                    "view_url": f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(bp_url)}&doctype={doctype}&docname={docname}",
+                    "file_name": bp_name,
+                    "is_image": bp_ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
+                    "is_pdf": bp_ext == ".pdf",
+                    "extension": bp_ext
+                })
+
     # 4. Scan Parent-Level Direct Attachment Fields
+    parent_vendor = getattr(doc, "vendor_name", None) or getattr(doc, "supplier_name", None) or getattr(doc, "vendor", None) or getattr(doc, "supplier", "")
     parent_fields = [
         ("activity_photo", "📸 Team Activity Photo Proof", "Team Engagement & Recreation"),
         ("pre_approval_attachment", "📋 Pre-Approval Authorization Screenshot", "Audit Proof Document"),
-        ("tax_invoice_attachment", "Vendor Tax Invoice", "Audit Proof Document"),
+        ("tax_invoice_attachment", f"Vendor Tax Invoice — {parent_vendor}" if parent_vendor else "Vendor Tax Invoice", "Audit Proof Document"),
         ("email_approval_attachment", "Manager Email Approval", "Audit Proof Document"),
+        ("bank_proof_attachment", f"Bank Cheque Proof — {parent_vendor}" if parent_vendor else "Bank Account Proof (Cancelled Cheque / Passbook)", "Bank Details Verification"),
         ("grn_attachment", "Goods Receipt Note / Delivery Proof", "Audit Proof Document"),
         ("advance_receipt_attachment", "Advance Payment Proof", "Audit Proof Document"),
         ("settlement_statement", "Event Settlement Statement", "Audit Proof Document")
@@ -155,8 +193,10 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 "source": "parent",
                 "row_idx": None,
                 "merchant": label,
+                "vendor": parent_vendor,
+                "vendor_name": parent_vendor,
                 "category": cat_label,
-                "amount": float(getattr(doc, "total_claim_amount", 0.0) or getattr(doc, "total_amount", 0.0) or 0.0),
+                "amount": float(getattr(doc, "total_claim_amount", 0.0) or getattr(doc, "total_amount", 0.0) or getattr(doc, "total_invoice_amount", 0.0) or getattr(doc, "grand_total", 0.0) or 0.0),
                 "date": str(doc.get("posting_date", "") or doc.get("activity_date", "") or doc.get("invoice_date", "")),
                 "bill_no": str(doc.get("name", "")),
                 "file_url": file_url,

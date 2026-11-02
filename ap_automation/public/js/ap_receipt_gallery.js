@@ -129,6 +129,7 @@ window.APReceiptGallery = {
             const rows = frm.doc[table_field] || [];
             rows.forEach((row, idx) => {
                 const file_url = row.attach_receipt || row.receipt_attachment || row.attachment || row.quote_attachment || row.tax_invoice_attachment;
+                const raw_v = row.vendor_name || row.beneficiary_name || row.vendor || row.merchant_name || row.merchant || '';
                 if (file_url && typeof file_url === 'string' && file_url.trim()) {
                     const clean_url = file_url.trim();
                     const file_name = clean_url.split('/').pop().split('?')[0];
@@ -136,15 +137,16 @@ window.APReceiptGallery = {
 
                     const head = row.expense_head || row.vendor_category || row.head_of_expense || '';
                     const cat = row.vendor_category || row.category || row.expense_category || row.expense_type || row.spend_stream || 'Expense Line';
-                    const raw_m = row.vendor_name || row.vendor || row.merchant_name || row.merchant || row.particulars;
+                    const raw_m = raw_v || row.particulars;
                     const smart_title = self.sanitizeMerchantTitle(raw_m, head, cat);
 
                     atts.push({
                         source: 'row',
                         row_idx: row.idx || (idx + 1),
                         merchant: smart_title,
-                        subtitle: raw_m || '',
-                        vendor: row.vendor_name || row.vendor || '',
+                        subtitle: raw_v || raw_m || '',
+                        vendor: raw_v,
+                        vendor_name: raw_v,
                         category: cat,
                         expense_head: head,
                         custom_ledger_name: row.custom_ledger_name || '',
@@ -160,14 +162,43 @@ window.APReceiptGallery = {
                         extension: ext
                     });
                 }
+
+                // In-row Bank Proof / Cancelled Cheque Display
+                if (row.bank_proof_attachment && typeof row.bank_proof_attachment === 'string' && row.bank_proof_attachment.trim()) {
+                    const bp_url = row.bank_proof_attachment.trim();
+                    const bp_name = bp_url.split('/').pop().split('?')[0];
+                    const bp_ext = (bp_name.lastIndexOf('.') !== -1 ? bp_name.substring(bp_name.lastIndexOf('.')).toLowerCase() : '');
+                    atts.push({
+                        source: 'row',
+                        row_idx: row.idx || (idx + 1),
+                        merchant: `Bank Cheque Proof — ${raw_v || 'Vendor'}`,
+                        subtitle: raw_v || '',
+                        vendor: raw_v,
+                        vendor_name: raw_v,
+                        category: 'Bank Account Proof (Cancelled Cheque)',
+                        expense_head: 'Bank Details Verification',
+                        custom_ledger_name: '',
+                        description: `Cancelled Cheque / Passbook verification for ${raw_v} (A/C: ${row.bank_account_number || ''})`,
+                        amount: parseFloat(row.amount || row.total_invoice_amount || row.base_amount || 0.0),
+                        date: row.invoice_date || frm.doc.posting_date || '',
+                        bill_no: row.invoice_number || '',
+                        file_url: bp_url,
+                        view_url: self.buildViewUrl(frm, bp_url),
+                        file_name: bp_name,
+                        is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(bp_ext),
+                        is_pdf: bp_ext === '.pdf',
+                        extension: bp_ext
+                    });
+                }
             });
         });
 
         // 4. Parent direct attachments (Invoices, Approvals, Proofs across all modules)
+        const parent_vendor = frm.doc.vendor_name || frm.doc.supplier_name || frm.doc.vendor || frm.doc.supplier || '';
         const parent_fields = [
-            { field: 'tax_invoice_attachment', label: frm.doc.vendor_name ? `Vendor Tax Invoice — ${frm.doc.vendor_name}` : 'Vendor Tax Invoice', cat: 'Vendor Commercial Invoice' },
+            { field: 'tax_invoice_attachment', label: parent_vendor ? `Vendor Tax Invoice — ${parent_vendor}` : 'Vendor Tax Invoice', cat: 'Vendor Commercial Invoice' },
             { field: 'email_approval_attachment', label: 'Manager Email Approval Proof', cat: 'Audit Approval Proof' },
-            { field: 'bank_proof_attachment', label: 'Bank Account Proof (Cancelled Cheque / Passbook)', cat: 'Bank Details Verification' },
+            { field: 'bank_proof_attachment', label: parent_vendor ? `Bank Cheque Proof — ${parent_vendor}` : 'Bank Account Proof (Cancelled Cheque / Passbook)', cat: 'Bank Details Verification' },
             { field: 'grn_attachment', label: 'Goods Receipt Note / Delivery Proof', cat: 'Warehouse Receipt' },
             { field: 'advance_receipt_attachment', label: 'Advance Payment Proof', cat: 'Bank Advance Proof' },
             { field: 'settlement_statement', label: 'Event Settlement Statement', cat: 'Event Settlement' },
@@ -176,7 +207,10 @@ window.APReceiptGallery = {
         ];
 
         parent_fields.forEach(pf => {
-            const file_url = frm.doc[pf.field];
+            let file_url = frm.doc[pf.field];
+            if (!file_url && pf.field === 'bank_proof_attachment' && frm._bank_account_doc && frm._bank_account_doc.bank_proof_attachment) {
+                file_url = frm._bank_account_doc.bank_proof_attachment;
+            }
             if (file_url && typeof file_url === 'string' && file_url.trim()) {
                 const clean_url = file_url.trim();
                 const file_name = clean_url.split('/').pop().split('?')[0];
@@ -185,8 +219,9 @@ window.APReceiptGallery = {
                     source: 'parent',
                     row_idx: null,
                     merchant: pf.label,
-                    subtitle: '',
-                    vendor: frm.doc.vendor_name || frm.doc.vendor || '',
+                    subtitle: parent_vendor,
+                    vendor: parent_vendor,
+                    vendor_name: parent_vendor,
                     category: pf.cat,
                     expense_head: frm.doc.expense_head || frm.doc.service_type || pf.cat,
                     custom_ledger_name: '',
@@ -280,15 +315,17 @@ window.APReceiptGallery = {
 
             const head = att.expense_head || att.head_of_expense || att.vendor_category || '';
             const cat = att.category || att.vendor_category || att.expense_category || '';
-            const raw_m = att.merchant || att.vendor_name || att.vendor || att.particulars;
+            const raw_v = att.vendor_name || att.vendor || att.beneficiary_name || (frm && frm.doc && (frm.doc.vendor_name || frm.doc.supplier_name || frm.doc.vendor || frm.doc.supplier)) || '';
+            const raw_m = raw_v || att.merchant || att.particulars;
             const smart_title = self.sanitizeMerchantTitle(raw_m, head, cat);
 
             return {
                 source: att.source || 'row',
                 row_idx: att.row_idx !== undefined ? att.row_idx : (idx + 1),
                 merchant: smart_title,
-                subtitle: att.subtitle || (raw_m || ''),
-                vendor: att.vendor || att.vendor_name || '',
+                subtitle: att.subtitle || (raw_v || ''),
+                vendor: raw_v,
+                vendor_name: raw_v,
                 category: cat,
                 expense_head: head,
                 custom_ledger_name: att.custom_ledger_name || '',
@@ -335,7 +372,8 @@ window.APReceiptGallery = {
         attachments.forEach((att, idx) => {
             const is_selected = idx === current_index;
             const item_date_formatted = self.formatDate(att.date);
-            const row_title = (att.row_idx ? `Row #${att.row_idx}: ` : '') + (att.merchant || 'Expense');
+            const v_name = att.vendor_name || att.vendor || '';
+            const row_title = (att.row_idx ? `Row #${att.row_idx}: ` : '') + (v_name ? v_name : (att.merchant || 'Expense'));
 
             thumb_items_html += `
                 <div class="ap-receipt-thumb-item ${is_selected ? 'ap-selected-row' : ''}" data-idx="${idx}" style="
@@ -354,7 +392,7 @@ window.APReceiptGallery = {
                     <div style="font-size: 22px; flex-shrink: 0;">${att.is_pdf ? '📄' : '🧾'}</div>
                     <div style="flex: 1; min-width: 0; overflow: hidden;">
                         <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
-                            <span class="ap-thumb-title-text" style="font-size: 13px; font-weight: 700; color: #1e293b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">
+                            <span class="ap-thumb-title-text" style="font-size: 13px; font-weight: 700; color: #1e293b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;" title="${row_title}">
                                 ${row_title}
                             </span>
                             ${item_date_formatted ? `
@@ -365,8 +403,8 @@ window.APReceiptGallery = {
                         </div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; gap: 8px;">
                             <span style="font-size: 12px; font-weight: 700; color: #059669; flex-shrink: 0;">${self.formatINR(att.amount)}</span>
-                            <span class="ap-thumb-category-text" style="font-size: 11px; color: #64748b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">
-                                ${att.expense_head || att.category || ''}
+                            <span class="ap-thumb-category-text" style="font-size: 11px; color: #64748b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;" title="${v_name ? 'Vendor: ' + v_name + ' • ' : ''}${att.category || att.expense_head || ''}">
+                                ${v_name ? '🏢 ' + v_name : (att.expense_head || att.category || '')}
                             </span>
                         </div>
                     </div>
@@ -410,7 +448,8 @@ window.APReceiptGallery = {
         const render_active_preview = () => {
             const active_att = attachments[current_index];
             const active_date_formatted = self.formatDate(active_att.date);
-            const header_title = (active_att.row_idx ? `Row #${active_att.row_idx}: ` : '') + (active_att.merchant || 'Expense');
+            const active_vendor = active_att.vendor_name || active_att.vendor || (frm && frm.doc && (frm.doc.vendor_name || frm.doc.supplier_name || frm.doc.vendor || frm.doc.supplier)) || '';
+            const header_title = (active_att.row_idx ? `Row #${active_att.row_idx}: ` : '') + (active_vendor ? `🏢 ${active_vendor}` : (active_att.merchant || 'Expense'));
             const target_url = active_att.view_url || active_att.file_url;
 
             // Reset zoom & pan for newly selected receipt
@@ -474,6 +513,15 @@ window.APReceiptGallery = {
                         <span style="font-size: 12px; color: #64748b;">
                             Amount: <b style="color: #059669; font-size: 13px;">${self.formatINR(active_att.amount)}</b>
                         </span>
+
+                        <!-- Prominent Vendor Legal Name Pill -->
+                        ${active_vendor ? `
+                            <div class="ap-vendor-badge-pill" style="display: inline-flex; align-items: center; background: #fffbeb; border: 1.5px solid #fcd34d; border-radius: 6px; padding: 2px 10px; gap: 6px;" title="Vendor Legal Name">
+                                <span style="font-size: 11.5px; font-weight: 700; color: #92400e;">
+                                    🏢 Vendor: <b class="ap-active-vendor-text" style="color: #78350f; font-weight: 800;">${active_vendor}</b>
+                                </span>
+                            </div>
+                        ` : ''}
 
                         <!-- Prominent Expenses of Head Badge with In-Modal 1-Click Edit Button -->
                         <div class="ap-head-badge-pill" style="display: inline-flex; align-items: center; background: #eff6ff; border: 1.5px solid #93c5fd; border-radius: 6px; padding: 2px 8px; gap: 6px;">

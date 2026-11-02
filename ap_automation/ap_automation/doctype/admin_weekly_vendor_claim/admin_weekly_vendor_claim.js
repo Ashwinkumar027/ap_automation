@@ -212,6 +212,7 @@ frappe.ui.form.on('Admin Vendor Claim Item', {
                     frappe.model.set_value(cdt, cdn, 'bank_account_number', data.bank_account_number || '');
                     frappe.model.set_value(cdt, cdn, 'bank_ifsc_code', data.bank_ifsc_code || '');
                     frappe.model.set_value(cdt, cdn, 'penny_drop_status', data.penny_drop_status || 'UNVERIFIED');
+                    frappe.model.set_value(cdt, cdn, 'bank_proof_attachment', data.bank_proof_attachment || '');
                 }
             }
         });
@@ -791,6 +792,7 @@ function open_admin_receipt_gallery(frm, start_idx) {
             atts.push({
                 row_idx: row.idx || (idx + 1),
                 vendor: row.vendor_name || row.vendor || 'Vendor Bill',
+                vendor_name: row.vendor_name || row.vendor || 'Vendor Bill',
                 category: row.vendor_category || 'Admin Expense',
                 base_amount: parseFloat(row.base_amount || 0.0),
                 gst_amount: parseFloat(row.gst_amount || 0.0),
@@ -804,6 +806,29 @@ function open_admin_receipt_gallery(frm, start_idx) {
                 is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext),
                 is_pdf: ext === '.pdf',
                 extension: ext
+            });
+        }
+        if (row.bank_proof_attachment) {
+            const bp_clean = row.bank_proof_attachment.trim();
+            const bp_name = bp_clean.split('/').pop();
+            const bp_ext = (bp_name.lastIndexOf('.') !== -1 ? bp_name.substring(bp_name.lastIndexOf('.')).toLowerCase() : '');
+            atts.push({
+                row_idx: row.idx || (idx + 1),
+                vendor: row.vendor_name || row.vendor || 'Vendor Bank Proof',
+                vendor_name: row.vendor_name || row.vendor || 'Vendor Bank Proof',
+                category: 'Bank Account Proof (Cancelled Cheque)',
+                base_amount: 0.0,
+                gst_amount: 0.0,
+                tds_amount: 0.0,
+                amount: parseFloat(row.amount || 0.0),
+                company: row.company || '',
+                invoice: `Cheque / A/C: ${row.bank_account_number || ''}`,
+                date: row.invoice_date || frm.doc.posting_date || '',
+                file_url: bp_clean,
+                file_name: bp_name,
+                is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(bp_ext),
+                is_pdf: bp_ext === '.pdf',
+                extension: bp_ext
             });
         }
     });
@@ -839,7 +864,7 @@ function open_admin_receipt_gallery(frm, start_idx) {
                 <div class="gallery-thumb-item" data-idx="${i}" style="display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:6px; border:1.5px solid; cursor:pointer; margin-bottom:8px; ${active}">
                     <div style="font-size:18px;">${a.is_pdf ? '📄' : '🖼️'}</div>
                     <div style="flex:1; overflow:hidden;">
-                        <div style="font-size:12px; font-weight:700; color:#1e293b; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">#${a.row_idx}: ${a.vendor}</div>
+                        <div style="font-size:12px; font-weight:700; color:#1e293b; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">#${a.row_idx}: 🏢 ${a.vendor_name || a.vendor}</div>
                         <div style="font-size:11px; color:#64748b;">₹ ${format_inr(a.amount)} | ${a.company}</div>
                     </div>
                 </div>
@@ -855,7 +880,7 @@ function open_admin_receipt_gallery(frm, start_idx) {
                 <div style="flex:1; display:flex; flex-direction:column;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #f1f5f9;">
                         <div>
-                            <div style="font-size:14px; font-weight:800; color:#0f172a;">#${item.row_idx}: ${item.vendor}</div>
+                            <div style="font-size:14px; font-weight:800; color:#0f172a;">#${item.row_idx}: 🏢 ${item.vendor_name || item.vendor}</div>
                             <div style="font-size:12px; color:#64748b;">${item.category} | Invoice: <b>${item.invoice || 'N/A'}</b> | Entity: <b>${item.company}</b></div>
                             <div style="font-size:11px; color:#475569; margin-top:2px;">Base: ₹ ${format_inr(item.base_amount)} | GST: ₹ ${format_inr(item.gst_amount)} | TDS: -₹ ${format_inr(item.tds_amount)}</div>
                         </div>
@@ -917,6 +942,7 @@ const REQUIRED_GRID_COLUMNS = [
     { fieldname: 'bank_account_number', columns: 2 },
     { fieldname: 'bank_ifsc_code', columns: 2 },
     { fieldname: 'penny_drop_status', columns: 2 },
+    { fieldname: 'bank_proof_attachment', columns: 2 },
     { fieldname: 'remarks', columns: 2 }
 ];
 

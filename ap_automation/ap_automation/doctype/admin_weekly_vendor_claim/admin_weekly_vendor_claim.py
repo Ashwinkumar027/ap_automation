@@ -145,6 +145,7 @@ class AdminWeeklyVendorClaim(Document):
                 row.bank_account_number = bank_info.get("bank_account_no") or ""
                 row.bank_ifsc_code = bank_info.get("ifsc_code") or ""
                 row.penny_drop_status = bank_info.get("penny_drop_status") or "UNVERIFIED"
+                row.bank_proof_attachment = bank_info.get("bank_proof_attachment") or ""
 
                 if is_submitting and bank_info.get("penny_drop_status") == "LOCKED_PENNY_DROP_MISMATCH":
                     frappe.throw(
@@ -246,9 +247,11 @@ class AdminWeeklyVendorClaim(Document):
         """Queries the active Bank Account linked to the Supplier."""
         has_pd = frappe.db.has_column("Bank Account", "penny_drop_status")
         pd_select = ", ba.penny_drop_status" if has_pd else ""
+        has_bp = frappe.db.has_column("Bank Account", "bank_proof_attachment")
+        bp_select = ", ba.bank_proof_attachment" if has_bp else ""
         accs = frappe.db.sql(
             f"""
-            SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code, ba.account_name{pd_select}
+            SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code, ba.account_name{pd_select}{bp_select}
             FROM `tabBank Account` ba
             WHERE ba.party_type = 'Supplier' AND ba.party = %s
             ORDER BY ba.is_default DESC, ba.creation DESC
@@ -263,7 +266,8 @@ class AdminWeeklyVendorClaim(Document):
                 "bank_account_no": accs[0].bank_account_no or "",
                 "ifsc_code": accs[0].branch_code or "",
                 "penny_drop_status": accs[0].get("penny_drop_status") or "VERIFIED",
-                "bank_beneficiary_name": accs[0].account_name or ""
+                "bank_beneficiary_name": accs[0].account_name or "",
+                "bank_proof_attachment": accs[0].get("bank_proof_attachment") or ""
             }
         return None
 
@@ -431,7 +435,8 @@ def get_supplier_bank_info(supplier):
         "bank_account_number": bank_info.get("bank_account_no", ""),
         "bank_ifsc_code": bank_info.get("ifsc_code", ""),
         "penny_drop_status": bank_info.get("penny_drop_status", "UNVERIFIED"),
-        "bank_beneficiary_name": bank_info.get("bank_beneficiary_name", supp.supplier_name)
+        "bank_beneficiary_name": bank_info.get("bank_beneficiary_name", supp.supplier_name),
+        "bank_proof_attachment": bank_info.get("bank_proof_attachment", "")
     }
 
 

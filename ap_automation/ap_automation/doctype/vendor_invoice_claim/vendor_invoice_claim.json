@@ -20,6 +20,7 @@
   "bank_name",
   "bank_account_number",
   "bank_ifsc_code",
+  "bank_proof_attachment",
   "sb_invoice",
   "tax_invoice_number",
   "tax_invoice_date",
@@ -130,6 +131,12 @@
    "fieldname": "bank_ifsc_code",
    "fieldtype": "Data",
    "label": "Bank IFSC Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_proof_attachment",
+   "fieldtype": "Attach",
+   "label": "Bank Proof Attachment (Cancelled Cheque / Passbook)",
    "read_only": 1
   },
   {

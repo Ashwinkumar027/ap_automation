@@ -200,14 +200,18 @@ class VendorInvoiceClaim(APDocument):
         self.bank_name = bank_acc.get("bank_name", "")
         self.bank_account_number = bank_acc.get("bank_account_no", "")
         self.bank_ifsc_code = bank_acc.get("ifsc_code", "")
+        if hasattr(self, "bank_proof_attachment"):
+            self.bank_proof_attachment = bank_acc.get("bank_proof_attachment", "")
 
     def _fetch_supplier_bank_account(self, supplier_name: str) -> Dict[str, Any]:
         """Looks up active Bank Account linked to Supplier in tabBank Account."""
         has_pd = frappe.db.has_column("Bank Account", "penny_drop_status")
         pd_select = ", ba.penny_drop_status" if has_pd else ""
+        has_bp = frappe.db.has_column("Bank Account", "bank_proof_attachment")
+        bp_select = ", ba.bank_proof_attachment" if has_bp else ""
         accs = frappe.db.sql(
             f"""
-            SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code{pd_select}
+            SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code{pd_select}{bp_select}
             FROM `tabBank Account` ba
             WHERE ba.party_type = 'Supplier' AND ba.party = %s
             ORDER BY ba.is_default DESC, ba.creation DESC
@@ -222,7 +226,8 @@ class VendorInvoiceClaim(APDocument):
                 "bank_name": accs[0].bank or "",
                 "bank_account_no": accs[0].bank_account_no or "",
                 "ifsc_code": accs[0].branch_code or "",
-                "penny_drop_status": accs[0].get("penny_drop_status") or "VERIFIED"
+                "penny_drop_status": accs[0].get("penny_drop_status") or "VERIFIED",
+                "bank_proof_attachment": accs[0].get("bank_proof_attachment") or ""
             }
         return {}
 
@@ -234,7 +239,7 @@ class VendorInvoiceClaim(APDocument):
         if not is_submitting:
             # On Draft, assign fallbacks
             if not getattr(self, "tax_invoice_number", None):
-                self.tax_invoice_number = self.invoice_number or f"DRAFT-{frappe.generate_hash(length=6).upper()}"
+                self.tax_invoice_number = getattr(self, "invoice_number", None) or f"DRAFT-{frappe.generate_hash(length=6).upper()}"
             return
 
         if route == "With Purchase Order":

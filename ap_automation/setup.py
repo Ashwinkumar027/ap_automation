@@ -275,9 +275,26 @@ def after_install():
     frappe.db.commit()
 
 
+def setup_custom_fields():
+    """Ensures required AP custom fields on core DocTypes exist."""
+    from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+    create_custom_fields({
+        "Bank Account": [
+            {
+                "fieldname": "bank_proof_attachment",
+                "label": "Bank Proof Attachment (Cancelled Cheque / Passbook)",
+                "fieldtype": "Attach",
+                "insert_after": "penny_drop_status",
+                "description": "Upload Cancelled Cheque, Passbook, or Bank Confirmation Letter for AP audit verification."
+            }
+        ]
+    }, update=True)
+
+
 def after_migrate():
     """Hook executed after bench migrate runs on a site."""
     setup_roles()
+    setup_custom_fields()
     reload_doctype_permissions()
     ensure_ap_permission_rules()
     setup_reports()
