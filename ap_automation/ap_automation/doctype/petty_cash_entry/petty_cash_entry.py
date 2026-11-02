@@ -60,12 +60,23 @@ class PettyCashEntry(Document):
         self.validate_jv_number_permissions()
 
     def set_claim_title(self):
-        """Auto-computes Claim Title based on Posting Date week number and Company abbreviation (e.g. 'Week 38 - ACM')."""
-        if self.posting_date and self.company:
-            post_dt = getdate(self.posting_date)
+        """Auto-computes Claim Title: '{Month} - Week {Week#} - {Company_Abbr}' (e.g. 'Oct - Week 43 - AAGA')."""
+        if self.company:
+            post_dt = getdate(self.posting_date or nowdate())
             week_num = post_dt.isocalendar()[1]
+
+            if not getattr(self, "expense_month", None):
+                self.expense_month = post_dt.strftime("%b")
+            if not getattr(self, "expense_week", None):
+                self.expense_week = f"Week {week_num}"
+
+            month_str = self.expense_month[:3].capitalize() if self.expense_month else post_dt.strftime("%b")
+            week_str = (self.expense_week or f"Week {week_num}").strip()
+            if not week_str.lower().startswith("week"):
+                week_str = f"Week {week_str}"
+
             abbr = frappe.db.get_value("Company", self.company, "abbr") or (self.company.split()[0] if self.company else "ACM")
-            self.claim_title = f"Week {week_num} - {abbr}"
+            self.claim_title = f"{month_str} - {week_str} - {abbr}"
 
     def validate_posting_date(self):
         """
@@ -311,14 +322,18 @@ class PettyCashEntry(Document):
                         )
 
     def calculate_totals(self):
-        """Calculates total amount dynamically."""
+        """Calculates total amount and unspent balance dynamically."""
         total = 0.0
-        for row in self.expense_lines:
+        for row in getattr(self, "expense_lines", []) or []:
             total += flt(row.amount or 0.0)
         self.total_amount = round(total, 2)
+        if getattr(self, "allocated_amount", None):
+            self.unspent_balance = round(flt(self.allocated_amount) - self.total_amount, 2)
+        else:
+            self.unspent_balance = 0.0
 
     def validate_immutability(self):
-        """Submitted bills must be locked, allowing edits only on drafts or returned vouchers."""
+        """Submitted bills are locked for general users, but Accounts L1 and Accounts Director have full edit freedom."""
         if self.is_new():
             return
         if getattr(frappe.flags, "in_dispute_split", False) or getattr(self.flags, "ignore_validate_immutability", False):
@@ -332,7 +347,19 @@ class PettyCashEntry(Document):
         if old_status in ("Draft", "Returned to Reception"):
             return
 
-        # Check if line items have actually been modified
+        user = frappe.session.user
+        user_roles = frappe.get_roles(user) if user else []
+        is_accounts_authorized = any(r in user_roles for r in [
+            "Accounts L1 Auditor", "Accounts User", "Accounts Manager", "AP Director",
+            "Accounts Director", "Director Tier", "Director", "Dileep Director",
+            "Payment Releaser", "System Manager"
+        ]) or user in ("Administrator", "administrator@example.com")
+
+        # Accounts L1 Auditor and Accounts Director can freely add/edit lines, amounts, receipts, and bill details
+        if is_accounts_authorized and old_status in ("Submitted", "L1 Verified", "Pending Admin L1", "Pending Admin L2"):
+            return
+
+        # Check if line items have actually been modified for non-accounts roles
         old_lines = getattr(old_doc, "expense_lines", []) or []
         new_lines = getattr(self, "expense_lines", []) or []
 
@@ -343,29 +370,13 @@ class PettyCashEntry(Document):
                 exc=APValidationError
             )
 
-        user = frappe.session.user
-        user_roles = frappe.get_roles(user) if user else []
-        is_director = any(r in user_roles for r in [
-            "AP Director", "Accounts Director", "Director Tier", "Director", "Dileep Director", "Payment Releaser", "System Manager"
-        ]) or user in ("Administrator", "administrator@example.com")
-
         for idx, (o_row, n_row) in enumerate(zip(old_lines, new_lines), 1):
             for lf in ("amount", "merchant_name", "bill_number", "expense_category", "expense_date", "receipt_attachment"):
-                if lf == "amount":
-                    if round(flt(getattr(o_row, lf, 0.0)), 2) != round(flt(getattr(n_row, lf, 0.0)), 2):
-                        # Accounts Director is authorized to adjust/edit line amounts during L1 Verified review
-                        if is_director and old_status in ("L1 Verified", "Submitted", "Admin Approved"):
-                            continue
-                        frappe.throw(
-                            f"🔒 Locked Document: Row {idx} ({lf}) cannot be modified on '{self.name}' in status '{old_status}'.",
-                            exc=APValidationError
-                        )
-                else:
-                    if str(getattr(o_row, lf, "") or "").strip() != str(getattr(n_row, lf, "") or "").strip():
-                        frappe.throw(
-                            f"🔒 Locked Document: Row {idx} ({lf}) cannot be modified on '{self.name}' in status '{old_status}'.",
-                            exc=APValidationError
-                        )
+                if str(getattr(o_row, lf, "") or "").strip() != str(getattr(n_row, lf, "") or "").strip():
+                    frappe.throw(
+                        f"🔒 Locked Document: Row {idx} ({lf}) cannot be modified on '{self.name}' in status '{old_status}'.",
+                        exc=APValidationError
+                    )
     def on_submit(self):
         """Dispatches automated notification to L1 Admin Reviewer."""
         try:

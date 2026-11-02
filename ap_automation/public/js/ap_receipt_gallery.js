@@ -494,6 +494,11 @@ window.APReceiptGallery = {
                                 ✏️ Edit
                             </button>
                         </div>
+
+                        <!-- In-Modal Upload / Replace Receipt Proof Button -->
+                        <button type="button" class="btn btn-xs btn-default ap-btn-replace-receipt" data-idx="${current_index}" title="Upload new / replace receipt proof" style="font-size: 10.5px; font-weight: 700; color: #b45309; padding: 2px 8px; border: 1.5px solid #fde68a; background: #fffbeb; border-radius: 6px; cursor: pointer;">
+                            📷 Upload / Replace
+                        </button>
                         ${active_att.description ? `
                             <span style="font-size: 11px; color: #334155; background: #f8fafc; border: 1px solid #cbd5e1; padding: 2px 8px; border-radius: 4px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${active_att.description}">
                                 📝 ${active_att.description}
@@ -799,6 +804,33 @@ window.APReceiptGallery = {
                     }
                 });
             }
+        });
+
+        // In-Modal Receipt Upload & Replace
+        $main_content.off('click', '.ap-btn-replace-receipt').on('click', '.ap-btn-replace-receipt', function (e) {
+            e.stopPropagation();
+            const active_att = attachments[current_index];
+            new frappe.ui.FileUploader({
+                folder: 'Home/Attachments',
+                doctype: frm.doc.doctype,
+                docname: frm.doc.name,
+                fieldname: 'expense_lines',
+                on_success: (file_doc) => {
+                    const table_name = frm.doc.doctype === 'Petty Cash Entry' ? 'expense_lines' : (frm.doc.doctype === 'Admin Weekly Vendor Claim' ? 'vendor_lines' : 'claim_items');
+                    const lines = frm.doc[table_name] || [];
+                    const row_num = active_att.row_idx || (current_index + 1);
+                    const row = lines.find(x => x.idx === row_num) || lines[current_index] || lines[0];
+                    if (row) {
+                        const target_field = row.receipt_attachment !== undefined ? 'receipt_attachment' : (row.attach_receipt !== undefined ? 'attach_receipt' : 'attachment');
+                        frappe.model.set_value(row.doctype, row.name, target_field, file_doc.file_url);
+                        active_att.file_url = file_doc.file_url;
+                        active_att.view_url = self.buildViewUrl(frm, file_doc.file_url);
+                        if (frm.fields_dict[table_name]) frm.refresh_field(table_name);
+                        render_active_preview();
+                        frappe.show_alert({ message: __('Receipt updated successfully!'), indicator: 'green' });
+                    }
+                }
+            });
         });
 
 

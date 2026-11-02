@@ -31,7 +31,7 @@ frappe.ui.form.on('Petty Cash Entry', {
         ]) || frappe.session.user === 'Administrator';
 
         const is_draft = !frm.doc.status || ['Draft', 'Rejected', 'Returned to Reception'].includes(frm.doc.status);
-        const can_director_edit = is_director && frm.doc.status === 'L1 Verified';
+        const is_accounts_reviewer = (is_accounts || is_director) && ['Submitted', 'L1 Verified'].includes(frm.doc.status);
 
         const is_admin_approver = frappe.user.has_role([
             'Admin L1 Approver',
@@ -43,14 +43,44 @@ frappe.ui.form.on('Petty Cash Entry', {
 
         const can_edit_expense_head = is_draft || is_accounts || is_admin_approver || is_director;
 
-        if (is_draft) {
+        if (is_draft || is_accounts_reviewer) {
+            // Full editing capability for Draft, Accounts L1 Auditor, and Accounts Director
             frm.set_df_property('expense_lines', 'read_only', 0);
             if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].grid) {
-                frm.fields_dict['expense_lines'].grid.cannot_add_rows = false;
-                frm.fields_dict['expense_lines'].grid.cannot_delete_rows = false;
+                const grid = frm.fields_dict['expense_lines'].grid;
+                grid.cannot_add_rows = false;
+                grid.cannot_delete_rows = false;
+
+                const safe_toggle_enable = (fieldname, enable) => {
+                    try {
+                        if (grid.docfields && grid.docfields.some(d => d.fieldname === fieldname)) {
+                            grid.toggle_enable(fieldname, enable);
+                        }
+                    } catch (e) {
+                        console.warn(`[PettyCash] Could not toggle enable for ${fieldname}:`, e);
+                    }
+                };
+
+                // Unlock all columns for Accounts L1 & Accounts Director
+                safe_toggle_enable('expense_head', true);
+                safe_toggle_enable('custom_ledger_name', true);
+                safe_toggle_enable('remarks', true);
+                safe_toggle_enable('amount', true);
+                safe_toggle_enable('receipt_attachment', true);
+                safe_toggle_enable('merchant_name', true);
+                safe_toggle_enable('bill_number', true);
+                safe_toggle_enable('expense_category', true);
+                safe_toggle_enable('branch', true);
+                safe_toggle_enable('expense_date', true);
+                safe_toggle_enable('employee', true);
+                safe_toggle_enable('staff_name', true);
+                safe_toggle_enable('is_gst', true);
+                safe_toggle_enable('merchant_gstin', true);
+                safe_toggle_enable('transaction_id', true);
+                safe_toggle_enable('description', true);
             }
-        } else if (can_edit_expense_head && ['Pending Admin L1', 'Pending Admin L2', 'Submitted', 'L1 Verified', 'Approved for Payment', 'Queued in Batch'].includes(frm.doc.status)) {
-            // Admin L1, Admin L2, Accounts L1, and Accounts Director can all edit Expenses of Head directly on rows
+        } else if (can_edit_expense_head && ['Pending Admin L1', 'Pending Admin L2', 'Approved for Payment', 'Queued in Batch'].includes(frm.doc.status)) {
+            // Admin reviewers can edit Expense Head and remarks, but base transaction amounts are locked
             frm.set_df_property('expense_lines', 'read_only', 0);
             if (frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].grid) {
                 const grid = frm.fields_dict['expense_lines'].grid;
@@ -67,15 +97,11 @@ frappe.ui.form.on('Petty Cash Entry', {
                     }
                 };
 
-                // Enable Expenses of Head and custom ledger for all reviewer roles
                 safe_toggle_enable('expense_head', true);
                 safe_toggle_enable('custom_ledger_name', true);
                 safe_toggle_enable('remarks', true);
 
-                // Accounts Director can adjust amounts
-                safe_toggle_enable('amount', can_director_edit);
-
-                // Lock immutable transaction details
+                safe_toggle_enable('amount', false);
                 safe_toggle_enable('expense_date', false);
                 safe_toggle_enable('merchant_name', false);
                 safe_toggle_enable('bill_number', false);
@@ -119,6 +145,11 @@ frappe.ui.form.on('Petty Cash Entry', {
         } else {
             frm.set_df_property('jv_number', 'read_only', 1);
         }
+        // Accounts Audit Remarks: Editable by Accounts L1 & Director, readable by Admin
+        if (frm.fields_dict['accounts_remarks']) {
+            frm.set_df_property('accounts_remarks', 'read_only', !(is_accounts || is_director || is_draft));
+        }
+        calculate_grid_totals(frm);
         enforce_permanent_grid_columns(frm);
         apply_petty_cash_styles();
         refresh_grid_expense_head_options(frm);
@@ -141,6 +172,18 @@ frappe.ui.form.on('Petty Cash Entry', {
         validate_client_posting_date(frm);
         auto_update_claim_title(frm);
         enforce_permanent_grid_columns(frm);
+    },
+
+    expense_month: function (frm) {
+        auto_update_claim_title(frm);
+    },
+
+    expense_week: function (frm) {
+        auto_update_claim_title(frm);
+    },
+
+    allocated_amount: function (frm) {
+        calculate_grid_totals(frm);
     },
 
     custodian: function (frm) {
@@ -266,17 +309,33 @@ function auto_update_claim_title(frm) {
     }
     const week_num = 1 + Math.ceil((firstThursday - target) / 604800000);
 
+    const month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const def_month = month_names[post_date.getMonth()];
+
+    if (!frm.doc.expense_month) {
+        frm.set_value('expense_month', def_month);
+    }
+    if (!frm.doc.expense_week) {
+        frm.set_value('expense_week', `Week ${week_num}`);
+    }
+
+    const month_str = (frm.doc.expense_month || def_month).substring(0, 3);
+    let week_str = (frm.doc.expense_week || `Week ${week_num}`).trim();
+    if (!week_str.toLowerCase().startsWith('week')) {
+        week_str = `Week ${week_str}`;
+    }
+
     const company_name = frm.doc.company;
     if (company_name) {
         frappe.db.get_value('Company', company_name, 'abbr').then(r => {
             let abbr = (r.message && r.message.abbr) ? r.message.abbr : company_name.split(' ')[0];
-            const title_val = `Week ${week_num} - ${abbr}`;
+            const title_val = `${month_str} - ${week_str} - ${abbr}`;
             if (frm.doc.claim_title !== title_val) {
                 frm.set_value('claim_title', title_val);
             }
         });
     } else {
-        const title_val = `Week ${week_num} - ACM`;
+        const title_val = `${month_str} - ${week_str} - ACM`;
         if (frm.doc.claim_title !== title_val) {
             frm.set_value('claim_title', title_val);
         }
@@ -291,7 +350,14 @@ function calculate_grid_totals(frm) {
     (frm.doc.expense_lines || []).forEach(row => {
         total += flt(row.amount || 0.0);
     });
-    frm.set_value('total_amount', total);
+    frm.set_value('total_amount', round_currency(total, 2));
+
+    const allocated = flt(frm.doc.allocated_amount || 0.0);
+    if (allocated > 0) {
+        frm.set_value('unspent_balance', round_currency(allocated - total, 2));
+    } else {
+        frm.set_value('unspent_balance', 0.0);
+    }
 }
 
 // --------------------------------------------------------------------------------------
@@ -988,14 +1054,33 @@ function bind_custom_grid_uploaders(frm) {
 
         if (current_val) {
             const badge = $(`
-                <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:6px; background:#ecfdf5; border:1px solid #10b981; border-radius:5px; padding:2px 8px; cursor:pointer;" title="Click to view full receipt">
-                    <img src="${current_val}" style="width:20px; height:20px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />
-                    <span style="font-size:11px; font-weight:700; color:#065f46;">🧾 Attached</span>
+                <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:6px; background:#ecfdf5; border:1px solid #10b981; border-radius:5px; padding:2px 6px;">
+                    <span class="ap-view-receipt-click" style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;" title="Click to view full receipt">
+                        <img src="${current_val}" style="width:18px; height:18px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />
+                        <span style="font-size:11px; font-weight:700; color:#065f46;">🧾 Attached</span>
+                    </span>
+                    <button type="button" class="btn btn-xs ap-replace-receipt-btn" style="border:none; background:transparent; padding:0 2px; color:#059669; font-size:11px; cursor:pointer; font-weight:700;" title="Upload new / replace receipt">✏️</button>
                 </div>
             `);
-            badge.on('click', function (e) {
+            badge.find('.ap-view-receipt-click').on('click', function (e) {
                 e.stopPropagation();
                 open_unified_receipt_gallery(frm, idx);
+            });
+            badge.find('.ap-replace-receipt-btn').on('click', function (e) {
+                e.stopPropagation();
+                new frappe.ui.FileUploader({
+                    folder: 'Home/Attachments',
+                    doctype: frm.doc.doctype,
+                    docname: frm.doc.name,
+                    fieldname: 'expense_lines',
+                    on_success: (file_doc) => {
+                        frappe.model.set_value(row_data.doctype, row_data.name, 'receipt_attachment', file_doc.file_url);
+                        calculate_grid_totals(frm);
+                        frm.refresh_field('expense_lines');
+                        setTimeout(() => bind_custom_grid_uploaders(frm), 200);
+                        frappe.show_alert({ message: __('Receipt updated successfully'), indicator: 'green' });
+                    }
+                });
             });
             cell.append(badge);
         } else {
