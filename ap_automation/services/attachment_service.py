@@ -494,3 +494,108 @@ def download_multiple_claims_receipts_zip(claim_names=None, label="Employee_Rece
     frappe.response["filename"] = download_filename
     frappe.response["filecontent"] = zip_buffer.getvalue()
     frappe.response["type"] = "download"
+
+
+@frappe.whitelist()
+def get_active_expense_heads():
+    """Returns sorted list of active expense heads from AP Expense Head Master."""
+    heads = frappe.get_all(
+        "AP Expense Head Master",
+        filters={"is_active": 1},
+        fields=["head_name", "category_group"],
+        order_by="sort_order asc, head_name asc"
+    )
+    if not heads:
+        return [
+            "STAFF WELFARE", "FOOD EXPENSES", "OFFICE EXPENSES", "OFFICE EXPENSES - GROCERY",
+            "OFFICE EXPENSES - POOJA", "PRINTING & STATIONARY", "COURIER CHARGES",
+            "POWER & FUEL EXPENSES", "TRAVEL EXPENSES", "OTHER EXPENSES", "OTHER / VENDOR LEDGER"
+        ]
+    return [h["head_name"] for h in heads]
+
+
+@frappe.whitelist()
+def create_or_edit_expense_head(head_name, is_active=1, description=None):
+    """Allows Admin/Accounts to add or edit an Expense Head on the fly."""
+    if not head_name or not head_name.strip():
+        frappe.throw(_("Expense Head name cannot be empty."))
+
+    clean_name = head_name.strip().upper()
+    if frappe.db.exists("AP Expense Head Master", clean_name):
+        doc = frappe.get_doc("AP Expense Head Master", clean_name)
+        doc.is_active = int(is_active)
+        if description is not None:
+            doc.description = description
+        doc.save(ignore_permissions=True)
+        return {"status": "updated", "head_name": clean_name}
+    else:
+        doc = frappe.get_doc({
+            "doctype": "AP Expense Head Master",
+            "head_name": clean_name,
+            "is_active": int(is_active),
+            "description": description or "",
+            "sort_order": 50
+        })
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return {"status": "created", "head_name": clean_name}
+
+
+@frappe.whitelist()
+def update_claim_row_expense_head(doctype, docname, row_idx, expense_head, custom_ledger_name=None):
+    """
+    Directly updates the Expenses of Head on a voucher row from the View Receipt modal or form.
+    Maintains full audit integrity and updates child line item in DB.
+    """
+    row_idx = int(row_idx)
+    doc = frappe.get_doc(doctype, docname)
+
+    table_field = None
+    if hasattr(doc, "expense_lines"):
+        table_field = "expense_lines"
+    elif hasattr(doc, "vendor_lines"):
+        table_field = "vendor_lines"
+    elif hasattr(doc, "expense_items"):
+        table_field = "expense_items"
+
+    if not table_field or not getattr(doc, table_field, None):
+        frappe.throw(_(f"No expense rows found on {doctype} #{docname}."))
+
+    rows = getattr(doc, table_field)
+    target_row = None
+    for r in rows:
+        if getattr(r, "idx", 0) == row_idx:
+            target_row = r
+            break
+
+    if not target_row and 0 <= row_idx - 1 < len(rows):
+        target_row = rows[row_idx - 1]
+
+    if not target_row:
+        frappe.throw(_(f"Row #{row_idx} not found on {doctype} #{docname}."))
+
+    old_head = getattr(target_row, "expense_head", "")
+    clean_head = (expense_head or "").strip()
+    target_row.expense_head = clean_head
+
+    child_table = target_row.doctype
+    update_vals = {"expense_head": clean_head}
+    if custom_ledger_name:
+        target_row.custom_ledger_name = custom_ledger_name.strip()
+        update_vals["custom_ledger_name"] = custom_ledger_name.strip()
+
+    frappe.db.set_value(child_table, target_row.name, update_vals)
+
+    user_name = frappe.session.user
+    doc.add_comment(
+        "Edit",
+        f"Row #{row_idx} Expense Head updated from '{old_head}' to '{clean_head}' by {user_name} via Proof Gallery."
+    )
+    frappe.db.commit()
+
+    return {
+        "status": "success",
+        "row_idx": row_idx,
+        "new_head": clean_head,
+        "message": f"Row #{row_idx} Expense Head updated to '{clean_head}'."
+    }

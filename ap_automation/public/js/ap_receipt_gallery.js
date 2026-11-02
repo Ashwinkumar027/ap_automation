@@ -1,6 +1,7 @@
 /**
  * AP Automation - Universal Receipt & Audit Gallery Manager
- * Provides bank-grade 2-Column In-Tab Modal Lightbox, Zero Scroll Jump, Interactive Zoom In/Out/Pan, and Direct In-App PDF Viewer
+ * Provides bank-grade 2-Column In-Tab Modal Lightbox, Zero Scroll Jump, Interactive Zoom In/Out/Pan, Direct In-App PDF Viewer,
+ * Prominent Expenses of Head Badge with In-Modal 1-Click Editing, and Smart Subtitles (Never "nil").
  * Active across ALL AP DocTypes (Petty Cash, Employee Reimbursements, Vendor Invoices, Admin Weekly Claims, Events).
  */
 
@@ -26,6 +27,18 @@ window.APReceiptGallery = {
         }
     },
 
+    sanitizeMerchantTitle: function (raw_name, fallback_head, fallback_cat) {
+        if (!raw_name) {
+            return fallback_head || fallback_cat || 'Expense Line';
+        }
+        const s = String(raw_name).trim();
+        const lower = s.toLowerCase();
+        if (['nil', 'null', 'none', '-', 'n/a', 'na'].includes(lower)) {
+            return fallback_head || fallback_cat || 'Expense Line';
+        }
+        return s;
+    },
+
     buildViewUrl: function (frm, clean_url) {
         if (!clean_url) return '';
         const dt = (frm && frm.doc && frm.doc.doctype) ? frm.doc.doctype : '';
@@ -49,13 +62,19 @@ window.APReceiptGallery = {
                 const is_img = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext);
                 const is_pdf = ext === '.pdf';
 
+                const head = row.expense_head || row.head_of_expense || '';
+                const cat = row.expense_category || row.category || row.expense_type || 'General Expense';
+                const smart_title = self.sanitizeMerchantTitle(row.merchant_name || row.merchant, head, cat);
+
                 atts.push({
                     source: 'row',
                     row_idx: row.idx || (idx + 1),
-                    merchant: row.merchant_name || row.merchant || row.vendor_name || row.vendor || 'Expense Line',
+                    merchant: smart_title,
+                    subtitle: row.merchant_name || '',
                     vendor: row.vendor_name || row.vendor || '',
-                    category: row.expense_category || row.category || row.expense_type || 'General Expense',
-                    expense_head: row.expense_head || row.head_of_expense || row.expense_category || '',
+                    category: cat,
+                    expense_head: head,
+                    custom_ledger_name: row.custom_ledger_name || '',
                     description: row.description || row.remarks || row.particulars || '',
                     amount: parseFloat(row.amount || row.claim_amount || 0.0),
                     date: row.expense_date || row.date || frm.doc.posting_date || '',
@@ -87,9 +106,10 @@ window.APReceiptGallery = {
                     source: 'row',
                     row_idx: leg.idx || (idx + 1),
                     merchant: travel_title,
+                    subtitle: leg.client_name || '',
                     vendor: leg.client_name || '',
                     category: route_cat,
-                    expense_head: 'Travel & Conveyance',
+                    expense_head: 'TRAVEL EXPENSES',
                     description: leg.purpose_of_visit || leg.description || '',
                     amount: parseFloat(leg.leg_amount || 0.0) + parseFloat(leg.toll_parking_amount || 0.0),
                     date: leg.visit_date || leg.travel_date || frm.doc.posting_date || '',
@@ -113,13 +133,21 @@ window.APReceiptGallery = {
                     const clean_url = file_url.trim();
                     const file_name = clean_url.split('/').pop().split('?')[0];
                     const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
+
+                    const head = row.expense_head || row.vendor_category || row.head_of_expense || '';
+                    const cat = row.vendor_category || row.category || row.expense_category || row.expense_type || row.spend_stream || 'Expense Line';
+                    const raw_m = row.vendor_name || row.vendor || row.merchant_name || row.merchant || row.particulars;
+                    const smart_title = self.sanitizeMerchantTitle(raw_m, head, cat);
+
                     atts.push({
                         source: 'row',
                         row_idx: row.idx || (idx + 1),
-                        merchant: row.vendor_name || row.vendor || row.merchant_name || row.merchant || row.particulars || 'Expense Item',
+                        merchant: smart_title,
+                        subtitle: raw_m || '',
                         vendor: row.vendor_name || row.vendor || '',
-                        category: row.vendor_category || row.category || row.expense_category || row.expense_type || row.spend_stream || 'Expense Line',
-                        expense_head: row.expense_head || row.vendor_category || row.head_of_expense || '',
+                        category: cat,
+                        expense_head: head,
+                        custom_ledger_name: row.custom_ledger_name || '',
                         description: row.description || row.remarks || row.particulars || row.discrepancy_remarks || '',
                         amount: parseFloat(row.amount || row.total_invoice_amount || row.base_amount || 0.0),
                         date: row.invoice_date || row.expense_date || row.bill_date || frm.doc.posting_date || '',
@@ -157,9 +185,11 @@ window.APReceiptGallery = {
                     source: 'parent',
                     row_idx: null,
                     merchant: pf.label,
+                    subtitle: '',
                     vendor: frm.doc.vendor_name || frm.doc.vendor || '',
                     category: pf.cat,
                     expense_head: frm.doc.expense_head || frm.doc.service_type || pf.cat,
+                    custom_ledger_name: '',
                     description: frm.doc.remarks || frm.doc.purpose || '',
                     amount: parseFloat(frm.doc.total_claim_amount || frm.doc.total_amount || frm.doc.total_invoice_amount || frm.doc.grand_total || 0.0),
                     date: frm.doc.posting_date || frm.doc.tax_invoice_date || frm.doc.activity_date || frm.doc.creation || '',
@@ -240,7 +270,7 @@ window.APReceiptGallery = {
         start_idx = start_idx || 0;
         let current_index = Math.min(Math.max(0, start_idx), attachments.length - 1);
 
-        // Normalize attachment objects from all callers
+        // Normalize attachment objects from all callers & eliminate "nil"
         attachments = attachments.map((att, idx) => {
             const raw_url = (att.file_url || att.receipt_attachment || att.attach_receipt || '').trim();
             const file_name = att.file_name || (raw_url ? raw_url.split('/').pop().split('?')[0] : `receipt_${idx + 1}`);
@@ -248,13 +278,20 @@ window.APReceiptGallery = {
             const is_img = att.is_image !== undefined ? att.is_image : ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext);
             const is_pdf = att.is_pdf !== undefined ? att.is_pdf : ext === '.pdf';
 
+            const head = att.expense_head || att.head_of_expense || att.vendor_category || '';
+            const cat = att.category || att.vendor_category || att.expense_category || '';
+            const raw_m = att.merchant || att.vendor_name || att.vendor || att.particulars;
+            const smart_title = self.sanitizeMerchantTitle(raw_m, head, cat);
+
             return {
                 source: att.source || 'row',
                 row_idx: att.row_idx !== undefined ? att.row_idx : (idx + 1),
-                merchant: att.merchant || att.vendor_name || att.vendor || att.particulars || 'Expense Item',
+                merchant: smart_title,
+                subtitle: att.subtitle || (raw_m || ''),
                 vendor: att.vendor || att.vendor_name || '',
-                category: att.category || att.vendor_category || att.expense_category || '',
-                expense_head: att.expense_head || att.head_of_expense || att.vendor_category || '',
+                category: cat,
+                expense_head: head,
+                custom_ledger_name: att.custom_ledger_name || '',
                 description: att.description || att.remarks || att.particulars || att.discrepancy_remarks || '',
                 amount: parseFloat(att.amount || att.total_invoice_amount || att.base_amount || 0.0),
                 date: att.date || att.invoice_date || att.bill_date || att.expense_date || '',
@@ -298,7 +335,7 @@ window.APReceiptGallery = {
         attachments.forEach((att, idx) => {
             const is_selected = idx === current_index;
             const item_date_formatted = self.formatDate(att.date);
-            const row_title = (att.row_idx ? `Row #${att.row_idx}: ` : '') + (att.merchant || att.vendor || 'Expense');
+            const row_title = (att.row_idx ? `Row #${att.row_idx}: ` : '') + (att.merchant || 'Expense');
 
             thumb_items_html += `
                 <div class="ap-receipt-thumb-item ${is_selected ? 'ap-selected-row' : ''}" data-idx="${idx}" style="
@@ -317,7 +354,7 @@ window.APReceiptGallery = {
                     <div style="font-size: 22px; flex-shrink: 0;">${att.is_pdf ? '📄' : '🧾'}</div>
                     <div style="flex: 1; min-width: 0; overflow: hidden;">
                         <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
-                            <span style="font-size: 13px; font-weight: 700; color: #1e293b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">
+                            <span class="ap-thumb-title-text" style="font-size: 13px; font-weight: 700; color: #1e293b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">
                                 ${row_title}
                             </span>
                             ${item_date_formatted ? `
@@ -328,7 +365,9 @@ window.APReceiptGallery = {
                         </div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; gap: 8px;">
                             <span style="font-size: 12px; font-weight: 700; color: #059669; flex-shrink: 0;">${self.formatINR(att.amount)}</span>
-                            <span style="font-size: 11px; color: #64748b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">${att.category || att.expense_head || ''}</span>
+                            <span class="ap-thumb-category-text" style="font-size: 11px; color: #64748b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">
+                                ${att.expense_head || att.category || ''}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -371,7 +410,7 @@ window.APReceiptGallery = {
         const render_active_preview = () => {
             const active_att = attachments[current_index];
             const active_date_formatted = self.formatDate(active_att.date);
-            const header_title = (active_att.row_idx ? `Row #${active_att.row_idx}: ` : '') + (active_att.merchant || active_att.vendor || 'Expense');
+            const header_title = (active_att.row_idx ? `Row #${active_att.row_idx}: ` : '') + (active_att.merchant || 'Expense');
             const target_url = active_att.view_url || active_att.file_url;
 
             // Reset zoom & pan for newly selected receipt
@@ -424,7 +463,7 @@ window.APReceiptGallery = {
                 <!-- Top Header & Universal Metadata Banner -->
                 <div class="ap-gallery-toolbar" style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; gap: 10px; flex-wrap: wrap;">
                     <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
-                        <span style="font-size: 14px; font-weight: 700; color: #0f172a;">
+                        <span class="ap-header-title-text" style="font-size: 14px; font-weight: 700; color: #0f172a;">
                             ${header_title}
                         </span>
                         ${active_date_formatted ? `
@@ -435,11 +474,17 @@ window.APReceiptGallery = {
                         <span style="font-size: 12px; color: #64748b;">
                             Amount: <b style="color: #059669; font-size: 13px;">${self.formatINR(active_att.amount)}</b>
                         </span>
-                        ${active_att.expense_head ? `
-                            <span style="font-size: 11px; font-weight: 600; color: #1e40af; background: #dbeafe; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 4px;">
-                                💼 Head: ${active_att.expense_head}
+
+                        <!-- Prominent Expenses of Head Badge with In-Modal 1-Click Edit Button -->
+                        <div class="ap-head-badge-pill" style="display: inline-flex; align-items: center; background: #eff6ff; border: 1.5px solid #93c5fd; border-radius: 6px; padding: 2px 8px; gap: 6px;">
+                            <span style="font-size: 11px; font-weight: 700; color: #1e40af;">
+                                💼 Head: <span class="ap-active-head-text">${active_att.expense_head || 'Unassigned'}</span>
                             </span>
-                        ` : ''}
+                            <button type="button" class="btn btn-xs btn-default ap-btn-edit-head" data-idx="${current_index}" title="Edit Expenses of Head for this row" style="font-size: 10.5px; font-weight: 700; color: #1d4ed8; padding: 1px 7px; border: 1px solid #bfdbfe; background: #ffffff; border-radius: 4px;">
+                                ✏️ Edit
+                            </button>
+                        </div>
+
                         ${active_att.category && active_att.category !== active_att.expense_head ? `
                             <span style="font-size: 11px; font-weight: 600; color: #475569; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 2px 8px; border-radius: 4px;">
                                 🏷️ ${active_att.category}
@@ -608,6 +653,106 @@ window.APReceiptGallery = {
                 is_dragging = false;
                 apply_zoom();
             }
+        });
+
+        // In-Modal Expense Head Editor (1-Click Update)
+        $main_content.off('click', '.ap-btn-edit-head').on('click', '.ap-btn-edit-head', function (e) {
+            e.stopPropagation();
+            const active_att = attachments[current_index];
+            const current_head = active_att.expense_head || '';
+            const row_num = active_att.row_idx || (current_index + 1);
+
+            frappe.call({
+                method: 'ap_automation.services.attachment_service.get_active_expense_heads',
+                callback: function (r) {
+                    const heads = (r.message && r.message.length) ? r.message : [
+                        'STAFF WELFARE', 'FOOD EXPENSES', 'OFFICE EXPENSES',
+                        'OFFICE EXPENSES - GROCERY', 'OFFICE EXPENSES - POOJA',
+                        'PRINTING & STATIONARY', 'COURIER CHARGES', 'POWER & FUEL EXPENSES',
+                        'TRAVEL EXPENSES', 'OTHER EXPENSES', 'OTHER / VENDOR LEDGER'
+                    ];
+
+                    const edit_head_dialog = new frappe.ui.Dialog({
+                        title: __(`Edit Expenses of Head — Row #${row_num}`),
+                        fields: [
+                            {
+                                fieldname: 'expense_head',
+                                fieldtype: 'Select',
+                                label: __('Expenses of Head'),
+                                options: heads,
+                                default: current_head || heads[0],
+                                reqd: 1,
+                                change: function () {
+                                    const val = edit_head_dialog.get_value('expense_head');
+                                    edit_head_dialog.set_df_property('custom_head', 'hidden', val !== 'OTHER / VENDOR LEDGER');
+                                }
+                            },
+                            {
+                                fieldname: 'custom_head',
+                                fieldtype: 'Data',
+                                label: __('Custom Head / Ledger Name (Manual Typing)'),
+                                default: active_att.custom_ledger_name || '',
+                                hidden: current_head !== 'OTHER / VENDOR LEDGER',
+                                description: __('Enter custom head or vendor ledger name')
+                            }
+                        ],
+                        primary_action_label: __('Save Head'),
+                        primary_action: function (vals) {
+                            const selected_head = vals.expense_head;
+                            const custom_val = (selected_head === 'OTHER / VENDOR LEDGER') ? (vals.custom_head || '') : '';
+                            const final_head_to_save = (selected_head === 'OTHER / VENDOR LEDGER' && custom_val) ? custom_val : selected_head;
+
+                            edit_head_dialog.hide();
+
+                            frappe.call({
+                                method: 'ap_automation.services.attachment_service.update_claim_row_expense_head',
+                                args: {
+                                    doctype: (frm && frm.doc) ? frm.doc.doctype : 'Petty Cash Entry',
+                                    docname: (frm && frm.doc) ? frm.doc.name : '',
+                                    row_idx: row_num,
+                                    expense_head: final_head_to_save,
+                                    custom_ledger_name: custom_val
+                                },
+                                freeze: true,
+                                freeze_message: __('Updating Expenses of Head...'),
+                                callback: function (res) {
+                                    if (res.message && res.message.status === 'success') {
+                                        // 1. Update active memory model
+                                        active_att.expense_head = final_head_to_save;
+                                        active_att.custom_ledger_name = custom_val;
+
+                                        // 2. Update top header badge text
+                                        $main_content.find('.ap-active-head-text').text(final_head_to_save);
+
+                                        // 3. Update left sidebar thumbnail subtitle
+                                        const $thumb = $sidebar.find(`.ap-receipt-thumb-item[data-idx="${current_index}"]`);
+                                        $thumb.find('.ap-thumb-category-text').text(final_head_to_save);
+
+                                        // 4. Update underlying Desk form grid model if accessible
+                                        if (frm && frm.doc) {
+                                            const lines = frm.doc.expense_lines || frm.doc.vendor_lines || frm.doc.expense_items || [];
+                                            const r = lines.find(x => x.idx === row_num);
+                                            if (r) {
+                                                r.expense_head = final_head_to_save;
+                                                if (custom_val) r.custom_ledger_name = custom_val;
+                                                if (frm.fields_dict['expense_lines']) frm.refresh_field('expense_lines');
+                                                if (frm.fields_dict['vendor_lines']) frm.refresh_field('vendor_lines');
+                                            }
+                                        }
+
+                                        frappe.show_alert({
+                                            message: __(`✅ Row #${row_num} Expenses of Head updated to <b>${final_head_to_save}</b>`),
+                                            indicator: 'green'
+                                        }, 4);
+                                    }
+                                }
+                            });
+                        }
+                    });
+
+                    edit_head_dialog.show();
+                }
+            });
         });
 
         // Helper to select an item with zero scroll reset

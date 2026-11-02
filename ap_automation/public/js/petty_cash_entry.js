@@ -449,6 +449,22 @@ function render_role_based_action_buttons(frm) {
     }
 
     // Common Proof Viewers
+        // Manage Expense Heads (Admin & Accounts)
+    const can_manage_heads = frappe.user.has_role([
+        'Accounts Manager',
+        'Accounts Director',
+        'Accounts L1 Auditor',
+        'Admin L1 Approver',
+        'Admin L2 Approver',
+        'System Manager'
+    ]) || frappe.session.user === 'Administrator';
+
+    if (can_manage_heads) {
+        frm.add_custom_button(__('⚙️ Manage Expense Heads'), function () {
+            open_manage_expense_heads_dialog(frm);
+        }, __('Audit Proofs'));
+    }
+
     if (attachments.length > 0) {
         frm.add_custom_button(__(`👁️ View Receipts (${attachments.length})`), () => {
             open_unified_receipt_gallery(frm, 0);
@@ -621,7 +637,7 @@ function render_role_based_action_buttons(frm) {
                     'COURIER CHARGES',
                     'POWER & FUEL EXPENSES',
                     'OTHER EXPENSES',
-                    'Logiminds Technolab Llp',
+                    'TRAVEL EXPENSES',
                     'OTHER / VENDOR LEDGER'
                 ];
                 frappe.prompt([
@@ -1259,6 +1275,9 @@ function enforce_permanent_grid_columns(frm) {
             } else if (df.fieldname === 'expense_head') {
                 df.in_list_view = 1;
                 df.columns = 2;
+            } else if (df.fieldname === 'merchant_name') {
+                df.label = 'Expense Subtitle';
+                df.reqd = 0;
             }
         });
     }
@@ -1271,4 +1290,75 @@ function enforce_permanent_grid_columns(frm) {
             grid.refresh();
         }
     }
+}
+
+
+function open_manage_expense_heads_dialog(frm) {
+    frappe.call({
+        method: 'ap_automation.services.attachment_service.get_active_expense_heads',
+        callback: function (r) {
+            const heads = r.message || [];
+            let rows_html = heads.map((h, i) => `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-bottom: 1px solid #f1f5f9; background: ${i % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+                    <span style="font-size: 12px; font-weight: 600; color: #1e293b;">💼 ${h}</span>
+                    <span style="font-size: 11px; color: #16a34a; font-weight: 700;">● Active</span>
+                </div>
+            `).join('');
+
+            const d = new frappe.ui.Dialog({
+                title: __('Manage Expenses of Head'),
+                fields: [
+                    {
+                        fieldtype: 'HTML',
+                        fieldname: 'heads_list',
+                        options: `
+                            <div style="border: 1px solid #e2e8f0; border-radius: 6px; max-height: 240px; overflow-y: auto; margin-bottom: 14px;">
+                                ${rows_html}
+                            </div>
+                        `
+                    },
+                    {
+                        fieldname: 'new_head_name',
+                        fieldtype: 'Data',
+                        label: __('Add New Expense Head'),
+                        placeholder: __('e.g. MARKETING EXPENSES, LEGAL FEES, PACKING EXPENSES')
+                    }
+                ],
+                primary_action_label: __('➕ Add Expense Head'),
+                primary_action: function (values) {
+                    const new_name = (values.new_head_name || '').trim();
+                    if (!new_name) {
+                        frappe.msgprint(__('Please enter a name for the new Expense Head.'));
+                        return;
+                    }
+                    d.hide();
+                    frappe.call({
+                        method: 'ap_automation.services.attachment_service.create_or_edit_expense_head',
+                        args: { head_name: new_name },
+                        freeze: true,
+                        freeze_message: __('Adding Expense Head...'),
+                        callback: function (res) {
+                            if (res.message && (res.message.status === 'created' || res.message.status === 'updated')) {
+                                frappe.show_alert({ message: __(`✅ Expense Head <b>${res.message.head_name}</b> added successfully!`), indicator: 'green' }, 4);
+                                frappe.call({
+                                    method: 'ap_automation.services.attachment_service.get_active_expense_heads',
+                                    callback: function (re) {
+                                        if (re.message && frm.fields_dict['expense_lines'] && frm.fields_dict['expense_lines'].grid) {
+                                            const grid = frm.fields_dict['expense_lines'].grid;
+                                            const df = grid.docfields.find(f => f.fieldname === 'expense_head');
+                                            if (df) {
+                                                df.options = [''].concat(re.message).join('\n');
+                                                grid.refresh();
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+            d.show();
+        }
+    });
 }

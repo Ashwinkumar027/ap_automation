@@ -51,7 +51,7 @@
       "fieldtype": "Select",
       "in_list_view": 1,
       "label": "Expenses of Head",
-      "options": "\nSTAFF WELFARE\nFOOD EXPENSES\nOFFICE EXPENSES\nOFFICE EXPENSES - GROCERY\nOFFICE EXPENSES - POOJA\nPRINTING & STATIONARY\nCOURIER CHARGES\nPOWER & FUEL EXPENSES\nOTHER EXPENSES\nLogiminds Technolab Llp\nOTHER / VENDOR LEDGER",
+      "options": "\nSTAFF WELFARE\nFOOD EXPENSES\nOFFICE EXPENSES\nOFFICE EXPENSES - GROCERY\nOFFICE EXPENSES - POOJA\nPRINTING & STATIONARY\nCOURIER CHARGES\nPOWER & FUEL EXPENSES\nOTHER EXPENSES\nTRAVEL EXPENSES\nOTHER / VENDOR LEDGER",
       "reqd": 0
     },
     {
@@ -68,8 +68,9 @@
       "fieldname": "merchant_name",
       "fieldtype": "Data",
       "in_list_view": 1,
-      "label": "Shop / Merchant",
-      "reqd": 1
+      "label": "Expense Subtitle",
+      "reqd": 0,
+      "description": "Expense subtitle or particulars (e.g. Afternoon Tea, Office Cleaning)"
     },
     {
       "columns": 2,
