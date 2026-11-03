@@ -105,6 +105,19 @@ def run_tests():
     assert claim_final.expense_lines[0].expense_head == "TRAVEL EXPENSES", f"Claim lines head mismatch: {claim_final.expense_lines[0].expense_head}"
     print(f"✓ Accounts Auditor update verified: Batch item and Claim lines both updated to 'TRAVEL EXPENSES'.")
 
+    # 7. Test Proof Gallery row update endpoint (update_claim_row_expense_type)
+    from ap_automation.services.attachment_service import update_claim_row_expense_type
+    res_gallery = update_claim_row_expense_type(
+        doctype="Employee Reimbursement Claim",
+        docname=claim.name,
+        row_idx=1,
+        expense_type="Miscellaneous"
+    )
+    assert res_gallery.get("status") == "success", f"Proof Gallery update failed: {res_gallery}"
+    claim_gallery_check = frappe.get_doc("Employee Reimbursement Claim", claim.name)
+    assert claim_gallery_check.expense_lines[0].expense_type == "Miscellaneous", f"Expected Miscellaneous, got {claim_gallery_check.expense_lines[0].expense_type}"
+    print(f"✓ Proof Gallery update_claim_row_expense_type verified: updated to 'Miscellaneous' cleanly without 1054 error.")
+
     # Clean up
     frappe.delete_doc("Weekly Accounts Audit Batch", batch.name, force=1)
     frappe.delete_doc("Employee Reimbursement Claim", claim.name, force=1)

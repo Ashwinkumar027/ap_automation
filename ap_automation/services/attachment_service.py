@@ -748,7 +748,7 @@ def delete_or_deactivate_expense_type(type_name, permanent=0):
 @frappe.whitelist()
 def update_claim_row_expense_type(doctype, docname, row_idx, expense_type):
     """
-    Directly updates the Expense Type / Category on a voucher row from the View Receipt modal or form.
+    Directly updates the Expense Type / Category / Head on a voucher row from the View Receipt modal or form.
     Maintains full audit integrity and updates child line item in DB.
     Supports Petty Cash, Admin Weekly Vendor Claims, Event Expense Claims, and Reimbursements.
     """
@@ -756,20 +756,10 @@ def update_claim_row_expense_type(doctype, docname, row_idx, expense_type):
     doc = frappe.get_doc(doctype, docname)
 
     table_field = None
-    type_field = "expense_category"
-
-    if hasattr(doc, "expense_lines"):
-        table_field = "expense_lines"
-        type_field = "expense_category"
-    elif hasattr(doc, "vendor_lines"):
-        table_field = "vendor_lines"
-        type_field = "vendor_category"
-    elif hasattr(doc, "expense_items"):
-        table_field = "expense_items"
-        type_field = "expense_category"
-    elif hasattr(doc, "reimbursement_lines"):
-        table_field = "reimbursement_lines"
-        type_field = "expense_type"
+    for candidate in ["expense_lines", "vendor_lines", "expense_items", "reimbursement_lines", "items"]:
+        if hasattr(doc, candidate) and getattr(doc, candidate, None):
+            table_field = candidate
+            break
 
     if not table_field or not getattr(doc, table_field, None):
         frappe.throw(_(f"No expense rows found on {doctype} #{docname}."))
@@ -787,25 +777,84 @@ def update_claim_row_expense_type(doctype, docname, row_idx, expense_type):
     if not target_row:
         frappe.throw(_(f"Row #{row_idx} not found on {doctype} #{docname}."))
 
-    old_type = getattr(target_row, type_field, "")
+    child_table = target_row.doctype
+    meta = frappe.get_meta(child_table)
     clean_type = (expense_type or "").strip()
+
+    EXPENSE_HEADS = [
+        "STAFF WELFARE", "FOOD EXPENSES", "OFFICE EXPENSES", "OFFICE EXPENSES - GROCERY",
+        "OFFICE EXPENSES - POOJA", "PRINTING & STATIONARY", "COURIER CHARGES",
+        "POWER & FUEL EXPENSES", "TRAVEL EXPENSES", "OTHER EXPENSES", "OTHER / VENDOR LEDGER"
+    ]
+    is_head_match = clean_type.upper() in [h.upper() for h in EXPENSE_HEADS]
+
+    # Dynamically find the appropriate column on the child table
+    type_field = None
+    if is_head_match and meta.has_field("expense_head"):
+        type_field = "expense_head"
+        clean_type = next(h for h in EXPENSE_HEADS if h.upper() == clean_type.upper())
+    elif meta.has_field("expense_type"):
+        type_field = "expense_type"
+        # If Link to AP Expense Subtype Master, ensure target doc exists
+        field_def = meta.get_field("expense_type")
+        if field_def and field_def.fieldtype == "Link" and field_def.options == "AP Expense Subtype Master":
+            if not frappe.db.exists("AP Expense Subtype Master", clean_type):
+                cat = getattr(doc, "claim_category", "General Expense") or "General Expense"
+                try:
+                    frappe.get_doc({
+                        "doctype": "AP Expense Subtype Master",
+                        "subtype_name": clean_type,
+                        "parent_claim_category": cat,
+                        "is_active": 1
+                    }).insert(ignore_permissions=True)
+                except Exception:
+                    pass
+    elif meta.has_field("expense_category"):
+        type_field = "expense_category"
+    elif meta.has_field("vendor_category"):
+        type_field = "vendor_category"
+    elif meta.has_field("service_type"):
+        type_field = "service_type"
+    elif meta.has_field("expense_head"):
+        type_field = "expense_head"
+    else:
+        for f in meta.fields:
+            if f.fieldname in ("category", "claim_category", "type", "expense_type", "expense_category", "expense_head"):
+                type_field = f.fieldname
+                break
+
+    if not type_field:
+        frappe.throw(_(f"Could not find a valid category/type field on row of doctype '{child_table}'."))
+
+    old_type = getattr(target_row, type_field, "")
     setattr(target_row, type_field, clean_type)
 
-    child_table = target_row.doctype
     frappe.db.set_value(child_table, target_row.name, type_field, clean_type)
 
+    # Sync to batch item if this claim is linked in a Weekly Accounts Audit Batch
+    if doctype == "Employee Reimbursement Claim" and type_field in ("expense_head", "expense_type"):
+        batch_items = frappe.db.sql("""
+            SELECT name FROM `tabWeekly Accounts Audit Item`
+            WHERE voucher_no = %s
+        """, (docname,), as_dict=True)
+        for bi in batch_items:
+            if type_field == "expense_head":
+                frappe.db.set_value("Weekly Accounts Audit Item", bi.name, "expense_head", clean_type, update_modified=False)
+
     user_name = frappe.session.user
+    label_text = meta.get_label(type_field) or type_field
     doc.add_comment(
         "Edit",
-        f"Row #{row_idx} Expense Type updated from '{old_type}' to '{clean_type}' by {user_name} via Proof Gallery."
+        f"Row #{row_idx} {label_text} updated from '{old_type}' to '{clean_type}' by {user_name} via Proof Gallery."
     )
     frappe.db.commit()
 
     return {
         "status": "success",
         "row_idx": row_idx,
+        "field": type_field,
         "new_type": clean_type,
-        "message": f"Row #{row_idx} Expense Type updated to '{clean_type}'."
+        "message": f"Row #{row_idx} {label_text} updated to '{clean_type}'."
     }
 
 
