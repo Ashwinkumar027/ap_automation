@@ -58,11 +58,29 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 attachments.append({
                     "source": "row",
                     "row_idx": getattr(row, "idx", len(attachments) + 1),
-                    "merchant": getattr(row, "merchant_name", "") or getattr(row, "merchant", "Expense Item"),
-                    "category": getattr(row, "category", "") or getattr(row, "expense_type", "Expense Line"),
+                    "merchant": (
+                        getattr(row, "merchant_name", None)
+                        or getattr(row, "merchant", None)
+                        or getattr(row, "supplier_name", None)
+                        or getattr(row, "supplier", None)
+                        or "Expense Item"
+                    ),
+                    "category": (
+                        getattr(row, "expense_head", None)
+                        or getattr(row, "expense_type", None)
+                        or getattr(row, "expense_category", None)
+                        or getattr(row, "vendor_category", None)
+                        or getattr(row, "category", None)
+                        or "Expense Line"
+                    ),
                     "amount": float(getattr(row, "amount", 0.0) or 0.0),
                     "date": str(getattr(row, "expense_date", "") or doc.get("posting_date", "")),
-                    "bill_no": getattr(row, "invoice_number", ""),
+                    "bill_no": (
+                        getattr(row, "invoice_number", None)
+                        or getattr(row, "bill_number", None)
+                        or getattr(row, "bill_no", None)
+                        or getattr(row, "bill_ref", "")
+                    ),
                     "file_url": file_url,
                     "view_url": view_url,
                     "file_name": file_name,
@@ -71,9 +89,10 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                     "extension": ext
                 })
 
-    # 2. Scan Multi-Leg Client Travel Table
-    if hasattr(doc, "legs") and doc.legs:
-        for leg in doc.legs:
+    # 2. Scan Multi-Leg Client Travel Table (legs or client_visit_legs)
+    legs_rows = getattr(doc, "client_visit_legs", None) or getattr(doc, "legs", None) or []
+    if legs_rows:
+        for leg in legs_rows:
             file_url = getattr(leg, "toll_parking_receipt", None) or getattr(leg, "odometer_proof", None)
             if file_url and isinstance(file_url, str) and file_url.strip():
                 file_url = file_url.strip()
@@ -591,12 +610,10 @@ def update_claim_row_expense_head(doctype, docname, row_idx, expense_head, custo
     doc = frappe.get_doc(doctype, docname)
 
     table_field = None
-    if hasattr(doc, "expense_lines"):
-        table_field = "expense_lines"
-    elif hasattr(doc, "vendor_lines"):
-        table_field = "vendor_lines"
-    elif hasattr(doc, "expense_items"):
-        table_field = "expense_items"
+    for candidate in ["expense_lines", "vendor_lines", "expense_items", "reimbursement_lines", "items", "client_visit_legs"]:
+        if hasattr(doc, candidate) and getattr(doc, candidate, None):
+            table_field = candidate
+            break
 
     if not table_field or not getattr(doc, table_field, None):
         frappe.throw(_(f"No expense rows found on {doctype} #{docname}."))
@@ -619,12 +636,25 @@ def update_claim_row_expense_head(doctype, docname, row_idx, expense_head, custo
     target_row.expense_head = clean_head
 
     child_table = target_row.doctype
-    update_vals = {"expense_head": clean_head}
-    if custom_ledger_name:
+    meta = frappe.get_meta(child_table)
+    update_vals = {}
+    if meta.has_field("expense_head"):
+        update_vals["expense_head"] = clean_head
+    if custom_ledger_name and meta.has_field("custom_ledger_name"):
         target_row.custom_ledger_name = custom_ledger_name.strip()
         update_vals["custom_ledger_name"] = custom_ledger_name.strip()
 
-    frappe.db.set_value(child_table, target_row.name, update_vals)
+    if update_vals:
+        frappe.db.set_value(child_table, target_row.name, update_vals)
+
+    # Sync to batch item if this claim is linked in a Weekly Accounts Audit Batch
+    if doctype == "Employee Reimbursement Claim":
+        batch_items = frappe.db.sql("""
+            SELECT name FROM `tabWeekly Accounts Audit Item`
+            WHERE voucher_no = %s
+        """, (docname,), as_dict=True)
+        for bi in batch_items:
+            frappe.db.set_value("Weekly Accounts Audit Item", bi.name, "expense_head", clean_head, update_modified=False)
 
     user_name = frappe.session.user
     doc.add_comment(
