@@ -15,6 +15,7 @@
   "bank_account_number",
   "bank_ifsc",
   "claim_category",
+  "expense_head",
   "claim_date",
   "claimed_amount",
   "sanctioned_amount",
@@ -94,6 +95,14 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Category"
+  },
+  {
+   "columns": 2,
+   "fieldname": "expense_head",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Expenses of Head",
+   "options": "\nSTAFF WELFARE\nFOOD EXPENSES\nOFFICE EXPENSES\nOFFICE EXPENSES - GROCERY\nOFFICE EXPENSES - POOJA\nPRINTING & STATIONARY\nCOURIER CHARGES\nPOWER & FUEL EXPENSES\nTRAVEL EXPENSES\nOTHER EXPENSES\nOTHER / VENDOR LEDGER"
   },
   {
    "fieldname": "claim_date",

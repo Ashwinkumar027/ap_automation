@@ -101,7 +101,52 @@ class EmployeeReimbursementClaim(APDocument):
         if not old_doc:
             return
 
-        # 1. Critical Header Fields Guard
+        # Dynamic Role Permission Engine Check
+        user = frappe.session.user
+        user_roles = set(frappe.get_roles(user)) if user else set()
+
+        reviewer_roles = {
+            "Receptionist",
+            "Admin L1 Approver",
+            "Admin L2 Approver",
+            "Admin Manager",
+            "Accounts L1 Auditor",
+            "Accounts User",
+            "Accounts Manager",
+            "Accounts Director",
+            "System Manager",
+            "Administrator"
+        }
+        has_reviewer_role = bool(user_roles.intersection(reviewer_roles)) or user in ("Administrator", "administrator@example.com")
+        has_write_perm = frappe.has_permission(self.doctype, "write", self)
+
+        if has_reviewer_role or has_write_perm:
+            # Authorized reviewer editing - allow line, head, amount, and classification adjustments
+            old_lines = getattr(old_doc, "expense_lines", []) or []
+            new_lines = getattr(self, "expense_lines", []) or []
+
+            changes = []
+            if len(old_lines) != len(new_lines):
+                changes.append(f"Line count changed from {len(old_lines)} to {len(new_lines)}")
+
+            for idx, (o_row, n_row) in enumerate(zip(old_lines, new_lines), 1):
+                for fld in ("expense_head", "expense_type", "amount", "merchant_name", "receipt_attachment", "description", "invoice_number"):
+                    o_v = getattr(o_row, fld, None)
+                    n_v = getattr(n_row, fld, None)
+                    if o_v != n_v:
+                        changes.append(f"Row {idx} {fld}: '{o_v}' -> '{n_v}'")
+
+            if changes:
+                role_label = ", ".join(user_roles.intersection(reviewer_roles)) or "Authorized Reviewer"
+                trail_note = f"Reviewer edit by {user} ({role_label}): " + "; ".join(changes[:5])
+                if len(changes) > 5:
+                    trail_note += f" (+{len(changes) - 5} more)"
+                self.add_comment("Edit", trail_note)
+
+            self.calculate_settlement_totals()
+            return
+
+        # 1. Critical Header Fields Guard (for standard employee / non-reviewers)
         critical_fields = [
             "total_claim_amount",
             "net_payable_amount",

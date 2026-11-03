@@ -525,6 +525,7 @@ function render_audit_workstation_view(frm) {
 
     // Group items by Employee
     const empMap = {};
+    const headTotals = {};
     let catTotals = {
         'Client Visit Travel': 0.0,
         'Team Lunch / Outing': 0.0,
@@ -558,6 +559,9 @@ function render_audit_workstation_view(frm) {
         } else {
             catTotals['General Expense'] += parseFloat(it.claimed_amount || 0.0);
         }
+
+        const head = it.expense_head || 'GENERAL / UNCLASSIFIED';
+        headTotals[head] = (headTotals[head] || 0.0) + parseFloat(it.claimed_amount || 0.0);
     });
 
     const categoryBadges = {
@@ -583,6 +587,20 @@ function render_audit_workstation_view(frm) {
                 </div>
                 <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; color: #334155;">
                     🏢 Branch & General: ₹ ${format_currency(catTotals['Branch Expense'] + catTotals['General Expense'])}
+                </div>
+            </div>
+
+            <!-- Expense Head Summary Breakdown Pills -->
+            <div style="margin-bottom: 16px;">
+                <div style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;">
+                    🏷️ Expense Head Breakdown
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    ${Object.entries(headTotals).map(([hName, hAmt]) => `
+                        <div style="background: #f1f5f9; border: 1px solid #cbd5e1; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: 600; color: #1e293b;">
+                            <b>${frappe.utils.escape_html(hName)}</b>: ₹ ${format_currency(hAmt)}
+                        </div>
+                    `).join('')}
                 </div>
             </div>
 
@@ -658,14 +676,15 @@ function render_audit_workstation_view(frm) {
                 <table class="table table-bordered table-sm" style="margin: 0; background: #ffffff; font-size: 12px;">
                     <thead>
                         <tr style="background: #f1f5f9; color: #475569;">
-                            <th style="width: 14%;">Voucher #</th>
-                            <th style="width: 13%;">Category</th>
-                            <th style="width: 9%;">Claim Date</th>
-                            <th style="width: 10%; text-align: right;">Claimed (INR)</th>
-                            <th style="width: 10%; text-align: right;">Sanctioned (INR)</th>
-                            <th style="width: 11%; text-align: center;">Audit Status</th>
-                            <th style="width: 12%; text-align: center;">JV # & Date</th>
-                            <th style="width: 21%; text-align: center;">Actions</th>
+                            <th style="width: 13%;">Voucher #</th>
+                            <th style="width: 11%;">Category</th>
+                            <th style="width: 14%;">Expense Head</th>
+                            <th style="width: 8%;">Claim Date</th>
+                            <th style="width: 9%; text-align: right;">Claimed (INR)</th>
+                            <th style="width: 9%; text-align: right;">Sanctioned (INR)</th>
+                            <th style="width: 10%; text-align: center;">Audit Status</th>
+                            <th style="width: 11%; text-align: center;">JV # & Date</th>
+                            <th style="width: 15%; text-align: center;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -689,7 +708,24 @@ function render_audit_workstation_view(frm) {
                 ? `<span style="font-size: 10px; color: #991b1b; font-weight: 600;">Returned</span>`
                 : `<button type="button" class="btn btn-xs btn-outline-danger btn-send-back-voucher" data-voucher="${v.voucher_no}" style="font-size: 11px; padding: 2px 6px;" title="Send Back to Employee or Receptionist">↩️ Send Back</button>`;
 
-            const isAccountsRole = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Director', 'System Manager']) || frappe.session.user === 'Administrator';
+            const isAccountsRole = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Director', 'Accounts Manager', 'System Manager']) || frappe.session.user === 'Administrator';
+            const isAuditorOrAdmin = frappe.user.has_role([
+                'Accounts L1 Auditor', 'Accounts Director', 'Accounts Manager', 'Accounts User',
+                'Admin L1 Approver', 'Admin L2 Approver', 'Admin Manager', 'Receptionist', 'System Manager'
+            ]) || frappe.session.user === 'Administrator';
+
+            const expHead = v.expense_head || 'Unassigned';
+            const editHeadBtn = isAuditorOrAdmin
+                ? `<button type="button" class="btn btn-xs btn-outline-secondary btn-edit-voucher-head" data-voucher="${v.voucher_no}" data-head="${frappe.utils.escape_html(expHead)}" style="font-size: 10px; padding: 1px 4px; margin-left: 3px;" title="Correct / Modify Expense Head">✏️</button>`
+                : '';
+
+            const expHeadBadge = `
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                    <span style="font-weight: 600; color: #1e293b; font-size: 11px; word-break: break-word;">🏷️ ${frappe.utils.escape_html(expHead)}</span>
+                    ${editHeadBtn}
+                </div>
+            `;
+
             const jvBadge = v.jv_number
                 ? `<div style="font-weight: 700; color: #1e3a8a; font-size: 11.5px;">JV ${frappe.utils.escape_html(String(v.jv_number))}</div><div style="font-size: 10px; color: #64748b;">${v.jv_date || ''}</div>`
                 : `<span style="color: #94a3b8; font-size: 11px; font-style: italic;">No JV</span>`;
@@ -706,6 +742,7 @@ function render_audit_workstation_view(frm) {
                         </a>
                     </td>
                     <td>${catBadge}</td>
+                    <td>${expHeadBadge}</td>
                     <td>${v.claim_date || 'N/A'}</td>
                     <td style="text-align: right; font-weight: 500;">₹ ${format_currency(v.claimed_amount)}</td>
                     <td style="text-align: right; font-weight: 700; color: #16a34a;">₹ ${format_currency(v.sanctioned_amount || v.claimed_amount)}</td>
@@ -806,6 +843,62 @@ function render_audit_workstation_view(frm) {
         e.preventDefault();
         const vNo = $(this).data('voucher');
         prompt_send_back_voucher(frm, vNo);
+    });
+
+    // 8. Voucher-level Individual Edit Expense Head Button
+    $(wrapper).find('.btn-edit-voucher-head').on('click', function(e) {
+        e.preventDefault();
+        const vNo = $(this).attr('data-voucher');
+        const curHead = $(this).attr('data-head') || '';
+
+        frappe.prompt([
+            {
+                fieldname: 'expense_head',
+                fieldtype: 'Select',
+                label: __('Expense Head'),
+                options: [
+                    'STAFF WELFARE',
+                    'FOOD EXPENSES',
+                    'OFFICE EXPENSES',
+                    'OFFICE EXPENSES - GROCERY',
+                    'OFFICE EXPENSES - POOJA',
+                    'PRINTING & STATIONARY',
+                    'COURIER CHARGES',
+                    'POWER & FUEL EXPENSES',
+                    'TRAVEL EXPENSES',
+                    'OTHER EXPENSES',
+                    'OTHER / VENDOR LEDGER'
+                ],
+                default: curHead,
+                reqd: 1
+            },
+            {
+                fieldname: 'reason',
+                fieldtype: 'Small Text',
+                label: __('Reason for Modification (Optional)')
+            }
+        ], function(values) {
+            frappe.call({
+                method: 'ap_automation.services.weekly_accounts_batch_service.update_voucher_expense_head',
+                args: {
+                    batch_name: frm.doc.name,
+                    voucher_no: vNo,
+                    new_expense_head: values.expense_head,
+                    reason: values.reason || ''
+                },
+                freeze: true,
+                freeze_message: __('Updating Expense Head...'),
+                callback: function(r) {
+                    if (r.message && r.message.status === 'SUCCESS') {
+                        frappe.show_alert({
+                            message: r.message.message,
+                            indicator: 'green'
+                        });
+                        frm.reload_doc();
+                    }
+                }
+            });
+        }, __('Modify Expense Head for ' + vNo), __('Update Expense Head'));
     });
 
     // 7. Voucher-level Individual Set JV Button

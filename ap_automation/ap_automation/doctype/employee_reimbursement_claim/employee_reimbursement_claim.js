@@ -127,15 +127,31 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     },
 
     setup_form_immutability: function(frm) {
-        const is_editable = frm.is_new() || !frm.doc.status || ['Draft', 'Returned to Employee'].includes(frm.doc.status);
+        const is_draft_or_returned = frm.is_new() || !frm.doc.status || ['Draft', 'Returned to Employee'].includes(frm.doc.status);
 
-        frm.set_df_property('claim_category', 'read_only', !is_editable);
-        frm.set_df_property('employee', 'read_only', !is_editable);
-        frm.set_df_property('pre_travel_request', 'read_only', !is_editable);
-        frm.set_df_property('pre_approval_attachment', 'read_only', !is_editable);
-        frm.set_df_property('expense_lines', 'read_only', !is_editable);
-        frm.set_df_property('client_visit_legs', 'read_only', !is_editable);
-        frm.set_df_property('participants', 'read_only', !is_editable);
+        // Dynamic Role & Permission Check: respects Role Permission Manager Write checkbox
+        const has_write_perm = frm.has_perm('write') || (frappe.model && frappe.model.can_write && frappe.model.can_write(frm.doctype));
+        const is_reviewer_role = frappe.user.has_role([
+            'Receptionist',
+            'Admin L1 Approver',
+            'Admin L2 Approver',
+            'Admin Manager',
+            'Accounts L1 Auditor',
+            'Accounts User',
+            'Accounts Manager',
+            'Accounts Director',
+            'System Manager'
+        ]) || frappe.session.user === 'Administrator';
+
+        const can_edit_lines = is_draft_or_returned || (has_write_perm && is_reviewer_role);
+
+        frm.set_df_property('claim_category', 'read_only', !is_draft_or_returned);
+        frm.set_df_property('employee', 'read_only', !is_draft_or_returned);
+        frm.set_df_property('pre_travel_request', 'read_only', !is_draft_or_returned);
+        frm.set_df_property('pre_approval_attachment', 'read_only', !is_draft_or_returned);
+        frm.set_df_property('expense_lines', 'read_only', !can_edit_lines);
+        frm.set_df_property('client_visit_legs', 'read_only', !can_edit_lines);
+        frm.set_df_property('participants', 'read_only', !can_edit_lines);
         frm.set_df_property('status', 'read_only', 1);
     },
 

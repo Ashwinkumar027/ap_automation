@@ -95,6 +95,15 @@ def generate_weekly_accounts_batch(company: str, batch_date: Optional[str] = Non
             "attached_to_name": c.name
         }) or 1
 
+        # Determine primary Expense Head from claim lines
+        line_heads = frappe.db.sql("""
+            SELECT DISTINCT expense_head
+            FROM `tabEmployee Reimbursement Line`
+            WHERE parent = %s AND expense_head IS NOT NULL AND expense_head != ''
+            ORDER BY idx ASC
+        """, (c.name,), pluck=True)
+        primary_head = line_heads[0] if line_heads else (c.claim_category or "General Expense")
+
         batch.append("items", {
             "voucher_type": "Employee Reimbursement Claim",
             "voucher_no": c.name,
@@ -105,6 +114,7 @@ def generate_weekly_accounts_batch(company: str, batch_date: Optional[str] = Non
             "bank_account_number": c.bank_account_number or "",
             "bank_ifsc": c.bank_ifsc or "",
             "claim_category": c.claim_category or "General Expense",
+            "expense_head": primary_head,
             "claim_date": c.posting_date,
             "claimed_amount": claimed,
             "sanctioned_amount": sanctioned,
@@ -802,4 +812,68 @@ def bulk_assign_batch_jv(batch_name: str, start_jv_number: Any, jv_date: Optiona
         "batch_name": batch_name,
         "updated_count": updated_count,
         "message": f"Successfully assigned JV numbers to {updated_count} vouchers starting from JV #{raw_str} ({clean_date.strftime('%d-%m-%Y')})."
+    }
+
+
+@frappe.whitelist()
+def update_voucher_expense_head(batch_name: str, voucher_no: str, new_expense_head: str, reason: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Accounts Auditors, Admin reviewers, and System Manager endpoint:
+    Modifies or corrects the Expense Head during audit reconciliation or review.
+    Updates the batch item, syncs with Employee Reimbursement Line rows, and records an audit trail.
+    """
+    user = frappe.session.user
+    user_roles = set(frappe.get_roles(user)) if user else set()
+    allowed_roles = {
+        "Accounts L1 Auditor", "Accounts Director", "Accounts Manager", "Accounts User",
+        "Admin L1 Approver", "Admin L2 Approver", "Admin Manager", "Receptionist",
+        "System Manager", "Administrator"
+    }
+    has_write_perm = frappe.has_permission("Weekly Accounts Audit Batch", "write") or bool(user_roles.intersection(allowed_roles))
+    if not has_write_perm and user not in ("Administrator", "administrator@example.com"):
+        frappe.throw("Access Denied: You do not have permission to modify Expense Head.", frappe.PermissionError)
+
+    if not batch_name or not voucher_no or not new_expense_head:
+        frappe.throw("Batch Name, Voucher Number, and New Expense Head are mandatory.")
+
+    clean_head = str(new_expense_head).strip()
+
+    batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
+    found_item = None
+    for it in batch.items:
+        if it.voucher_no == voucher_no:
+            it.expense_head = clean_head
+            found_item = it
+            break
+
+    if not found_item:
+        frappe.throw(f"Voucher #{voucher_no} not found in Batch {batch_name}.")
+
+    batch.save(ignore_permissions=True)
+
+    # Sync to all lines in Employee Reimbursement Claim
+    if frappe.db.exists("Employee Reimbursement Claim", voucher_no):
+        claim_doc = frappe.get_doc("Employee Reimbursement Claim", voucher_no)
+        old_head = None
+        for row in claim_doc.expense_lines:
+            if not old_head and row.expense_head:
+                old_head = row.expense_head
+            row.expense_head = clean_head
+
+        trail_msg = f"Expense Head updated from '{old_head or 'Unassigned'}' to '{clean_head}' by {user} during Accounts Audit."
+        if reason:
+            trail_msg += f" Reason: {reason}"
+
+        claim_doc.add_comment("Edit", trail_msg)
+        claim_doc.flags.ignore_permissions = True
+        claim_doc.flags.in_workflow_transition = True
+        claim_doc.save(ignore_permissions=True)
+
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "voucher_no": voucher_no,
+        "expense_head": clean_head,
+        "message": f"Expense Head updated to '{clean_head}' for Voucher #{voucher_no}."
     }

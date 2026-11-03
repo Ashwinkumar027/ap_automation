@@ -9,6 +9,7 @@
   "payment_instruction",
   "source_doctype",
   "source_voucher",
+  "expense_head",
   "beneficiary_name",
   "account_number",
   "ifsc_code",
@@ -37,6 +38,13 @@
    "in_list_view": 1,
    "label": "Voucher ID",
    "columns": 2
+  },
+  {
+   "columns": 2,
+   "fieldname": "expense_head",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Expenses of Head"
   },
   {
    "fieldname": "beneficiary_name",
