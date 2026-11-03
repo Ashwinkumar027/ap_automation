@@ -26,79 +26,66 @@
    "in_list_view": 1,
    "label": "Spend Stream",
    "options": "SPOC On-Ground Cash Spend\nFinance Direct Pay",
-   "reqd": 1,
-   "columns": 2
+   "reqd": 1
   },
   {
    "fieldname": "expense_category",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Expense Category",
-   "options": "Venue & Stage\nTravel & Flights\nLocal Conveyance\nFood & Catering\nMarketing & Collateral\nStationery & Props\nIncidentals\n\u2795 Add New Expense Type...",
-   "reqd": 1,
-   "columns": 2
+   "options": "Venue & Stage\nTravel & Flights\nLocal Conveyance\nFood & Catering\nMarketing & Collateral\nStationery & Props\nIncidentals\n➕ Add New Expense Type...",
+   "reqd": 1
   },
   {
    "fieldname": "vendor_name",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Vendor / Payee Name",
-   "reqd": 1,
-   "columns": 2
+   "reqd": 1
   },
   {
    "fieldname": "bill_number",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Bill / Receipt Number",
-   "reqd": 1,
-   "columns": 2
+   "reqd": 1
   },
   {
    "fieldname": "bill_date",
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "Bill Date",
-   "reqd": 1,
-   "columns": 2
+   "reqd": 1
   },
   {
    "fieldname": "amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Amount (INR)",
-   "reqd": 1,
-   "columns": 2
+   "reqd": 1
   },
   {
    "fieldname": "tax_id",
    "fieldtype": "Data",
-   "label": "Vendor GSTIN",
-   "in_list_view": 1,
-   "columns": 2
+   "label": "Vendor GSTIN"
   },
   {
    "fieldname": "receipt_attachment",
    "fieldtype": "Attach",
    "in_list_view": 1,
    "label": "Receipt Attachment",
-   "reqd": 1,
-   "columns": 2
+   "reqd": 1
   },
   {
    "default": "0",
    "fieldname": "is_disputed",
    "fieldtype": "Check",
-   "label": "Is Disputed",
-   "in_list_view": 1,
-   "columns": 1
+   "label": "Is Disputed"
   },
   {
    "fieldname": "dispute_reason",
    "fieldtype": "Small Text",
-   "label": "Dispute Reason",
-   "in_list_view": 1,
-   "columns": 3
+   "label": "Dispute Reason"
   },
   {
    "default": "Verified",
@@ -106,9 +93,7 @@
    "fieldtype": "Select",
    "label": "Line Status",
    "options": "Verified\nDisputed\nDuplicate Flagged",
-   "read_only": 1,
-   "in_list_view": 1,
-   "columns": 2
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

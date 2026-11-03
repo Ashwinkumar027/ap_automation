@@ -35,9 +35,8 @@
   {
    "fieldname": "client_code",
    "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Client / Lead ID",
-   "columns": 2
+   "in_list_view": 0,
+   "label": "Client / Lead ID"
   },
   {
    "fieldname": "client_name",
@@ -51,8 +50,7 @@
    "fieldname": "client_phone",
    "fieldtype": "Data",
    "label": "Contact Phone",
-   "in_list_view": 1,
-   "columns": 2
+   "in_list_view": 0
   },
   {
    "fieldname": "purpose",

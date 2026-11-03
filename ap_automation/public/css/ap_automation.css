@@ -419,37 +419,3 @@
     }
 }
 
-/* ======================================================================================
-   GLOBAL CHILD TABLE HORIZONTAL SCROLLING & MULTI-COLUMN EXCEL-STYLE VIEW
-   Ensures all child table fields render side-by-side without clipping or jumping across all modules
-   ====================================================================================== */
-.frappe-control[data-fieldtype="Table"] .form-grid-container {
-    overflow-x: auto !important;
-    position: relative !important;
-    width: 100% !important;
-    -webkit-overflow-scrolling: touch;
-}
-
-.frappe-control[data-fieldtype="Table"] .form-grid {
-    left: 0px !important;
-    position: relative !important;
-    width: max-content !important;
-    min-width: 100% !important;
-}
-
-.frappe-control[data-fieldtype="Table"] .grid-heading-row,
-.frappe-control[data-fieldtype="Table"] .grid-body .grid-row .data-row {
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    width: max-content !important;
-    min-width: 100% !important;
-}
-
-.frappe-control[data-fieldtype="Table"] .grid-static-col {
-    flex-shrink: 0 !important;
-    white-space: nowrap !important;
-    text-overflow: ellipsis !important;
-    min-width: 120px !important;
-    padding: 6px 8px !important;
-}
-

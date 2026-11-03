@@ -94,9 +94,8 @@
    "default": "0",
    "fieldname": "is_b2b",
    "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "B2B Tax Invoice",
-   "columns": 1
+   "in_list_view": 0,
+   "label": "B2B Tax Invoice"
   },
   {
    "columns": 1,
@@ -109,18 +108,16 @@
    "default": "0",
    "fieldname": "is_disputed",
    "fieldtype": "Check",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Disputed",
-   "read_only": 1,
-   "columns": 1
+   "read_only": 1
   },
   {
    "fieldname": "dispute_reason",
    "fieldtype": "Small Text",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Dispute Reason",
-   "read_only": 1,
-   "columns": 3
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

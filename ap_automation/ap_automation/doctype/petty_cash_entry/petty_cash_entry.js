@@ -149,18 +149,43 @@ frappe.ui.form.on('Petty Cash Entry', {
         if (frm.fields_dict['accounts_remarks']) {
             frm.set_df_property('accounts_remarks', 'read_only', !(is_accounts || is_director || is_draft));
         }
-        calculate_grid_totals(frm);
-        enforce_permanent_grid_columns(frm);
-        apply_petty_cash_styles();
-        refresh_grid_expense_head_options(frm);
-        if (window.APExpenseTypeManager) {
-            window.APExpenseTypeManager.refreshGridOptions(frm, 'expense_lines', 'expense_category', 'Petty Cash');
+        // Safe execution of totals, columns, styles, and action buttons
+        try {
+            calculate_grid_totals(frm);
+        } catch (e) {
+            console.error('[PettyCash] calculate_grid_totals error:', e);
         }
-        render_petty_cash_stepper(frm);
-        render_status_guidance_banner(frm);
-        render_role_based_action_buttons(frm);
-        bind_custom_grid_uploaders(frm);
-        setup_dispute_merge_helper(frm);
+
+        try {
+            enforce_permanent_grid_columns(frm);
+        } catch (e) {
+            console.error('[PettyCash] enforce_permanent_grid_columns error:', e);
+        }
+
+        try {
+            apply_petty_cash_styles();
+            refresh_grid_expense_head_options(frm);
+            if (window.APExpenseTypeManager) {
+                window.APExpenseTypeManager.refreshGridOptions(frm, 'expense_lines', 'expense_category', 'Petty Cash');
+            }
+            render_petty_cash_stepper(frm);
+            render_status_guidance_banner(frm);
+        } catch (e) {
+            console.error('[PettyCash] Stepper/Banner/Styles render error:', e);
+        }
+
+        try {
+            render_role_based_action_buttons(frm);
+        } catch (e) {
+            console.error('[PettyCash] render_role_based_action_buttons error:', e);
+        }
+
+        try {
+            bind_custom_grid_uploaders(frm);
+            setup_dispute_merge_helper(frm);
+        } catch (e) {
+            console.error('[PettyCash] uploaders/dispute helper error:', e);
+        }
     },
 
     company: function (frm) {
@@ -345,18 +370,31 @@ function auto_update_claim_title(frm) {
 // --------------------------------------------------------------------------------------
 // 2. DYNAMIC GRID TOTALS CALCULATION
 // --------------------------------------------------------------------------------------
+function round_currency(v, decimals = 2) {
+    const factor = Math.pow(10, decimals);
+    return Math.round((flt(v) + Number.EPSILON) * factor) / factor;
+}
+
 function calculate_grid_totals(frm) {
     let total = 0.0;
     (frm.doc.expense_lines || []).forEach(row => {
         total += flt(row.amount || 0.0);
     });
-    frm.set_value('total_amount', round_currency(total, 2));
+    const rounded_total = round_currency(total, 2);
+    if (frm.doc.total_amount !== rounded_total) {
+        frm.set_value('total_amount', rounded_total);
+    }
 
     const allocated = flt(frm.doc.allocated_amount || 0.0);
     if (allocated > 0) {
-        frm.set_value('unspent_balance', round_currency(allocated - total, 2));
+        const rounded_unspent = round_currency(allocated - total, 2);
+        if (frm.doc.unspent_balance !== rounded_unspent) {
+            frm.set_value('unspent_balance', rounded_unspent);
+        }
     } else {
-        frm.set_value('unspent_balance', 0.0);
+        if (frm.doc.unspent_balance !== 0.0) {
+            frm.set_value('unspent_balance', 0.0);
+        }
     }
 }
 
@@ -1415,13 +1453,15 @@ function open_dispute_split_dialog(frm) {
 function enforce_permanent_grid_columns(frm) {
     if (!frm.fields_dict['expense_lines'] || !frm.fields_dict['expense_lines'].grid) return;
     const grid = frm.fields_dict['expense_lines'].grid;
+    const non_list_fields = ['custom_ledger_name', 'staff_name', 'merchant_gstin', 'transaction_id', 'remarks', 'description', 'line_decision', 'is_disputed', 'dispute_reason'];
 
-    // Check if user has an old saved user_defined_columns missing branch or expense_head
+    // Check if user has an old saved user_defined_columns missing branch or expense_head or having non-list columns
     if (grid.user_defined_columns && grid.user_defined_columns.length) {
         const has_branch = grid.user_defined_columns.some(col => col.fieldname === 'branch');
         const has_expense_head = grid.user_defined_columns.some(col => col.fieldname === 'expense_head');
+        const has_bad_col = grid.user_defined_columns.some(col => non_list_fields.includes(col.fieldname));
 
-        if (!has_branch || !has_expense_head) {
+        if (!has_branch || !has_expense_head || has_bad_col) {
             frappe.model.user_settings.save(frm.doctype, 'GridView', null);
             grid.user_defined_columns = null;
         }
@@ -1430,7 +1470,9 @@ function enforce_permanent_grid_columns(frm) {
     // Ensure branch and expense_head in_list_view and columns size 2 are strictly set
     if (grid.docfields) {
         grid.docfields.forEach(df => {
-            if (df.fieldname === 'branch') {
+            if (non_list_fields.includes(df.fieldname)) {
+                df.in_list_view = 0;
+            } else if (df.fieldname === 'branch') {
                 df.in_list_view = 1;
                 df.columns = 2;
                 df.reqd = 1;
@@ -1447,7 +1489,8 @@ function enforce_permanent_grid_columns(frm) {
     if (grid.visible_columns) {
         const vis_branch = grid.visible_columns.some(([df]) => df.fieldname === 'branch');
         const vis_head = grid.visible_columns.some(([df]) => df.fieldname === 'expense_head');
-        if (!vis_branch || !vis_head) {
+        const has_bad_vis = grid.visible_columns.some(([df]) => non_list_fields.includes(df.fieldname));
+        if (!vis_branch || !vis_head || has_bad_vis) {
             grid.setup_visible_columns();
             grid.refresh();
         }

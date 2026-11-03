@@ -47,17 +47,15 @@
   {
    "fieldname": "client_code",
    "fieldtype": "Data",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Client Code",
-   "depends_on": "eval:doc.client_type=='Existing Client'",
-   "columns": 2
+   "depends_on": "eval:doc.client_type=='Existing Client'"
   },
   {
    "fieldname": "client_phone",
    "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Contact Phone",
-   "columns": 2
+   "in_list_view": 0,
+   "label": "Contact Phone"
   },
   {
    "fieldname": "cb_route",

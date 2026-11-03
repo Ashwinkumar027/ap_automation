@@ -16,6 +16,7 @@ class TestPettyCashEntry(unittest.TestCase):
     def setUpClass(cls):
         cls.company = frappe.db.get_value("Company", {}, "name") or "Quanticus Software Solutions"
         cls.branch = frappe.db.get_value("Branch", {}, "name") or "Head Office"
+        cls.today = frappe.utils.today()
 
     def test_01_total_amount_calculation(self):
         """Verifies that child row summation accurately calculates parent total_amount."""
@@ -25,10 +26,10 @@ class TestPettyCashEntry(unittest.TestCase):
             "custodian": "Administrator",
             "custodian_bank_account": "100234567890",
             "custodian_ifsc_code": "HDFC0001234",
-            "posting_date": "2026-09-10",
+            "posting_date": self.today,
             "expense_lines": [
-                {"expense_date": "2026-09-10", "expense_category": "Tea & Refreshments", "merchant_name": "Chai Point", "branch": self.branch, "amount": 450.00},
-                {"expense_date": "2026-09-10", "expense_category": "Courier & Logistics", "merchant_name": "DTDC", "branch": self.branch, "amount": 250.00}
+                {"expense_date": self.today, "expense_category": "Tea & Refreshments", "merchant_name": "Chai Point", "branch": self.branch, "amount": 450.00},
+                {"expense_date": self.today, "expense_category": "Courier & Logistics", "merchant_name": "DTDC", "branch": self.branch, "amount": 250.00}
             ]
         })
         entry.validate()
@@ -42,10 +43,10 @@ class TestPettyCashEntry(unittest.TestCase):
             "custodian": "Administrator",
             "custodian_bank_account": "100234567890",
             "custodian_ifsc_code": "HDFC0001234",
-            "posting_date": "2026-09-10",
+            "posting_date": self.today,
             "expense_lines": [
                 # INR 1200 > INR 500 without attachment MUST fail
-                {"expense_date": "2026-09-10", "expense_category": "Office Supplies & Stationery", "merchant_name": "Staples", "branch": self.branch, "amount": 1200.00}
+                {"expense_date": self.today, "expense_category": "Office Supplies & Stationery", "merchant_name": "Staples", "branch": self.branch, "amount": 1200.00}
             ]
         })
         with self.assertRaises(APValidationError) as ctx:
@@ -63,9 +64,9 @@ class TestPettyCashEntry(unittest.TestCase):
             "doctype": "Petty Cash Entry",
             "company": self.company,
             "custodian": "Administrator",
-            "posting_date": "2026-09-10",
+            "posting_date": self.today,
             "expense_lines": [
-                {"expense_date": "2026-09-10", "expense_category": "Tea & Refreshments", "merchant_name": "Tea Stall", "branch": self.branch, "amount": -50.00}
+                {"expense_date": self.today, "expense_category": "Tea & Refreshments", "merchant_name": "Tea Stall", "branch": self.branch, "amount": -50.00}
             ]
         })
         with self.assertRaises(APValidationError) as ctx:

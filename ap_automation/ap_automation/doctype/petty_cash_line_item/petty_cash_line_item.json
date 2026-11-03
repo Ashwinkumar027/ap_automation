@@ -7,24 +7,24 @@
  "engine": "InnoDB",
  "field_order": [
   "expense_date",
-  "branch",
-  "expense_head",
   "expense_category",
   "merchant_name",
-  "amount",
   "is_gst",
   "bill_number",
+  "amount",
   "receipt_attachment",
+  "line_decision",
   "employee",
-  "custom_ledger_name",
   "staff_name",
   "merchant_gstin",
   "transaction_id",
   "remarks",
   "description",
-  "line_decision",
   "is_disputed",
-  "dispute_reason"
+  "dispute_reason",
+  "branch",
+  "expense_head",
+  "custom_ledger_name"
  ],
  "fields": [
   {
@@ -51,7 +51,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Expenses of Head",
-   "options": "\nSTAFF WELFARE\nFOOD EXPENSES\nOFFICE EXPENSES\nOFFICE EXPENSES - GROCERY\nOFFICE EXPENSES - POOJA\nPRINTING & STATIONARY\nCOURIER CHARGES\nPOWER & FUEL EXPENSES\nOTHER EXPENSES\nTRAVEL EXPENSES\nOTHER / VENDOR LEDGER\n\u2795 Add New Expense Head...",
+   "options": "\nSTAFF WELFARE\nFOOD EXPENSES\nOFFICE EXPENSES\nOFFICE EXPENSES - GROCERY\nOFFICE EXPENSES - POOJA\nPRINTING & STATIONARY\nCOURIER CHARGES\nPOWER & FUEL EXPENSES\nOTHER EXPENSES\nTRAVEL EXPENSES\nOTHER / VENDOR LEDGER\n➕ Add New Expense Head...",
    "reqd": 0
   },
   {
@@ -60,7 +60,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Expense Type",
-   "options": "Tea & Refreshments\nCourier & Logistics\nOffice Supplies & Stationery\nRepairs & Maintenance\nLocal Conveyance\nCleaning & Housekeeping\nMiscellaneous\n\u2795 Add New Expense Type...",
+   "options": "Tea & Refreshments\nCourier & Logistics\nOffice Supplies & Stationery\nRepairs & Maintenance\nLocal Conveyance\nCleaning & Housekeeping\nMiscellaneous\n➕ Add New Expense Type...",
    "reqd": 1
   },
   {
@@ -77,7 +77,7 @@
    "fieldname": "amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Amount (\u20b9)",
+   "label": "Amount (₹)",
    "reqd": 1
   },
   {
@@ -116,9 +116,7 @@
    "fieldname": "custom_ledger_name",
    "fieldtype": "Data",
    "label": "Vendor / Custom Ledger Name",
-   "depends_on": "eval:doc.expense_head=='OTHER / VENDOR LEDGER'",
-   "in_list_view": 1,
-   "columns": 2
+   "depends_on": "eval:doc.expense_head=='OTHER / VENDOR LEDGER'"
   },
   {
    "fieldname": "staff_name",
@@ -132,11 +130,10 @@
   {
    "fieldname": "merchant_gstin",
    "fieldtype": "Data",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Merchant GST Number (15 Digits)",
    "description": "Required only for GST invoices (e.g. 29AAAAA0000A1Z5)",
-   "depends_on": "eval:doc.is_gst==1",
-   "columns": 2
+   "depends_on": "eval:doc.is_gst==1"
   },
   {
    "fieldname": "transaction_id",
@@ -148,9 +145,8 @@
   {
    "fieldname": "remarks",
    "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Notes / Remarks (Optional)",
-   "columns": 2
+   "in_list_view": 0,
+   "label": "Notes / Remarks (Optional)"
   },
   {
    "fieldname": "description",
@@ -163,7 +159,7 @@
    "columns": 2,
    "fieldname": "line_decision",
    "fieldtype": "Data",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Decision",
    "read_only": 1
   },
