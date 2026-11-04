@@ -1,16 +1,14 @@
 
 function setup_expense_subtype_query(frm) {
-    frm.set_query('expense_type', 'expense_lines', function(doc, cdt, cdn) {
-        let cat = (frm && frm.doc && frm.doc.claim_category) || (doc && doc.claim_category) || 'General Expense';
-        if (cat === 'Team Bonding') cat = 'Team Lunch / Outing';
-        if (cat === 'Branch Expense') cat = 'Branch Expense & Maintenance';
-        return {
-            filters: {
-                parent_claim_category: cat,
-                is_active: 1
-            }
-        };
-    });
+    if (!frm) return;
+    try {
+        frm.set_df_property('expense_lines', 'expense_type', 'hidden', 1);
+        frm.set_df_property('expense_lines', 'expense_type', 'reqd', 0);
+        const grid = frm.get_field('expense_lines') && frm.get_field('expense_lines').grid;
+        if (grid) {
+            grid.set_column_disp('expense_type', false);
+        }
+    } catch (e) {}
 }
 // Copyright (c) 2026, Quantique and contributors
 // For license information, please see license.txt
@@ -882,19 +880,7 @@ frappe.ui.form.on('Employee Reimbursement Line', {
     expense_lines_add: function(frm, cdt, cdn) {
         frm.trigger('calculate_totals');
         setTimeout(() => bind_custom_grid_uploaders(frm), 200);
-        let cat = frm.doc.claim_category || 'General Expense';
-        if (cat === 'Team Bonding') cat = 'Team Lunch / Outing';
-        if (cat === 'Branch Expense') cat = 'Branch Expense & Maintenance';
-        frappe.db.get_list('AP Expense Subtype Master', {
-            filters: { parent_claim_category: cat, is_active: 1 },
-            fields: ['name'],
-            order_by: 'sort_order asc',
-            limit: 1
-        }).then(res => {
-            if (res && res.length > 0 && cdt && cdn) {
-                frappe.model.set_value(cdt, cdn, 'expense_type', res[0].name);
-            }
-        });
+        setup_expense_subtype_query(frm);
     },
     form_render: function(frm) {
         setTimeout(() => bind_custom_grid_uploaders(frm), 200);
