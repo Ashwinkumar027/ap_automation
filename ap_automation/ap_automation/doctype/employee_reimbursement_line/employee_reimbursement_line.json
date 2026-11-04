@@ -35,10 +35,11 @@
    "columns": 2,
    "fieldname": "expense_type",
    "fieldtype": "Link",
-   "in_list_view": 1,
+   "hidden": 1,
+   "in_list_view": 0,
    "label": "Expense Subtype",
    "options": "AP Expense Subtype Master",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "columns": 2,
