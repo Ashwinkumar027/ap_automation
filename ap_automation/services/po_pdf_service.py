@@ -170,25 +170,48 @@ def render_po_html(doc):
     final_signatory = doc.signatory_name or profile["default_signatory"]
     final_designation = profile["default_designation"] if not doc.signatory_designation or doc.signatory_designation in ["Director / Authorised Officer", "Director"] else doc.signatory_designation
     
-    # Strictly check if PO is approved
-    is_signed = bool(doc.status == "Active PO" and doc.signatory_signature_hash)
+    # Check if Director / Authorised Signatory has approved and digitally signed the PO
+    # Director approves in "Awaiting Vendor E-Signature", "Active PO", "Completed / Invoiced", "Approved", "Ordered"
+    is_director_signed = bool(
+        doc.status in ("Awaiting Vendor E-Signature", "Active PO", "Completed / Invoiced", "Approved", "Ordered")
+        or (doc.signatory_signature_hash and doc.status not in ("Draft", "Pending HoD Approval", "Cancelled"))
+        or getattr(doc, "docstatus", 0) == 1
+    )
 
-    # Signature Block rendering
-    if is_signed:
+    # Signature Block rendering for Authorised Director / Company Signatory
+    if is_director_signed:
         hash_code = doc.signatory_signature_hash or "AUTH-VERIFIED"
-        raw_dt = doc.vendor_signed_timestamp or doc.modified
+        
+        # Resolve exact approval timestamp from comment log or doc timestamps
+        approval_time = None
+        if hasattr(doc, "name") and doc.name:
+            approval_comment_time = frappe.db.get_value(
+                "Comment",
+                {
+                    "reference_doctype": getattr(doc, "doctype", "AP Purchase Order"),
+                    "reference_name": doc.name,
+                    "content": ["like", "%digitally certified by%"]
+                },
+                "creation",
+                order_by="creation desc"
+            )
+            if approval_comment_time:
+                approval_time = approval_comment_time
+
+        raw_dt = approval_time or doc.modified or doc.creation
         time_str = raw_dt.strftime("%d-%b-%Y %H:%M:%S") if hasattr(raw_dt, "strftime") else str(raw_dt)[:19]
+
         signature_box_html = f"""
-        <div style="border: 1.5px solid #059669; background: #ecfdf5; border-radius: 4px; padding: 5px 8px; margin: 4px 0 3px 0; width: 260px;">
-            <div style="color: #047857; font-size: 9.5px; font-weight: 800; margin-bottom: 2px;">
+        <div style="border: 1.5px solid #059669; background: #ecfdf5; border-radius: 4px; padding: 4px 6px; margin: 3px 0 2px 0; width: 245px;">
+            <div style="color: #047857; font-size: 9px; font-weight: 800; margin-bottom: 2px;">
                 ✔ DIGITALLY SIGNED & AUTHORIZED
             </div>
-            <div style="font-size: 8.5px; color: #1f2937; line-height: 1.25;">
+            <div style="font-size: 8px; color: #1f2937; line-height: 1.25;">
                 <b>Signatory:</b> {final_signatory}<br>
                 <b>Designation:</b> {final_designation}<br>
                 <b>Entity:</b> {profile['full_name']}<br>
                 <b>Timestamp:</b> {time_str} IST<br>
-                <span style="font-family: monospace; font-size: 7.5px; color: #047857;"><b>Hash:</b> {hash_code}</span>
+                <span style="font-family: monospace; font-size: 7px; color: #047857;"><b>Hash:</b> {hash_code}</span>
             </div>
         </div>
         """
@@ -199,6 +222,64 @@ def render_po_html(doc):
             (Space for Digital Signature / USB DSC Token)
         </div>
         """
+
+    # Vendor Acceptance rendering
+    is_vendor_signed = bool(
+        getattr(doc, "vendor_sign_status", None) == "Digitally Signed"
+        or getattr(doc, "vendor_signed_by", None)
+    )
+
+    if is_vendor_signed:
+        vendor_dt = doc.vendor_signed_timestamp or doc.modified
+        v_time_str = vendor_dt.strftime("%d-%b-%Y %H:%M:%S") if hasattr(vendor_dt, "strftime") else str(vendor_dt)[:19]
+        vendor_img = getattr(doc, "vendor_signature_image", None)
+        v_img_html = ""
+        if vendor_img:
+            v_img_html = f'<div style="margin: 1px 0;"><img src="{vendor_img}" style="max-height: 24px; max-width: 120px; display: block;" /></div>'
+
+        vendor_box_html = f"""
+        <div style="border: 1.5px solid #2563eb; background: #eff6ff; border-radius: 4px; padding: 4px 6px; margin: 3px 0 2px 0; width: 245px;">
+            <div style="color: #1d4ed8; font-size: 9px; font-weight: 800; margin-bottom: 2px;">
+                ✔ VENDOR DIGITALLY ACCEPTED
+            </div>
+            {v_img_html}
+            <div style="font-size: 8px; color: #1f2937; line-height: 1.25;">
+                <b>Signed by:</b> {doc.vendor_signed_by or 'Authorized Signatory'}<br>
+                <b>Timestamp:</b> {v_time_str} IST<br>
+                <span style="font-family: monospace; font-size: 7px; color: #2563eb;"><b>IP:</b> {getattr(doc, 'vendor_signed_ip', None) or '127.0.0.1'}</span>
+            </div>
+        </div>
+        """
+        vendor_acceptance_html = f"""
+        <div class="sign-section">
+            Accepted & Agreed:<br>
+            <b>For, {doc.vendor_name or 'Vendor'}</b><br>
+            {vendor_box_html}
+            <div>
+                <b>{doc.vendor_signed_by or 'Authorized Representative'}</b><br>
+                Vendor Representative.
+            </div>
+        </div>
+        """
+    elif doc.status == "Awaiting Vendor E-Signature":
+        vendor_box_html = """
+        <div style="height: 38px; width: 220px; margin: 4px 0 2px 0; border: 1px dashed #cbd5e1; border-radius: 4px; line-height: 38px; text-align: center; font-size: 8px; color: #94a3b8;">
+            (Awaiting Vendor Digital E-Signature)
+        </div>
+        """
+        vendor_acceptance_html = f"""
+        <div class="sign-section">
+            Accepted & Agreed:<br>
+            <b>For, {doc.vendor_name or 'Vendor'}</b><br>
+            {vendor_box_html}
+            <div>
+                <b>Authorized Representative</b><br>
+                {doc.vendor_name or 'Vendor'}.
+            </div>
+        </div>
+        """
+    else:
+        vendor_acceptance_html = ""
 
     html = f"""
     <!DOCTYPE html>
@@ -382,16 +463,25 @@ def render_po_html(doc):
             <li><b>Required Documentation:</b> The Vendor must submit all documents and a valid invoice, as required by the Company, to claim payment.</li>
         </ol>
 
-        <!-- Sign-off Section -->
-        <div class="sign-section">
-            Thanking you,<br>
-            <b>For, {profile['full_name']}</b><br>
-            {signature_box_html}
-            <div>
-                <b>{final_signatory}</b><br>
-                {final_designation}.
-            </div>
-        </div>
+        <!-- Sign-off Section: 2 Columns (Issued by Company / Director on Left | Accepted by Vendor on Right) -->
+        <table style="width: 100%; border-collapse: collapse; margin-top: 4px; border: none;">
+            <tr>
+                <td style="width: 50%; vertical-align: top; border: none; padding: 0 10px 0 0;">
+                    <div class="sign-section">
+                        Thanking you,<br>
+                        <b>For, {profile['full_name']}</b><br>
+                        {signature_box_html}
+                        <div>
+                            <b>{final_signatory}</b><br>
+                            {final_designation}.
+                        </div>
+                    </div>
+                </td>
+                <td style="width: 50%; vertical-align: top; border: none; padding: 0 0 0 10px;">
+                    {vendor_acceptance_html}
+                </td>
+            </tr>
+        </table>
 
         <!-- Dynamic Official Footer from Company Settings -->
         {profile['footer_html']}
@@ -458,7 +548,12 @@ def approve_and_digitally_sign_po(po_name: str, signatory_name: str = None):
     if not po_name:
         frappe.throw(_("PO Name is required."))
 
-    doc = frappe.get_doc("AP Purchase Order", po_name)
+    if frappe.db.exists("AP Purchase Order", po_name):
+        doc = frappe.get_doc("AP Purchase Order", po_name)
+    elif frappe.db.exists("Purchase Order", po_name):
+        doc = frappe.get_doc("Purchase Order", po_name)
+    else:
+        frappe.throw(_(f"Purchase Order '{po_name}' not found."))
     profile = get_entity_profile(doc.company_entity, signatory_name)
 
     # Determine signatory
@@ -534,7 +629,12 @@ def download_purchase_order_pdf(po_name: str):
     if not po_name:
         frappe.throw(_("PO Name is required."))
 
-    doc = frappe.get_doc("AP Purchase Order", po_name)
+    if frappe.db.exists("AP Purchase Order", po_name):
+        doc = frappe.get_doc("AP Purchase Order", po_name)
+    elif frappe.db.exists("Purchase Order", po_name):
+        doc = frappe.get_doc("Purchase Order", po_name)
+    else:
+        frappe.throw(_(f"Purchase Order '{po_name}' not found."))
     html = render_po_html(doc)
 
     options = {

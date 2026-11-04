@@ -42,7 +42,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Vendor Category",
-   "options": "Housekeeping\nPantry\nCourier\nStationery\nPrinting\nRepairs & Maintenance\nOffice Supplies\nIT Hardware\nSecurity & Facility\nMiscellaneous\n\u2795 Add New Expense Type..."
+   "options": "Housekeeping\nPantry\nCourier\nStationery\nPrinting\nRepairs & Maintenance\nOffice Supplies\nIT Hardware\nSecurity & Facility\nMiscellaneous"
   },
   {
    "columns": 2,

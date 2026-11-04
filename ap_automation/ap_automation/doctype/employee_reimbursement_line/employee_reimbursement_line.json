@@ -12,6 +12,8 @@
   "description",
   "amount",
   "receipt_attachment",
+  "payment_proof_attachment",
+  "additional_proof_attachment",
   "payment_mode_used",
   "merchant_name",
   "invoice_number",
@@ -68,6 +70,20 @@
    "in_list_view": 1,
    "label": "Bill / Tax Receipt",
    "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "payment_proof_attachment",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "Payment Proof / GPay"
+  },
+  {
+   "columns": 2,
+   "fieldname": "additional_proof_attachment",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "Additional Bill / Proof"
   },
   {
    "columns": 1,

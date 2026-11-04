@@ -51,7 +51,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Expenses of Head",
-   "options": "\nSTAFF WELFARE\nFOOD EXPENSES\nOFFICE EXPENSES\nOFFICE EXPENSES - GROCERY\nOFFICE EXPENSES - POOJA\nPRINTING & STATIONARY\nCOURIER CHARGES\nPOWER & FUEL EXPENSES\nOTHER EXPENSES\nTRAVEL EXPENSES\nOTHER / VENDOR LEDGER\n➕ Add New Expense Head...",
+   "options": "\nSTAFF WELFARE\nFOOD EXPENSES\nOFFICE EXPENSES\nOFFICE EXPENSES - GROCERY\nOFFICE EXPENSES - POOJA\nPRINTING & STATIONARY\nCOURIER CHARGES\nPOWER & FUEL EXPENSES\nOTHER EXPENSES\nTRAVEL EXPENSES\nOTHER / VENDOR LEDGER",
    "reqd": 0
   },
   {
@@ -60,7 +60,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Expense Type",
-   "options": "Tea & Refreshments\nCourier & Logistics\nOffice Supplies & Stationery\nRepairs & Maintenance\nLocal Conveyance\nCleaning & Housekeeping\nMiscellaneous\n➕ Add New Expense Type...",
+   "options": "Tea & Refreshments\nCourier & Logistics\nOffice Supplies & Stationery\nRepairs & Maintenance\nLocal Conveyance\nCleaning & Housekeeping\nMiscellaneous",
    "reqd": 1
   },
   {

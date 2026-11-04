@@ -442,7 +442,11 @@ function render_role_based_action_buttons(frm) {
     }).addClass('btn-secondary');
 
     // Fast-Track Resubmission Button (When voucher was returned from Accounts or Director)
-    if (frm.doc.return_origin_stage && ['Draft', 'Pending Admin L1', 'Pending Admin L2'].includes(status)) {
+    const is_returned_vendor = [
+        'Rejected', 'Returned to Reception', 'Returned to Custodian', 'Returned', 'Disputed', 'Returned for Correction'
+    ].includes(status) || (status && status.startsWith('Returned'));
+
+    if (frm.doc.return_origin_stage && (['Draft', 'Pending Admin L1', 'Pending Admin L2'].includes(status) || is_returned_vendor)) {
         const target_label = frm.doc.return_origin_stage === 'Pending Accounts Review' ? 'Accounts Review' :
                              frm.doc.return_origin_stage === 'Approved for Payment' ? 'Director Sanction' : frm.doc.return_origin_stage;
 
@@ -468,8 +472,9 @@ function render_role_based_action_buttons(frm) {
     }
 
     // 3. Stage-Specific Transitions
-    if (status === 'Draft' || status === 'Rejected') {
-        frm.add_custom_button(__('🚀 Submit to Admin L1'), function () {
+    if (status === 'Draft' || is_returned_vendor) {
+        const btn_text = is_returned_vendor ? __('🚀 Resubmit to Admin L1') : __('🚀 Submit to Admin L1');
+        frm.add_custom_button(btn_text, function () {
             frappe.confirm(
                 __('Are you sure you want to submit this weekly claim voucher to Admin L1 Review?'),
                 function () {

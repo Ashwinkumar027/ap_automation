@@ -419,3 +419,36 @@
     }
 }
 
+/* Proof Gallery Mobile Layout */
+@media (max-width: 768px) {
+    .ap-gallery-wrapper {
+        flex-direction: column !important;
+        gap: 12px !important;
+    }
+    .ap-gallery-sidebar {
+        width: 100% !important;
+        max-height: 180px !important;
+        border-right: none !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+        padding-right: 0 !important;
+        padding-bottom: 8px !important;
+    }
+    .ap-receipts-list {
+        display: flex !important;
+        overflow-x: auto !important;
+        gap: 8px !important;
+        padding-bottom: 4px !important;
+        -webkit-overflow-scrolling: touch;
+    }
+    .ap-receipt-thumb-item {
+        min-width: 220px !important;
+        flex-shrink: 0 !important;
+    }
+    .ap-pdf-viewport,
+    .ap-image-viewport {
+        height: 60vh !important;
+        min-height: 380px !important;
+    }
+}
+
+

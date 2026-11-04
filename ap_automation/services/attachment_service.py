@@ -89,11 +89,69 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                     "extension": ext
                 })
 
+            # 1b. In-row Payment Proof (Google Pay / PhonePe / Card Slip)
+            pay_url = getattr(row, "payment_proof_attachment", None)
+            if pay_url and isinstance(pay_url, str) and pay_url.strip():
+                pay_url = pay_url.strip()
+                pay_name = pay_url.split("/")[-1]
+                p_ext = os.path.splitext(pay_name)[1].lower()
+                m_title = (
+                    getattr(row, "merchant_name", None)
+                    or getattr(row, "merchant", None)
+                    or getattr(row, "supplier_name", None)
+                    or getattr(row, "supplier", None)
+                    or "Expense Item"
+                )
+                attachments.append({
+                    "source": "row",
+                    "row_idx": getattr(row, "idx", len(attachments) + 1),
+                    "merchant": f"Payment Proof (GPay/UPI) — {m_title}",
+                    "category": "Payment Confirmation (GPay/UPI)",
+                    "amount": float(getattr(row, "amount", 0.0) or 0.0),
+                    "date": str(getattr(row, "expense_date", "") or doc.get("posting_date", "")),
+                    "bill_no": getattr(row, "invoice_number", "") or "",
+                    "file_url": pay_url,
+                    "view_url": f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(pay_url)}&doctype={doctype}&docname={docname}",
+                    "file_name": pay_name,
+                    "is_image": p_ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
+                    "is_pdf": p_ext == ".pdf",
+                    "extension": p_ext
+                })
+
+            # 1c. In-row Additional Bill / Proof
+            add_url = getattr(row, "additional_proof_attachment", None)
+            if add_url and isinstance(add_url, str) and add_url.strip():
+                add_url = add_url.strip()
+                add_name = add_url.split("/")[-1]
+                a_ext = os.path.splitext(add_name)[1].lower()
+                m_title = (
+                    getattr(row, "merchant_name", None)
+                    or getattr(row, "merchant", None)
+                    or getattr(row, "supplier_name", None)
+                    or getattr(row, "supplier", None)
+                    or "Expense Item"
+                )
+                attachments.append({
+                    "source": "row",
+                    "row_idx": getattr(row, "idx", len(attachments) + 1),
+                    "merchant": f"Supporting Proof — {m_title}",
+                    "category": "Additional Supporting Proof",
+                    "amount": float(getattr(row, "amount", 0.0) or 0.0),
+                    "date": str(getattr(row, "expense_date", "") or doc.get("posting_date", "")),
+                    "bill_no": getattr(row, "invoice_number", "") or "",
+                    "file_url": add_url,
+                    "view_url": f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(add_url)}&doctype={doctype}&docname={docname}",
+                    "file_name": add_name,
+                    "is_image": a_ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
+                    "is_pdf": a_ext == ".pdf",
+                    "extension": a_ext
+                })
+
     # 2. Scan Multi-Leg Client Travel Table (legs or client_visit_legs)
     legs_rows = getattr(doc, "client_visit_legs", None) or getattr(doc, "legs", None) or []
     if legs_rows:
         for leg in legs_rows:
-            file_url = getattr(leg, "toll_parking_receipt", None) or getattr(leg, "odometer_proof", None)
+            file_url = getattr(leg, "receipt_attachment", None) or getattr(leg, "toll_parking_receipt", None) or getattr(leg, "odometer_proof", None)
             if file_url and isinstance(file_url, str) and file_url.strip():
                 file_url = file_url.strip()
                 file_name = file_url.split("/")[-1]
@@ -115,6 +173,29 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                     "is_image": ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
                     "is_pdf": ext == ".pdf",
                     "extension": ext
+                })
+
+            # Leg Payment Proof / GPay
+            leg_pay = getattr(leg, "payment_proof_attachment", None)
+            if leg_pay and isinstance(leg_pay, str) and leg_pay.strip():
+                leg_pay = leg_pay.strip()
+                p_name = leg_pay.split("/")[-1]
+                p_ext = os.path.splitext(p_name)[1].lower()
+                travel_desc = f"{getattr(leg, 'client_name', 'Client Visit')} ({getattr(leg, 'mode_of_travel', 'Travel')})"
+                attachments.append({
+                    "source": "row",
+                    "row_idx": getattr(leg, "idx", len(attachments) + 1),
+                    "merchant": f"Payment Proof (GPay/UPI) — {travel_desc}",
+                    "category": "Payment Confirmation (GPay/UPI)",
+                    "amount": float(getattr(leg, "leg_amount", 0.0) or 0.0) + float(getattr(leg, "toll_parking_amount", 0.0) or 0.0),
+                    "date": str(getattr(leg, "visit_date", "") or getattr(leg, "travel_date", "") or doc.get("posting_date", "")),
+                    "bill_no": str(getattr(leg, "idx", "")),
+                    "file_url": leg_pay,
+                    "view_url": f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(leg_pay)}&doctype={doctype}&docname={docname}",
+                    "file_name": p_name,
+                    "is_image": p_ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
+                    "is_pdf": p_ext == ".pdf",
+                    "extension": p_ext
                 })
 
     # 3. Scan Generic other child tables (e.g. lines, items, instructions, vendor_lines, expense_items, imprest_items)
@@ -320,9 +401,13 @@ def view_receipt_file(file_url: str, doctype: Optional[str] = None, docname: Opt
 
     frappe.response["filename"] = file_name
     frappe.response["filecontent"] = file_bytes
-    frappe.response["type"] = "download"
-    frappe.response["display_content_as"] = "inline"
-    frappe.response["content_type"] = content_type
+    if ext == ".pdf":
+        frappe.response["type"] = "pdf"
+        frappe.response["content_type"] = "application/pdf"
+    else:
+        frappe.response["type"] = "download"
+        frappe.response["display_content_as"] = "inline"
+        frappe.response["content_type"] = content_type
 
 
 @frappe.whitelist()

@@ -40,7 +40,11 @@ def submit_to_admin_l1(voucher_name: str) -> Dict[str, Any]:
 
     doc = frappe.get_doc("Petty Cash Entry", voucher_name)
 
-    if doc.status not in ("Draft", "Rejected", "Returned to Reception"):
+    valid_submit_statuses = (
+        "Draft", "Not Saved", "Rejected", "Returned to Reception", "Returned to Custodian",
+        "Returned", "Disputed", "Returned for Correction"
+    )
+    if doc.status not in valid_submit_statuses and not (doc.status and str(doc.status).startswith("Returned")):
         raise APValidationError(
             f"Cannot submit voucher #{voucher_name} to Admin L1: current status is '{doc.status}', expected 'Draft'."
         )

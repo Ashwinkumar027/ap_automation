@@ -475,8 +475,12 @@ def submit_to_admin_l1(docname):
     Resolves Level 1 designated approver from AP Matrix and sends 1-to-1 forward email.
     """
     doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
-    if doc.status not in ("Draft", "Rejected"):
-        frappe.throw(_("Voucher must be in Draft or Rejected status to submit."))
+    valid_submit_statuses = (
+        "Draft", "Not Saved", "Rejected", "Returned to Reception", "Returned to Custodian",
+        "Returned", "Disputed", "Returned for Correction"
+    )
+    if doc.status not in valid_submit_statuses and not (doc.status and str(doc.status).startswith("Returned")):
+        frappe.throw(_("Voucher must be in Draft or Returned status to submit."))
 
     # Resolve Level 1 designated approver
     rule_1 = _resolve_matrix_level_approver(doc, level_number=1)

@@ -45,7 +45,8 @@ def submit_pre_travel_request(docname: str) -> Dict[str, Any]:
     user = frappe.session.user
     doc = frappe.get_doc("Pre Travel Request", docname)
 
-    if doc.status not in ("Draft", "Returned for Correction", "Rejected"):
+    valid_submit_statuses = ("Draft", "Returned for Correction", "Returned to Employee", "Rejected", "Returned", "Disputed")
+    if doc.status not in valid_submit_statuses and not (doc.status and str(doc.status).startswith("Returned")):
         raise APValidationError(f"Cannot submit Pre-Travel Request '{docname}' with status '{doc.status}'.")
 
     # Enforce mandatory fields

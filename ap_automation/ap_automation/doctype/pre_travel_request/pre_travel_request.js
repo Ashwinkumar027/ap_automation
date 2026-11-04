@@ -26,7 +26,9 @@ frappe.ui.form.on('Pre Travel Request', {
         frm.set_df_property('advance_requested', 'hidden', 1);
         frm.set_df_property('disbursed_advance_amount', 'hidden', 1);
 
-        const is_editable = frm.is_new() || ['Draft', 'Returned for Correction'].includes(frm.doc.status);
+        const is_editable = frm.is_new() || !frm.doc.status || [
+            'Draft', 'Returned for Correction', 'Returned to Employee', 'Rejected', 'Returned', 'Disputed'
+        ].includes(frm.doc.status) || (frm.doc.status && frm.doc.status.startsWith('Returned'));
         frm.set_df_property('employee', 'read_only', !is_editable);
         frm.set_df_property('trip_purpose', 'read_only', !is_editable);
         frm.set_df_property('destination_city', 'read_only', !is_editable);
@@ -96,9 +98,13 @@ frappe.ui.form.on('Pre Travel Request', {
         const is_system_mgr = frappe.user_roles.includes('System Manager') || frappe.user_roles.includes('Administrator') || current_user === 'Administrator';
         const is_manager = (frm.doc.manager_user_id === current_user) || is_system_mgr;
 
-        // 1. Submit for Approval (Only for Owner / Employee in Draft)
-        if (['Draft', 'Returned for Correction'].includes(frm.doc.status) && (is_owner || is_system_mgr)) {
-            frm.add_custom_button(__('✈️ Submit Pre-Travel Request'), function() {
+        // 1. Submit for Approval (Only for Owner / Employee in Draft / Returned)
+        const is_editable_submit = [
+            'Draft', 'Returned for Correction', 'Returned to Employee', 'Rejected', 'Returned', 'Disputed'
+        ].includes(frm.doc.status) || (frm.doc.status && frm.doc.status.startsWith('Returned'));
+        if (is_editable_submit && (is_owner || is_system_mgr)) {
+            const btn_label = frm.doc.status === 'Draft' ? __('✈️ Submit Pre-Travel Request') : __('🚀 Resubmit Pre-Travel Request');
+            frm.add_custom_button(btn_label, function() {
                 frappe.confirm(
                     __('Submit Pre-Travel Request to your HRMS Reporting Manager?'),
                     function() {

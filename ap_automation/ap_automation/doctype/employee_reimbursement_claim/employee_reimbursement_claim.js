@@ -127,7 +127,10 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     },
 
     setup_form_immutability: function(frm) {
-        const is_draft_or_returned = frm.is_new() || !frm.doc.status || ['Draft', 'Returned to Employee'].includes(frm.doc.status);
+        const is_returned_to_emp = [
+            'Returned to Employee', 'Disputed', 'Pending Employee Resubmission', 'Returned for Correction', 'Returned', 'Rejected'
+        ].includes(frm.doc.status) || (frm.doc.status && frm.doc.status.startsWith('Returned'));
+        const is_draft_or_returned = frm.is_new() || !frm.doc.status || frm.doc.status === 'Draft' || is_returned_to_emp;
 
         // Dynamic Role & Permission Check: respects Role Permission Manager Write checkbox
         const has_write_perm = frm.has_perm('write') || (frappe.model && frappe.model.can_write && frappe.model.can_write(frm.doctype));
@@ -253,7 +256,10 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     },
 
     setup_dashboard_alerts: function(frm) {
-        if (frm.doc.status === 'Returned to Employee') {
+        const is_returned_to_emp = [
+            'Returned to Employee', 'Disputed', 'Pending Employee Resubmission', 'Returned for Correction', 'Returned', 'Rejected'
+        ].includes(frm.doc.status) || (frm.doc.status && frm.doc.status.startsWith('Returned'));
+        if (is_returned_to_emp) {
             frm.dashboard.set_headline_alert(
                 __('<div class="alert alert-danger" style="margin-bottom: 0;">' +
                    '<strong>⚠️ Claim Returned for Correction / Clarification</strong><br>' +
@@ -443,6 +449,71 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
                     }
                 });
             }).addClass('btn-primary');
+        }
+
+        // 1B. Resubmit Corrected Claim (When Claim is Returned / Disputed / Rejected)
+        const is_returned_to_emp = [
+            'Returned to Employee', 'Disputed', 'Pending Employee Resubmission', 'Returned for Correction', 'Returned', 'Rejected'
+        ].includes(status) || (status && status.startsWith('Returned'));
+
+        if (is_returned_to_emp && (is_owner || is_system_mgr || frappe.session.user === frm.doc.owner)) {
+            frm.add_custom_button(__('🚀 Resubmit Corrected Claim'), function() {
+                // Pre-validation
+                if (!frm.doc.employee) {
+                    frappe.msgprint({
+                        title: __('Missing Employee'),
+                        message: __('⚠️ Please select an <b>Employee ID</b> before submitting.'),
+                        indicator: 'red'
+                    });
+                    frm.scroll_to_field('employee');
+                    return;
+                }
+
+                const cat = frm.doc.claim_category || 'General Expense';
+                if (cat === 'Team Lunch / Outing') {
+                    if (!frm.doc.participants || frm.doc.participants.length === 0) {
+                        frappe.msgprint({
+                            title: __('Missing Participants'),
+                            message: __('👥 <b>Mandatory Requirement</b>:<br>Please add at least one employee in the <b>Team Participants Table</b> before resubmitting.'),
+                            indicator: 'red'
+                        });
+                        frm.scroll_to_field('participants');
+                        return;
+                    }
+                } else if (cat !== 'Client Visit Travel' && cat !== 'Dinner Allowance') {
+                    const lines = frm.doc.expense_lines || [];
+                    if (lines.length === 0) {
+                        frappe.msgprint({
+                            title: __('Missing Bill Lines'),
+                            message: __('🧾 Please add at least one expense line before resubmitting.'),
+                            indicator: 'red'
+                        });
+                        frm.scroll_to_field('expense_lines');
+                        return;
+                    }
+                }
+
+                const do_resubmit = () => {
+                    frappe.call({
+                        method: 'ap_automation.services.employee_expense_approval_service.resubmit_claim_smart',
+                        args: { voucher_name: frm.doc.name },
+                        freeze: true,
+                        freeze_message: __('Resubmitting Corrected Claim...'),
+                        callback: function(r) {
+                            if (r.message && r.message.status === 'SUCCESS') {
+                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                };
+
+                if (frm.is_dirty()) {
+                    frm.save().then(() => do_resubmit());
+                } else {
+                    do_resubmit();
+                }
+            }).addClass('btn-primary').css({ 'background-color': '#059669', 'border-color': '#047857', 'color': '#ffffff', 'font-weight': '700' });
         }
 
         // 2. Manager Approval Stage
@@ -974,7 +1045,82 @@ function disable_auto_save_on_attach(frm) {
 
 function bind_custom_grid_uploaders(frm) {
     if (!frm) return;
-    const is_editable = frm.is_new() || !frm.doc.status || ['Draft', 'Returned to Employee'].includes(frm.doc.status);
+    const is_returned_to_emp = [
+        'Returned to Employee', 'Disputed', 'Pending Employee Resubmission', 'Returned for Correction', 'Returned', 'Rejected'
+    ].includes(frm.doc.status) || (frm.doc.status && frm.doc.status.startsWith('Returned'));
+    const is_editable = frm.is_new() || !frm.doc.status || frm.doc.status === 'Draft' || is_returned_to_emp;
+
+    const render_cell_badge = (cell, row_data, fieldname, badge_label, btn_label, is_optional, theme = 'green') => {
+        if (!cell || !cell.length) return;
+        const raw_val = row_data[fieldname] || null;
+        const current_val = (raw_val && raw_val !== "undefined" && raw_val !== "null" && typeof raw_val === "string" && raw_val.trim().length > 0) ? raw_val.trim() : null;
+
+        if (cell.attr('data-rendered-url') === (current_val || 'empty')) return;
+        cell.attr('data-rendered-url', current_val || 'empty');
+        cell.empty();
+
+        if (current_val) {
+            const remove_btn_html = is_editable ?
+                `<span class="ap-remove-receipt" data-field="${fieldname}" style="color:#ef4444; font-weight:bold; font-size:14px; margin-left:4px; padding:0 2px; line-height:1; cursor:pointer;" title="Remove attachment">×</span>` : '';
+
+            const is_pdf = current_val.toLowerCase().endsWith('.pdf');
+            const img_preview_html = !is_pdf ?
+                `<img src="${current_val}" width="20" height="20" alt="Receipt preview" loading="lazy" style="width:20px; height:20px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />` :
+                `<span style="font-size:14px;">📄</span>`;
+
+            let badge_bg = '#ecfdf5', badge_border = '#10b981', badge_color = '#065f46';
+            if (theme === 'blue') {
+                badge_bg = '#eff6ff'; badge_border = '#3b82f6'; badge_color = '#1d4ed8';
+            } else if (theme === 'purple') {
+                badge_bg = '#f5f3ff'; badge_border = '#8b5cf6'; badge_color = '#6d28d9';
+            }
+
+            const badge = $(`
+                <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:5px; background:${badge_bg}; border:1px solid ${badge_border}; border-radius:5px; padding:2px 7px; cursor:pointer;" title="Click to view full attachment">
+                    ${img_preview_html}
+                    <span style="font-size:11px; font-weight:700; color:${badge_color};">${badge_label}</span>
+                    ${remove_btn_html}
+                </div>
+            `);
+            badge.on('click', function (e) {
+                e.stopPropagation();
+                if ($(e.target).hasClass('ap-remove-receipt')) {
+                    frappe.model.set_value(row_data.doctype, row_data.name, fieldname, '');
+                    frm.trigger('calculate_totals');
+                    setTimeout(() => bind_custom_grid_uploaders(frm), 150);
+                } else {
+                    open_unified_receipt_gallery(frm, row_data.idx ? row_data.idx - 1 : 0, row_data.parentfield);
+                }
+            });
+            cell.append(badge);
+        } else if (is_editable) {
+            let btn_border = '1px dashed #86efac', btn_color = '#15803d', btn_bg = '#f0fdf4';
+            if (theme === 'blue') {
+                btn_border = '1px dashed #93c5fd'; btn_color = '#2563eb'; btn_bg = '#f0f9ff';
+            } else if (theme === 'purple') {
+                btn_border = '1px dashed #c4b5fd'; btn_color = '#7c3aed'; btn_bg = '#faf5ff';
+            }
+            const upload_btn = $(`
+                <button type="button" aria-label="Upload ${badge_label}" class="btn btn-xs btn-default ap-upload-btn" style="border:${btn_border}; color:${btn_color}; font-size:11px; font-weight:600; padding:2px 7px; border-radius:4px; background:${btn_bg}; cursor:pointer;">
+                    ${btn_label}
+                </button>
+            `);
+            upload_btn.on('click', function (e) {
+                e.stopPropagation();
+                new frappe.ui.FileUploader({
+                    folder: 'Home/Attachments',
+                    on_success: (file_doc) => {
+                        frappe.model.set_value(row_data.doctype, row_data.name, fieldname, file_doc.file_url);
+                        frm.trigger('calculate_totals');
+                        setTimeout(() => bind_custom_grid_uploaders(frm), 200);
+                    }
+                });
+            });
+            cell.append(upload_btn);
+        } else {
+            cell.html(`<span class="text-muted" style="font-size:11px;">${is_optional ? '-' : 'No Receipt'}</span>`);
+        }
+    };
 
     ['expense_lines', 'client_visit_legs'].forEach(grid_fieldname => {
         if (!frm.fields_dict[grid_fieldname] || !frm.fields_dict[grid_fieldname].grid) return;
@@ -984,67 +1130,20 @@ function bind_custom_grid_uploaders(frm) {
 
         grid_rows.each(function (idx) {
             const row_elem = $(this);
-            const cell = row_elem.find('.grid-static-col[data-fieldname="receipt_attachment"]');
-            if (!cell.length) return;
-
             const row_data = (frm.doc[grid_fieldname] || [])[idx];
             if (!row_data) return;
 
-            const raw_val = row_data.receipt_attachment || null;
-            const current_val = (raw_val && raw_val !== "undefined" && raw_val !== "null" && typeof raw_val === "string" && raw_val.trim().length > 0) ? raw_val.trim() : null;
+            // 1. Mandatory Bill / Tax Receipt (Green)
+            const bill_cell = row_elem.find('.grid-static-col[data-fieldname="receipt_attachment"]');
+            render_cell_badge(bill_cell, row_data, 'receipt_attachment', '🧾 Bill Attached', '📷 Add Bill *', false, 'green');
 
-            if (cell.attr('data-rendered-url') === (current_val || 'empty')) return;
-            cell.attr('data-rendered-url', current_val || 'empty');
-            cell.empty();
+            // 2. Optional Payment Proof / GPay (Blue)
+            const pay_cell = row_elem.find('.grid-static-col[data-fieldname="payment_proof_attachment"]');
+            render_cell_badge(pay_cell, row_data, 'payment_proof_attachment', '💳 GPay Attached', '💳 + GPay', true, 'blue');
 
-            if (current_val) {
-                const remove_btn_html = is_editable ?
-                    `<span class="ap-remove-receipt" style="color:#ef4444; font-weight:bold; font-size:14px; margin-left:4px; padding:0 2px; line-height:1; cursor:pointer;" title="Remove attachment">×</span>` : '';
-
-                const is_pdf = current_val.toLowerCase().endsWith('.pdf');
-                const img_preview_html = !is_pdf ?
-                    `<img src="${current_val}" width="20" height="20" alt="Receipt preview" loading="lazy" style="width:20px; height:20px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />` :
-                    `<span style="font-size:14px;">📄</span>`;
-
-                const badge = $(`
-                    <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:6px; background:#ecfdf5; border:1px solid #10b981; border-radius:5px; padding:2px 8px; cursor:pointer;" title="Click to view full receipt">
-                        ${img_preview_html}
-                        <span style="font-size:11px; font-weight:700; color:#065f46;">🧾 Attached</span>
-                        ${remove_btn_html}
-                    </div>
-                `);
-                badge.on('click', function (e) {
-                    e.stopPropagation();
-                    if ($(e.target).hasClass('ap-remove-receipt')) {
-                        frappe.model.set_value(row_data.doctype, row_data.name, 'receipt_attachment', '');
-                        frm.trigger('calculate_totals');
-                        setTimeout(() => bind_custom_grid_uploaders(frm), 150);
-                    } else {
-                        open_unified_receipt_gallery(frm, idx, grid_fieldname);
-                    }
-                });
-                cell.append(badge);
-            } else if (is_editable) {
-                const upload_btn = $(`
-                    <button type="button" aria-label="Upload Expense Receipt Photo" class="btn btn-xs btn-default ap-upload-btn" style="border:1px dashed #64748b; color:#334155; font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:#f8fafc; cursor:pointer;">
-                        📷 Add Photo
-                    </button>
-                `);
-                upload_btn.on('click', function (e) {
-                    e.stopPropagation();
-                    new frappe.ui.FileUploader({
-                        folder: 'Home/Attachments',
-                        on_success: (file_doc) => {
-                            frappe.model.set_value(row_data.doctype, row_data.name, 'receipt_attachment', file_doc.file_url);
-                            frm.trigger('calculate_totals');
-                            setTimeout(() => bind_custom_grid_uploaders(frm), 200);
-                        }
-                    });
-                });
-                cell.append(upload_btn);
-            } else {
-                cell.html('<span class="text-muted" style="font-size:11px;">No Receipt</span>');
-            }
+            // 3. Optional Additional Supporting Proof (Purple)
+            const extra_cell = row_elem.find('.grid-static-col[data-fieldname="additional_proof_attachment"]');
+            render_cell_badge(extra_cell, row_data, 'additional_proof_attachment', '📎 Extra Attached', '📎 + Extra', true, 'purple');
         });
     });
 }
@@ -1065,21 +1164,68 @@ function open_unified_receipt_gallery(frm, start_idx, grid_fieldname) {
     const atts = [];
     const rows = (frm.doc[grid_fieldname || 'expense_lines'] || []).concat(frm.doc.client_visit_legs || []);
     rows.forEach((row, idx) => {
+        const row_merchant = row.merchant_name || row.client_name || 'Expense Line';
+        const row_cat = row.expense_category || row.expense_type || 'General';
+        const row_amt = parseFloat(row.amount || row.leg_amount || 0.0);
+        const row_date = row.expense_date || frm.doc.posting_date || '';
+
+        // 1. Primary Receipt
         if (row.receipt_attachment) {
             const clean_url = row.receipt_attachment.trim();
             const file_name = clean_url.split('/').pop();
             const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
             atts.push({
                 row_idx: row.idx || (idx + 1),
-                merchant: row.merchant_name || row.client_name || 'Expense Line',
-                category: row.expense_category || row.expense_type || 'General',
-                amount: parseFloat(row.amount || row.leg_amount || 0.0),
-                date: row.expense_date || frm.doc.posting_date || '',
+                merchant: row_merchant,
+                subtitle: 'Tax Invoice / Bill Proof',
+                category: row_cat,
+                amount: row_amt,
+                date: row_date,
                 file_url: clean_url,
                 file_name: file_name,
                 is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext),
                 is_pdf: ext === '.pdf',
                 extension: ext
+            });
+        }
+
+        // 2. Payment Proof / GPay
+        if (row.payment_proof_attachment) {
+            const pay_url = row.payment_proof_attachment.trim();
+            const pay_name = pay_url.split('/').pop();
+            const pay_ext = (pay_name.lastIndexOf('.') !== -1 ? pay_name.substring(pay_name.lastIndexOf('.')).toLowerCase() : '');
+            atts.push({
+                row_idx: row.idx || (idx + 1),
+                merchant: `Payment Proof (GPay/UPI) — ${row_merchant}`,
+                subtitle: `GPay / UPI Payment Proof • ${row.payment_mode_used || 'Online'}`,
+                category: 'Payment Confirmation (GPay/UPI)',
+                amount: row_amt,
+                date: row_date,
+                file_url: pay_url,
+                file_name: pay_name,
+                is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(pay_ext),
+                is_pdf: pay_ext === '.pdf',
+                extension: pay_ext
+            });
+        }
+
+        // 3. Additional Proof
+        if (row.additional_proof_attachment) {
+            const add_url = row.additional_proof_attachment.trim();
+            const add_name = add_url.split('/').pop();
+            const add_ext = (add_name.lastIndexOf('.') !== -1 ? add_name.substring(add_name.lastIndexOf('.')).toLowerCase() : '');
+            atts.push({
+                row_idx: row.idx || (idx + 1),
+                merchant: `Supporting Proof — ${row_merchant}`,
+                subtitle: 'Additional Bill / Page 2',
+                category: 'Additional Supporting Proof',
+                amount: row_amt,
+                date: row_date,
+                file_url: add_url,
+                file_name: add_name,
+                is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(add_ext),
+                is_pdf: add_ext === '.pdf',
+                extension: add_ext
             });
         }
     });
@@ -1134,7 +1280,10 @@ function render_unified_claim_header(frm) {
     if (!wrapper) return;
 
     const current_cat = frm.doc.claim_category || 'General Expense';
-    const is_editable = frm.is_new() || !frm.doc.status || ['Draft', 'Returned to Employee'].includes(frm.doc.status);
+    const is_returned_to_emp = [
+        'Returned to Employee', 'Disputed', 'Pending Employee Resubmission', 'Returned for Correction', 'Returned', 'Rejected'
+    ].includes(frm.doc.status) || (frm.doc.status && frm.doc.status.startsWith('Returned'));
+    const is_editable = frm.is_new() || !frm.doc.status || frm.doc.status === 'Draft' || is_returned_to_emp;
 
     const categories = [
         { id: 'General Expense', title: 'General Expense', desc: 'Itemized Bill Proofs', icon: '📦' },

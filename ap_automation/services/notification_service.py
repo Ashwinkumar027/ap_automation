@@ -487,7 +487,7 @@ def notify_director_on_l1_audit_completed(voucher_doctype: str, voucher_name: st
 
 
 def notify_on_director_sanction_approved(voucher_doctype: str, voucher_name: str) -> None:
-    """Notifies Custodian, Admin, and Payment Releaser when Director sanctions voucher for payment."""
+    """Notifies Custodian and Admin Lead when Director sanctions voucher for payment."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
@@ -497,10 +497,12 @@ def notify_on_director_sanction_approved(voucher_doctype: str, voucher_name: str
     doc_url = _get_form_url(voucher_doctype, voucher_name)
 
     recipient = getattr(doc, "custodian", None) or getattr(doc, "owner", None)
-    releasers = _get_role_recipients(["Payment Releaser", "Accounts Manager"])
-    cc_users = _get_claim_rolling_cc(doc, exclude_users=[recipient] + releasers)
+    # Payment Releaser is strictly NOT notified here to preserve Maker-Checker protocol.
+    # Payment Releaser is notified only after Maker uploads to IDFC Portal and clicks 'Payment Release'.
+    accounts_mgrs = _get_role_recipients(["Accounts Manager"])
+    cc_users = _get_claim_rolling_cc(doc, exclude_users=[recipient] + accounts_mgrs)
 
-    all_recipients = [recipient] + [r for r in releasers if r and r != recipient]
+    all_recipients = [recipient] + [r for r in accounts_mgrs if r and r != recipient]
 
     subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Director Sanctioned (Approved for Payment)"
     html = f"""
@@ -532,6 +534,129 @@ def notify_on_director_sanction_approved(voucher_doctype: str, voucher_name: str
         cc=cc_users,
         is_thread_reply=True
     )
+
+
+def notify_payment_releaser_on_idfc_upload(
+    voucher_doctype: str,
+    voucher_name: str,
+    uploaded_by: str,
+    designated_releaser: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Maker-Checker Notification:
+    Dispatched when the Maker clicks '📤 Payment Release' on an Approved for Payment voucher.
+    Alerts the designated Payment Releaser that the disbursal file is uploaded to the IDFC Corporate Portal
+    and is ready for final authorization/release, with direct link to the voucher.
+    """
+    if not frappe.db.exists(voucher_doctype, voucher_name):
+        return {"status": "ERROR", "message": f"{voucher_doctype} '{voucher_name}' not found."}
+
+    from ap_automation.services.approval_service import get_dynamic_payment_releaser_for_company
+
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    company = getattr(doc, "company", "Company")
+    amount = float(getattr(doc, "total_amount", 0.0) or getattr(doc, "net_payable_amount", 0.0) or 0.0)
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
+
+    releaser = designated_releaser or get_dynamic_payment_releaser_for_company(company, voucher_doctype, amount)
+    if not releaser:
+        releasers = _get_role_recipients(["Payment Releaser"])
+        releaser = releasers[0] if releasers else None
+
+    if not releaser:
+        frappe.throw(f"No Payment Releaser could be resolved for company '{company}'.")
+
+    releaser_name = frappe.db.get_value("User", releaser, "full_name") or releaser
+    maker_name = frappe.db.get_value("User", uploaded_by, "full_name") or uploaded_by
+    custodian = getattr(doc, "custodian", None) or getattr(doc, "owner", None) or "Custodian"
+    custodian_name = frappe.db.get_value("User", custodian, "full_name") or custodian
+    now_time = frappe.utils.format_datetime(frappe.utils.now_datetime(), "dd-MMM-yyyy hh:mm a")
+
+    subject = f"🏦 [Action Required] Petty Cash #{voucher_name} ({company}) — Uploaded to IDFC Portal for Payment Release (₹ {fmt_money(amount)})"
+
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 620px; margin: auto; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; background: #ffffff; box-shadow: 0 4px 14px rgba(0,0,0,0.06);">
+        <!-- Header Banner -->
+        <div style="background: linear-gradient(135deg, #1e3a8a 0%, #0284c7 100%); padding: 22px 26px; color: #ffffff;">
+            <div style="font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.85; margin-bottom: 4px;">
+                IDFC FIRST BANK • CORPORATE PAYOUT AUTHORIZATION
+            </div>
+            <h2 style="margin: 0; font-size: 21px; font-weight: 700; color: #ffffff; letter-spacing: -0.02em;">
+                Petty Cash Uploaded for Payment Release
+            </h2>
+        </div>
+
+        <div style="padding: 24px 26px;">
+            <p style="color: #334155; font-size: 14.5px; line-height: 1.6; margin-top: 0;">
+                Dear <b>{releaser_name}</b>,
+            </p>
+            <p style="color: #334155; font-size: 14px; line-height: 1.6;">
+                Petty Cash voucher <b>#{voucher_name}</b> for <b>{company}</b> has been processed by the Accounts Maker (<b>{maker_name}</b>) and uploaded to the <b>IDFC First Bank Corporate Portal</b>.
+            </p>
+            <p style="color: #0f172a; font-size: 14px; line-height: 1.6; font-weight: 600;">
+                Please log in to the IDFC Netbanking Corporate Portal (CMS Maker-Checker) to authorize and release the disbursement.
+            </p>
+
+            <!-- Disbursal Details Card -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin: 20px 0;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 13.5px;">
+                    <tr>
+                        <td style="padding: 6px 0; color: #64748b; width: 40%;">Voucher ID:</td>
+                        <td style="padding: 6px 0; color: #0f172a; font-weight: 700;">#{voucher_name}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 0; color: #64748b;">Company / Entity:</td>
+                        <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{company}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 0; color: #64748b;">Beneficiary / Custodian:</td>
+                        <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{custodian_name} ({custodian})</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 0; color: #64748b;">Disbursal Amount:</td>
+                        <td style="padding: 6px 0; color: #059669; font-weight: 800; font-size: 17px;">₹ {fmt_money(amount)}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 0; color: #64748b;">Uploaded to IDFC By:</td>
+                        <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{maker_name} ({uploaded_by})</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 0; color: #64748b;">Handoff Timestamp:</td>
+                        <td style="padding: 6px 0; color: #0f172a;">{now_time} IST</td>
+                    </tr>
+                </table>
+            </div>
+
+            <!-- Direct Voucher Reference Link Button -->
+            <div style="text-align: center; margin: 28px 0 16px 0;">
+                <a href="{doc_url}" style="background: #0284c7; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 14px; display: inline-block; box-shadow: 0 2px 6px rgba(2,132,199,0.35);">
+                    🔍 Open Petty Cash Voucher in AP Automation &rarr;
+                </a>
+            </div>
+            <p style="text-align: center; font-size: 12px; color: #94a3b8; margin: 0;">
+                Direct reference link for checking line items, expense heads, and audit receipts.
+            </p>
+        </div>
+
+        <div style="background: #f1f5f9; border-top: 1px solid #e2e8f0; padding: 12px 26px; font-size: 11.5px; color: #64748b; text-align: center;">
+            Maker-Checker Governance Protocol • AP Automation Corporate Payout System
+        </div>
+    </div>
+    """
+
+    _send_email_and_desk_alert(
+        recipients=[releaser],
+        subject=subject,
+        message_html=html,
+        reference_doctype=voucher_doctype,
+        reference_name=voucher_name,
+        alert_type="blue",
+        cc=[uploaded_by] if uploaded_by and uploaded_by != releaser else None,
+        is_thread_reply=True
+    )
+
+    return {"status": "SUCCESS", "releaser": releaser, "amount": amount}
+
 
 
 # --------------------------------------------------------------------------------------

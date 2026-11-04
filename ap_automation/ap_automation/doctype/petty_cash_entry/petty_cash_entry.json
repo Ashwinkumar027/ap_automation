@@ -108,7 +108,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Admin L1\nPending Admin L2\nSubmitted\nL1 Verified\nQueued in Batch\nApproved for Payment\nPaid\nDisputed\nRejected\nCancelled\nMerged",
+   "options": "Draft\nPending Admin L1\nPending Admin L2\nSubmitted\nL1 Verified\nQueued in Batch\nApproved for Payment\nPaid\nDisputed\nRejected\nCancelled\nMerged\nReturned to Reception\nReturned to Custodian\nReturned\nReturned for Correction",
    "read_only": 1
   },
   {

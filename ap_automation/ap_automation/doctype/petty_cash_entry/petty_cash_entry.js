@@ -30,7 +30,10 @@ frappe.ui.form.on('Petty Cash Entry', {
             'System Manager'
         ]) || frappe.session.user === 'Administrator';
 
-        const is_draft = !frm.doc.status || ['Draft', 'Rejected', 'Returned to Reception'].includes(frm.doc.status);
+        const is_returned_to_reception = [
+            'Rejected', 'Returned to Reception', 'Returned to Custodian', 'Returned', 'Disputed', 'Returned for Correction'
+        ].includes(frm.doc.status) || (frm.doc.status && frm.doc.status.startsWith('Returned'));
+        const is_draft = !frm.doc.status || frm.doc.status === 'Draft' || is_returned_to_reception;
         const is_accounts_reviewer = (is_accounts || is_director) && ['Submitted', 'L1 Verified'].includes(frm.doc.status);
 
         const is_admin_approver = frappe.user.has_role([
@@ -658,8 +661,13 @@ function render_role_based_action_buttons(frm) {
     }
 
     // 1. RECEPTION / DRAFT SUBMISSION TO ADMIN L1
-    if (status === 'Draft' || status === 'Rejected' || status === 'Returned to Reception') {
-        frm.add_custom_button(__('📤 Submit to Admin Lead'), function () {
+    const is_returned_to_reception = [
+        'Rejected', 'Returned to Reception', 'Returned to Custodian', 'Returned', 'Disputed', 'Returned for Correction'
+    ].includes(status) || (status && status.startsWith('Returned'));
+
+    if (status === 'Draft' || is_returned_to_reception) {
+        const submit_btn_label = is_returned_to_reception ? __('🚀 Resubmit to Admin Lead') : __('📤 Submit to Admin Lead');
+        frm.add_custom_button(submit_btn_label, function () {
             if (!lines || lines.length === 0) {
                 frappe.msgprint({
                     title: __('Missing Lines Error'),
@@ -968,20 +976,67 @@ function render_role_based_action_buttons(frm) {
         });
     }
 
+    // Maker-Checker: Payment Release Action
+    if (status === 'Approved for Payment' && (is_accounts_or_director || can_sanction_or_reject)) {
+        const is_release_sent = frm.doc.workflow_state === 'Uploaded to IDFC — Payment Release Notified' ||
+            (frm.doc.approval_trail || []).some(t => (t.level_name || '').includes('IDFC Upload & Payment Release'));
+
+        if (!is_release_sent) {
+            frm.add_custom_button(__('📤 Payment Release'), function () {
+                frappe.confirm(
+                    __('Have you uploaded the IDFC Excel disbursal file to the IDFC Netbanking Corporate Portal?<br><br>Click <b>Yes</b> to notify the designated <b>Payment Releaser</b> to authorize and release payment.'),
+                    function () {
+                        frappe.call({
+                            method: 'ap_automation.ap_automation.doctype.petty_cash_entry.petty_cash_entry.trigger_payment_release_notification',
+                            args: {
+                                voucher_name: frm.doc.name
+                            },
+                            freeze: true,
+                            freeze_message: __('Dispatching Payment Release notification...'),
+                            callback: function (r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({
+                                        message: __('📤 ' + r.message.message),
+                                        indicator: 'green'
+                                    }, 7);
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }
+                );
+            }).addClass('btn-primary').css({
+                'background-color': '#0284c7',
+                'border-color': '#0369a1',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
+        } else {
+            frm.add_custom_button(__('✓ Payment Release Sent'), function () {
+                frappe.msgprint(__('Payment Release notification has already been sent to the designated Payment Releaser for this company.'));
+            }).addClass('btn-default').css({
+                'background-color': '#f0fdf4',
+                'border-color': '#86efac',
+                'color': '#166534',
+                'font-weight': '700'
+            });
+        }
+    }
+
     if (status === 'Approved for Payment' && (is_accounts_or_director || can_sanction_or_reject)) {
         frm.add_custom_button(__('💳 Record Bank UTR / Settle'), function () {
             frappe.prompt([
                 {
                     fieldname: 'utr_number',
                     fieldtype: 'Data',
-                    label: __('Bank UTR / Transaction Reference'),
-                    reqd: 1,
-                    description: __('Enter the 12-16 digit bank UTR from IDFC Corporate Portal.')
+                    label: __('Bank UTR / Transaction Reference (Optional)'),
+                    reqd: 0,
+                    description: __('Optional: Enter the bank UTR reference from IDFC Corporate Portal if available.')
                 },
                 {
                     fieldname: 'jv_number',
                     fieldtype: 'Data',
-                    label: __('Journal Voucher (JV) Number'),
+                    label: __('Journal Voucher (JV) Number (Optional)'),
                     default: frm.doc.jv_number || '',
                     description: __('Optional: Tally JV number if posted.')
                 }
@@ -990,8 +1045,8 @@ function render_role_based_action_buttons(frm) {
                     method: 'ap_automation.ap_automation.doctype.petty_cash_entry.petty_cash_entry.record_petty_cash_payment_utr',
                     args: {
                         voucher_name: frm.doc.name,
-                        utr_number: vals.utr_number,
-                        jv_number: vals.jv_number
+                        utr_number: vals.utr_number || '',
+                        jv_number: vals.jv_number || ''
                     },
                     freeze: true,
                     freeze_message: __('Recording bank payment...'),
@@ -1003,7 +1058,7 @@ function render_role_based_action_buttons(frm) {
                     }
                 });
             }, __('Record Bank Disbursal'), __('Confirm Disbursal & Settle'));
-        }).addClass('btn-primary').css({
+        }).addClass('btn-secondary').css({
             'background-color': '#16a34a',
             'border-color': '#15803d',
             'color': '#ffffff',

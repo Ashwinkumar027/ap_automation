@@ -30,7 +30,7 @@ window.APExpenseTypeManager = {
     refreshGridOptions: function (frm, table_field, column_field, module_scope, callback) {
         const self = this;
         self.getTypes(module_scope, function (types) {
-            const all_options = [''].concat(types).concat([self.triggerOption]);
+            const all_options = [''].concat(types);
             if (frm && frm.fields_dict && frm.fields_dict[table_field] && frm.fields_dict[table_field].grid) {
                 const grid = frm.fields_dict[table_field].grid;
                 const df = grid.docfields ? grid.docfields.find(f => f.fieldname === column_field) : null;
@@ -450,7 +450,6 @@ window.APExpenseTypeManager = {
             if (current_type && !options.includes(current_type)) {
                 options.unshift(current_type);
             }
-            options.push('➕ Add New Expense Type...');
 
             const d = new frappe.ui.Dialog({
                 title: __(`Edit Expense Type — Row #${row_idx}`),
@@ -461,40 +460,12 @@ window.APExpenseTypeManager = {
                         label: __('Expense Type / Category'),
                         options: options,
                         default: current_type || options[0],
-                        reqd: 1,
-                        change: function () {
-                            const val = d.get_value('expense_type');
-                            d.set_df_property('custom_type', 'hidden', val !== '➕ Add New Expense Type...');
-                        }
-                    },
-                    {
-                        fieldname: 'custom_type',
-                        fieldtype: 'Data',
-                        label: __('Enter New Expense Type'),
-                        hidden: true,
-                        placeholder: __('e.g. Venue Decoration, Urgent Delivery')
+                        reqd: 1
                     }
                 ],
                 primary_action_label: __('Save Expense Type'),
                 primary_action: function (vals) {
                     let final_type = vals.expense_type;
-                    if (final_type === '➕ Add New Expense Type...') {
-                        final_type = (vals.custom_type || '').trim();
-                        if (!final_type) {
-                            frappe.msgprint(__('Please enter the new Expense Type name.'));
-                            return;
-                        }
-                        // Also persist to Master
-                        frappe.call({
-                            method: 'ap_automation.services.attachment_service.create_or_edit_expense_type',
-                            args: {
-                                type_name: final_type,
-                                module_scope: module_scope || 'All',
-                                is_active: 1
-                            }
-                        });
-                    }
-
                     d.hide();
 
                     frappe.call({
