@@ -499,7 +499,7 @@ def get_claim_receipt_summary(claim_name: str, doctype: str = "Employee Reimburs
     }
 
 def _parse_claim_names_list(claim_names):
-    chars = " \'\"\[\]"
+    chars = " '\"[]"
     if isinstance(claim_names, str):
         try:
             parsed = json.loads(claim_names)

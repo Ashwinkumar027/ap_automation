@@ -111,6 +111,7 @@ class TestLeaveDelegation(unittest.TestCase):
 
     def test_03_self_approval_conflict_shield(self):
         """Verifies that when a manager submits their own claim, self-approval is blocked."""
+        frappe.db.set_value("Employee", self.mgr_emp_id, "reports_to", self.mgr_emp_id)
         routing = resolve_claim_approver(self.mgr_emp_id, claim_amount=20000.00, check_date="2026-09-10")
         self.assertTrue(routing["is_self_claim"])
         self.assertIn("Self-Approval Conflict Shield", routing["routing_reason"])

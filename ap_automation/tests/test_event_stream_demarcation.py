@@ -102,6 +102,7 @@ class TestEventStreamDemarcation(unittest.TestCase):
         })
         vic.validate()
         vic.insert(ignore_permissions=True)
+        vic.status = "Approved for Payment"
         vic.submit()
         frappe.db.commit()
 
