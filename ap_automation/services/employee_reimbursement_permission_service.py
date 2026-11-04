@@ -25,7 +25,17 @@ GLOBAL_VIEW_ROLES = {
     "AP Director"
 }
 
-EMPLOYEE_EDITABLE_STATUSES = {"Draft", "Returned for Correction", "Returned to Employee", "Rejected", None, ""}
+EMPLOYEE_EDITABLE_STATUSES = {
+    "Draft",
+    "Returned for Correction",
+    "Returned to Employee",
+    "Disputed",
+    "Pending Employee Resubmission",
+    "Rejected",
+    "Returned",
+    None,
+    ""
+}
 
 
 def get_dynamic_user_permissions(doctype: str, user: Optional[str] = None) -> Dict[str, bool]:
@@ -249,7 +259,7 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
         if ptype in ("read", "select", "email", "print"):
             return True
         if ptype in ("write", "create", "delete"):
-            return doc_status in EMPLOYEE_EDITABLE_STATUSES
+            return (doc_status in EMPLOYEE_EDITABLE_STATUSES) or (bool(doc_status) and doc_status.startswith("Returned"))
         return True
 
     # 3. Manager authorization
@@ -258,7 +268,7 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
         if ptype in ("read", "select", "email", "print"):
             return True
         if ptype == "write":
-            return doc_status == "Pending Manager Approval"
+            return doc_status in ("Pending Manager Approval", "Pending Manager")
         return True
 
     doc_emp = getattr(doc, "employee", None)
@@ -268,7 +278,7 @@ def has_reimbursement_permission(doc, user: Optional[str] = None, ptype: str = "
             if ptype in ("read", "select", "email", "print"):
                 return True
             if ptype == "write":
-                return doc_status == "Pending Manager Approval"
+                return doc_status in ("Pending Manager Approval", "Pending Manager")
             return True
 
     return False
@@ -355,7 +365,7 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
         if ptype in ("read", "select", "email", "print"):
             return True
         if ptype in ("write", "create", "delete"):
-            return doc_status in EMPLOYEE_EDITABLE_STATUSES
+            return (doc_status in EMPLOYEE_EDITABLE_STATUSES) or (bool(doc_status) and doc_status.startswith("Returned"))
         return True
 
     # 3. Manager authorization
@@ -364,7 +374,7 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
         if ptype in ("read", "select", "email", "print"):
             return True
         if ptype == "write":
-            return doc_status == "Pending Manager Approval"
+            return doc_status in ("Pending Manager Approval", "Pending Manager")
         return True
 
     doc_emp = getattr(doc, "employee", None)
@@ -374,7 +384,7 @@ def has_pre_travel_permission(doc, user: Optional[str] = None, ptype: str = "rea
             if ptype in ("read", "select", "email", "print"):
                 return True
             if ptype == "write":
-                return doc_status == "Pending Manager Approval"
+                return doc_status in ("Pending Manager Approval", "Pending Manager")
             return True
 
     return False

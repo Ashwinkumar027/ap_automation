@@ -20,7 +20,9 @@
   "rate_per_km",
   "leg_amount",
   "toll_parking_amount",
-  "receipt_attachment"
+  "receipt_attachment",
+  "payment_proof_attachment",
+  "additional_proof_attachment"
  ],
  "fields": [
   {
@@ -137,6 +139,20 @@
    "fieldname": "receipt_attachment",
    "fieldtype": "Attach",
    "label": "\ud83d\udcce Supporting Proof",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "payment_proof_attachment",
+   "fieldtype": "Attach",
+   "label": "Payment Proof / GPay",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "additional_proof_attachment",
+   "fieldtype": "Attach",
+   "label": "Additional Proof",
    "in_list_view": 1,
    "columns": 1
   }

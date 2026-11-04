@@ -58,11 +58,29 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 attachments.append({
                     "source": "row",
                     "row_idx": getattr(row, "idx", len(attachments) + 1),
-                    "merchant": getattr(row, "merchant_name", "") or getattr(row, "merchant", "Expense Item"),
-                    "category": getattr(row, "category", "") or getattr(row, "expense_type", "Expense Line"),
+                    "merchant": (
+                        getattr(row, "merchant_name", None)
+                        or getattr(row, "merchant", None)
+                        or getattr(row, "supplier_name", None)
+                        or getattr(row, "supplier", None)
+                        or "Expense Item"
+                    ),
+                    "category": (
+                        getattr(row, "expense_head", None)
+                        or getattr(row, "expense_type", None)
+                        or getattr(row, "expense_category", None)
+                        or getattr(row, "vendor_category", None)
+                        or getattr(row, "category", None)
+                        or "Expense Line"
+                    ),
                     "amount": float(getattr(row, "amount", 0.0) or 0.0),
                     "date": str(getattr(row, "expense_date", "") or doc.get("posting_date", "")),
-                    "bill_no": getattr(row, "invoice_number", ""),
+                    "bill_no": (
+                        getattr(row, "invoice_number", None)
+                        or getattr(row, "bill_number", None)
+                        or getattr(row, "bill_no", None)
+                        or getattr(row, "bill_ref", "")
+                    ),
                     "file_url": file_url,
                     "view_url": view_url,
                     "file_name": file_name,
@@ -71,10 +89,69 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                     "extension": ext
                 })
 
-    # 2. Scan Multi-Leg Client Travel Table
-    if hasattr(doc, "legs") and doc.legs:
-        for leg in doc.legs:
-            file_url = getattr(leg, "toll_parking_receipt", None) or getattr(leg, "odometer_proof", None)
+            # 1b. In-row Payment Proof (Google Pay / PhonePe / Card Slip)
+            pay_url = getattr(row, "payment_proof_attachment", None)
+            if pay_url and isinstance(pay_url, str) and pay_url.strip():
+                pay_url = pay_url.strip()
+                pay_name = pay_url.split("/")[-1]
+                p_ext = os.path.splitext(pay_name)[1].lower()
+                m_title = (
+                    getattr(row, "merchant_name", None)
+                    or getattr(row, "merchant", None)
+                    or getattr(row, "supplier_name", None)
+                    or getattr(row, "supplier", None)
+                    or "Expense Item"
+                )
+                attachments.append({
+                    "source": "row",
+                    "row_idx": getattr(row, "idx", len(attachments) + 1),
+                    "merchant": f"Payment Proof (GPay/UPI) — {m_title}",
+                    "category": "Payment Confirmation (GPay/UPI)",
+                    "amount": float(getattr(row, "amount", 0.0) or 0.0),
+                    "date": str(getattr(row, "expense_date", "") or doc.get("posting_date", "")),
+                    "bill_no": getattr(row, "invoice_number", "") or "",
+                    "file_url": pay_url,
+                    "view_url": f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(pay_url)}&doctype={doctype}&docname={docname}",
+                    "file_name": pay_name,
+                    "is_image": p_ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
+                    "is_pdf": p_ext == ".pdf",
+                    "extension": p_ext
+                })
+
+            # 1c. In-row Additional Bill / Proof
+            add_url = getattr(row, "additional_proof_attachment", None)
+            if add_url and isinstance(add_url, str) and add_url.strip():
+                add_url = add_url.strip()
+                add_name = add_url.split("/")[-1]
+                a_ext = os.path.splitext(add_name)[1].lower()
+                m_title = (
+                    getattr(row, "merchant_name", None)
+                    or getattr(row, "merchant", None)
+                    or getattr(row, "supplier_name", None)
+                    or getattr(row, "supplier", None)
+                    or "Expense Item"
+                )
+                attachments.append({
+                    "source": "row",
+                    "row_idx": getattr(row, "idx", len(attachments) + 1),
+                    "merchant": f"Supporting Proof — {m_title}",
+                    "category": "Additional Supporting Proof",
+                    "amount": float(getattr(row, "amount", 0.0) or 0.0),
+                    "date": str(getattr(row, "expense_date", "") or doc.get("posting_date", "")),
+                    "bill_no": getattr(row, "invoice_number", "") or "",
+                    "file_url": add_url,
+                    "view_url": f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(add_url)}&doctype={doctype}&docname={docname}",
+                    "file_name": add_name,
+                    "is_image": a_ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
+                    "is_pdf": a_ext == ".pdf",
+                    "extension": a_ext
+                })
+
+    # 2. Scan Multi-Leg Client Travel Table (legs or client_visit_legs)
+    legs_rows = getattr(doc, "client_visit_legs", None) or getattr(doc, "legs", None) or []
+    if legs_rows:
+        for leg in legs_rows:
+            file_url = getattr(leg, "receipt_attachment", None) or getattr(leg, "toll_parking_receipt", None) or getattr(leg, "odometer_proof", None)
             if file_url and isinstance(file_url, str) and file_url.strip():
                 file_url = file_url.strip()
                 file_name = file_url.split("/")[-1]
@@ -98,8 +175,31 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                     "extension": ext
                 })
 
-    # 3. Scan Generic other child tables (e.g. lines, items, instructions)
-    other_child_tables = ["lines", "items", "instructions"]
+            # Leg Payment Proof / GPay
+            leg_pay = getattr(leg, "payment_proof_attachment", None)
+            if leg_pay and isinstance(leg_pay, str) and leg_pay.strip():
+                leg_pay = leg_pay.strip()
+                p_name = leg_pay.split("/")[-1]
+                p_ext = os.path.splitext(p_name)[1].lower()
+                travel_desc = f"{getattr(leg, 'client_name', 'Client Visit')} ({getattr(leg, 'mode_of_travel', 'Travel')})"
+                attachments.append({
+                    "source": "row",
+                    "row_idx": getattr(leg, "idx", len(attachments) + 1),
+                    "merchant": f"Payment Proof (GPay/UPI) — {travel_desc}",
+                    "category": "Payment Confirmation (GPay/UPI)",
+                    "amount": float(getattr(leg, "leg_amount", 0.0) or 0.0) + float(getattr(leg, "toll_parking_amount", 0.0) or 0.0),
+                    "date": str(getattr(leg, "visit_date", "") or getattr(leg, "travel_date", "") or doc.get("posting_date", "")),
+                    "bill_no": str(getattr(leg, "idx", "")),
+                    "file_url": leg_pay,
+                    "view_url": f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(leg_pay)}&doctype={doctype}&docname={docname}",
+                    "file_name": p_name,
+                    "is_image": p_ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
+                    "is_pdf": p_ext == ".pdf",
+                    "extension": p_ext
+                })
+
+    # 3. Scan Generic other child tables (e.g. lines, items, instructions, vendor_lines, expense_items, imprest_items)
+    other_child_tables = ["lines", "items", "instructions", "vendor_lines", "expense_items", "imprest_items"]
     for table_field in other_child_tables:
         rows = getattr(doc, table_field, []) or []
         for row in rows:
@@ -107,6 +207,16 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 getattr(row, "receipt_attachment", None)
                 or getattr(row, "attach_receipt", None)
                 or getattr(row, "attachment", None)
+                or getattr(row, "quote_attachment", None)
+                or getattr(row, "tax_invoice_attachment", None)
+            )
+            raw_v = (
+                getattr(row, "vendor_name", None)
+                or getattr(row, "beneficiary_name", None)
+                or getattr(row, "vendor", None)
+                or getattr(row, "merchant_name", None)
+                or getattr(row, "merchant", None)
+                or getattr(row, "particulars", "")
             )
             if file_url and isinstance(file_url, str) and file_url.strip():
                 file_url = file_url.strip()
@@ -118,11 +228,13 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 attachments.append({
                     "source": "row",
                     "row_idx": getattr(row, "idx", len(attachments) + 1),
-                    "merchant": getattr(row, "merchant_name", "") or getattr(row, "merchant", "Expense Item"),
-                    "category": getattr(row, "category", "") or getattr(row, "expense_type", "Expense Line"),
-                    "amount": float(getattr(row, "amount", 0.0) or 0.0),
-                    "date": str(getattr(row, "expense_date", "") or doc.get("posting_date", "")),
-                    "bill_no": getattr(row, "invoice_number", ""),
+                    "merchant": raw_v or getattr(row, "particulars", "Expense Item"),
+                    "vendor": raw_v,
+                    "vendor_name": raw_v,
+                    "category": getattr(row, "category", "") or getattr(row, "vendor_category", "") or getattr(row, "expense_type", "Expense Line"),
+                    "amount": float(getattr(row, "amount", 0.0) or getattr(row, "total_invoice_amount", 0.0) or getattr(row, "base_amount", 0.0) or 0.0),
+                    "date": str(getattr(row, "invoice_date", "") or getattr(row, "expense_date", "") or getattr(row, "bill_date", "") or doc.get("posting_date", "")),
+                    "bill_no": getattr(row, "invoice_number", "") or getattr(row, "bill_number", ""),
                     "file_url": file_url,
                     "view_url": view_url,
                     "file_name": file_name,
@@ -131,12 +243,38 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                     "extension": ext
                 })
 
+            # Check if row has Bank Proof attachment
+            row_bp = getattr(row, "bank_proof_attachment", None)
+            if row_bp and isinstance(row_bp, str) and row_bp.strip():
+                bp_url = row_bp.strip()
+                bp_name = bp_url.split("/")[-1]
+                bp_ext = os.path.splitext(bp_name)[1].lower()
+                attachments.append({
+                    "source": "row",
+                    "row_idx": getattr(row, "idx", len(attachments) + 1),
+                    "merchant": f"Bank Cheque Proof — {raw_v or 'Vendor'}",
+                    "vendor": raw_v,
+                    "vendor_name": raw_v,
+                    "category": "Bank Account Proof (Cancelled Cheque)",
+                    "amount": float(getattr(row, "amount", 0.0) or getattr(row, "total_invoice_amount", 0.0) or 0.0),
+                    "date": str(getattr(row, "invoice_date", "") or doc.get("posting_date", "")),
+                    "bill_no": getattr(row, "invoice_number", ""),
+                    "file_url": bp_url,
+                    "view_url": f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(bp_url)}&doctype={doctype}&docname={docname}",
+                    "file_name": bp_name,
+                    "is_image": bp_ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
+                    "is_pdf": bp_ext == ".pdf",
+                    "extension": bp_ext
+                })
+
     # 4. Scan Parent-Level Direct Attachment Fields
+    parent_vendor = getattr(doc, "vendor_name", None) or getattr(doc, "supplier_name", None) or getattr(doc, "vendor", None) or getattr(doc, "supplier", "")
     parent_fields = [
         ("activity_photo", "📸 Team Activity Photo Proof", "Team Engagement & Recreation"),
         ("pre_approval_attachment", "📋 Pre-Approval Authorization Screenshot", "Audit Proof Document"),
-        ("tax_invoice_attachment", "Vendor Tax Invoice", "Audit Proof Document"),
+        ("tax_invoice_attachment", f"Vendor Tax Invoice — {parent_vendor}" if parent_vendor else "Vendor Tax Invoice", "Audit Proof Document"),
         ("email_approval_attachment", "Manager Email Approval", "Audit Proof Document"),
+        ("bank_proof_attachment", f"Bank Cheque Proof — {parent_vendor}" if parent_vendor else "Bank Account Proof (Cancelled Cheque / Passbook)", "Bank Details Verification"),
         ("grn_attachment", "Goods Receipt Note / Delivery Proof", "Audit Proof Document"),
         ("advance_receipt_attachment", "Advance Payment Proof", "Audit Proof Document"),
         ("settlement_statement", "Event Settlement Statement", "Audit Proof Document")
@@ -155,8 +293,10 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 "source": "parent",
                 "row_idx": None,
                 "merchant": label,
+                "vendor": parent_vendor,
+                "vendor_name": parent_vendor,
                 "category": cat_label,
-                "amount": float(getattr(doc, "total_claim_amount", 0.0) or getattr(doc, "total_amount", 0.0) or 0.0),
+                "amount": float(getattr(doc, "total_claim_amount", 0.0) or getattr(doc, "total_amount", 0.0) or getattr(doc, "total_invoice_amount", 0.0) or getattr(doc, "grand_total", 0.0) or 0.0),
                 "date": str(doc.get("posting_date", "") or doc.get("activity_date", "") or doc.get("invoice_date", "")),
                 "bill_no": str(doc.get("name", "")),
                 "file_url": file_url,
@@ -199,13 +339,21 @@ def view_receipt_file(file_url: str, doctype: Optional[str] = None, docname: Opt
         frappe.throw(_("File URL is required."))
 
     file_url = unquote(file_url.strip())
+    # Unpack nested view_url if passed
+    if "file_url=" in file_url:
+        import urllib.parse
+        parsed = urllib.parse.parse_qs(urllib.parse.urlparse(file_url).query)
+        if "file_url" in parsed and parsed["file_url"]:
+            file_url = parsed["file_url"][0]
+
+    clean_url = file_url.split("?")[0]
     site_path = frappe.get_site_path()
-    file_name = os.path.basename(file_url)
+    file_name = os.path.basename(clean_url)
 
     # Search paths in order of preference
     possible_paths = [
         # 1. Direct if relative to site
-        os.path.join(site_path, file_url.lstrip("/")),
+        os.path.join(site_path, clean_url.lstrip("/")),
         # 2. Public files
         os.path.join(site_path, "public", "files", file_name),
         # 3. Private files
@@ -253,9 +401,13 @@ def view_receipt_file(file_url: str, doctype: Optional[str] = None, docname: Opt
 
     frappe.response["filename"] = file_name
     frappe.response["filecontent"] = file_bytes
-    frappe.response["type"] = "download"
-    frappe.response["display_content_as"] = "inline"
-    frappe.response["content_type"] = content_type
+    if ext == ".pdf":
+        frappe.response["type"] = "pdf"
+        frappe.response["content_type"] = "application/pdf"
+    else:
+        frappe.response["type"] = "download"
+        frappe.response["display_content_as"] = "inline"
+        frappe.response["content_type"] = content_type
 
 
 @frappe.whitelist()
@@ -486,3 +638,394 @@ def download_multiple_claims_receipts_zip(claim_names=None, label="Employee_Rece
     frappe.response["filename"] = download_filename
     frappe.response["filecontent"] = zip_buffer.getvalue()
     frappe.response["type"] = "download"
+
+
+@frappe.whitelist()
+def get_active_expense_heads():
+    """Returns sorted list of active expense heads from AP Expense Head Master."""
+    heads = frappe.get_all(
+        "AP Expense Head Master",
+        filters={"is_active": 1},
+        fields=["head_name", "category_group"],
+        order_by="sort_order asc, head_name asc"
+    )
+    if not heads:
+        return [
+            "STAFF WELFARE", "FOOD EXPENSES", "OFFICE EXPENSES", "OFFICE EXPENSES - GROCERY",
+            "OFFICE EXPENSES - POOJA", "PRINTING & STATIONARY", "COURIER CHARGES",
+            "POWER & FUEL EXPENSES", "TRAVEL EXPENSES", "OTHER EXPENSES", "OTHER / VENDOR LEDGER"
+        ]
+    return [h["head_name"] for h in heads]
+
+
+@frappe.whitelist()
+def create_or_edit_expense_head(head_name, is_active=1, description=None):
+    """Allows Admin/Accounts to add or edit an Expense Head on the fly."""
+    if not head_name or not head_name.strip():
+        frappe.throw(_("Expense Head name cannot be empty."))
+
+    clean_name = head_name.strip().upper()
+    if frappe.db.exists("AP Expense Head Master", clean_name):
+        doc = frappe.get_doc("AP Expense Head Master", clean_name)
+        doc.is_active = int(is_active)
+        if description is not None:
+            doc.description = description
+        doc.save(ignore_permissions=True)
+        return {"status": "updated", "head_name": clean_name}
+    else:
+        doc = frappe.get_doc({
+            "doctype": "AP Expense Head Master",
+            "head_name": clean_name,
+            "is_active": int(is_active),
+            "description": description or "",
+            "sort_order": 50
+        })
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return {"status": "created", "head_name": clean_name}
+
+
+@frappe.whitelist()
+def update_claim_row_expense_head(doctype, docname, row_idx, expense_head, custom_ledger_name=None):
+    """
+    Directly updates the Expenses of Head on a voucher row from the View Receipt modal or form.
+    Maintains full audit integrity and updates child line item in DB.
+    """
+    row_idx = int(row_idx)
+    doc = frappe.get_doc(doctype, docname)
+
+    table_field = None
+    for candidate in ["expense_lines", "vendor_lines", "expense_items", "reimbursement_lines", "items", "client_visit_legs"]:
+        if hasattr(doc, candidate) and getattr(doc, candidate, None):
+            table_field = candidate
+            break
+
+    if not table_field or not getattr(doc, table_field, None):
+        frappe.throw(_(f"No expense rows found on {doctype} #{docname}."))
+
+    rows = getattr(doc, table_field)
+    target_row = None
+    for r in rows:
+        if getattr(r, "idx", 0) == row_idx:
+            target_row = r
+            break
+
+    if not target_row and 0 <= row_idx - 1 < len(rows):
+        target_row = rows[row_idx - 1]
+
+    if not target_row:
+        frappe.throw(_(f"Row #{row_idx} not found on {doctype} #{docname}."))
+
+    old_head = getattr(target_row, "expense_head", "")
+    clean_head = (expense_head or "").strip()
+    target_row.expense_head = clean_head
+
+    child_table = target_row.doctype
+    meta = frappe.get_meta(child_table)
+    update_vals = {}
+    if meta.has_field("expense_head"):
+        update_vals["expense_head"] = clean_head
+    if custom_ledger_name and meta.has_field("custom_ledger_name"):
+        target_row.custom_ledger_name = custom_ledger_name.strip()
+        update_vals["custom_ledger_name"] = custom_ledger_name.strip()
+
+    if update_vals:
+        frappe.db.set_value(child_table, target_row.name, update_vals)
+
+    # Sync to batch item if this claim is linked in a Weekly Accounts Audit Batch
+    if doctype == "Employee Reimbursement Claim":
+        batch_items = frappe.db.sql("""
+            SELECT name FROM `tabWeekly Accounts Audit Item`
+            WHERE voucher_no = %s
+        """, (docname,), as_dict=True)
+        for bi in batch_items:
+            frappe.db.set_value("Weekly Accounts Audit Item", bi.name, "expense_head", clean_head, update_modified=False)
+
+    user_name = frappe.session.user
+    doc.add_comment(
+        "Edit",
+        f"Row #{row_idx} Expense Head updated from '{old_head}' to '{clean_head}' by {user_name} via Proof Gallery."
+    )
+    frappe.db.commit()
+
+    return {
+        "status": "success",
+        "row_idx": row_idx,
+        "new_head": clean_head,
+        "message": f"Row #{row_idx} Expense Head updated to '{clean_head}'."
+    }
+
+
+@frappe.whitelist()
+def get_active_expense_types(module_scope="All"):
+    """Returns sorted list of active expense types, optionally filtered by module scope."""
+    if module_scope and module_scope != "All":
+        types = frappe.db.sql("""
+            SELECT type_name, module_scope, sort_order, description
+            FROM `tabAP Expense Type Master`
+            WHERE is_active = 1 AND (module_scope = 'All' OR module_scope = %s OR module_scope IS NULL OR module_scope = '')
+            ORDER BY sort_order ASC, type_name ASC
+        """, (module_scope,), as_dict=True)
+    else:
+        types = frappe.get_all(
+            "AP Expense Type Master",
+            filters={"is_active": 1},
+            fields=["type_name", "module_scope", "sort_order", "description"],
+            order_by="sort_order asc, type_name asc"
+        )
+
+    if not types:
+        return [
+            "Tea & Refreshments", "Courier & Logistics", "Office Supplies & Stationery",
+            "Repairs & Maintenance", "Local Conveyance", "Cleaning & Housekeeping", "Miscellaneous"
+        ]
+    return [t["type_name"] for t in types]
+
+
+@frappe.whitelist()
+def get_expense_type_records(module_scope="All"):
+    """Returns all expense type records with their active status for management dialog."""
+    if module_scope and module_scope != "All":
+        records = frappe.db.sql("""
+            SELECT name, type_name, module_scope, is_active, sort_order, description
+            FROM `tabAP Expense Type Master`
+            WHERE module_scope = 'All' OR module_scope = %s OR module_scope IS NULL OR module_scope = ''
+            ORDER BY is_active DESC, sort_order ASC, type_name ASC
+        """, (module_scope,), as_dict=True)
+    else:
+        records = frappe.get_all(
+            "AP Expense Type Master",
+            fields=["name", "type_name", "module_scope", "is_active", "sort_order", "description"],
+            order_by="is_active desc, sort_order asc, type_name asc"
+        )
+    return records
+
+
+@frappe.whitelist()
+def create_or_edit_expense_type(type_name, module_scope="All", is_active=1, description=None, old_name=None):
+    """Allows Admin/Accounts to add or edit an Expense Type on the fly."""
+    if not type_name or not type_name.strip():
+        frappe.throw(_("Expense Type name cannot be empty."))
+
+    clean_name = type_name.strip()
+    target_name = (old_name or clean_name).strip()
+
+    if frappe.db.exists("AP Expense Type Master", target_name):
+        doc = frappe.get_doc("AP Expense Type Master", target_name)
+        if old_name and clean_name != old_name:
+            doc.type_name = clean_name
+        doc.module_scope = module_scope or "All"
+        doc.is_active = int(is_active)
+        if description is not None:
+            doc.description = description
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return {"status": "updated", "type_name": doc.type_name}
+    else:
+        doc = frappe.get_doc({
+            "doctype": "AP Expense Type Master",
+            "type_name": clean_name,
+            "module_scope": module_scope or "All",
+            "is_active": int(is_active),
+            "description": description or "",
+            "sort_order": 50
+        })
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return {"status": "created", "type_name": clean_name}
+
+
+@frappe.whitelist()
+def delete_or_deactivate_expense_type(type_name, permanent=0):
+    """Deactivates or deletes an Expense Type."""
+    if not type_name:
+        frappe.throw(_("Expense Type name is required."))
+
+    clean_name = type_name.strip()
+    if not frappe.db.exists("AP Expense Type Master", clean_name):
+        frappe.throw(_(f"Expense Type '{clean_name}' does not exist."))
+
+    if int(permanent) == 1:
+        try:
+            frappe.delete_doc("AP Expense Type Master", clean_name, ignore_permissions=True)
+            frappe.db.commit()
+            return {"status": "deleted", "type_name": clean_name}
+        except Exception:
+            frappe.db.set_value("AP Expense Type Master", clean_name, "is_active", 0)
+            frappe.db.commit()
+            return {"status": "deactivated", "type_name": clean_name, "fallback": True}
+    else:
+        frappe.db.set_value("AP Expense Type Master", clean_name, "is_active", 0)
+        frappe.db.commit()
+        return {"status": "deactivated", "type_name": clean_name}
+
+
+@frappe.whitelist()
+def update_claim_row_expense_type(doctype, docname, row_idx, expense_type):
+    """
+    Directly updates the Expense Type / Category / Head on a voucher row from the View Receipt modal or form.
+    Maintains full audit integrity and updates child line item in DB.
+    Supports Petty Cash, Admin Weekly Vendor Claims, Event Expense Claims, and Reimbursements.
+    """
+    row_idx = int(row_idx)
+    doc = frappe.get_doc(doctype, docname)
+
+    table_field = None
+    for candidate in ["expense_lines", "vendor_lines", "expense_items", "reimbursement_lines", "items"]:
+        if hasattr(doc, candidate) and getattr(doc, candidate, None):
+            table_field = candidate
+            break
+
+    if not table_field or not getattr(doc, table_field, None):
+        frappe.throw(_(f"No expense rows found on {doctype} #{docname}."))
+
+    rows = getattr(doc, table_field)
+    target_row = None
+    for r in rows:
+        if getattr(r, "idx", 0) == row_idx:
+            target_row = r
+            break
+
+    if not target_row and 0 <= row_idx - 1 < len(rows):
+        target_row = rows[row_idx - 1]
+
+    if not target_row:
+        frappe.throw(_(f"Row #{row_idx} not found on {doctype} #{docname}."))
+
+    child_table = target_row.doctype
+    meta = frappe.get_meta(child_table)
+    clean_type = (expense_type or "").strip()
+
+    EXPENSE_HEADS = [
+        "STAFF WELFARE", "FOOD EXPENSES", "OFFICE EXPENSES", "OFFICE EXPENSES - GROCERY",
+        "OFFICE EXPENSES - POOJA", "PRINTING & STATIONARY", "COURIER CHARGES",
+        "POWER & FUEL EXPENSES", "TRAVEL EXPENSES", "OTHER EXPENSES", "OTHER / VENDOR LEDGER"
+    ]
+    is_head_match = clean_type.upper() in [h.upper() for h in EXPENSE_HEADS]
+
+    # Dynamically find the appropriate column on the child table
+    type_field = None
+    if is_head_match and meta.has_field("expense_head"):
+        type_field = "expense_head"
+        clean_type = next(h for h in EXPENSE_HEADS if h.upper() == clean_type.upper())
+    elif meta.has_field("expense_type"):
+        type_field = "expense_type"
+        # If Link to AP Expense Subtype Master, ensure target doc exists
+        field_def = meta.get_field("expense_type")
+        if field_def and field_def.fieldtype == "Link" and field_def.options == "AP Expense Subtype Master":
+            if not frappe.db.exists("AP Expense Subtype Master", clean_type):
+                cat = getattr(doc, "claim_category", "General Expense") or "General Expense"
+                try:
+                    frappe.get_doc({
+                        "doctype": "AP Expense Subtype Master",
+                        "subtype_name": clean_type,
+                        "parent_claim_category": cat,
+                        "is_active": 1
+                    }).insert(ignore_permissions=True)
+                except Exception:
+                    pass
+    elif meta.has_field("expense_category"):
+        type_field = "expense_category"
+    elif meta.has_field("vendor_category"):
+        type_field = "vendor_category"
+    elif meta.has_field("service_type"):
+        type_field = "service_type"
+    elif meta.has_field("expense_head"):
+        type_field = "expense_head"
+    else:
+        for f in meta.fields:
+            if f.fieldname in ("category", "claim_category", "type", "expense_type", "expense_category", "expense_head"):
+                type_field = f.fieldname
+                break
+
+    if not type_field:
+        frappe.throw(_(f"Could not find a valid category/type field on row of doctype '{child_table}'."))
+
+    old_type = getattr(target_row, type_field, "")
+    setattr(target_row, type_field, clean_type)
+
+    frappe.db.set_value(child_table, target_row.name, type_field, clean_type)
+
+    # Sync to batch item if this claim is linked in a Weekly Accounts Audit Batch
+    if doctype == "Employee Reimbursement Claim" and type_field in ("expense_head", "expense_type"):
+        batch_items = frappe.db.sql("""
+            SELECT name FROM `tabWeekly Accounts Audit Item`
+            WHERE voucher_no = %s
+        """, (docname,), as_dict=True)
+        for bi in batch_items:
+            if type_field == "expense_head":
+                frappe.db.set_value("Weekly Accounts Audit Item", bi.name, "expense_head", clean_type, update_modified=False)
+
+    user_name = frappe.session.user
+    label_text = meta.get_label(type_field) or type_field
+    doc.add_comment(
+        "Edit",
+        f"Row #{row_idx} {label_text} updated from '{old_type}' to '{clean_type}' by {user_name} via Proof Gallery."
+    )
+    frappe.db.commit()
+
+    return {
+        "status": "success",
+        "row_idx": row_idx,
+        "field": type_field,
+        "new_type": clean_type,
+        "message": f"Row #{row_idx} {label_text} updated to '{clean_type}'."
+    }
+
+
+def seed_expense_types():
+    """Seeds default standard expense types for all modules into AP Expense Type Master."""
+    types = [
+        # Petty Cash
+        {"type_name": "Tea & Refreshments", "module_scope": "Petty Cash", "sort_order": 10},
+        {"type_name": "Courier & Logistics", "module_scope": "Petty Cash", "sort_order": 20},
+        {"type_name": "Office Supplies & Stationery", "module_scope": "Petty Cash", "sort_order": 30},
+        {"type_name": "Repairs & Maintenance", "module_scope": "Petty Cash", "sort_order": 40},
+        {"type_name": "Local Conveyance", "module_scope": "Petty Cash", "sort_order": 50},
+        {"type_name": "Cleaning & Housekeeping", "module_scope": "Petty Cash", "sort_order": 60},
+        {"type_name": "Miscellaneous", "module_scope": "Petty Cash", "sort_order": 70},
+
+        # Admin Weekly Vendor Claims
+        {"type_name": "Housekeeping", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 110},
+        {"type_name": "Pantry", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 120},
+        {"type_name": "Courier", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 130},
+        {"type_name": "Stationery", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 140},
+        {"type_name": "Printing", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 150},
+        {"type_name": "IT Hardware", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 160},
+        {"type_name": "Security & Facility", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 170},
+        {"type_name": "Office Supplies", "module_scope": "Admin Weekly Vendor Claims", "sort_order": 180},
+
+        # Events
+        {"type_name": "Venue & Stage", "module_scope": "Events", "sort_order": 210},
+        {"type_name": "Travel & Flights", "module_scope": "Events", "sort_order": 220},
+        {"type_name": "Food & Catering", "module_scope": "Events", "sort_order": 230},
+        {"type_name": "Marketing & Collateral", "module_scope": "Events", "sort_order": 240},
+        {"type_name": "Stationery & Props", "module_scope": "Events", "sort_order": 250},
+        {"type_name": "Incidentals", "module_scope": "Events", "sort_order": 260},
+
+        # General / Reimbursements / Invoices
+        {"type_name": "Food & Meals", "module_scope": "Employee Reimbursements", "sort_order": 310},
+        {"type_name": "Travel & Conveyance", "module_scope": "Employee Reimbursements", "sort_order": 320},
+        {"type_name": "Client Entertainment", "module_scope": "Employee Reimbursements", "sort_order": 330},
+        {"type_name": "Accommodation & Hotel", "module_scope": "Employee Reimbursements", "sort_order": 340},
+        {"type_name": "Professional Fees", "module_scope": "Vendor Invoices", "sort_order": 410},
+        {"type_name": "IT & Cloud Services", "module_scope": "Vendor Invoices", "sort_order": 420},
+    ]
+
+    count = 0
+    for t in types:
+        name = t["type_name"]
+        if not frappe.db.exists("AP Expense Type Master", name):
+            doc = frappe.get_doc({
+                "doctype": "AP Expense Type Master",
+                "type_name": name,
+                "module_scope": t["module_scope"],
+                "sort_order": t["sort_order"],
+                "is_active": 1,
+                "description": f"Standard expense type for {t['module_scope']}"
+            })
+            doc.insert(ignore_permissions=True)
+            count += 1
+
+    frappe.db.commit()
+    return f"Seeded {count} new expense types."

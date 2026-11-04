@@ -63,6 +63,13 @@ class EmployeeReimbursementClaim(APDocument):
                 if (getattr(r, "client_name", None) or getattr(r, "from_location", None) or getattr(r, "to_location", None) or flt(getattr(r, "distance_km", 0)) > 0 or flt(getattr(r, "leg_amount", 0)) > 0)
             ]
 
+    def _is_draft_or_returned(self) -> bool:
+        st = getattr(self, "status", "Draft") or "Draft"
+        return st in (
+            "Draft", "Not Saved", "Returned to Employee", "Returned for Correction",
+            "Disputed", "Pending Employee Resubmission", "Rejected", "Returned"
+        ) or str(st).startswith("Returned")
+
     def validate(self):
         """Lifecycle hook executed on document save."""
         self.bind_and_lock_hrms_profile()
@@ -89,7 +96,15 @@ class EmployeeReimbursementClaim(APDocument):
             return
 
         # If document is in intermediate workflow or approved/paid status
-        if getattr(old_doc, "status", None) not in ("Draft", "Returned to Employee", "Cancelled", "Rejected"):
+        old_status = getattr(old_doc, "status", None) or "Draft"
+        returned_editable_statuses = (
+            "Draft", "Not Saved", "Returned to Employee", "Returned for Correction",
+            "Disputed", "Pending Employee Resubmission", "Cancelled", "Rejected", "Returned"
+        )
+        if (
+            old_status not in returned_editable_statuses
+            and not str(old_status).startswith("Returned")
+        ):
             # Check if this is a regular UI save (status unchanged)
             if getattr(old_doc, "status", None) == self.status and not getattr(self.flags, "in_workflow_transition", False):
                 self._check_tamper_attempt(old_doc)
@@ -101,7 +116,52 @@ class EmployeeReimbursementClaim(APDocument):
         if not old_doc:
             return
 
-        # 1. Critical Header Fields Guard
+        # Dynamic Role Permission Engine Check
+        user = frappe.session.user
+        user_roles = set(frappe.get_roles(user)) if user else set()
+
+        reviewer_roles = {
+            "Receptionist",
+            "Admin L1 Approver",
+            "Admin L2 Approver",
+            "Admin Manager",
+            "Accounts L1 Auditor",
+            "Accounts User",
+            "Accounts Manager",
+            "Accounts Director",
+            "System Manager",
+            "Administrator"
+        }
+        has_reviewer_role = bool(user_roles.intersection(reviewer_roles)) or user in ("Administrator", "administrator@example.com")
+        has_write_perm = frappe.has_permission(self.doctype, "write", self)
+
+        if has_reviewer_role or has_write_perm:
+            # Authorized reviewer editing - allow line, head, amount, and classification adjustments
+            old_lines = getattr(old_doc, "expense_lines", []) or []
+            new_lines = getattr(self, "expense_lines", []) or []
+
+            changes = []
+            if len(old_lines) != len(new_lines):
+                changes.append(f"Line count changed from {len(old_lines)} to {len(new_lines)}")
+
+            for idx, (o_row, n_row) in enumerate(zip(old_lines, new_lines), 1):
+                for fld in ("expense_head", "expense_type", "amount", "merchant_name", "receipt_attachment", "payment_proof_attachment", "additional_proof_attachment", "description", "invoice_number"):
+                    o_v = getattr(o_row, fld, None)
+                    n_v = getattr(n_row, fld, None)
+                    if o_v != n_v:
+                        changes.append(f"Row {idx} {fld}: '{o_v}' -> '{n_v}'")
+
+            if changes:
+                role_label = ", ".join(user_roles.intersection(reviewer_roles)) or "Authorized Reviewer"
+                trail_note = f"Reviewer edit by {user} ({role_label}): " + "; ".join(changes[:5])
+                if len(changes) > 5:
+                    trail_note += f" (+{len(changes) - 5} more)"
+                self.add_comment("Edit", trail_note)
+
+            self.calculate_settlement_totals()
+            return
+
+        # 1. Critical Header Fields Guard (for standard employee / non-reviewers)
         critical_fields = [
             "total_claim_amount",
             "net_payable_amount",
@@ -133,10 +193,10 @@ class EmployeeReimbursementClaim(APDocument):
             )
 
         for idx, (o_row, n_row) in enumerate(zip(old_lines, new_lines), 1):
-            for lf in ("amount", "merchant_name", "receipt_attachment", "invoice_number", "expense_date"):
+            for lf in ("amount", "merchant_name", "receipt_attachment", "payment_proof_attachment", "additional_proof_attachment", "invoice_number", "expense_date"):
                 if getattr(o_row, lf, None) != getattr(n_row, lf, None):
                     # Allow attachment updates by Receptionist when returned for receipt correction
-                    if lf == "receipt_attachment" and self.status == "Pending Receptionist" and getattr(self, "is_resubmission", 0) == 1:
+                    if lf in ("receipt_attachment", "payment_proof_attachment", "additional_proof_attachment") and self.status == "Pending Receptionist" and getattr(self, "is_resubmission", 0) == 1:
                         continue
                     raise APSecurityError(
                         f"Tamper Alert: Row {idx} ({lf}) cannot be modified on document '{self.name}' "
@@ -222,7 +282,7 @@ class EmployeeReimbursementClaim(APDocument):
             self.reporting_manager = mgr_info.get("manager_employee_id")
             self.manager_user_id = mgr_info.get("manager_user_id")
         except Exception as e:
-            is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved", "Returned to Employee")
+            is_submitting = getattr(self, "docstatus", 0) == 1 or not self._is_draft_or_returned()
             if is_submitting:
                 raise
             self.reporting_manager = None
@@ -283,7 +343,7 @@ class EmployeeReimbursementClaim(APDocument):
         - Dinner Allowance: Late night allowance rules.
         """
         cat = getattr(self, "claim_category", "") or getattr(self, "expense_type", "") or "General Expense"
-        is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved", "Returned to Employee")
+        is_submitting = getattr(self, "docstatus", 0) == 1 or not self._is_draft_or_returned()
 
         # Normalize category naming
         if cat in ("Client Visit", "Client Visit Travel"):
@@ -340,7 +400,7 @@ class EmployeeReimbursementClaim(APDocument):
 
     def validate_expense_lines(self):
         """Enforces line-level policy rules and bill proof attachment requirements."""
-        is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved", "Returned to Employee")
+        is_submitting = getattr(self, "docstatus", 0) == 1 or not self._is_draft_or_returned()
         if getattr(self, "claim_category", "") == "Client Visit Travel":
             legs = getattr(self, "client_visit_legs", []) or []
             if is_submitting and not legs:
@@ -354,7 +414,7 @@ class EmployeeReimbursementClaim(APDocument):
                 return
 
         lines = getattr(self, "expense_lines", []) or []
-        is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved", "Returned to Employee")
+        is_submitting = getattr(self, "docstatus", 0) == 1 or not self._is_draft_or_returned()
 
         if not lines:
             if not is_submitting:
@@ -528,14 +588,23 @@ class EmployeeReimbursementClaim(APDocument):
         file_urls = []
         # 1. Line item proofs
         for row in (getattr(self, "expense_lines", []) or []):
-            att = getattr(row, "receipt_attachment", None) or getattr(row, "attach_receipt", None)
-            if att and isinstance(att, str) and att.strip():
-                file_urls.append(att.strip())
+            for fld in ("receipt_attachment", "payment_proof_attachment", "additional_proof_attachment", "attach_receipt"):
+                att = getattr(row, fld, None)
+                if att and isinstance(att, str) and att.strip():
+                    file_urls.append(att.strip())
 
-        # 2. Parent pre-approval screenshot
-        parent_att = getattr(self, "pre_approval_attachment", None)
-        if parent_att and isinstance(parent_att, str) and parent_att.strip():
-            file_urls.append(parent_att.strip())
+        # 2. Travel leg proofs
+        for leg in (getattr(self, "client_visit_legs", []) or []):
+            for fld in ("receipt_attachment", "payment_proof_attachment", "additional_proof_attachment", "toll_parking_receipt", "odometer_proof"):
+                att = getattr(leg, fld, None)
+                if att and isinstance(att, str) and att.strip():
+                    file_urls.append(att.strip())
+
+        # 3. Parent pre-approval screenshot & Activity photo
+        for fld in ("pre_approval_attachment", "activity_photo"):
+            parent_att = getattr(self, fld, None)
+            if parent_att and isinstance(parent_att, str) and parent_att.strip():
+                file_urls.append(parent_att.strip())
 
         for url in file_urls:
             file_name = url.split("/")[-1]

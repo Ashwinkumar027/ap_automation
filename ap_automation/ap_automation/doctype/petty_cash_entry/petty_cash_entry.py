@@ -60,12 +60,23 @@ class PettyCashEntry(Document):
         self.validate_jv_number_permissions()
 
     def set_claim_title(self):
-        """Auto-computes Claim Title based on Posting Date week number and Company abbreviation (e.g. 'Week 38 - ACM')."""
-        if self.posting_date and self.company:
-            post_dt = getdate(self.posting_date)
+        """Auto-computes Claim Title: '{Month} - Week {Week#} - {Company_Abbr}' (e.g. 'Oct - Week 43 - AAGA')."""
+        if self.company:
+            post_dt = getdate(self.posting_date or nowdate())
             week_num = post_dt.isocalendar()[1]
+
+            if not getattr(self, "expense_month", None):
+                self.expense_month = post_dt.strftime("%b")
+            if not getattr(self, "expense_week", None):
+                self.expense_week = f"Week {week_num}"
+
+            month_str = self.expense_month[:3].capitalize() if self.expense_month else post_dt.strftime("%b")
+            week_str = (self.expense_week or f"Week {week_num}").strip()
+            if not week_str.lower().startswith("week"):
+                week_str = f"Week {week_str}"
+
             abbr = frappe.db.get_value("Company", self.company, "abbr") or (self.company.split()[0] if self.company else "ACM")
-            self.claim_title = f"Week {week_num} - {abbr}"
+            self.claim_title = f"{month_str} - {week_str} - {abbr}"
 
     def validate_posting_date(self):
         """
@@ -311,14 +322,18 @@ class PettyCashEntry(Document):
                         )
 
     def calculate_totals(self):
-        """Calculates total amount dynamically."""
+        """Calculates total amount and unspent balance dynamically."""
         total = 0.0
-        for row in self.expense_lines:
+        for row in getattr(self, "expense_lines", []) or []:
             total += flt(row.amount or 0.0)
         self.total_amount = round(total, 2)
+        if getattr(self, "allocated_amount", None):
+            self.unspent_balance = round(flt(self.allocated_amount) - self.total_amount, 2)
+        else:
+            self.unspent_balance = 0.0
 
     def validate_immutability(self):
-        """Submitted bills must be locked, allowing edits only on drafts or returned vouchers."""
+        """Submitted bills are locked for general users, but Accounts L1 and Accounts Director have full edit freedom."""
         if self.is_new():
             return
         if getattr(frappe.flags, "in_dispute_split", False) or getattr(self.flags, "ignore_validate_immutability", False):
@@ -329,10 +344,26 @@ class PettyCashEntry(Document):
             return
 
         old_status = old_doc.status or "Draft"
-        if old_status in ("Draft", "Returned to Reception"):
+        returned_petty_statuses = (
+            "Draft", "Not Saved", "Rejected", "Returned to Reception", "Returned to Custodian",
+            "Returned", "Disputed", "Returned for Correction"
+        )
+        if old_status in returned_petty_statuses or str(old_status).startswith("Returned"):
             return
 
-        # Check if line items have actually been modified
+        user = frappe.session.user
+        user_roles = frappe.get_roles(user) if user else []
+        is_accounts_authorized = any(r in user_roles for r in [
+            "Accounts L1 Auditor", "Accounts User", "Accounts Manager", "AP Director",
+            "Accounts Director", "Director Tier", "Director", "Dileep Director",
+            "Payment Releaser", "System Manager"
+        ]) or user in ("Administrator", "administrator@example.com")
+
+        # Accounts L1 Auditor and Accounts Director can freely add/edit lines, amounts, receipts, and bill details
+        if is_accounts_authorized and old_status in ("Submitted", "L1 Verified", "Pending Admin L1", "Pending Admin L2"):
+            return
+
+        # Check if line items have actually been modified for non-accounts roles
         old_lines = getattr(old_doc, "expense_lines", []) or []
         new_lines = getattr(self, "expense_lines", []) or []
 
@@ -343,29 +374,13 @@ class PettyCashEntry(Document):
                 exc=APValidationError
             )
 
-        user = frappe.session.user
-        user_roles = frappe.get_roles(user) if user else []
-        is_director = any(r in user_roles for r in [
-            "AP Director", "Accounts Director", "Director Tier", "Director", "Dileep Director", "Payment Releaser", "System Manager"
-        ]) or user in ("Administrator", "administrator@example.com")
-
         for idx, (o_row, n_row) in enumerate(zip(old_lines, new_lines), 1):
             for lf in ("amount", "merchant_name", "bill_number", "expense_category", "expense_date", "receipt_attachment"):
-                if lf == "amount":
-                    if round(flt(getattr(o_row, lf, 0.0)), 2) != round(flt(getattr(n_row, lf, 0.0)), 2):
-                        # Accounts Director is authorized to adjust/edit line amounts during L1 Verified review
-                        if is_director and old_status in ("L1 Verified", "Submitted", "Admin Approved"):
-                            continue
-                        frappe.throw(
-                            f"🔒 Locked Document: Row {idx} ({lf}) cannot be modified on '{self.name}' in status '{old_status}'.",
-                            exc=APValidationError
-                        )
-                else:
-                    if str(getattr(o_row, lf, "") or "").strip() != str(getattr(n_row, lf, "") or "").strip():
-                        frappe.throw(
-                            f"🔒 Locked Document: Row {idx} ({lf}) cannot be modified on '{self.name}' in status '{old_status}'.",
-                            exc=APValidationError
-                        )
+                if str(getattr(o_row, lf, "") or "").strip() != str(getattr(n_row, lf, "") or "").strip():
+                    frappe.throw(
+                        f"🔒 Locked Document: Row {idx} ({lf}) cannot be modified on '{self.name}' in status '{old_status}'.",
+                        exc=APValidationError
+                    )
     def on_submit(self):
         """Dispatches automated notification to L1 Admin Reviewer."""
         try:
@@ -467,13 +482,74 @@ def get_all_companies_query(doctype, txt, searchfield, start, page_len, filters)
 
 
 @frappe.whitelist()
-def record_petty_cash_payment_utr(voucher_name: str, utr_number: str, jv_number: str = None):
+def trigger_payment_release_notification(voucher_name: str):
+    """
+    Maker-Checker Handoff:
+    Invoked by the Maker (Accounts) after uploading the disbursal file to the IDFC Portal.
+    Dynamically resolves the designated Payment Releaser for this voucher's Company from the AP Approval Matrix,
+    stamps the immutable audit trail, updates workflow state, and sends official notification email with direct voucher link.
+    """
+    if not voucher_name:
+        frappe.throw(frappe._("Voucher Name is required."))
+
+    doc = frappe.get_doc("Petty Cash Entry", voucher_name)
+    user = frappe.session.user
+
+    allowed_roles = {
+        "Accounts Director", "Accounts L1 Auditor", "Accounts User", "Accounts Manager",
+        "Payment Releaser", "Director Tier", "Dileep Director", "System Manager", "Administrator"
+    }
+    user_roles = set(frappe.get_roles(user))
+    if not (allowed_roles & user_roles) and user != "Administrator":
+        frappe.throw(frappe._("You do not have permission to trigger payment release notifications."))
+
+    if doc.status not in ("Approved for Payment", "Paid"):
+        frappe.throw(frappe._("Voucher #{0} must be in 'Approved for Payment' status to trigger payment release.").format(voucher_name))
+
+    from ap_automation.services.approval_service import get_dynamic_payment_releaser_for_company
+    from ap_automation.services.notification_service import notify_payment_releaser_on_idfc_upload
+
+    releaser = get_dynamic_payment_releaser_for_company(doc.company, doc.doctype, doc.total_amount)
+    if not releaser:
+        frappe.throw(frappe._("No active Payment Releaser configured in AP Approval Matrix for company '{0}'.").format(doc.company))
+
+    # Stamp Approval Trail
+    doc.workflow_state = "Uploaded to IDFC — Payment Release Notified"
+    doc.append("approval_trail", {
+        "level_number": 5,
+        "level_name": "Maker-Checker: IDFC Upload & Payment Release Notification",
+        "action_taken_by": user,
+        "action": "APPROVED",
+        "action_timestamp": frappe.utils.now_datetime(),
+        "remarks": f"Uploaded to IDFC Bank Portal by {user}. Payout authorization request dispatched to Payment Releaser ({releaser})."
+    })
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    # Dispatch email
+    res = notify_payment_releaser_on_idfc_upload(
+        voucher_doctype=doc.doctype,
+        voucher_name=doc.name,
+        uploaded_by=user,
+        designated_releaser=releaser
+    )
+
+    return {
+        "status": "SUCCESS",
+        "voucher_name": doc.name,
+        "releaser": releaser,
+        "message": frappe._("Payment Release notification sent! Payment Releaser ({0}) has been notified.").format(releaser)
+    }
+
+
+@frappe.whitelist()
+def record_petty_cash_payment_utr(voucher_name: str, utr_number: str = None, jv_number: str = None):
     """
     Direct payment settlement endpoint for Petty Cash Entry after Director Sanction.
-    Stamps the IDFC Bank UTR, updates status to "Paid", and appends to audit trail.
+    Stamps the IDFC Bank UTR (if provided), updates status to "Paid", and appends to audit trail.
     """
-    if not voucher_name or not utr_number:
-        frappe.throw(frappe._("Voucher Name and Bank UTR / Transaction Reference are required."))
+    if not voucher_name:
+        frappe.throw(frappe._("Voucher Name is required."))
 
     doc = frappe.get_doc("Petty Cash Entry", voucher_name)
     user = frappe.session.user
@@ -491,15 +567,21 @@ def record_petty_cash_payment_utr(voucher_name: str, utr_number: str, jv_number:
     if jv_number:
         doc.jv_number = jv_number
 
+    clean_utr = (utr_number or "").strip()
+    utr_remark = f"Disbursed via IDFC Bank. UTR: {clean_utr}." if clean_utr else "Disbursed via IDFC Bank Corporate Release."
+    if jv_number:
+        utr_remark += f" JV: {jv_number}."
+
     doc.append("approval_trail", {
         "level_number": 6,
-        "level_name": "Payment Release (IDFC Bank UTR)",
+        "level_name": "Payment Release (IDFC Bank Settled)",
         "action_taken_by": user,
         "action": "APPROVED",
         "action_timestamp": frappe.utils.now_datetime(),
-        "remarks": f"Disbursed via IDFC Bank. UTR: {utr_number}." + (f" JV: {jv_number}." if jv_number else "")
+        "remarks": utr_remark
     })
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
-    return {"status": "SUCCESS", "message": frappe._("Payment successfully recorded with UTR {0}.").format(utr_number)}
+    msg = frappe._("Payment successfully recorded with UTR {0}.").format(clean_utr) if clean_utr else frappe._("Payment successfully recorded and settled.")
+    return {"status": "SUCCESS", "message": msg}

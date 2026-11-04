@@ -200,14 +200,18 @@ class VendorInvoiceClaim(APDocument):
         self.bank_name = bank_acc.get("bank_name", "")
         self.bank_account_number = bank_acc.get("bank_account_no", "")
         self.bank_ifsc_code = bank_acc.get("ifsc_code", "")
+        if hasattr(self, "bank_proof_attachment"):
+            self.bank_proof_attachment = bank_acc.get("bank_proof_attachment", "")
 
     def _fetch_supplier_bank_account(self, supplier_name: str) -> Dict[str, Any]:
         """Looks up active Bank Account linked to Supplier in tabBank Account."""
         has_pd = frappe.db.has_column("Bank Account", "penny_drop_status")
         pd_select = ", ba.penny_drop_status" if has_pd else ""
+        has_bp = frappe.db.has_column("Bank Account", "bank_proof_attachment")
+        bp_select = ", ba.bank_proof_attachment" if has_bp else ""
         accs = frappe.db.sql(
             f"""
-            SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code{pd_select}
+            SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code{pd_select}{bp_select}
             FROM `tabBank Account` ba
             WHERE ba.party_type = 'Supplier' AND ba.party = %s
             ORDER BY ba.is_default DESC, ba.creation DESC
@@ -222,7 +226,8 @@ class VendorInvoiceClaim(APDocument):
                 "bank_name": accs[0].bank or "",
                 "bank_account_no": accs[0].bank_account_no or "",
                 "ifsc_code": accs[0].branch_code or "",
-                "penny_drop_status": accs[0].get("penny_drop_status") or "VERIFIED"
+                "penny_drop_status": accs[0].get("penny_drop_status") or "VERIFIED",
+                "bank_proof_attachment": accs[0].get("bank_proof_attachment") or ""
             }
         return {}
 
@@ -234,7 +239,7 @@ class VendorInvoiceClaim(APDocument):
         if not is_submitting:
             # On Draft, assign fallbacks
             if not getattr(self, "tax_invoice_number", None):
-                self.tax_invoice_number = self.invoice_number or f"DRAFT-{frappe.generate_hash(length=6).upper()}"
+                self.tax_invoice_number = getattr(self, "invoice_number", None) or f"DRAFT-{frappe.generate_hash(length=6).upper()}"
             return
 
         if route == "With Purchase Order":
@@ -300,16 +305,38 @@ class VendorInvoiceClaim(APDocument):
                 doc=self
             )
 
+        # Automated 50:50 CGST & SGST Split vs. Inter-State IGST
+        tax_type = getattr(self, "tax_type", "Intra-State (CGST + SGST)") or "Intra-State (CGST + SGST)"
+        if "Inter-State" in tax_type or "IGST" in tax_type:
+            self.tax_type = "Inter-State (IGST)"
+            self.igst_rate = rate_val
+            self.igst_amount = gst
+            self.cgst_rate = 0.0
+            self.cgst_amount = 0.0
+            self.sgst_rate = 0.0
+            self.sgst_amount = 0.0
+        else:
+            self.tax_type = "Intra-State (CGST + SGST)"
+            half_rate = round(rate_val / 2.0, 2)
+            half_gst = round(gst / 2.0, 2)
+            self.cgst_rate = half_rate
+            self.cgst_amount = half_gst
+            self.sgst_rate = half_rate
+            self.sgst_amount = round(gst - half_gst, 2)
+            self.igst_rate = 0.0
+            self.igst_amount = 0.0
+
         self.gst_amount = gst
         self.total_invoice_amount = total
 
-        # Statutory Indian TDS Withholding calculation
+        # Statutory Indian TDS Withholding calculation (1961 & 2025 Act)
         try:
             from ap_automation.services.tds_service import calculate_tds
             section = getattr(self, "tds_section", "None / Exempt") or "None / Exempt"
             tds_info = calculate_tds(base, section)
             self.tds_rate = tds_info.get("rate", 0.0)
             self.tds_amount = tds_info.get("tds_amount", 0.0)
+            self.tds_threshold_warning = tds_info.get("threshold_warning") or ""
         except Exception:
             self.tds_rate = getattr(self, "tds_rate", 0.0) or 0.0
             self.tds_amount = getattr(self, "tds_amount", 0.0) or 0.0

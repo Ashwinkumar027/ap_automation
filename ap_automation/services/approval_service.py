@@ -139,3 +139,62 @@ def process_approval_action(doctype: str, docname: str, action: str = "APPROVED"
     user = frappe.session.user
     doc = frappe.get_doc(doctype, docname)
     return advance_approval(doc, acting_user=user, action=action, remarks=remarks)
+
+
+def get_dynamic_payment_releaser_for_company(company: str, doctype: str = "Petty Cash Entry", amount: float = 0.0) -> Optional[str]:
+    """
+    Dynamically discovers the designated Payment Releaser for a given Company and Document Lane:
+    1. Checks the applicable AP Approval Matrix for this doctype & company for an active level rule
+       with 'payment release', 'releaser', 'disbursal', 'bank', or '2fa' in the level name.
+    2. Fallbacks to other active matrices for the SAME company (e.g. Employee Reimbursement or AP Vendor Invoice).
+    3. Fallbacks to active users holding the 'Payment Releaser' role who have permission for this company.
+    Zero hardcoding: fully dynamic per company.
+    """
+    if not company:
+        return None
+
+    # 1. Check applicable matrix for this specific doctype & company
+    matrix = get_applicable_matrix(doctype, company, amount)
+    if matrix:
+        for row in getattr(matrix, "approval_levels", []):
+            lvl_name = (row.level_name or "").lower()
+            if any(term in lvl_name for term in ["payment release", "releaser", "disbursal", "bank", "2fa"]):
+                if row.designated_approver and frappe.db.get_value("User", row.designated_approver, "enabled"):
+                    return row.designated_approver
+
+    # 2. Check other matrices for this company
+    other_matrices = frappe.get_all(
+        "AP Approval Matrix",
+        filters={"company": company, "is_active": 1},
+        fields=["name"]
+    )
+    for om in other_matrices:
+        try:
+            m_doc = frappe.get_doc("AP Approval Matrix", om["name"])
+            for row in getattr(m_doc, "approval_levels", []):
+                lvl_name = (row.level_name or "").lower()
+                if any(term in lvl_name for term in ["payment release", "releaser", "2fa"]):
+                    if row.designated_approver and frappe.db.get_value("User", row.designated_approver, "enabled"):
+                        return row.designated_approver
+        except Exception:
+            continue
+
+    # 3. Fallback to active users with Payment Releaser role
+    releaser_users = frappe.db.sql("""
+        select hr.parent as user
+        from `tabHas Role` hr
+        join `tabUser` u on hr.parent = u.name
+        where hr.role = 'Payment Releaser' and u.enabled = 1
+    """, as_dict=True)
+    for u in releaser_users:
+        user_email = u["user"]
+        user_perms = frappe.get_all(
+            "User Permission",
+            filters={"user": user_email, "allow": "Company"},
+            fields=["for_value"]
+        )
+        if not user_perms or any(p["for_value"] == company for p in user_perms):
+            return user_email
+
+    return None
+

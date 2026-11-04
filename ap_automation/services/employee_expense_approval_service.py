@@ -689,7 +689,16 @@ def resubmit_claim_smart(voucher_name: str) -> Dict[str, Any]:
     _lock_document_row(voucher_name)
     doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
 
-    if doc.status not in ("Returned to Employee", "Draft"):
+    valid_resubmit_statuses = (
+        "Returned to Employee",
+        "Draft",
+        "Disputed",
+        "Pending Employee Resubmission",
+        "Returned for Correction",
+        "Returned",
+        "Rejected"
+    )
+    if doc.status not in valid_resubmit_statuses and not (doc.status and str(doc.status).startswith("Returned")):
         raise APValidationError(f"Cannot resubmit claim #{voucher_name} with status '{doc.status}'.")
 
     doc.validate()
@@ -697,9 +706,13 @@ def resubmit_claim_smart(voucher_name: str) -> Dict[str, Any]:
     # Pre-Travel Request Lifecycle Lock
     if getattr(doc, "pre_travel_request", None):
         ptr_name = doc.pre_travel_request
-        ptr_status = frappe.db.get_value("Pre Travel Request", ptr_name, "status")
-        if ptr_status == "Claimed":
-            raise APValidationError(f"Pre-Travel Request '{ptr_name}' has already been claimed and settled.")
+        other_claim = frappe.db.get_value(
+            "Employee Reimbursement Claim",
+            {"pre_travel_request": ptr_name, "name": ["!=", voucher_name], "status": ["not in", ["Draft", "Cancelled", "Rejected"]]},
+            "name"
+        )
+        if other_claim:
+            raise APValidationError(f"Pre-Travel Request '{ptr_name}' has already been claimed by another voucher '{other_claim}'.")
         frappe.db.set_value("Pre Travel Request", ptr_name, "status", "Claimed", update_modified=False)
 
     prior_stage = doc.rejected_at_stage or "Pending Manager"

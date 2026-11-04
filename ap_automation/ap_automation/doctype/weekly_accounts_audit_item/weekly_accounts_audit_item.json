@@ -15,6 +15,7 @@
   "bank_account_number",
   "bank_ifsc",
   "claim_category",
+  "expense_head",
   "claim_date",
   "claimed_amount",
   "sanctioned_amount",
@@ -31,7 +32,8 @@
    "default": "Employee Reimbursement Claim",
    "fieldname": "voucher_type",
    "fieldtype": "Data",
-   "label": "Voucher Type"
+   "label": "Voucher Type",
+   "in_list_view": 0
   },
   {
    "columns": 2,
@@ -61,22 +63,26 @@
   {
    "fieldname": "department",
    "fieldtype": "Data",
-   "label": "Department"
+   "label": "Department",
+   "in_list_view": 0
   },
   {
    "fieldname": "bank_name",
    "fieldtype": "Data",
-   "label": "Bank Name"
+   "label": "Bank Name",
+   "in_list_view": 0
   },
   {
    "fieldname": "bank_account_number",
    "fieldtype": "Data",
-   "label": "Bank Account No"
+   "label": "Bank Account No",
+   "in_list_view": 0
   },
   {
    "fieldname": "bank_ifsc",
    "fieldtype": "Data",
-   "label": "IFSC Code"
+   "label": "IFSC Code",
+   "in_list_view": 0
   },
   {
    "columns": 2,
@@ -86,9 +92,18 @@
    "label": "Category"
   },
   {
+   "columns": 2,
+   "fieldname": "expense_head",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Expenses of Head",
+   "options": "\nSTAFF WELFARE\nFOOD EXPENSES\nOFFICE EXPENSES\nOFFICE EXPENSES - GROCERY\nOFFICE EXPENSES - POOJA\nPRINTING & STATIONARY\nCOURIER CHARGES\nPOWER & FUEL EXPENSES\nTRAVEL EXPENSES\nOTHER EXPENSES\nOTHER / VENDOR LEDGER"
+  },
+  {
    "fieldname": "claim_date",
    "fieldtype": "Date",
-   "label": "Claim Date"
+   "label": "Claim Date",
+   "in_list_view": 0
   },
   {
    "columns": 2,
@@ -116,26 +131,30 @@
   {
    "fieldname": "dispute_reason",
    "fieldtype": "Small Text",
-   "label": "Dispute / Return Reason"
+   "label": "Dispute / Return Reason",
+   "in_list_view": 0
   },
   {
    "default": "1",
    "fieldname": "receipt_count",
    "fieldtype": "Int",
-   "label": "Receipts Attached"
+   "label": "Receipts Attached",
+   "in_list_view": 0
   },
   {
    "fieldname": "return_to",
    "fieldtype": "Select",
    "label": "Returned To",
-   "options": "Employee\nReceptionist"
+   "options": "Employee\nReceptionist",
+   "in_list_view": 0
   },
   {
    "fieldname": "returned_by",
    "fieldtype": "Link",
    "label": "Returned By",
    "options": "User",
-   "read_only": 1
+   "read_only": 1,
+   "in_list_view": 0
   },
   {
    "columns": 1,

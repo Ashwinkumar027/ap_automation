@@ -106,6 +106,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         frm.trigger('setup_form_immutability');
         render_unified_claim_header(frm);
+
         // Strict JV Number & JV Date Permissions: Only Accounts L1 Auditor, Accounts Director, System Manager
         const is_accounts_jv = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Director', 'System Manager']) || frappe.session.user === 'Administrator';
         if (is_accounts_jv) {

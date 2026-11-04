@@ -1,0 +1,271 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:CLAR-{YYYY}-{MM}-{#####}",
+ "creation": "2026-11-04 11:25:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "sb_context",
+  "parent_doctype",
+  "parent_docname",
+  "company",
+  "cb_status",
+  "query_status",
+  "is_resolution",
+  "resolved_by",
+  "resolved_at",
+  "sb_participants",
+  "from_user",
+  "from_full_name",
+  "from_role_badge",
+  "cb_target",
+  "target_role",
+  "target_user",
+  "target_user_name",
+  "sb_message",
+  "message",
+  "attachment"
+ ],
+ "fields": [
+  {
+   "fieldname": "sb_context",
+   "fieldtype": "Section Break",
+   "label": "Document Context"
+  },
+  {
+   "fieldname": "parent_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Document Type",
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "fieldname": "parent_docname",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Document ID",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company"
+  },
+  {
+   "fieldname": "cb_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Pending Reply",
+   "fieldname": "query_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Query Status",
+   "options": "Pending Reply\nResolved"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_resolution",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Resolution Response"
+  },
+  {
+   "fieldname": "resolved_by",
+   "fieldtype": "Link",
+   "label": "Resolved By",
+   "options": "User"
+  },
+  {
+   "fieldname": "resolved_at",
+   "fieldtype": "Datetime",
+   "label": "Resolved At"
+  },
+  {
+   "fieldname": "sb_participants",
+   "fieldtype": "Section Break",
+   "label": "Participants"
+  },
+  {
+   "fieldname": "from_user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "From User",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "from_full_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "From Name"
+  },
+  {
+   "fieldname": "from_role_badge",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "From Role Badge"
+  },
+  {
+   "fieldname": "cb_target",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Anyone / Public",
+   "fieldname": "target_role",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Target Role"
+  },
+  {
+   "fieldname": "target_user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Target User",
+   "options": "User"
+  },
+  {
+   "fieldname": "target_user_name",
+   "fieldtype": "Data",
+   "label": "Target User Name"
+  },
+  {
+   "fieldname": "sb_message",
+   "fieldtype": "Section Break",
+   "label": "Query Message & Evidence"
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Long Text",
+   "label": "Clarification Question / Reply",
+   "reqd": 1
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "label": "Proof / Supporting Document"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-04 11:25:00.000000",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "AP Clarification Query",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Director",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts L1 Auditor",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Admin L1 Approver",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Petty Cash User",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 1
+}

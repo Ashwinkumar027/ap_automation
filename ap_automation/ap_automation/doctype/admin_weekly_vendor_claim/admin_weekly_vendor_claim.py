@@ -145,6 +145,7 @@ class AdminWeeklyVendorClaim(Document):
                 row.bank_account_number = bank_info.get("bank_account_no") or ""
                 row.bank_ifsc_code = bank_info.get("ifsc_code") or ""
                 row.penny_drop_status = bank_info.get("penny_drop_status") or "UNVERIFIED"
+                row.bank_proof_attachment = bank_info.get("bank_proof_attachment") or ""
 
                 if is_submitting and bank_info.get("penny_drop_status") == "LOCKED_PENNY_DROP_MISMATCH":
                     frappe.throw(
@@ -228,6 +229,12 @@ class AdminWeeklyVendorClaim(Document):
                             title=_("Permission Denied"),
                             exc=APSecurityError
                         )
+                    if hasattr(old_r, "tax_type") and hasattr(row, "tax_type") and old_r.tax_type and row.tax_type and old_r.tax_type != row.tax_type:
+                        frappe.throw(
+                            _("Unauthorized: Only Accounts L1 and Accounts L2 are authorized to modify Tax Type classification."),
+                            title=_("Permission Denied"),
+                            exc=APSecurityError
+                        )
                     if old_r.tds_section and row.tds_section and old_r.tds_section != row.tds_section:
                         frappe.throw(
                             _("Unauthorized: Only Accounts L1 and Accounts L2 are authorized to classify TDS sections."),
@@ -240,9 +247,11 @@ class AdminWeeklyVendorClaim(Document):
         """Queries the active Bank Account linked to the Supplier."""
         has_pd = frappe.db.has_column("Bank Account", "penny_drop_status")
         pd_select = ", ba.penny_drop_status" if has_pd else ""
+        has_bp = frappe.db.has_column("Bank Account", "bank_proof_attachment")
+        bp_select = ", ba.bank_proof_attachment" if has_bp else ""
         accs = frappe.db.sql(
             f"""
-            SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code, ba.account_name{pd_select}
+            SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code, ba.account_name{pd_select}{bp_select}
             FROM `tabBank Account` ba
             WHERE ba.party_type = 'Supplier' AND ba.party = %s
             ORDER BY ba.is_default DESC, ba.creation DESC
@@ -257,7 +266,8 @@ class AdminWeeklyVendorClaim(Document):
                 "bank_account_no": accs[0].bank_account_no or "",
                 "ifsc_code": accs[0].branch_code or "",
                 "penny_drop_status": accs[0].get("penny_drop_status") or "VERIFIED",
-                "bank_beneficiary_name": accs[0].account_name or ""
+                "bank_beneficiary_name": accs[0].account_name or "",
+                "bank_proof_attachment": accs[0].get("bank_proof_attachment") or ""
             }
         return None
 
@@ -280,14 +290,34 @@ class AdminWeeklyVendorClaim(Document):
             gst_amt = round(base * (gst_pct / 100.0), 2)
             total_bill = round(base + gst_amt, 2)
 
-            # Statutory Indian TDS computation
+            # GST vs IGST split (Automated 50:50 CGST & SGST Split vs Inter-State IGST)
+            tax_type = getattr(row, "tax_type", "Intra-State (CGST + SGST)") or "Intra-State (CGST + SGST)"
+            if "Inter-State" in tax_type or "IGST" in tax_type:
+                row.tax_type = "Inter-State (IGST)"
+                row.igst_amount = gst_amt
+                row.cgst_amount = 0.0
+                row.sgst_amount = 0.0
+            else:
+                row.tax_type = "Intra-State (CGST + SGST)"
+                half_gst = round(gst_amt / 2.0, 2)
+                row.cgst_amount = half_gst
+                row.sgst_amount = round(gst_amt - half_gst, 2)
+                row.igst_amount = 0.0
+
+            # Statutory Indian TDS Withholding computation (1961 & 2025 Act)
             section = row.tds_section or "None / Exempt"
-            tds_rate = TDS_SECTION_RATES.get(section)
-            if tds_rate is None:
-                import re
-                m = re.search(r"\((\d+(?:\.\d+)?)\s*%\)", section)
-                tds_rate = flt(m.group(1)) if m else flt(row.tds_rate)
-            tds_amt = round(base * (tds_rate / 100.0), 2)
+            try:
+                from ap_automation.services.tds_service import calculate_tds
+                tds_info = calculate_tds(base, section)
+                tds_rate = tds_info.get("rate", 0.0)
+                tds_amt = tds_info.get("tds_amount", 0.0)
+            except Exception:
+                tds_rate = TDS_SECTION_RATES.get(section)
+                if tds_rate is None:
+                    import re
+                    m = re.search(r"\((\d+(?:\.\d+)?)\s*%\)", section)
+                    tds_rate = flt(m.group(1)) if m else flt(row.tds_rate)
+                tds_amt = round(base * (tds_rate / 100.0), 2)
 
             net_pay = round(total_bill - tds_amt, 2)
 
@@ -405,7 +435,8 @@ def get_supplier_bank_info(supplier):
         "bank_account_number": bank_info.get("bank_account_no", ""),
         "bank_ifsc_code": bank_info.get("ifsc_code", ""),
         "penny_drop_status": bank_info.get("penny_drop_status", "UNVERIFIED"),
-        "bank_beneficiary_name": bank_info.get("bank_beneficiary_name", supp.supplier_name)
+        "bank_beneficiary_name": bank_info.get("bank_beneficiary_name", supp.supplier_name),
+        "bank_proof_attachment": bank_info.get("bank_proof_attachment", "")
     }
 
 
@@ -444,8 +475,12 @@ def submit_to_admin_l1(docname):
     Resolves Level 1 designated approver from AP Matrix and sends 1-to-1 forward email.
     """
     doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
-    if doc.status not in ("Draft", "Rejected"):
-        frappe.throw(_("Voucher must be in Draft or Rejected status to submit."))
+    valid_submit_statuses = (
+        "Draft", "Not Saved", "Rejected", "Returned to Reception", "Returned to Custodian",
+        "Returned", "Disputed", "Returned for Correction"
+    )
+    if doc.status not in valid_submit_statuses and not (doc.status and str(doc.status).startswith("Returned")):
+        frappe.throw(_("Voucher must be in Draft or Returned status to submit."))
 
     # Resolve Level 1 designated approver
     rule_1 = _resolve_matrix_level_approver(doc, level_number=1)

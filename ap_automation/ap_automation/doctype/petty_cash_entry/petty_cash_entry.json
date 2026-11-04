@@ -55,12 +55,28 @@
    "reqd": 1
   },
   {
+   "fieldname": "expense_month",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Allocation Month",
+   "options": "\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec",
+   "description": "Expense Allocation Month (e.g. Oct, Nov)"
+  },
+  {
+   "fieldname": "expense_week",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Allocation Week",
+   "description": "Expense Allocation Week (e.g. Week 43)"
+  },
+  {
    "default": "Weekly Petty Cash - Office Expenses",
-   "description": "Automatically calculated from Posting Date week & Company (e.g. 'Week 38 - ACM')",
+   "description": "Automatically calculated (e.g. 'Oct - Week 43 - AAGA')",
    "fieldname": "claim_title",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Claim Title (Auto: Week # - Company)",
+   "label": "Claim Title (Auto: Month - Week - Company)",
    "read_only": 1
   },
   {
@@ -92,8 +108,14 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Admin L1\nPending Admin L2\nSubmitted\nL1 Verified\nQueued in Batch\nApproved for Payment\nPaid\nDisputed\nRejected\nCancelled\nMerged",
+   "options": "Draft\nPending Admin L1\nPending Admin L2\nSubmitted\nL1 Verified\nQueued in Batch\nApproved for Payment\nPaid\nDisputed\nRejected\nCancelled\nMerged\nReturned to Reception\nReturned to Custodian\nReturned\nReturned for Correction",
    "read_only": 1
+  },
+  {
+   "fieldname": "allocated_amount",
+   "fieldtype": "Currency",
+   "label": "Allocated Amount (\u20b9)",
+   "description": "Weekly Sanctioned Imprest Petty Cash Budget"
   },
   {
    "fieldname": "total_amount",
@@ -101,6 +123,13 @@
    "in_list_view": 1,
    "label": "Total Amount (INR)",
    "read_only": 1
+  },
+  {
+   "fieldname": "unspent_balance",
+   "fieldtype": "Currency",
+   "label": "Unspent Balance (\u20b9)",
+   "read_only": 1,
+   "description": "Allocated Amount - Total Expenses Claimed"
   },
   {
    "fieldname": "batch_id",
@@ -149,6 +178,18 @@
    "fieldtype": "Small Text",
    "label": "Admin Return / Rejection Remarks",
    "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sb_accounts_audit",
+   "fieldtype": "Section Break",
+   "label": "Accounts Audit & Bill Adjustment Notes"
+  },
+  {
+   "fieldname": "accounts_remarks",
+   "fieldtype": "Small Text",
+   "label": "Accounts Audit Remarks & Bill Notes",
+   "description": "Accounts team remarks on bill revisions, amount changes, or added receipts for Admin visibility."
   },
   {
    "fieldname": "sb_bank",

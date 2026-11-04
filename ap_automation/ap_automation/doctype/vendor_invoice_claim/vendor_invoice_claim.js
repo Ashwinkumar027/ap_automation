@@ -118,6 +118,22 @@ frappe.ui.form.on("Vendor Invoice Claim", {
 
         // Render dynamic approval action buttons based on current lifecycle stage & RBAC
         render_vendor_claim_approval_buttons(frm);
+
+        if (!frm.is_new() && typeof window.APClarificationThread !== 'undefined') {
+            window.APClarificationThread.render(frm);
+        }
+
+        // Dynamically fetch active statutory TDS sections from AP TDS Master
+        frappe.call({
+            method: "ap_automation.services.tds_service.get_all_active_tds_sections",
+            callback: function(r) {
+                if (r.message && r.message.length) {
+                    const opts = r.message.map(m => m.display_label || m.name);
+                    if (!opts.includes("None / Exempt")) opts.unshift("None / Exempt");
+                    frm.set_df_property("tds_section", "options", opts.join("\n"));
+                }
+            }
+        });
     },
 
     before_submit: function(frm) {
@@ -228,13 +244,13 @@ frappe.ui.form.on("Vendor Invoice Claim", {
                 }
             });
 
-            // Fetch Bank Account
+            // Fetch Bank Account & Cheque Proof
             frappe.call({
                 method: "frappe.client.get_list",
                 args: {
                     doctype: "Bank Account",
                     filters: { party_type: "Supplier", party: frm.doc.vendor },
-                    fields: ["name", "bank", "bank_account_no", "branch_code"],
+                    fields: ["name", "bank", "bank_account_no", "branch_code", "bank_proof_attachment", "penny_drop_status"],
                     limit: 1
                 },
                 callback: function(res) {
@@ -243,11 +259,13 @@ frappe.ui.form.on("Vendor Invoice Claim", {
                         frm.set_value("bank_name", acc.bank || "");
                         frm.set_value("bank_account_number", acc.bank_account_no || "");
                         frm.set_value("bank_ifsc_code", acc.branch_code || "");
+                        frm.set_value("bank_proof_attachment", acc.bank_proof_attachment || "");
                         frm._bank_account_doc = acc;
                     } else {
                         frm.set_value("bank_name", "");
                         frm.set_value("bank_account_number", "");
                         frm.set_value("bank_ifsc_code", "");
+                        frm.set_value("bank_proof_attachment", "");
                         frm._bank_account_doc = null;
                     }
                     render_vendor_invoice_dashboard(frm);
@@ -261,8 +279,22 @@ frappe.ui.form.on("Vendor Invoice Claim", {
         calculate_vendor_totals(frm);
     },
 
+    tax_type: function(frm) {
+        calculate_vendor_totals(frm);
+    },
+
     gst_rate: function(frm) {
         calculate_vendor_totals(frm);
+    },
+
+    service_type: function(frm) {
+        if (frm.doc.service_type) {
+            frappe.db.get_value('AP Service Type Master', frm.doc.service_type, 'default_tds_section').then(r => {
+                if (r.message && r.message.default_tds_section && (!frm.doc.tds_section || frm.doc.tds_section === "None / Exempt")) {
+                    frm.set_value('tds_section', r.message.default_tds_section);
+                }
+            });
+        }
     },
 
     advance_deducted: function(frm) {
@@ -914,19 +946,43 @@ function get_vendor_claim_attachments(frm) {
         });
     }
 
+    if (frm.doc.bank_proof_attachment) {
+        let url = frm.doc.bank_proof_attachment;
+        let fname = url.split('/').pop().split('?')[0];
+        let ext = fname.split('.').pop().toLowerCase();
+        attachments.push({
+            category: "Bank Account Proof (Cancelled Cheque)",
+            file_url: url,
+            file_name: fname,
+            extension: ext,
+            icon: ext === 'pdf' ? '🏦' : '🖼️',
+            amount: 0.0,
+            date: frm.doc.creation
+        });
+    }
+
     return attachments;
 }
 
 function setup_vendor_receipt_gallery_button(frm) {
-    let attachments = get_vendor_claim_attachments(frm);
+    let attachments = [];
+    if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.extractLocalAttachments === 'function') {
+        attachments = window.APReceiptGallery.extractLocalAttachments(frm);
+    } else {
+        attachments = get_vendor_claim_attachments(frm);
+    }
     if (attachments.length > 0) {
         frm.add_custom_button(__(`📁 Receipt Gallery (${attachments.length})`), function () {
-            open_vendor_receipt_gallery(frm);
+            open_vendor_receipt_gallery(frm, 0);
         }, __('Audit Proofs'));
     }
 }
 
-function open_vendor_receipt_gallery(frm) {
+function open_vendor_receipt_gallery(frm, start_idx) {
+    if (typeof window.APReceiptGallery !== 'undefined' && typeof window.APReceiptGallery.show === 'function') {
+        window.APReceiptGallery.show(frm, { active_index: start_idx || 0 });
+        return;
+    }
     let attachments = get_vendor_claim_attachments(frm);
 
     if (attachments.length === 0) {
@@ -1192,6 +1248,24 @@ function render_vendor_invoice_dashboard(frm) {
         `;
     }
 
+    let bank_proof_url = frm.doc.bank_proof_attachment || (frm._bank_account_doc && frm._bank_account_doc.bank_proof_attachment) || "";
+    let bank_proof_html = "";
+    if (bank_proof_url) {
+        bank_proof_html = `
+            <div style="display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; border: 1.5px solid #93c5fd; border-radius: 6px; padding: 4px 10px; color: #1e40af; font-size: 12px; font-weight: 700;">
+                <span>🏦 Cheque / Bank Proof:</span>
+                <a href="${bank_proof_url}" target="_blank" style="color: #2563eb; text-decoration: underline; font-weight: 800;">View ↗</a>
+                <button type="button" class="btn btn-xs btn-primary ap-btn-view-bank-proof" data-url="${bank_proof_url}" style="padding: 1px 7px; font-size: 11px; margin-left: 4px; background: #3b82f6; border-color: #2563eb;">🔍 Preview</button>
+            </div>
+        `;
+    } else {
+        bank_proof_html = `
+            <div style="display: inline-flex; align-items: center; gap: 6px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 4px 10px; color: #92400e; font-size: 12px; font-weight: 600;">
+                <span>⚠️ No Cheque Uploaded on Bank Master</span>
+            </div>
+        `;
+    }
+
     // 3. Visual 3-Way Match Card
     let match_card_html = "";
     if (frm.doc.invoice_type === "With Purchase Order" && frm.doc.purchase_order) {
@@ -1250,7 +1324,7 @@ function render_vendor_invoice_dashboard(frm) {
                     <div style="font-size: 14px; font-weight: 700; color: #1e293b; margin-top: 2px;">${formatINR(base)}</div>
                 </div>
                 <div style="background: #f8fafc; padding: 8px 10px; border-radius: 4px; border: 1px solid #e2e8f0;">
-                    <div style="font-size: 10px; color: #64748b; text-transform: uppercase;">(+) GST (${frm.doc.gst_rate || '18%'})</div>
+                    <div style="font-size: 10px; color: #64748b; text-transform: uppercase;">(+) ${frm.doc.tax_type && frm.doc.tax_type.indexOf('Inter-State') !== -1 ? 'IGST' : 'CGST+SGST'} (${frm.doc.gst_rate || '18%'})</div>
                     <div style="font-size: 14px; font-weight: 700; color: #2563eb; margin-top: 2px;">+ ${formatINR(gst)}</div>
                 </div>
                 <div style="background: #f8fafc; padding: 8px 10px; border-radius: 4px; border: 1px solid #e2e8f0;">
@@ -1287,8 +1361,9 @@ function render_vendor_invoice_dashboard(frm) {
                     <strong style="font-size: 14px; color: #0f172a;">${frm.doc.vendor_name || frm.doc.vendor || 'Select Vendor'}</strong>
                     <span style="font-size: 12px; color: #64748b; margin-left: 6px;">(GSTIN: ${frm.doc.vendor_gstin || 'Unregistered'})</span>
                 </div>
-                <div>
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                     ${bank_shield_html}
+                    ${bank_proof_html}
                 </div>
             </div>
 
@@ -1315,6 +1390,24 @@ function render_vendor_invoice_dashboard(frm) {
 
     $(frm.wrapper).off('click.ap_vendor_claim', '.ap-btn-banner-audit-logs').on('click.ap_vendor_claim', '.ap-btn-banner-audit-logs', function() {
         open_vendor_audit_inspector_modal(frm);
+    });
+
+    // Bind Bank Proof / Cancelled Cheque Preview Modal
+    $(frm.wrapper).off('click.ap_vendor_claim', '.ap-btn-view-bank-proof').on('click.ap_vendor_claim', '.ap-btn-view-bank-proof', function(e) {
+        e.preventDefault();
+        let proof_url = $(this).attr('data-url');
+        if (!proof_url) return;
+        let is_pdf = proof_url.toLowerCase().endsWith('.pdf');
+        let preview_body = is_pdf
+            ? `<iframe src="${proof_url}" style="width: 100%; height: 550px; border: none; border-radius: 6px;"></iframe>`
+            : `<div style="text-align: center; padding: 10px; background: #0f172a; border-radius: 8px;"><img src="${proof_url}" style="max-width: 100%; max-height: 550px; border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);" /></div>`;
+        
+        let d = new frappe.ui.Dialog({
+            title: __('🏦 Vendor Bank Account Proof (Cancelled Cheque / Passbook)'),
+            size: 'large',
+            fields: [{ fieldtype: 'HTML', fieldname: 'cheque_preview', options: preview_body }]
+        });
+        d.show();
     });
 
     // Bind Manager Unlock Action Modal
@@ -1372,15 +1465,44 @@ function calculate_vendor_totals(frm) {
     let total = round_currency(base + gst);
     let advance = flt(frm.doc.advance_deducted);
 
+    let tax_type = frm.doc.tax_type || "Intra-State (CGST + SGST)";
+    let cgst_rate = 0.0, cgst_amount = 0.0, sgst_rate = 0.0, sgst_amount = 0.0, igst_rate = 0.0, igst_amount = 0.0;
+
+    if (tax_type.indexOf("Inter-State") !== -1 || tax_type.indexOf("IGST") !== -1) {
+        igst_rate = gst_pct;
+        igst_amount = gst;
+    } else {
+        cgst_rate = round_currency(gst_pct / 2.0);
+        cgst_amount = round_currency(gst / 2.0);
+        sgst_rate = round_currency(gst_pct / 2.0);
+        sgst_amount = round_currency(gst - cgst_amount);
+    }
+
     let tds_rate = 0.0;
-    if (frm.doc.tds_section) {
-        if (frm.doc.tds_section === "194C (Contractor)") tds_rate = 2.0;
-        else if (frm.doc.tds_section === "194J (Professional)") tds_rate = 10.0;
-        else if (frm.doc.tds_section === "194Q (Goods Purchase)") tds_rate = 0.1;
+    let tds_sec = frm.doc.tds_section || "None / Exempt";
+    if (tds_sec && tds_sec !== "None / Exempt") {
+        const m = tds_sec.match(/\((\d+(?:\.\d+)?)\s*%\)/);
+        if (m) {
+            tds_rate = flt(m[1]);
+        } else if (tds_sec.indexOf("194C") !== -1) {
+            tds_rate = 2.0;
+        } else if (tds_sec.indexOf("194J") !== -1) {
+            tds_rate = 10.0;
+        } else if (tds_sec.indexOf("194Q") !== -1) {
+            tds_rate = 0.1;
+        } else if (tds_sec.indexOf("194I") !== -1) {
+            tds_rate = 10.0;
+        }
     }
     let tds = round_currency(base * (tds_rate / 100.0));
     let net = round_currency(total - advance - tds);
 
+    frm.set_value("cgst_rate", cgst_rate);
+    frm.set_value("cgst_amount", cgst_amount);
+    frm.set_value("sgst_rate", sgst_rate);
+    frm.set_value("sgst_amount", sgst_amount);
+    frm.set_value("igst_rate", igst_rate);
+    frm.set_value("igst_amount", igst_amount);
     frm.set_value("gst_amount", gst);
     frm.set_value("total_invoice_amount", total);
     frm.set_value("tds_rate", tds_rate);

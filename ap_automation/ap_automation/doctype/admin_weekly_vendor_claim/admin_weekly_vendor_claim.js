@@ -5,6 +5,7 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
     onload: function (frm) {
         frappe.require('/assets/ap_automation/css/ap_automation.css');
         apply_admin_vendor_styles();
+        enforce_default_grid_columns(frm);
         frm.set_query('vendor', 'vendor_lines', function () {
             return {
                 query: 'ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim.supplier_query'
@@ -14,6 +15,7 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
 
     refresh: function (frm) {
         apply_admin_vendor_styles();
+        enforce_default_grid_columns(frm);
         frm.set_query('vendor', 'vendor_lines', function () {
             return {
                 query: 'ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim.supplier_query'
@@ -25,6 +27,32 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
         setup_grid_styling(frm);
         apply_grid_role_permissions(frm);
         setTimeout(() => bind_custom_grid_uploaders(frm), 300);
+
+        if (window.APExpenseTypeManager) {
+            window.APExpenseTypeManager.refreshGridOptions(frm, 'vendor_lines', 'vendor_category', 'Admin Weekly Vendor Claims');
+        }
+
+        // Dynamically fetch active statutory TDS sections from AP TDS Master
+        frappe.call({
+            method: 'ap_automation.services.tds_service.get_all_active_tds_sections',
+            callback: function(r) {
+                if (r.message && r.message.length) {
+                    const opts = r.message.map(m => m.display_label || m.name);
+                    if (!opts.includes('None / Exempt')) opts.unshift('None / Exempt');
+                    const opt_str = opts.join('\n');
+                    frm.set_df_property('vendor_lines', 'tds_section', 'options', opt_str);
+                    const grid = frm.get_field('vendor_lines') && frm.get_field('vendor_lines').grid;
+                    if (grid) {
+                        const df = frappe.meta.get_docfield('Admin Vendor Claim Item', 'tds_section', frm.doc.name);
+                        if (df) df.options = opt_str;
+                    }
+                }
+            }
+        });
+
+        if (!frm.is_new() && typeof window.APClarificationThread !== 'undefined') {
+            window.APClarificationThread.render(frm);
+        }
     },
 
     week_period: function (frm) {
@@ -73,6 +101,20 @@ function calculate_row_statutory(cdt, cdn) {
     const gst_amount = flt((base * gst_rate) / 100.0, 2);
     const total_inv = flt(base + gst_amount, 2);
 
+    // Automated 50:50 CGST & SGST Split vs Inter-State IGST
+    const tax_type = row.tax_type || 'Intra-State (CGST + SGST)';
+    let cgst_amt = 0.0;
+    let sgst_amt = 0.0;
+    let igst_amt = 0.0;
+
+    if (tax_type.indexOf('Inter-State') !== -1 || tax_type.indexOf('IGST') !== -1) {
+        igst_amt = gst_amount;
+    } else {
+        const half_gst = flt(gst_amount / 2.0, 2);
+        cgst_amt = half_gst;
+        sgst_amt = flt(gst_amount - half_gst, 2);
+    }
+
     let tds_rate = 0.0;
     if (row.tds_section && TDS_SECTION_RATES[row.tds_section] !== undefined) {
         tds_rate = TDS_SECTION_RATES[row.tds_section];
@@ -85,6 +127,10 @@ function calculate_row_statutory(cdt, cdn) {
     const tds_amount = flt((base * tds_rate) / 100.0, 2);
     const net_pay = flt(total_inv - tds_amount, 2);
 
+    frappe.model.set_value(cdt, cdn, 'tax_type', tax_type);
+    frappe.model.set_value(cdt, cdn, 'cgst_amount', cgst_amt);
+    frappe.model.set_value(cdt, cdn, 'sgst_amount', sgst_amt);
+    frappe.model.set_value(cdt, cdn, 'igst_amount', igst_amt);
     frappe.model.set_value(cdt, cdn, 'gst_amount', gst_amount);
     frappe.model.set_value(cdt, cdn, 'total_invoice_amount', total_inv);
     frappe.model.set_value(cdt, cdn, 'tds_rate', tds_rate);
@@ -96,6 +142,29 @@ function calculate_row_statutory(cdt, cdn) {
 // CHILD TABLE ROW CONTROLLER (ADMIN VENDOR CLAIM ITEM)
 // --------------------------------------------------------------------------------------
 frappe.ui.form.on('Admin Vendor Claim Item', {
+    vendor_category: function (frm, cdt, cdn) {
+        if (window.APExpenseTypeManager) {
+            window.APExpenseTypeManager.handleGridAddPrompt(frm, cdt, cdn, 'vendor_category', 'Admin Weekly Vendor Claims');
+        }
+    },
+    service_type: function (frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (row.service_type) {
+            frappe.db.get_value('AP Service Type Master', row.service_type, 'default_tds_section').then(r => {
+                if (r.message && r.message.default_tds_section && (!row.tds_section || row.tds_section === 'None / Exempt')) {
+                    frappe.model.set_value(cdt, cdn, 'tds_section', r.message.default_tds_section);
+                    calculate_row_statutory(cdt, cdn);
+                    calculate_grid_totals(frm);
+                }
+            });
+        }
+    },
+
+    tax_type: function (frm, cdt, cdn) {
+        calculate_row_statutory(cdt, cdn);
+        calculate_grid_totals(frm);
+    },
+
     base_amount: function (frm, cdt, cdn) {
         calculate_row_statutory(cdt, cdn);
         calculate_grid_totals(frm);
@@ -146,6 +215,7 @@ frappe.ui.form.on('Admin Vendor Claim Item', {
                     frappe.model.set_value(cdt, cdn, 'bank_account_number', data.bank_account_number || '');
                     frappe.model.set_value(cdt, cdn, 'bank_ifsc_code', data.bank_ifsc_code || '');
                     frappe.model.set_value(cdt, cdn, 'penny_drop_status', data.penny_drop_status || 'UNVERIFIED');
+                    frappe.model.set_value(cdt, cdn, 'bank_proof_attachment', data.bank_proof_attachment || '');
                 }
             }
         });
@@ -375,7 +445,11 @@ function render_role_based_action_buttons(frm) {
     }).addClass('btn-secondary');
 
     // Fast-Track Resubmission Button (When voucher was returned from Accounts or Director)
-    if (frm.doc.return_origin_stage && ['Draft', 'Pending Admin L1', 'Pending Admin L2'].includes(status)) {
+    const is_returned_vendor = [
+        'Rejected', 'Returned to Reception', 'Returned to Custodian', 'Returned', 'Disputed', 'Returned for Correction'
+    ].includes(status) || (status && status.startsWith('Returned'));
+
+    if (frm.doc.return_origin_stage && (['Draft', 'Pending Admin L1', 'Pending Admin L2'].includes(status) || is_returned_vendor)) {
         const target_label = frm.doc.return_origin_stage === 'Pending Accounts Review' ? 'Accounts Review' :
                              frm.doc.return_origin_stage === 'Approved for Payment' ? 'Director Sanction' : frm.doc.return_origin_stage;
 
@@ -401,8 +475,9 @@ function render_role_based_action_buttons(frm) {
     }
 
     // 3. Stage-Specific Transitions
-    if (status === 'Draft' || status === 'Rejected') {
-        frm.add_custom_button(__('🚀 Submit to Admin L1'), function () {
+    if (status === 'Draft' || is_returned_vendor) {
+        const btn_text = is_returned_vendor ? __('🚀 Resubmit to Admin L1') : __('🚀 Submit to Admin L1');
+        frm.add_custom_button(btn_text, function () {
             frappe.confirm(
                 __('Are you sure you want to submit this weekly claim voucher to Admin L1 Review?'),
                 function () {
@@ -633,7 +708,9 @@ function apply_grid_role_permissions(frm) {
     };
 
     safe_toggle_enable('gst_rate', is_acc);
+    safe_toggle_enable('tax_type', is_acc);
     safe_toggle_enable('tds_section', is_acc);
+    safe_toggle_enable('service_type', true);
     safe_toggle_enable('line_status', is_acc);
     safe_toggle_enable('discrepancy_remarks', is_acc);
 }
@@ -723,6 +800,7 @@ function open_admin_receipt_gallery(frm, start_idx) {
             atts.push({
                 row_idx: row.idx || (idx + 1),
                 vendor: row.vendor_name || row.vendor || 'Vendor Bill',
+                vendor_name: row.vendor_name || row.vendor || 'Vendor Bill',
                 category: row.vendor_category || 'Admin Expense',
                 base_amount: parseFloat(row.base_amount || 0.0),
                 gst_amount: parseFloat(row.gst_amount || 0.0),
@@ -736,6 +814,29 @@ function open_admin_receipt_gallery(frm, start_idx) {
                 is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext),
                 is_pdf: ext === '.pdf',
                 extension: ext
+            });
+        }
+        if (row.bank_proof_attachment) {
+            const bp_clean = row.bank_proof_attachment.trim();
+            const bp_name = bp_clean.split('/').pop();
+            const bp_ext = (bp_name.lastIndexOf('.') !== -1 ? bp_name.substring(bp_name.lastIndexOf('.')).toLowerCase() : '');
+            atts.push({
+                row_idx: row.idx || (idx + 1),
+                vendor: row.vendor_name || row.vendor || 'Vendor Bank Proof',
+                vendor_name: row.vendor_name || row.vendor || 'Vendor Bank Proof',
+                category: 'Bank Account Proof (Cancelled Cheque)',
+                base_amount: 0.0,
+                gst_amount: 0.0,
+                tds_amount: 0.0,
+                amount: parseFloat(row.amount || 0.0),
+                company: row.company || '',
+                invoice: `Cheque / A/C: ${row.bank_account_number || ''}`,
+                date: row.invoice_date || frm.doc.posting_date || '',
+                file_url: bp_clean,
+                file_name: bp_name,
+                is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(bp_ext),
+                is_pdf: bp_ext === '.pdf',
+                extension: bp_ext
             });
         }
     });
@@ -771,7 +872,7 @@ function open_admin_receipt_gallery(frm, start_idx) {
                 <div class="gallery-thumb-item" data-idx="${i}" style="display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:6px; border:1.5px solid; cursor:pointer; margin-bottom:8px; ${active}">
                     <div style="font-size:18px;">${a.is_pdf ? '📄' : '🖼️'}</div>
                     <div style="flex:1; overflow:hidden;">
-                        <div style="font-size:12px; font-weight:700; color:#1e293b; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">#${a.row_idx}: ${a.vendor}</div>
+                        <div style="font-size:12px; font-weight:700; color:#1e293b; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">#${a.row_idx}: 🏢 ${a.vendor_name || a.vendor}</div>
                         <div style="font-size:11px; color:#64748b;">₹ ${format_inr(a.amount)} | ${a.company}</div>
                     </div>
                 </div>
@@ -787,7 +888,7 @@ function open_admin_receipt_gallery(frm, start_idx) {
                 <div style="flex:1; display:flex; flex-direction:column;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #f1f5f9;">
                         <div>
-                            <div style="font-size:14px; font-weight:800; color:#0f172a;">#${item.row_idx}: ${item.vendor}</div>
+                            <div style="font-size:14px; font-weight:800; color:#0f172a;">#${item.row_idx}: 🏢 ${item.vendor_name || item.vendor}</div>
                             <div style="font-size:12px; color:#64748b;">${item.category} | Invoice: <b>${item.invoice || 'N/A'}</b> | Entity: <b>${item.company}</b></div>
                             <div style="font-size:11px; color:#475569; margin-top:2px;">Base: ₹ ${format_inr(item.base_amount)} | GST: ₹ ${format_inr(item.gst_amount)} | TDS: -₹ ${format_inr(item.tds_amount)}</div>
                         </div>
@@ -818,6 +919,93 @@ function open_admin_receipt_gallery(frm, start_idx) {
 // --------------------------------------------------------------------------------------
 // 9. LUXURY DESIGN SYSTEM CSS INJECTION
 // --------------------------------------------------------------------------------------
+
+// --------------------------------------------------------------------------------------
+// DEFAULT GRID COLUMNS ENFORCEMENT (SHOW ALL 27 COLUMNS IN ROW BY DEFAULT)
+// --------------------------------------------------------------------------------------
+const REQUIRED_GRID_COLUMNS = [
+    { fieldname: 'vendor_category', columns: 2 },
+    { fieldname: 'service_type', columns: 2 },
+    { fieldname: 'vendor', columns: 2 },
+    { fieldname: 'vendor_name', columns: 2 },
+    { fieldname: 'company', columns: 2 },
+    { fieldname: 'invoice_number', columns: 2 },
+    { fieldname: 'invoice_date', columns: 2 },
+    { fieldname: 'receipt_attachment', columns: 2 },
+    { fieldname: 'base_amount', columns: 2 },
+    { fieldname: 'tax_type', columns: 2 },
+    { fieldname: 'gst_rate', columns: 1 },
+    { fieldname: 'cgst_amount', columns: 2 },
+    { fieldname: 'sgst_amount', columns: 2 },
+    { fieldname: 'igst_amount', columns: 2 },
+    { fieldname: 'gst_amount', columns: 2 },
+    { fieldname: 'total_invoice_amount', columns: 2 },
+    { fieldname: 'tds_section', columns: 3 },
+    { fieldname: 'tds_rate', columns: 1 },
+    { fieldname: 'tds_amount', columns: 2 },
+    { fieldname: 'amount', columns: 2 },
+    { fieldname: 'line_status', columns: 2 },
+    { fieldname: 'discrepancy_remarks', columns: 3 },
+    { fieldname: 'bank_beneficiary_name', columns: 2 },
+    { fieldname: 'bank_account_number', columns: 2 },
+    { fieldname: 'bank_ifsc_code', columns: 2 },
+    { fieldname: 'penny_drop_status', columns: 2 },
+    { fieldname: 'bank_proof_attachment', columns: 2 },
+    { fieldname: 'remarks', columns: 2 }
+];
+
+function enforce_default_grid_columns(frm) {
+    const child = "Admin Vendor Claim Item";
+    const settings = frappe.get_user_settings(frm.doctype, "GridView") || {};
+
+    // 1. Force update user settings if empty or has fewer than all required columns
+    if (!settings[child] || settings[child].length < REQUIRED_GRID_COLUMNS.length) {
+        settings[child] = REQUIRED_GRID_COLUMNS.map(col => ({
+            fieldname: col.fieldname,
+            columns: col.columns,
+            sticky: 0
+        }));
+        if (!frappe.model.user_settings[frm.doctype]) {
+            frappe.model.user_settings[frm.doctype] = {};
+        }
+        frappe.model.user_settings[frm.doctype]["GridView"] = settings;
+        frappe.model.user_settings.save(frm.doctype, "GridView", settings);
+    }
+
+    if (!frm.fields_dict['vendor_lines'] || !frm.fields_dict['vendor_lines'].grid) return;
+    const grid = frm.fields_dict['vendor_lines'].grid;
+
+    // 2. Ensure all docfields have in_list_view: 1
+    if (grid.docfields) {
+        grid.docfields.forEach(df => {
+            df.in_list_view = 1;
+            df.hidden = 0;
+        });
+    }
+
+    // 3. Reset grid if visible_columns has fewer than all columns
+    if (!grid.visible_columns || grid.visible_columns.length < REQUIRED_GRID_COLUMNS.length) {
+        grid.visible_columns = [];
+        grid.user_defined_columns = [];
+        grid.setup_visible_columns();
+        grid.header_row = null;
+        if (grid.wrapper) {
+            grid.wrapper.find('.grid-heading-row').empty();
+            grid.wrapper.find('.form-grid').css({'left': '0px'});
+            grid.wrapper.find('.form-grid-container').scrollLeft(0);
+        }
+        grid.refresh();
+    }
+
+    // Always reset left position and scroll to start on render
+    setTimeout(() => {
+        if (grid.wrapper) {
+            grid.wrapper.find('.form-grid').css({'left': '0px'});
+            grid.wrapper.find('.form-grid-container').scrollLeft(0);
+        }
+    }, 100);
+}
+
 function apply_admin_vendor_styles() {
     if (document.getElementById('admin-vendor-flow-styles')) return;
 
@@ -854,6 +1042,62 @@ function apply_admin_vendor_styles() {
         .banner-approved { background: #f0fdf4; border: 1.5px solid #bbf7d0; color: #166534; }
         .banner-paid { background: #f0fdf4; border: 1.5px solid #86efac; color: #14532d; }
         .banner-rejected { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
+
+        /* Excel-Style Horizontal Scrolling Grid Row (All 27 Columns Side-by-Side starting from Left) */
+        [data-fieldname="vendor_lines"] .form-grid-container {
+            overflow-x: auto !important;
+            position: relative !important;
+            width: 100% !important;
+            -webkit-overflow-scrolling: touch;
+        }
+        [data-fieldname="vendor_lines"] .form-grid {
+            left: 0px !important;
+            position: relative !important;
+            width: max-content !important;
+            min-width: 100% !important;
+            border-radius: 8px;
+        }
+        [data-fieldname="vendor_lines"] .grid-heading-row,
+        [data-fieldname="vendor_lines"] .grid-body .grid-row .data-row {
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            min-width: 3800px !important;
+        }
+        [data-fieldname="vendor_lines"] .grid-static-col {
+            flex-shrink: 0 !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            white-space: nowrap !important;
+            padding: 6px 8px !important;
+            min-width: 130px !important;
+        }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="vendor_category"] { min-width: 140px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="service_type"] { min-width: 150px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="vendor"] { min-width: 160px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="vendor_name"] { min-width: 160px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="company"] { min-width: 140px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="invoice_number"] { min-width: 120px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="invoice_date"] { min-width: 110px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="receipt_attachment"] { min-width: 130px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="base_amount"] { min-width: 120px !important; text-align: right; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tax_type"] { min-width: 160px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="gst_rate"] { min-width: 90px !important; text-align: center; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="cgst_amount"] { min-width: 120px !important; text-align: right; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="sgst_amount"] { min-width: 120px !important; text-align: right; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="igst_amount"] { min-width: 120px !important; text-align: right; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="gst_amount"] { min-width: 120px !important; text-align: right; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="total_invoice_amount"] { min-width: 130px !important; text-align: right; font-weight: 600; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_section"] { min-width: 240px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_rate"] { min-width: 90px !important; text-align: center; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_amount"] { min-width: 120px !important; text-align: right; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="amount"] { min-width: 130px !important; text-align: right; font-weight: 700; color: #15803d; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="line_status"] { min-width: 110px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="discrepancy_remarks"] { min-width: 160px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="bank_beneficiary_name"] { min-width: 160px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="bank_account_number"] { min-width: 140px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="bank_ifsc_code"] { min-width: 120px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="penny_drop_status"] { min-width: 130px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="remarks"] { min-width: 160px !important; }
     `;
     document.head.appendChild(style);
 }
