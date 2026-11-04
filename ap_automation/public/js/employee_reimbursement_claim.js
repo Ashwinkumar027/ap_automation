@@ -67,6 +67,14 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
                 }
             };
         });
+        frm.set_query('employee_id', 'participants', function() {
+            return {
+                query: 'ap_automation.services.team_bonding_wallet_service.get_team_participants_query',
+                filters: {
+                    company: frm.doc.company || ''
+                }
+            };
+        });
     },
 
     onload_post_render: function(frm) {
@@ -830,9 +838,12 @@ frappe.ui.form.on('Employee Reimbursement Participant', {
                     if (r.message && r.message.status === 'SUCCESS') {
                         const data = r.message.data;
                         frappe.model.set_value(cdt, cdn, 'employee_name', data.employee_name);
+                        if (data.department) frappe.model.set_value(cdt, cdn, 'department', data.department);
+                        if (data.branch_location) frappe.model.set_value(cdt, cdn, 'branch_location', data.branch_location);
                         frappe.model.set_value(cdt, cdn, 'quarterly_cap', data.quarterly_cap);
                         frappe.model.set_value(cdt, cdn, 'utilized_in_quarter', data.utilized_in_quarter);
                         frappe.model.set_value(cdt, cdn, 'available_balance', data.available_balance);
+                        if (data.wallet_status) frappe.model.set_value(cdt, cdn, 'wallet_status', data.wallet_status);
                         update_team_lunch_calculations(frm);
                     }
                 }
