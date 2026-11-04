@@ -254,6 +254,12 @@ def post_clarification_query(
     if not msg_clean:
         frappe.throw("Clarification message text cannot be empty.", exc=APValidationError)
 
+    if attachment:
+        ext = attachment.lower().split("?")[0].split(".")[-1]
+        disallowed = ["exe", "bat", "sh", "cmd", "msi", "scr", "vbs", "js", "php", "py"]
+        if ext in disallowed:
+            frappe.throw(f"File type '.{ext}' is not permitted for audit attachments.", exc=APValidationError)
+
     doc = frappe.get_doc(doctype, docname)
     company = getattr(doc, "company", None)
     sender = frappe.session.user

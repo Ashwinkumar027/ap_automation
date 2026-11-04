@@ -104,6 +104,7 @@ class TestEmployeeReimbursement(unittest.TestCase):
             "doctype": "Employee Reimbursement Claim",
             "employee": self.emp_id,
             "posting_date": "2026-09-14",
+            "status": "Pending Manager",
             "expense_lines": [
                 {
                     "expense_date": "2026-09-14",
