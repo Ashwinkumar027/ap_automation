@@ -321,4 +321,50 @@ def get_employee_team_lunch_wallet(employee_id, activity_date=None, posting_date
         exclude_claim=exclude_claim
     )
     wallet["employee_name"] = emp.get("employee_name") or employee_id
+    wallet["department"] = emp.get("department") or ""
     return {"status": "SUCCESS", "data": wallet}
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_team_participants_query(doctype, txt, searchfield, start, page_len, filters=None, as_dict=False, **kwargs):
+    """
+    Custom link query for Team Lunch & Outing participant selection.
+    Bypasses standard user permission restrictions on Employee DocType so that
+    any employee can select colleagues / teammates across the organization.
+    Prioritizes same-company employees at the top while allowing all active employees to be searched.
+    """
+    if isinstance(filters, str):
+        import json
+        try:
+            filters = json.loads(filters)
+        except Exception:
+            filters = {}
+    filters = filters or {}
+    company = filters.get("company")
+
+    conditions = ["status = 'Active'"]
+    params = {"start": int(start or 0), "page_len": int(page_len or 20)}
+
+    if txt:
+        conditions.append("(name LIKE %(txt)s OR employee_name LIKE %(txt)s OR department LIKE %(txt)s)")
+        params["txt"] = f"%{txt}%"
+
+    order_by_clause = "employee_name ASC"
+    if company:
+        params["company"] = company
+        order_by_clause = "(company = %(company)s) DESC, employee_name ASC"
+
+    where_str = " AND ".join(conditions)
+    sql = f"""
+        SELECT name, employee_name, department, branch, company
+        FROM `tabEmployee`
+        WHERE {where_str}
+        ORDER BY {order_by_clause}
+        LIMIT %(start)s, %(page_len)s
+    """
+
+    rows = frappe.db.sql(sql, params, as_dict=as_dict)
+    if as_dict:
+        return rows
+    return [[r[0], r[1], r[2] or "", r[3] or "", r[4] or ""] for r in rows]
