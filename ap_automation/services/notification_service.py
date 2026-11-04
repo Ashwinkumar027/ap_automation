@@ -2656,3 +2656,141 @@ def notify_admin_weekly_paid(docname: str, utr: str) -> None:
         alert_type="green",
         is_thread_reply=True
     )
+
+
+# --------------------------------------------------------------------------------------
+# TWO-WAY CLARIFICATION CHAT / THREAD NOTIFICATIONS
+# --------------------------------------------------------------------------------------
+
+def notify_clarification_query(query_name: str) -> None:
+    """Dispatches threaded email & Desk alert when a clarification question is posted."""
+    if not frappe.db.exists("AP Clarification Query", query_name):
+        return
+    q = frappe.get_doc("AP Clarification Query", query_name)
+    parent_dt = q.parent_doctype
+    parent_dn = q.parent_docname
+    if not frappe.db.exists(parent_dt, parent_dn):
+        return
+
+    parent_doc = frappe.get_doc(parent_dt, parent_dn)
+    company = getattr(parent_doc, "company", q.company or "Company")
+    doc_url = _get_form_url(parent_dt, parent_dn)
+
+    target_emails = []
+    if q.target_user:
+        em = _resolve_email(q.target_user)
+        if em:
+            target_emails.append(em)
+
+    from ap_automation.services.clarification_service import resolve_document_stakeholders
+    stakeholders = resolve_document_stakeholders(parent_dt, parent_dn)
+    all_emails = [s["email"] for s in stakeholders if s.get("email") and s["email"] != _resolve_email(q.from_user)]
+
+    if not target_emails:
+        target_emails = all_emails
+        cc_emails = []
+    else:
+        cc_emails = [e for e in all_emails if e not in target_emails]
+
+    target_emails = list(set([e for e in target_emails if e]))
+    cc_emails = list(set([e for e in cc_emails if e]))
+
+    if not target_emails and not cc_emails:
+        return
+
+    subject = f"💬 [Clarification] [#{parent_dn}] {q.from_full_name} ({q.from_role_badge}): Query on {parent_dt}"
+    target_label = q.target_user_name or q.target_role or "Stakeholder"
+
+    attachment_html = ""
+    if q.attachment:
+        attachment_html = f"""
+        <div style="margin-top: 12px; padding: 8px 12px; background: #e0f2fe; border-radius: 6px; font-size: 13px;">
+            📎 <b>Attached Proof / File:</b> <a href="{q.attachment}" target="_blank" style="color: #0284c7; text-decoration: underline;">View Attachment</a>
+        </div>
+        """
+
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #cbd5e1; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #0284c7; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #0284c7; font-weight: 700;">AP Audit Clarification • Two-Way Communication</span>
+            <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 18px;">Question from {q.from_full_name} ({q.from_role_badge})</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            A clarification query has been raised regarding <b>{parent_dt} #{parent_dn}</b> ({company}).
+        </p>
+        <div style="background: #f8fafc; border-left: 4px solid #0284c7; padding: 14px 16px; border-radius: 0 8px 8px 0; margin: 16px 0;">
+            <div style="font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 6px;">
+                QUERY FOR @{target_label.upper()}:
+            </div>
+            <div style="color: #0f172a; font-size: 14px; font-weight: 500; white-space: pre-line;">
+                {frappe.utils.escape_html(q.message)}
+            </div>
+            {attachment_html}
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #0284c7; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                👉 Open Voucher & Respond in Desk
+            </a>
+        </div>
+    </div>
+    """
+
+    _send_email_and_desk_alert(
+        recipients=target_emails,
+        subject=subject,
+        message_html=html,
+        reference_doctype=parent_dt,
+        reference_name=parent_dn,
+        alert_type="blue",
+        cc=cc_emails,
+        is_thread_reply=True
+    )
+
+
+def notify_clarification_resolved(query_name: str) -> None:
+    """Triggered when a clarification query is resolved."""
+    if not frappe.db.exists("AP Clarification Query", query_name):
+        return
+    q = frappe.get_doc("AP Clarification Query", query_name)
+    parent_dt = q.parent_doctype
+    parent_dn = q.parent_docname
+    if not frappe.db.exists(parent_dt, parent_dn):
+        return
+
+    recipient = _resolve_email(q.from_user)
+    if not recipient:
+        return
+
+    resolver_name = frappe.db.get_value("User", q.resolved_by or frappe.session.user, "full_name") or (q.resolved_by or "Reviewer")
+    doc_url = _get_form_url(parent_dt, parent_dn)
+    subject = f"✅ [Resolved] [#{parent_dn}] Clarification Resolved by {resolver_name}"
+
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bbf7d0; border-radius: 10px; padding: 24px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #16a34a; padding-bottom: 12px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #16a34a; font-weight: 700;">AP Audit Clarification • Query Resolved</span>
+            <h2 style="margin: 4px 0 0 0; color: #14532d; font-size: 18px;">Clarification Marked Resolved</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Your clarification query on <b>{parent_dt} #{parent_dn}</b> has been marked as resolved by <b>{resolver_name}</b>.
+        </p>
+        <div style="background: #f0fdf4; border: 1px solid #dcfce7; border-radius: 8px; padding: 14px; margin: 16px 0; color: #15803d; font-size: 13px;">
+            <b>Original Query:</b> "{frappe.utils.escape_html(q.message[:120])}..."
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+            <a href="{doc_url}" style="background: #16a34a; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+                View Voucher Details &rarr;
+            </a>
+        </div>
+    </div>
+    """
+
+    _send_email_and_desk_alert(
+        recipients=[recipient],
+        subject=subject,
+        message_html=html,
+        reference_doctype=parent_dt,
+        reference_name=parent_dn,
+        alert_type="green",
+        is_thread_reply=True
+    )

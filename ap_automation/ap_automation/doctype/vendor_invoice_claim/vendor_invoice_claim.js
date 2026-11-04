@@ -119,6 +119,10 @@ frappe.ui.form.on("Vendor Invoice Claim", {
         // Render dynamic approval action buttons based on current lifecycle stage & RBAC
         render_vendor_claim_approval_buttons(frm);
 
+        if (!frm.is_new() && typeof window.APClarificationThread !== 'undefined') {
+            window.APClarificationThread.render(frm);
+        }
+
         // Dynamically fetch active statutory TDS sections from AP TDS Master
         frappe.call({
             method: "ap_automation.services.tds_service.get_all_active_tds_sections",

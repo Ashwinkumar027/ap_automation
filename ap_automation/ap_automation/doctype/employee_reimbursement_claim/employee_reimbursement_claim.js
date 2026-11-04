@@ -661,22 +661,30 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
         if (['Pending Accounts L2', 'Pending Director L2 Sanction'].includes(status)) {
             if (user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || is_system_mgr) {
                 frm.add_custom_button(__('🏦 Final Sanction (Accounts L2)'), function() {
-                    frappe.prompt([
-                        { fieldname: 'comments', fieldtype: 'Small Text', label: __('Sanction Notes (Optional)') }
-                    ], function(values) {
-                        frappe.call({
-                            method: 'ap_automation.services.employee_expense_approval_service.sanction_accounts_l2',
-                            args: { voucher_name: frm.doc.name, comments: values.comments },
-                            freeze: true,
-                            freeze_message: __('Finalizing Approval for Payment...'),
-                            callback: function(r) {
-                                if (r.message && r.message.status === 'SUCCESS') {
-                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                                    frm.reload_doc();
+                    const execute_sanction_flow = function() {
+                        frappe.prompt([
+                            { fieldname: 'comments', fieldtype: 'Small Text', label: __('Sanction Notes (Optional)') }
+                        ], function(values) {
+                            frappe.call({
+                                method: 'ap_automation.services.employee_expense_approval_service.sanction_accounts_l2',
+                                args: { voucher_name: frm.doc.name, comments: values.comments },
+                                freeze: true,
+                                freeze_message: __('Finalizing Approval for Payment...'),
+                                callback: function(r) {
+                                    if (r.message && r.message.status === 'SUCCESS') {
+                                        frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                        frm.reload_doc();
+                                    }
                                 }
-                            }
-                        });
-                    }, __('Accounts L2 Final Sanction'), __('Authorize Payment'));
+                            });
+                        }, __('Accounts L2 Final Sanction'), __('Authorize Payment'));
+                    };
+
+                    if (window.APClarificationThread && typeof window.APClarificationThread.checkUnresolvedQueries === 'function') {
+                        window.APClarificationThread.checkUnresolvedQueries(frm, execute_sanction_flow);
+                    } else {
+                        execute_sanction_flow();
+                    }
                 }).addClass('btn-success');
 
                 frm.trigger('add_reject_button');
@@ -805,6 +813,10 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
                 'display': 'inline-flex',
                 'align-items': 'center'
             });
+        }
+
+        if (typeof window.APClarificationThread !== 'undefined') {
+            window.APClarificationThread.render(frm);
         }
     },
 

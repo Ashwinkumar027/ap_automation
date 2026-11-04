@@ -660,6 +660,10 @@ function render_role_based_action_buttons(frm) {
         });
     }
 
+    if (typeof window.APClarificationThread !== 'undefined') {
+        window.APClarificationThread.render(frm);
+    }
+
     // 1. RECEPTION / DRAFT SUBMISSION TO ADMIN L1
     const is_returned_to_reception = [
         'Rejected', 'Returned to Reception', 'Returned to Custodian', 'Returned', 'Disputed', 'Returned for Correction'
@@ -911,13 +915,21 @@ function render_role_based_action_buttons(frm) {
                 });
             };
 
+            const run_with_guard = function() {
+                if (window.APClarificationThread && typeof window.APClarificationThread.checkUnresolvedQueries === 'function') {
+                    window.APClarificationThread.checkUnresolvedQueries(frm, execute_sanction);
+                } else {
+                    execute_sanction();
+                }
+            };
+
             // If Director modified amount, automatically persist changes first
             if (frm.is_dirty()) {
                 frm.save().then(() => {
-                    execute_sanction();
+                    run_with_guard();
                 });
             } else {
-                execute_sanction();
+                run_with_guard();
             }
         }).addClass('btn-primary').css({
             'background-color': '#16a34a',

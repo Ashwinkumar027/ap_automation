@@ -50,6 +50,9 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
             }
         });
 
+        if (!frm.is_new() && typeof window.APClarificationThread !== 'undefined') {
+            window.APClarificationThread.render(frm);
+        }
     },
 
     week_period: function (frm) {
