@@ -469,6 +469,52 @@ function setup_batch_action_buttons(frm) {
         });
     }
 
+    // Maker-Checker: Payment Release Action
+    if (frm.doc.status === 'Approved for Payment') {
+        const is_release_sent = frm.doc.payment_release_notified === 1;
+
+        if (!is_release_sent) {
+            frm.add_custom_button(__('📤 Payment Release'), function () {
+                frappe.confirm(
+                    __('Have you uploaded the IDFC Excel disbursal file to the IDFC Netbanking Corporate Portal?<br><br>Click <b>Yes</b> to notify the designated <b>Payment Releaser (AP Director)</b> to authorize and release payment.'),
+                    function () {
+                        frappe.call({
+                            method: 'ap_automation.services.weekly_accounts_batch_service.trigger_batch_payment_release_notification',
+                            args: {
+                                batch_name: frm.doc.name
+                            },
+                            freeze: true,
+                            freeze_message: __('Dispatching Payment Release notification to AP Director...'),
+                            callback: function (r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({
+                                        message: __('📤 ' + r.message.message),
+                                        indicator: 'green'
+                                    }, 7);
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }
+                );
+            }).addClass('btn-primary').css({
+                'background-color': '#0284c7',
+                'border-color': '#0369a1',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
+        } else {
+            frm.add_custom_button(__('✓ Payment Release Sent'), function () {
+                frappe.msgprint(__('Payment Release notification has already been sent to the designated AP Director for this company.'));
+            }).addClass('btn-default').css({
+                'background-color': '#f0fdf4',
+                'border-color': '#86efac',
+                'color': '#166534',
+                'font-weight': '700'
+            });
+        }
+    }
+
     // 5. Batch Level Consolidated Excel Export & IDFC Template in Actions
     frm.add_custom_button(__('📊 Export Full Batch Excel (.xlsx)'), function() {
         window.open(`/api/method/ap_automation.services.reimbursement_excel_generator.download_batch_consolidated_excel?batch_name=${encodeURIComponent(frm.doc.name)}`, '_blank');

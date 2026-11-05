@@ -617,6 +617,52 @@ function render_role_based_action_buttons(frm) {
             'align-items': 'center'
         });
     }
+
+    // Maker-Checker: Payment Release Action
+    if (['Queued for Payment Release', 'Queued in Batch', 'Approved for Payment'].includes(status)) {
+        const is_release_sent = frm.doc.payment_release_notified === 1;
+
+        if (!is_release_sent) {
+            frm.add_custom_button(__('📤 Payment Release'), function () {
+                frappe.confirm(
+                    __('Have you uploaded the IDFC Excel disbursal file to the IDFC Netbanking Corporate Portal?<br><br>Click <b>Yes</b> to notify the designated <b>Payment Releaser (AP Director)</b> to authorize and release payment.'),
+                    function () {
+                        frappe.call({
+                            method: 'ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim.trigger_payment_release_notification',
+                            args: {
+                                docname: frm.doc.name
+                            },
+                            freeze: true,
+                            freeze_message: __('Dispatching Payment Release notification to AP Director...'),
+                            callback: function (r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({
+                                        message: __('📤 ' + r.message.message),
+                                        indicator: 'green'
+                                    }, 7);
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }
+                );
+            }).addClass('btn-primary').css({
+                'background-color': '#0284c7',
+                'border-color': '#0369a1',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
+        } else {
+            frm.add_custom_button(__('✓ Payment Release Sent'), function () {
+                frappe.msgprint(__('Payment Release notification has already been sent to the designated AP Director for this company.'));
+            }).addClass('btn-default').css({
+                'background-color': '#f0fdf4',
+                'border-color': '#86efac',
+                'color': '#166534',
+                'font-weight': '700'
+            });
+        }
+    }
 }
 
 function call_workflow_method(frm, method_name) {

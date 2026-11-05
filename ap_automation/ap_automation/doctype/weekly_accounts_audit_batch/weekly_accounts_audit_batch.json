@@ -231,6 +231,26 @@
    "fieldtype": "Datetime",
    "label": "Payment Disbursed Date",
    "read_only": 1
+  },
+  {
+   "fieldname": "payment_release_notified",
+   "fieldtype": "Check",
+   "label": "Payment Release Notified",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_release_notified_on",
+   "fieldtype": "Datetime",
+   "label": "Payment Release Notified Timestamp",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_release_maker",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "IDFC Uploaded By (Maker)",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

@@ -625,3 +625,79 @@ class EmployeeReimbursementClaim(APDocument):
                 if updates:
                     frappe.db.set_value("File", f["name"], updates, update_modified=False)
 
+
+
+
+@frappe.whitelist()
+def trigger_reimbursement_payment_release_notification(claim_name: str):
+    """
+    Maker-Checker Handoff:
+    Invoked by the Maker (Accounts) after uploading the Employee Reimbursement disbursal file to the IDFC Portal.
+    Dynamically resolves the designated AP Director (TO) and Accounts Director (CC) strictly from the AP Approval Matrix,
+    stamps immutable audit logs, updates payment release flags, and sends official notification email with direct voucher link.
+    """
+    if not claim_name:
+        frappe.throw(frappe._("Claim Name is required."))
+
+    doc = frappe.get_doc("Employee Reimbursement Claim", claim_name)
+    user = frappe.session.user
+
+    allowed_roles = {
+        "Accounts Director", "Accounts L1 Auditor", "Accounts User", "Accounts Manager",
+        "Payment Releaser", "Director Tier", "AP Director", "System Manager", "Administrator"
+    }
+    user_roles = set(frappe.get_roles(user))
+    if not (allowed_roles & user_roles) and user != "Administrator":
+        frappe.throw(frappe._("You do not have permission to trigger payment release notifications."))
+
+    valid_statuses = ("Approved for Payment", "Ready for Payment Batch", "Queued in Batch", "Queued in Admin Batch", "Paid")
+    if doc.status not in valid_statuses:
+        frappe.throw(frappe._("Claim {0} must be in 'Approved for Payment' to trigger payment release.").format(claim_name))
+
+    from ap_automation.services.notification_service import notify_payment_releaser_on_idfc_upload
+
+    res = notify_payment_releaser_on_idfc_upload(
+        voucher_doctype=doc.doctype,
+        voucher_name=doc.name,
+        uploaded_by=user
+    )
+
+    releaser = res.get("releaser")
+    ad = res.get("accounts_director")
+
+    doc.db_set({
+        "payment_release_notified": 1,
+        "payment_release_notified_on": frappe.utils.now_datetime(),
+        "payment_release_maker": user,
+        "payment_releaser": releaser if releaser and not getattr(doc, "payment_releaser", None) else getattr(doc, "payment_releaser", None)
+    }, update_modified=False)
+
+    # Append to approval trail if present
+    if hasattr(doc, "append") and hasattr(doc, "approval_trail"):
+        doc.append("approval_trail", {
+            "level_number": 6,
+            "level_name": "Maker-Checker: IDFC Upload & Payment Release Notification",
+            "action_taken_by": user,
+            "action": "APPROVED",
+            "action_timestamp": frappe.utils.now_datetime(),
+            "remarks": f"Uploaded to IDFC Bank Portal by {user}. Payout authorization request dispatched to AP Director ({releaser})."
+        })
+
+    doc.save(ignore_permissions=True)
+
+    releaser_display = frappe.db.get_value("User", releaser, "full_name") or releaser
+    ad_display = (frappe.db.get_value("User", ad, "full_name") or ad) if ad else "N/A"
+    doc.add_comment(
+        "Comment",
+        text=f"📤 <b>Payment Release Notified:</b> IDFC Excel disbursal file uploaded to IDFC Netbanking by {user}. "
+             f"Payout authorization request dispatched to AP Director (<b>{releaser_display}</b>) with CC to Accounts Director (<b>{ad_display}</b>)."
+    )
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "claim_name": doc.name,
+        "releaser": releaser,
+        "accounts_director": ad,
+        "message": frappe._("Payment Release notification sent! AP Director ({0}) has been notified.").format(releaser_display)
+    }

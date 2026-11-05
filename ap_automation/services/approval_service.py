@@ -31,6 +31,68 @@ def get_applicable_matrix(doctype: str, company: str, amount: float) -> Optional
 
     return None
 
+@frappe.whitelist()
+def get_matrix_designated_payment_releaser_and_accounts_director(
+    company: str,
+    doctype: Optional[str] = None,
+    amount: float = 0.0
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    STRICT Matrix Resolution Engine:
+    Resolves the designated Checker (TO) and Supervisor/Accounts Director (CC) EXCLUSIVELY
+    from the company's AP Approval Matrix.
+    Does NOT use role-based lookups (per strict corporate policy to prevent notification leakage).
+    """
+    if not company:
+        return None, None
+
+    checker: Optional[str] = None
+    director_fallback: Optional[str] = None
+    accounts_director: Optional[str] = None
+
+    # Collect all matrices for this company (placing primary doctype matrix first)
+    matrices_to_check = []
+    if doctype:
+        primary = get_applicable_matrix(doctype, company, amount)
+        if primary:
+            matrices_to_check.append(primary)
+
+    other_matrices = frappe.get_all(
+        "AP Approval Matrix",
+        filters={"company": company, "is_active": 1},
+        fields=["name"]
+    )
+    for om in other_matrices:
+        if matrices_to_check and om["name"] == matrices_to_check[0].name:
+            continue
+        try:
+            matrices_to_check.append(frappe.get_doc("AP Approval Matrix", om["name"]))
+        except Exception:
+            pass
+
+    # Scan across matrices
+    for m in matrices_to_check:
+        for row in getattr(m, "approval_levels", []):
+            lvl_name = (row.level_name or "").lower()
+            approver = row.designated_approver
+            if not approver or not frappe.db.exists("User", approver):
+                continue
+
+            # Supervisor: Accounts Director / Accounts L2 / Accounts Head
+            if not accounts_director and any(term in lvl_name for term in ["accounts director", "accounts l2", "accounts head"]):
+                accounts_director = approver
+
+            # Explicit Payment Releaser / 2FA
+            if not checker and any(term in lvl_name for term in ["payment release", "releaser", "2fa", "bank disbursal"]):
+                checker = approver
+
+            # General Director fallback (excluding Accounts Director)
+            if not director_fallback and ("director" in lvl_name or "business head" in lvl_name) and "accounts" not in lvl_name and "assistant" not in lvl_name:
+                director_fallback = approver
+
+    final_checker = checker or director_fallback
+    return final_checker, accounts_director
+
 
 def get_current_level_rule(matrix_doc, level_number: int) -> Optional[Dict[str, Any]]:
     """Retrieves the rule definition for a specific level."""
