@@ -10,6 +10,7 @@ Includes row-level locking, broad status matching, dispute isolation, and full a
 
 from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
+from frappe import _
 from frappe.utils import getdate, nowdate, now_datetime, flt, cstr, fmt_money
 import datetime
 from ap_automation.services import employee_reimbursement_notification_service as notif
@@ -899,4 +900,282 @@ def update_voucher_expense_head(batch_name: str, voucher_no: str, new_expense_he
         "voucher_no": voucher_no,
         "expense_head": clean_head,
         "message": f"Expense Head updated to '{clean_head}' for Voucher #{voucher_no}."
+    }
+
+
+
+@frappe.whitelist()
+def preview_eligible_claims_count(
+    company: str,
+    cut_off_date: Optional[str] = None,
+    stage_target: str = "Receptionist Verified",
+    batch_name: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Returns live count and total amount of claims matching the company and cut-off date.
+    Used by the UI Fetch Claims Dialog for instant interactive preview.
+    """
+    if not company:
+        return {"eligible_count": 0, "total_amount": 0.0, "message": "Select a company entity."}
+
+    c_date = getdate(cut_off_date or nowdate())
+    cut_off_dt = f"{c_date} 23:59:59"
+
+    if stage_target == "Receptionist Verified":
+        statuses = [
+            "Queued in Admin Batch", "Queued for Friday Admin Review",
+            "Pending Admin Batch", "Receptionist Verified",
+            "Pending Admin L1", "Pending Admin L1 Review"
+        ]
+        date_filter = """
+            AND (
+                (c.receptionist_verified_on IS NOT NULL AND c.receptionist_verified_on <= %(cut_off_dt)s)
+                OR (c.receptionist_verified_on IS NULL AND c.posting_date <= %(c_date)s)
+            )
+        """
+    else:
+        statuses = [
+            "Admin L2 Approved", "Pending Accounts L1",
+            "Pending Accounts L1 Review", "Pending Accounts L1 Audit",
+            "Queued in Accounts Batch", "Friday Accounts Queue",
+            "Pending Weekly Accounts Batch"
+        ]
+        date_filter = "AND c.posting_date <= %(c_date)s"
+
+    status_tuple = tuple(statuses)
+    batch_cond = ""
+    params = {
+        "company": company,
+        "c_date": str(c_date),
+        "cut_off_dt": cut_off_dt,
+        "status_tuple": status_tuple
+    }
+
+    if batch_name:
+        params["batch_name"] = batch_name
+        batch_cond = "AND b.name != %(batch_name)s"
+
+    sql = f"""
+        SELECT COUNT(c.name) as cnt, SUM(c.total_claim_amount) as total
+        FROM `tabEmployee Reimbursement Claim` c
+        WHERE c.company = %(company)s
+          AND c.status IN %(status_tuple)s
+          {date_filter}
+          AND c.name NOT IN (
+              SELECT it.voucher_no
+              FROM `tabWeekly Accounts Audit Item` it
+              JOIN `tabWeekly Accounts Audit Batch` b ON it.parent = b.name
+              WHERE b.docstatus < 2
+                AND b.status NOT IN ('Cancelled', 'Paid')
+                AND it.status NOT IN ('Disputed / Returned', 'Returned to Employee', 'Returned to Receptionist')
+                {batch_cond}
+          )
+    """
+
+    res = frappe.db.sql(sql, params, as_dict=True)
+    cnt = int(res[0].cnt or 0) if res else 0
+    tot = float(res[0].total or 0.0) if res else 0.0
+
+    return {
+        "eligible_count": cnt,
+        "total_amount": round(tot, 2),
+        "cut_off_date": str(c_date),
+        "message": f"{cnt} eligible claim(s) found totaling INR {tot:,.2f} up to cut-off {c_date}."
+    }
+
+
+@frappe.whitelist()
+def fetch_eligible_claims_for_batch(
+    batch_name: str,
+    cut_off_date: Optional[str] = None,
+    stage_target: str = "Receptionist Verified",
+    sync_mode: str = "Safe Append",
+    company: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    On-Demand Mid-Week & Friday Ingestion Engine for Weekly Accounts Audit Batch:
+    1. Enforces strict cut-off date boundary (posting_date / receptionist_verified_on <= cut_off_date).
+    2. Multi-Batch Collision Shield: prevents duplicate pulling of claims active in other batches.
+    3. Dispute Re-entry: allows previously disputed claims to be ingested once re-verified by Receptionist.
+    4. Safe Append mode preserves already audited/disputed items in the current batch.
+    5. Links batch_name on each claim (weekly_audit_batch) for full transparency.
+    """
+    user = frappe.session.user
+    user_roles = frappe.get_roles(user)
+    allowed_roles = [
+        "Admin L1 Approver", "Admin L2 Approver", "Accounts L1 Auditor",
+        "Accounts Director", "AP Director", "System Manager", "Administrator"
+    ]
+    if not any(r in user_roles for r in allowed_roles):
+        frappe.throw(_("You do not have permission to fetch claims into this weekly batch."))
+
+    if not batch_name:
+        frappe.throw(_("Batch Name is required."))
+
+    # Concurrency Lock
+    frappe.db.sql("SELECT name FROM `tabWeekly Accounts Audit Batch` WHERE name = %s FOR UPDATE", (batch_name,))
+    batch = frappe.get_doc("Weekly Accounts Audit Batch", batch_name)
+
+    if batch.status in ("Approved for Payment", "Paid", "Cancelled"):
+        frappe.throw(_("Cannot fetch claims into a batch that is already in status '{0}'.").format(batch.status))
+
+    target_company = company or batch.company
+    if not target_company:
+        frappe.throw(_("Company Entity is required to fetch weekly claims."))
+
+    c_date = getdate(cut_off_date or batch.batch_date or nowdate())
+    cut_off_dt = f"{c_date} 23:59:59"
+
+    if stage_target == "Receptionist Verified":
+        statuses = (
+            "Queued in Admin Batch", "Queued for Friday Admin Review",
+            "Pending Admin Batch", "Receptionist Verified",
+            "Pending Admin L1", "Pending Admin L1 Review"
+        )
+        date_filter = """
+            AND (
+                (c.receptionist_verified_on IS NOT NULL AND c.receptionist_verified_on <= %(cut_off_dt)s)
+                OR (c.receptionist_verified_on IS NULL AND c.posting_date <= %(c_date)s)
+            )
+        """
+    else:
+        statuses = (
+            "Admin L2 Approved", "Pending Accounts L1",
+            "Pending Accounts L1 Review", "Pending Accounts L1 Audit",
+            "Queued in Accounts Batch", "Friday Accounts Queue",
+            "Pending Weekly Accounts Batch"
+        )
+        date_filter = "AND c.posting_date <= %(c_date)s"
+
+    params = {
+        "company": target_company,
+        "c_date": str(c_date),
+        "cut_off_dt": cut_off_dt,
+        "status_tuple": statuses,
+        "batch_name": batch.name
+    }
+
+    # Strict query with Collision Shield
+    query = f"""
+        SELECT c.name, c.employee, c.employee_name, c.department, c.claim_category,
+               c.posting_date, c.total_claim_amount, c.sanctioned_amount,
+               c.bank_name, c.bank_account_number, c.bank_ifsc_code AS bank_ifsc,
+               c.jv_number, c.jv_date, c.receptionist_verified_on
+        FROM `tabEmployee Reimbursement Claim` c
+        WHERE c.company = %(company)s
+          AND c.status IN %(status_tuple)s
+          {date_filter}
+          AND c.name NOT IN (
+              SELECT it.voucher_no
+              FROM `tabWeekly Accounts Audit Item` it
+              JOIN `tabWeekly Accounts Audit Batch` b ON it.parent = b.name
+              WHERE b.docstatus < 2
+                AND b.status NOT IN ('Cancelled', 'Paid')
+                AND it.status NOT IN ('Disputed / Returned', 'Returned to Employee', 'Returned to Receptionist')
+                AND b.name != %(batch_name)s
+          )
+        ORDER BY c.employee_name ASC, c.posting_date ASC
+    """
+
+    claims = frappe.db.sql(query, params, as_dict=True)
+
+    if sync_mode == "Fresh Sync":
+        # Keep items that have already been audited or disputed; remove pending un-audited items
+        batch.items = [it for it in batch.items if it.status in ("Audited / Approved", "Disputed / Returned")]
+
+    existing_vouchers = {it.voucher_no for it in batch.items}
+    added_count = 0
+
+    for c in claims:
+        if c.name in existing_vouchers:
+            continue
+
+        claimed = flt(c.total_claim_amount)
+        sanctioned = flt(c.sanctioned_amount or c.total_claim_amount)
+
+        # Count attachments
+        receipt_count = frappe.db.count("File", {
+            "attached_to_doctype": "Employee Reimbursement Claim",
+            "attached_to_name": c.name
+        }) or 1
+
+        # Determine Primary Expense Head
+        line_heads = frappe.db.sql("""
+            SELECT DISTINCT expense_head
+            FROM `tabEmployee Reimbursement Line`
+            WHERE parent = %s AND expense_head IS NOT NULL AND expense_head != ''
+            ORDER BY idx ASC
+        """, (c.name,), pluck=True)
+        primary_head = line_heads[0] if line_heads else (c.claim_category or "General Expense")
+
+        batch.append("items", {
+            "voucher_type": "Employee Reimbursement Claim",
+            "voucher_no": c.name,
+            "employee_id": c.employee,
+            "employee_name": c.employee_name,
+            "department": c.department or "General",
+            "bank_name": c.bank_name or "Salary Bank",
+            "bank_account_number": c.bank_account_number or "",
+            "bank_ifsc": c.bank_ifsc or "",
+            "claim_category": c.claim_category or "General Expense",
+            "expense_head": primary_head,
+            "claim_date": c.posting_date,
+            "claimed_amount": claimed,
+            "sanctioned_amount": sanctioned,
+            "status": "Pending Audit",
+            "receipt_count": receipt_count,
+            "jv_number": getattr(c, "jv_number", None) or "",
+            "jv_date": getattr(c, "jv_date", None)
+        })
+
+        existing_vouchers.add(c.name)
+        added_count += 1
+
+        # Link batch on individual claim for instant visibility
+        frappe.db.set_value(
+            "Employee Reimbursement Claim",
+            c.name,
+            "weekly_audit_batch",
+            batch.name,
+            update_modified=False
+        )
+
+    # Recalculate batch summary totals
+    total_claimed = 0.0
+    total_sanctioned = 0.0
+    total_disputed = 0.0
+    unique_employees = set()
+
+    for it in batch.items:
+        c_amt = flt(it.claimed_amount)
+        s_amt = flt(it.sanctioned_amount or it.claimed_amount)
+        total_claimed += c_amt
+
+        if it.status == "Disputed / Returned":
+            total_disputed += c_amt
+        else:
+            total_sanctioned += s_amt
+
+        if it.employee_id:
+            unique_employees.add(it.employee_id)
+
+    batch.total_claims_count = len(batch.items)
+    batch.total_employees_count = len(unique_employees)
+    batch.total_claimed_amount = round(total_claimed, 2)
+    batch.total_sanctioned_amount = round(total_sanctioned, 2)
+    batch.total_disputed_amount = round(total_disputed, 2)
+
+    batch.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "batch_name": batch.name,
+        "added_count": added_count,
+        "total_claims_count": batch.total_claims_count,
+        "total_sanctioned_amount": batch.total_sanctioned_amount,
+        "cut_off_date": str(c_date),
+        "message": _("Fetched {0} new claim(s) (Cut-Off: {1}). Total batch claims: {2} (INR {3:,.2f}).").format(
+            added_count, c_date, batch.total_claims_count, batch.total_sanctioned_amount
+        )
     }
