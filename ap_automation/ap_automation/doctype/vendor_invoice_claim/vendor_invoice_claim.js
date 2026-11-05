@@ -116,8 +116,39 @@ frappe.ui.form.on("Vendor Invoice Claim", {
             }, __('Actions'));
         }
 
+        // Filter service type
+        frm.set_query('service_type', function() {
+            return { filters: { is_active: 1 } };
+        });
+
         // Render dynamic approval action buttons based on current lifecycle stage & RBAC
         render_vendor_claim_approval_buttons(frm);
+
+        // Ensure Save button is always restored on Draft / Disputed states
+        if (status === "Draft" || status === "Disputed") {
+            frm.page.set_primary_action(__('Save'), () => frm.save());
+            if (!frm.is_new()) {
+                frm.add_custom_button(__('🚀 Submit for Approval'), function() {
+                    frappe.confirm(
+                        __('Are you sure you want to submit this Vendor Invoice Claim for Manager Approval?'),
+                        function() {
+                            frappe.call({
+                                method: 'ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.submit_for_approval',
+                                args: { docname: frm.doc.name },
+                                freeze: true,
+                                freeze_message: __('Submitting for Manager Approval...'),
+                                callback: function(r) {
+                                    if (r.message) {
+                                        frappe.show_alert({ message: __(r.message.message), indicator: 'green' });
+                                        frm.reload_doc();
+                                    }
+                                }
+                            });
+                        }
+                    );
+                }).addClass('btn-primary').css({ 'background-color': '#2563eb', 'border-color': '#1d4ed8', 'color': '#ffffff' });
+            }
+        }
 
         if (!frm.is_new() && typeof window.APClarificationThread !== 'undefined') {
             window.APClarificationThread.render(frm);
@@ -325,7 +356,11 @@ function render_vendor_claim_approval_buttons(frm) {
     // Hide premature Frappe Submit button if claim has not completed all approval stages
     if (status !== "Approved for Payment") {
         if (frm.page.btn_primary && frm.page.btn_primary.text().trim() === __("Submit")) {
-            frm.page.btn_primary.hide();
+            if (status === "Draft" || status === "Disputed") {
+                frm.page.set_primary_action(__('Save'), () => frm.save());
+            } else {
+                frm.page.btn_primary.hide();
+            }
         }
     }
 
@@ -355,10 +390,10 @@ function render_vendor_claim_approval_buttons(frm) {
         }
     }
 
-// Stage 3: Pending Director Approval (> 2L)
+// Stage 3: Pending Director Approval
     else if (status === "Pending Director Approval") {
-        let is_dir = frappe.user.has_role(["Accounts Director", "Director Tier", "System Manager"]) || is_admin;
-        if ((!is_owner && is_dir) || is_admin) {
+        let is_dir = (frappe.user.has_role(["AP Director", "Accounts Director", "Director Tier"]) && !is_owner) || frappe.session.user === "Administrator";
+        if (is_dir) {
             frm.add_custom_button(__('⭐ Approve (Director)'), function() {
                 frappe.prompt([
                     { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Director Remarks (Optional)') }
@@ -382,7 +417,7 @@ function render_vendor_claim_approval_buttons(frm) {
 
     // Stage 4: Pending Accounts Review (Gokulnath)
     else if (status === "Pending Accounts Review") {
-        let is_accounts = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager']) || is_admin;
+        let is_accounts = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager', 'AP Director', 'Accounts Director']) || is_admin;
         if (is_accounts) {
             frm.add_custom_button(__('✅ Verify & Post Tally JV'), function() {
                 frappe.prompt([
@@ -422,7 +457,7 @@ function render_vendor_claim_approval_buttons(frm) {
 
     // Stage 5: Pending Accounts L2 Approval (Anshul Sir / Srinivasan Sir)
     else if (status === "Pending Accounts L2 Approval") {
-        let is_l2 = frappe.user.has_role(['Accounts Manager', 'Accounts Director']) || is_admin;
+        let is_l2 = frappe.user.has_role(['Accounts Manager', 'Accounts Director', 'AP Director']) || is_admin;
         if (is_l2) {
             frm.add_custom_button(__('⭐ Approve Payment (L2)'), function() {
                 frappe.confirm(
@@ -448,7 +483,7 @@ function render_vendor_claim_approval_buttons(frm) {
 
     // Stage 6: Approved for Payment / Queued in Batch (Payment Releaser)
     else if (status === "Approved for Payment" || status === "Queued in Batch") {
-        let is_releaser = frappe.user.has_role(['Accounts Director', 'Accounts Manager', 'System Manager']) || is_admin;
+        let is_releaser = frappe.user.has_role(['Payment Releaser', 'Accounts Director', 'Accounts Manager', 'AP Director', 'System Manager']) || is_admin;
         if (is_releaser) {
             frm.add_custom_button(__('💳 Disburse & Stamp UTR'), function() {
                 frappe.prompt([

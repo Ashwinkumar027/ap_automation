@@ -11,6 +11,13 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
                 query: 'ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim.supplier_query'
             };
         });
+        frm.set_query('service_type', 'vendor_lines', function () {
+            return {
+                filters: {
+                    is_active: 1
+                }
+            };
+        });
     },
 
     refresh: function (frm) {
@@ -19,6 +26,13 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
         frm.set_query('vendor', 'vendor_lines', function () {
             return {
                 query: 'ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim.supplier_query'
+            };
+        });
+        frm.set_query('service_type', 'vendor_lines', function () {
+            return {
+                filters: {
+                    is_active: 1
+                }
             };
         });
         render_admin_vendor_stepper(frm);
@@ -142,6 +156,13 @@ function calculate_row_statutory(cdt, cdn) {
 // CHILD TABLE ROW CONTROLLER (ADMIN VENDOR CLAIM ITEM)
 // --------------------------------------------------------------------------------------
 frappe.ui.form.on('Admin Vendor Claim Item', {
+    vendor_lines_add: function (frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (!row.company) {
+            frappe.model.set_value(cdt, cdn, 'company', frm.doc.company || frappe.defaults.get_user_default("Company") || "");
+        }
+    },
+
     vendor_category: function (frm, cdt, cdn) {
         if (window.APExpenseTypeManager) {
             window.APExpenseTypeManager.handleGridAddPrompt(frm, cdt, cdn, 'vendor_category', 'Admin Weekly Vendor Claims');
@@ -707,12 +728,13 @@ function apply_grid_role_permissions(frm) {
         }
     };
 
-    safe_toggle_enable('gst_rate', is_acc);
-    safe_toggle_enable('tax_type', is_acc);
-    safe_toggle_enable('tds_section', is_acc);
+    // Allow Receptionist, Admin, Accounts, Payment Releaser full editing access to line items
+    safe_toggle_enable('gst_rate', true);
+    safe_toggle_enable('tax_type', true);
+    safe_toggle_enable('tds_section', true);
     safe_toggle_enable('service_type', true);
-    safe_toggle_enable('line_status', is_acc);
-    safe_toggle_enable('discrepancy_remarks', is_acc);
+    safe_toggle_enable('line_status', true);
+    safe_toggle_enable('discrepancy_remarks', true);
 }
 
 // --------------------------------------------------------------------------------------
@@ -928,7 +950,6 @@ const REQUIRED_GRID_COLUMNS = [
     { fieldname: 'service_type', columns: 2 },
     { fieldname: 'vendor', columns: 2 },
     { fieldname: 'vendor_name', columns: 2 },
-    { fieldname: 'company', columns: 2 },
     { fieldname: 'invoice_number', columns: 2 },
     { fieldname: 'invoice_date', columns: 2 },
     { fieldname: 'receipt_attachment', columns: 2 },
@@ -1075,7 +1096,7 @@ function apply_admin_vendor_styles() {
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="service_type"] { min-width: 150px !important; }
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="vendor"] { min-width: 160px !important; }
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="vendor_name"] { min-width: 160px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="company"] { min-width: 140px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="company"] { display: none !important; }
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="invoice_number"] { min-width: 120px !important; }
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="invoice_date"] { min-width: 110px !important; }
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="receipt_attachment"] { min-width: 130px !important; }

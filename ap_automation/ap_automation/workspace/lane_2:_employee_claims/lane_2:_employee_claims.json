@@ -2,7 +2,7 @@
  "app": "ap_automation",
  "charts": [],
  "content": "[{\"id\":\"header_1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Lane 2: Employee Claims</span>\",\"col\":12}},{\"id\":\"card_920d46\",\"type\":\"card\",\"data\":{\"card_name\":\"Employee Expenses\",\"col\":4}}]",
- "creation": "2026-09-09 16:32:50.961798",
+ "creation": "2026-10-18 11:56:39.271546",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -64,7 +64,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-10-13 20:14:49.103650",
+ "modified": "2026-11-05 14:29:43.148629",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Lane 2: Employee Claims",
@@ -109,6 +109,9 @@
   },
   {
    "role": "Receptionist"
+  },
+  {
+   "role": "AP Director"
   }
  ],
  "sequence_id": 1.2,

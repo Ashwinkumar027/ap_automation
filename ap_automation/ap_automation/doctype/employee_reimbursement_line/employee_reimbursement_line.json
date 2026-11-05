@@ -51,6 +51,15 @@
   },
   {
    "columns": 2,
+   "default": "Housekeeping Materials",
+   "fieldname": "branch_expense_category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Branch Expense Type",
+   "options": "Housekeeping Materials\nPantry & Refreshments (Tea/Coffee)\nBranch Equipment & Repairs\nOffice Stationery\nOther Branch Operations"
+  },
+  {
+   "columns": 2,
    "fieldname": "description",
    "fieldtype": "Small Text",
    "in_list_view": 1,
@@ -89,9 +98,11 @@
   {
    "columns": 1,
    "fieldname": "payment_mode_used",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Remarks / Payment Mode"
+   "label": "Payment Mode",
+   "options": "GPAY / UPI\nCompany Credit Card\nPersonal Credit Card\nCash\nBank Transfer",
+   "default": "GPAY / UPI"
   },
   {
    "columns": 2,

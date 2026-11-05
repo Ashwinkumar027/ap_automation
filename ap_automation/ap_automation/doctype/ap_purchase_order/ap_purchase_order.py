@@ -80,7 +80,7 @@ class APPurchaseOrder(Document):
     def fetch_entity_master_data(self):
         """Populates company entity details and registered address dynamically per entity."""
         if not getattr(self, "company_entity", None):
-            self.company_entity = "Aionion Capital Market Services Private Limited"
+            self.company_entity = frappe.defaults.get_user_default("Company") or "Aionion Capital Market Services Private Limited"
 
         reg = COMPANY_ADDRESS_REGISTRY.get(self.company_entity, {})
         

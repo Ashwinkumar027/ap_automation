@@ -1528,12 +1528,12 @@ def notify_on_vendor_po_signed(po_name: str) -> None:
     desk_url = f"{base_url}/desk/ap-purchase-order/{po.name}"
     portal_url = po.vendor_sign_url or f"{base_url}/po-sign?po={po.name}"
 
-    # 1. Internal SPOC & Accounts Alert
+    # 1. Internal SPOC Alert (Restricted strictly to the designated SPOC employee)
     recipients = []
     if po.spoc_email and po.spoc_email not in recipients:
         recipients.append(po.spoc_email)
-    if po.company_contact_email and po.company_contact_email not in recipients:
-        recipients.append(po.company_contact_email)
+    elif getattr(po, "owner", None) and po.owner not in recipients:
+        recipients.append(po.owner)
 
     if not recipients:
         recipients = ["admin@example.com"]

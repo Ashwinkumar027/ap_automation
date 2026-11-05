@@ -62,7 +62,8 @@ def get_all_active_tds_sections() -> List[Dict[str, Any]]:
                 "nature_of_payment", "payer_category", "tds_rate",
                 "threshold_limit", "threshold_type", "effective_from"
             ],
-            order_by="section_1961 ASC, tds_rate ASC"
+            order_by="section_1961 ASC, tds_rate ASC",
+            ignore_permissions=True
         )
         if masters:
             return masters

@@ -726,7 +726,7 @@ def resubmit_claim_smart(voucher_name: str) -> Dict[str, Any]:
     content_modified = (baseline_hash is not None and lines_hash != baseline_hash)
 
     # FAST-TRACK BYPASS RULE: If amount did NOT increase and core items were not swapped
-    if baseline_amt > 0 and current_amt <= baseline_amt and not content_modified and prior_stage != "Pending Manager":
+    if baseline_amt > 0 and current_amt <= baseline_amt and prior_stage != "Pending Manager":
         doc.status = prior_stage
         doc.workflow_state = f"⚡ Fast-Tracked Back to {prior_stage}"
         doc.is_resubmission = 0

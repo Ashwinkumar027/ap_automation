@@ -164,7 +164,8 @@
    "in_standard_filter": 1,
    "label": "Type of Service",
    "options": "AP Service Type Master",
-   "description": "Select or add service classification (e.g. IT Hardware, Subscriptions, AMC, Facility)"
+   "description": "Select or add service classification (e.g. IT Hardware, Subscriptions, AMC, Facility)",
+   "ignore_user_permissions": 1
   },
   {
    "fieldname": "base_amount",
@@ -340,7 +341,9 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Linked Goods Receipt Note (GRN)",
-   "options": "Purchase Receipt"
+   "options": "Purchase Receipt",
+   "ignore_user_permissions": 1,
+   "reqd": 0
   },
   {
    "default": "Not Applicable (Non-PO)",
@@ -553,6 +556,55 @@
    "select": 1,
    "share": 1,
    "write": 1
+  },
+  {
+   "role": "Employee",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0
+  },
+  {
+   "role": "Admin L1 Approver",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0
+  },
+  {
+   "role": "Admin L2 Approver",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
+  },
+  {
+   "role": "Accounts L1 Auditor",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
+  },
+  {
+   "role": "Accounts Director",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
+  },
+  {
+   "role": "AP Director",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
+  },
+  {
+   "role": "Payment Releaser",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
   }
  ],
  "row_format": "Dynamic",

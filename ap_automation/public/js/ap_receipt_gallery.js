@@ -867,6 +867,10 @@ window.APReceiptGallery = {
                 }
             }
 
+            const is_vendor_claim = (frm && frm.doc && (frm.doc.doctype === 'Admin Weekly Vendor Claim' || frm.doc.doctype === 'Vendor Invoice Claim'));
+            const is_event_claim = (frm && frm.doc && frm.doc.doctype === 'Event Expense Claim');
+            const dynamic_category_label = is_vendor_claim ? 'Vendor Category' : (is_event_claim ? 'Expense Category' : 'Expense Type');
+
             const active_html = `
                 <!-- Top Header Toolbar -->
                 <div class="ap-gallery-toolbar" style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; gap: 10px; flex-wrap: wrap;">
@@ -918,9 +922,9 @@ window.APReceiptGallery = {
                         <!-- In-Modal Type Pill -->
                         <div class="ap-type-badge-pill" style="display: inline-flex; align-items: center; background: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 6px; padding: 2px 8px; gap: 6px;">
                             <span style="font-size: 11px; font-weight: 700; color: #047857;">
-                                🏷️ Type: <span class="ap-active-type-text">${active_group.category || 'General Expense'}</span>
+                                🏷️ ${dynamic_category_label}: <span class="ap-active-type-text">${active_group.category || (is_vendor_claim ? 'General Vendor Claim' : 'General Expense')}</span>
                             </span>
-                            <button type="button" class="btn btn-xs btn-default ap-btn-edit-type" title="Edit Expense Type for this row" style="font-size: 10px; font-weight: 700; color: #047857; padding: 1px 6px; border: 1px solid #a7f3d0; background: #ffffff; border-radius: 4px; cursor: pointer;">
+                            <button type="button" class="btn btn-xs btn-default ap-btn-edit-type" title="Edit ${dynamic_category_label} for this row" style="font-size: 10px; font-weight: 700; color: #047857; padding: 1px 6px; border: 1px solid #a7f3d0; background: #ffffff; border-radius: 4px; cursor: pointer;">
                                 ✏️ Edit
                             </button>
                         </div>
