@@ -95,7 +95,7 @@ def create_payment_instruction_from_claim(
         payable_amt = float(claim.net_payable_amount or 0.0)
 
         # Gate 1: 3-way match passed & tax invoice proof attached
-        l1_verified = bool(claim.match_status in ("3-Way Match Passed", "Not Applicable (Non-PO)") and claim.tax_invoice_attachment)
+        l1_verified = bool(claim.match_status in ("3-Way Match Passed", "Not Applicable (Non-PO)", "2-Way Match Passed (PO Reconciled)", "2-Way Match Passed (PO Linked)") and claim.tax_invoice_attachment)
         # Gate 2: Status is approved
         l2_approved = bool(claim.status in ("Approved for Payment", "Queued in Batch"))
         # Gate 3: Check Penny Drop status from Supplier Bank Account
