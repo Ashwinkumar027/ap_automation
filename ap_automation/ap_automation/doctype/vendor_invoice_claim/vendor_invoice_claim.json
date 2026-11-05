@@ -351,7 +351,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "3-Way Match Status",
-   "options": "Not Applicable (Non-PO)\n3-Way Match Passed\nQuantity Mismatch Flagged\nPrice Mismatch Flagged\nMissing GRN Flagged",
+   "options": "Not Applicable (Non-PO)\n3-Way Match Passed\n2-Way Match Passed (PO Reconciled)\n2-Way Match Passed (PO Linked)\nQuantity Mismatch Flagged\nPrice Mismatch Flagged\nMissing GRN Flagged",
    "read_only": 1
   },
   {

@@ -574,6 +574,19 @@ def notify_payment_releaser_on_idfc_upload(
             <tr><td style="padding: 6px 0; color: #64748b;">Company / Entity:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{company}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Audited Claims:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{getattr(doc, 'total_claims_count', 0)} claims ({getattr(doc, 'total_employees_count', 0)} unique employees)</td></tr>
         """
+    elif voucher_doctype == "Weekly Vendor Payment Batch":
+        amount = float(getattr(doc, "total_payable_amount", 0.0) or getattr(doc, "total_base_amount", 0.0) or 0.0)
+        module_title = "Weekly Vendor Payment Batch"
+        card_title = "Weekly Vendor Payment Batch Uploaded for Payment Release"
+        subject_tag = f"Weekly Vendor Batch #{voucher_name}"
+        button_label = "🔍 Open Weekly Vendor Payment Batch &rarr;"
+        detail_rows = f"""
+            <tr><td style="padding: 6px 0; color: #64748b; width: 40%;">Batch Reference:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 700;">#{voucher_name}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Fiscal Week:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{getattr(doc, 'week_number', 'N/A')}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Company / Entity:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{company}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Vendor Invoices:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{getattr(doc, 'total_invoices_count', 0)} invoices ({getattr(doc, 'total_vendors_count', 0)} unique vendors)</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">TDS Withheld:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">₹ {fmt_money(getattr(doc, 'total_tds_amount', 0.0))}</td></tr>
+        """
     elif voucher_doctype == "Admin Weekly Vendor Claim":
         amount = float(getattr(doc, "total_amount", 0.0) or 0.0)
         module_title = "Admin Weekly Vendor Claim"

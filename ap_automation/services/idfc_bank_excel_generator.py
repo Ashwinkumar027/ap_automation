@@ -703,3 +703,80 @@ def download_idfc_vendor_invoice_excel(voucher_name: str):
     frappe.response["filename"] = filename
     frappe.response["filecontent"] = filebytes
     frappe.response["type"] = "binary"
+
+
+
+@frappe.whitelist()
+def download_idfc_weekly_vendor_batch_excel(batch_name: str):
+    """
+    Generates and downloads the official IDFC Bank Bulk Disbursal Excel (.xlsx)
+    for all approved commercial vendor invoices in a Weekly Vendor Payment Batch.
+    """
+    if not batch_name:
+        frappe.throw(_("Batch name is required."))
+
+    batch = frappe.get_doc("Weekly Vendor Payment Batch", batch_name)
+    company = batch.company or frappe.defaults.get_user_default("Company")
+    debit_account = get_company_debit_account(company)
+
+    b_date = getdate(batch.batch_date or nowdate())
+    tx_date_str = b_date.strftime("%d/%m/%Y")
+
+    items = [it for it in (batch.items or []) if it.status != "Disputed / Excluded"]
+    if not items:
+        frappe.throw(_("No approved, non-disputed vendor invoices found in this batch."))
+
+    # Aggregate by Supplier / Vendor to consolidate multiple invoices for the same vendor into 1 clean payout row
+    vendor_groups: Dict[str, Dict[str, Any]] = OrderedDict()
+
+    for it in items:
+        supplier_id = it.supplier
+        payable_amt = flt(it.net_payable_amount)
+        if payable_amt <= 0:
+            continue
+
+        b_name = it.supplier_name or it.supplier or "VENDOR"
+        b_ac = it.bank_account_number or ""
+        b_ifsc = it.bank_ifsc or ""
+
+        # Pre-export safety validation
+        if not str(b_ac).strip() or not str(b_ifsc).strip():
+            frappe.throw(
+                _("Vendor '{0}' ({1}) in invoice claim '{2}' is missing Bank Account Number or IFSC Code. "
+                  "Please ensure all vendors in the batch have verified banking details before exporting.")
+                .format(b_name, supplier_id, it.invoice_claim)
+            )
+
+        email = frappe.db.get_value("Supplier", supplier_id, "email_id") or "" if supplier_id else ""
+
+        if supplier_id not in vendor_groups:
+            vendor_groups[supplier_id] = {
+                "beneficiary_name": b_name,
+                "beneficiary_account_number": str(b_ac).strip(),
+                "ifsc": str(b_ifsc).strip().upper(),
+                "debit_account_number": debit_account,
+                "transaction_date": tx_date_str,
+                "amount": payable_amt,
+                "currency": "INR",
+                "beneficiary_email": email,
+                "remarks": f"VENDOR BATCH {batch.name}",
+                "vouchers": [it.invoice_claim],
+            }
+        else:
+            vendor_groups[supplier_id]["amount"] += payable_amt
+            vendor_groups[supplier_id]["vouchers"].append(it.invoice_claim)
+
+    payment_rows = list(vendor_groups.values())
+    if not payment_rows:
+        frappe.throw(_("Could not extract valid vendor payment records from this batch."))
+
+    filename, filebytes = generate_idfc_bank_excel_bytes(
+        payment_rows=payment_rows,
+        debit_account_no=debit_account,
+        transaction_date_str=tx_date_str,
+        filename_prefix=f"IDFC_Vendor_Batch_{batch_name}"
+    )
+
+    frappe.response["filename"] = filename
+    frappe.response["filecontent"] = filebytes
+    frappe.response["type"] = "download"

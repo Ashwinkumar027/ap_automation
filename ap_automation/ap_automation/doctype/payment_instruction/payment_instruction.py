@@ -86,7 +86,7 @@ def get_voucher_details(source_doctype: str, source_voucher: str) -> Dict[str, A
         bank_name = getattr(claim, "bank_name", "") or "IDFC FIRST Bank"
         payable_amt = float(getattr(claim, "net_payable_amount", 0.0) or getattr(claim, "total_amount", 0.0) or 0.0)
 
-        l1_verified = bool(getattr(claim, "match_status", "") in ("3-Way Match Passed", "Not Applicable (Non-PO)") and getattr(claim, "tax_invoice_attachment", ""))
+        l1_verified = bool(getattr(claim, "match_status", "") in ("3-Way Match Passed", "Not Applicable (Non-PO)", "2-Way Match Passed (PO Reconciled)", "2-Way Match Passed (PO Linked)") and getattr(claim, "tax_invoice_attachment", ""))
         l2_approved = bool(claim.status in ("Approved for Payment", "Queued in Batch", "Approved"))
         ba_status = frappe.db.get_value(
             "Bank Account",
