@@ -1696,8 +1696,8 @@ def notify_on_vendor_po_rejected(po_name: str, rejection_reason: str = "Commerci
     recipients = []
     if po.spoc_email and po.spoc_email not in recipients:
         recipients.append(po.spoc_email)
-    if po.company_contact_email and po.company_contact_email not in recipients:
-        recipients.append(po.company_contact_email)
+    elif getattr(po, "owner", None) and po.owner not in recipients:
+        recipients.append(po.owner)
 
     if not recipients:
         recipients = ["admin@example.com"]
