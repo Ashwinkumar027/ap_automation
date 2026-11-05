@@ -417,6 +417,12 @@ def download_idfc_petty_cash_excel(voucher_name: str):
         or emp_info.get("ifsc_code")
         or ""
     )
+    if not str(b_ac).strip() or not str(b_ifsc).strip():
+        frappe.throw(
+            _("Custodian Bank Account Number or IFSC Code is missing for Custodian {0} ({1}). "
+              "Please update bank details in Employee Master before downloading IDFC Disbursal Excel.")
+            .format(doc.custodian, b_name)
+        )
     email = emp_info.get("company_email") or emp_info.get("personal_email") or ""
 
     payment_row = {
@@ -479,6 +485,13 @@ def download_idfc_admin_weekly_excel(voucher_name: str):
         # Skip non-payable rows
         if amount <= 0:
             continue
+
+        if not str(b_ac).strip() or not str(b_ifsc).strip():
+            frappe.throw(
+                _("Row #{0} (Vendor: {1}) is missing Bank Account Number or IFSC Code. "
+                  "Please ensure all payable vendor lines have banking details before downloading IDFC Excel.")
+                .format(idx, b_name)
+            )
 
         # Transaction Type resolution per IDFC Banking Rules:
         # 1. IFT: Within IDFC First Bank transfer (IFSC starts with IDFB)
@@ -571,6 +584,12 @@ def download_idfc_employee_reimbursement_excel(voucher_name: str):
         or emp_info.get("ifsc_code")
         or ""
     )
+    if not str(b_ac).strip() or not str(b_ifsc).strip():
+        frappe.throw(
+            _("Bank Account Number or IFSC Code is missing for Claimant {0} ({1}). "
+              "Please update bank details before downloading IDFC Disbursal Excel.")
+            .format(doc.employee, b_name)
+        )
     email = emp_info.get("company_email") or emp_info.get("personal_email") or ""
 
     # Net payable amount (sanctioned_amount -> net_payable_amount -> total_amount)
@@ -635,6 +654,12 @@ def download_idfc_vendor_invoice_excel(voucher_name: str):
     b_name = doc.get("vendor_name") or doc.get("vendor") or "VENDOR"
     b_ac = doc.get("bank_account_number") or ""
     b_ifsc = doc.get("bank_ifsc_code") or ""
+    if not str(b_ac).strip() or not str(b_ifsc).strip():
+        frappe.throw(
+            _("Vendor Bank Account Number or IFSC Code is missing on Vendor Invoice Claim {0}. "
+              "Please provide verified banking details before generating IDFC Disbursal Excel.")
+            .format(voucher_name)
+        )
 
     # Net payable amount
     amount = flt(doc.get("net_payable_amount") or doc.get("total_amount") or doc.get("total_invoice_amount") or 0.0)

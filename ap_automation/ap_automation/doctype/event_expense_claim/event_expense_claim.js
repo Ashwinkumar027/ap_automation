@@ -70,6 +70,54 @@ frappe.ui.form.on("Event Expense Claim", {
             }).addClass('btn-primary');
         }
 
+        
+        // Rejection / Return Action for Reviewers
+        const can_reject = frappe.user.has_role(['Accounts L1 Auditor', 'Admin L1 Approver', 'Admin L2 Approver', 'Accounts Director', 'AP Director', 'System Manager']) || frappe.session.user === 'Administrator';
+        if (can_reject && frm.doc.status === 'Submitted') {
+            frm.add_custom_button(__('↩️ Return to SPOC'), function() {
+                frappe.prompt([
+                    {
+                        fieldname: 'reason',
+                        fieldtype: 'Small Text',
+                        label: __('Reason / Discrepancy Description'),
+                        reqd: 1
+                    }
+                ], function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.reject_or_return_event_claim',
+                        args: {
+                            claim_name: frm.doc.name,
+                            reason: values.reason
+                        },
+                        freeze: true,
+                        callback: function(r) {
+                            if (r.message && r.message.status === 'SUCCESS') {
+                                frappe.show_alert({ message: __('Claim returned to SPOC'), indicator: 'orange' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Return Claim for Revision'), __('Submit Return'));
+            }).addClass('btn-danger');
+        }
+
+        // Resubmit button for SPOC when status is Returned to SPOC
+        if (frm.doc.status === 'Returned to SPOC') {
+            frm.add_custom_button(__('🚀 Resubmit Corrected Claim'), function() {
+                frappe.call({
+                    method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.resubmit_event_claim',
+                    args: { claim_name: frm.doc.name },
+                    freeze: true,
+                    callback: function(r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({ message: __('Claim resubmitted successfully'), indicator: 'green' });
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }).addClass('btn-primary');
+        }
+
         if (window.APExpenseTypeManager) {
             window.APExpenseTypeManager.refreshGridOptions(frm, 'expense_items', 'expense_category', 'Events');
         }
@@ -151,6 +199,54 @@ function render_stream_demarcation_banner(frm) {
 
 frappe.ui.form.on("Event Expense Item", {
     expense_category: function(frm, cdt, cdn) {
+        
+        // Rejection / Return Action for Reviewers
+        const can_reject = frappe.user.has_role(['Accounts L1 Auditor', 'Admin L1 Approver', 'Admin L2 Approver', 'Accounts Director', 'AP Director', 'System Manager']) || frappe.session.user === 'Administrator';
+        if (can_reject && frm.doc.status === 'Submitted') {
+            frm.add_custom_button(__('↩️ Return to SPOC'), function() {
+                frappe.prompt([
+                    {
+                        fieldname: 'reason',
+                        fieldtype: 'Small Text',
+                        label: __('Reason / Discrepancy Description'),
+                        reqd: 1
+                    }
+                ], function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.reject_or_return_event_claim',
+                        args: {
+                            claim_name: frm.doc.name,
+                            reason: values.reason
+                        },
+                        freeze: true,
+                        callback: function(r) {
+                            if (r.message && r.message.status === 'SUCCESS') {
+                                frappe.show_alert({ message: __('Claim returned to SPOC'), indicator: 'orange' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Return Claim for Revision'), __('Submit Return'));
+            }).addClass('btn-danger');
+        }
+
+        // Resubmit button for SPOC when status is Returned to SPOC
+        if (frm.doc.status === 'Returned to SPOC') {
+            frm.add_custom_button(__('🚀 Resubmit Corrected Claim'), function() {
+                frappe.call({
+                    method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.resubmit_event_claim',
+                    args: { claim_name: frm.doc.name },
+                    freeze: true,
+                    callback: function(r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({ message: __('Claim resubmitted successfully'), indicator: 'green' });
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }).addClass('btn-primary');
+        }
+
         if (window.APExpenseTypeManager) {
             window.APExpenseTypeManager.handleGridAddPrompt(frm, cdt, cdn, 'expense_category', 'Events');
         }

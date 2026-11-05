@@ -182,6 +182,48 @@
    "select": 1,
    "share": 1,
    "write": 1
+  },
+  {
+   "role": "Admin L1 Approver",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
+  },
+  {
+   "role": "Admin L2 Approver",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
+  },
+  {
+   "role": "Accounts L1 Auditor",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
+  },
+  {
+   "role": "Accounts Director",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
+  },
+  {
+   "role": "AP Director",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
+  },
+  {
+   "role": "Payment Releaser",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
   }
  ],
  "row_format": "Dynamic",

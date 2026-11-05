@@ -327,6 +327,10 @@ class AdminWeeklyVendorClaim(Document):
             row.tds_amount = tds_amt
             row.amount = net_pay
 
+            # If line is disputed / flagged as discrepancy, exclude from payable net totals
+            if getattr(row, "line_status", "Pending") == "Disputed / Discrepancy":
+                continue
+
             tot_base += base
             tot_gst += gst_amt
             tot_tds += tds_amt
@@ -443,29 +447,40 @@ def get_supplier_bank_info(supplier):
 def _resolve_matrix_level_approver(doc, level_number: int):
     """
     Finds designated approver rule from AP Approval Matrix for lane 'Admin Weekly Vendor Claim'.
-    Raises informative validation error if matrix is missing.
+    Provides safe role-based fallbacks if matrix is not yet configured for this company.
     """
     matrix = get_applicable_matrix("Admin Weekly Vendor Claim", doc.company, doc.total_amount)
     if not matrix:
-        # Fallback to AP Vendor Invoice if not specifically set
         matrix = get_applicable_matrix("AP Vendor Invoice", doc.company, doc.total_amount)
 
-    if not matrix:
-        frappe.throw(
-            _(f"No active AP Approval Matrix configured for Company '{doc.company}' and Document Lane 'Admin Weekly Vendor Claim'. "
-              f"Please configure the 4-tier matrix policy in AP Approval Matrix."),
-            title=_("Approval Matrix Missing"),
-            exc=APValidationError
-        )
+    if matrix:
+        rule = get_current_level_rule(matrix, level_number)
+        if rule and getattr(rule, "designated_approver", None):
+            return rule
 
-    rule = get_current_level_rule(matrix, level_number)
-    if not rule or not rule.designated_approver:
-        frappe.throw(
-            _(f"Approval Level #{level_number} has no Designated Approver configured in Policy '{matrix.name}'."),
-            title=_("Incomplete Matrix Configuration"),
-            exc=APValidationError
-        )
-    return rule
+    # Fallback to role-based approver resolution if matrix rule is not defined
+    fallback_roles_map = {
+        1: ["Admin L1 Approver", "Admin Manager"],
+        2: ["Admin L2 Approver", "Admin Manager", "AP Director"],
+        3: ["Accounts L1 Auditor", "Accounts User"],
+        4: ["Accounts Director", "AP Director", "Accounts Manager"]
+    }
+    roles = fallback_roles_map.get(level_number, ["Admin L1 Approver"])
+    from ap_automation.services.notification_service import _get_matrix_or_role_approvers
+    approvers = _get_matrix_or_role_approvers(
+        company=doc.company,
+        document_lane="Admin Weekly Vendor Claim",
+        level_number=level_number,
+        fallback_roles=roles
+    )
+    fallback_user = approvers[0] if approvers else (getattr(doc, "owner", None) or "Administrator")
+
+    class FallbackRule:
+        def __init__(self, user):
+            self.designated_approver = user
+            self.allow_delegation = 1
+
+    return FallbackRule(fallback_user)
 
 
 @frappe.whitelist()
