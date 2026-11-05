@@ -982,3 +982,66 @@ def generate_weekly_excel_download(docname):
     frappe.response["filename"] = f"Admin_Weekly_Vendor_Claim_{doc.name}.xlsx"
     frappe.response["filecontent"] = xlsx_file.getvalue()
     frappe.response["type"] = "binary"
+
+
+
+@frappe.whitelist()
+def trigger_payment_release_notification(docname: str):
+    """
+    Maker-Checker Handoff:
+    Invoked by the Maker (Accounts) after uploading the Admin Weekly Vendor disbursal file to the IDFC Portal.
+    Dynamically resolves the designated AP Director (TO) and Accounts Director (CC) strictly from the AP Approval Matrix,
+    stamps immutable audit logs, updates payment release flags, and sends official notification email with direct voucher link.
+    """
+    if not docname:
+        frappe.throw(_("Document Name is required."))
+
+    doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
+    user = frappe.session.user
+
+    allowed_roles = {
+        "Accounts Director", "Accounts L2 / Director Approver", "Accounts Auditor", "Accounts L1 Approver",
+        "Accounts User", "Accounts Manager", "Admin L2 Approver", "Payment Releaser", "Director Tier",
+        "AP Director", "System Manager", "Administrator"
+    }
+    user_roles = set(frappe.get_roles(user))
+    if not (allowed_roles & user_roles) and user != "Administrator":
+        frappe.throw(_("You do not have permission to trigger payment release notifications."))
+
+    if doc.status not in ("Queued for Payment Release", "Queued in Batch", "Approved for Payment", "Paid"):
+        frappe.throw(_("Voucher {0} must be in 'Queued for Payment Release' to trigger payment release.").format(docname))
+
+    from ap_automation.services.notification_service import notify_payment_releaser_on_idfc_upload
+
+    res = notify_payment_releaser_on_idfc_upload(
+        voucher_doctype=doc.doctype,
+        voucher_name=doc.name,
+        uploaded_by=user
+    )
+
+    releaser = res.get("releaser")
+    ad = res.get("accounts_director")
+
+    doc.db_set({
+        "payment_release_notified": 1,
+        "payment_release_notified_on": now_datetime(),
+        "payment_release_maker": user,
+        "payment_releaser": releaser if releaser and not doc.payment_releaser else doc.payment_releaser
+    }, update_modified=False)
+
+    releaser_display = frappe.db.get_value("User", releaser, "full_name") or releaser
+    ad_display = (frappe.db.get_value("User", ad, "full_name") or ad) if ad else "N/A"
+    doc.add_comment(
+        "Comment",
+        text=f"📤 <b>Payment Release Notified:</b> IDFC Excel disbursal file uploaded to IDFC Netbanking by {user}. "
+             f"Payout authorization request dispatched to AP Director (<b>{releaser_display}</b>) with CC to Accounts Director (<b>{ad_display}</b>)."
+    )
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "docname": doc.name,
+        "releaser": releaser,
+        "accounts_director": ad,
+        "message": _("Payment Release notification sent! AP Director ({0}) has been notified.").format(releaser_display)
+    }
