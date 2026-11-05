@@ -886,6 +886,15 @@ frappe.ui.form.on('Employee Reimbursement Line', {
         setTimeout(() => bind_custom_grid_uploaders(frm), 200);
     },
     expense_lines_add: function(frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (frm.doc.claim_category === 'Branch Expense & Maintenance') {
+            if (!row.branch_expense_category) {
+                frappe.model.set_value(cdt, cdn, 'branch_expense_category', frm.doc.branch_expense_category || 'Housekeeping Materials');
+            }
+            if (!row.payment_mode_used) {
+                frappe.model.set_value(cdt, cdn, 'payment_mode_used', frm.doc.payment_mode_used || 'GPAY / UPI');
+            }
+        }
         frm.trigger('calculate_totals');
         setTimeout(() => bind_custom_grid_uploaders(frm), 200);
         setup_expense_subtype_query(frm);

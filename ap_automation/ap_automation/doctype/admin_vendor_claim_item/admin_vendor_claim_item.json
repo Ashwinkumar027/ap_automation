@@ -50,7 +50,8 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Service Type",
-   "options": "AP Service Type Master"
+   "options": "AP Service Type Master",
+   "ignore_user_permissions": 1
   },
   {
    "columns": 2,
@@ -73,10 +74,11 @@
    "columns": 2,
    "fieldname": "company",
    "fieldtype": "Link",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Company",
    "options": "Company",
-   "reqd": 1
+   "reqd": 0,
+   "hidden": 1
   },
   {
    "columns": 2,

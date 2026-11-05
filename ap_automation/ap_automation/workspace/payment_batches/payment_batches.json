@@ -2,7 +2,7 @@
  "app": "ap_automation",
  "charts": [],
  "content": "[{\"id\": \"header_1\", \"type\": \"header\", \"data\": {\"text\": \"Payment Batches\", \"level\": 4, \"col\": 12}}, {\"id\": \"card_58c33c\", \"type\": \"card\", \"data\": {\"card_name\": \"Banking & Payout Operations\", \"col\": 4}}]",
- "creation": "2026-09-09 16:32:51.048918",
+ "creation": "2026-10-18 11:56:39.203910",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -54,7 +54,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-22 14:24:01.172874",
+ "modified": "2026-11-05 14:29:43.253349",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Payment Batches",
@@ -72,6 +72,30 @@
   },
   {
    "role": "Payment Releaser"
+  },
+  {
+   "role": "Petty Cash User"
+  },
+  {
+   "role": "Receptionist"
+  },
+  {
+   "role": "Admin L1 Approver"
+  },
+  {
+   "role": "Admin L2 Approver"
+  },
+  {
+   "role": "Accounts L1 Auditor"
+  },
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "Employee"
+  },
+  {
+   "role": "AP Director"
   }
  ],
  "sequence_id": 1.5,

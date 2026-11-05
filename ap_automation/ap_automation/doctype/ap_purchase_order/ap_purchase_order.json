@@ -83,7 +83,6 @@
    "label": "1. Issuing Company Entity & Letterhead"
   },
   {
-   "default": "Aionion Capital Management",
    "fieldname": "company_entity",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -239,7 +238,8 @@
    "fieldtype": "Select",
    "label": "Type of Service",
    "options": "SaaS / Cloud Subscription\nAnnual Maintenance Contract (AMC)\nProfessional / Legal Consultancy\nHardware & Asset Procurement\nMarketing & Media\nOffice Operations\nSoftware Development & Engineering",
-   "reqd": 1
+   "reqd": 1,
+   "ignore_user_permissions": 1
   },
   {
    "default": "Months",
@@ -511,6 +511,27 @@
    "role": "All",
    "share": 1,
    "write": 1
+  },
+  {
+   "role": "AP Director",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0
+  },
+  {
+   "role": "Accounts Director",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0
+  },
+  {
+   "role": "Employee",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0
   }
  ],
  "row_format": "Dynamic",

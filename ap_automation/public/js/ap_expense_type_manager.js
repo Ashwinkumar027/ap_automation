@@ -59,14 +59,17 @@ window.APExpenseTypeManager = {
             else if (frm.fields_dict['reimbursement_lines']) table_field = 'reimbursement_lines';
         }
 
+        const is_vendor_grid = (column_field === 'vendor_category' || module_scope === 'Admin Weekly Vendor Claims');
+        const grid_label = is_vendor_grid ? __('Vendor Category') : (module_scope === 'Events' ? __('Expense Category') : __('Expense Type'));
+
         const d = new frappe.ui.Dialog({
-            title: __('➕ Add New Expense Type'),
+            title: __(`➕ Add New ${grid_label}`),
             fields: [
                 {
                     fieldname: 'type_name',
                     fieldtype: 'Data',
-                    label: __('Expense Type Name'),
-                    placeholder: __('e.g. Courier & Logistics, Pantry, Event Catering'),
+                    label: __(`${grid_label} Name`),
+                    placeholder: is_vendor_grid ? __('e.g. Courier & Logistics, Office Pantry, IT Support') : __('e.g. Courier & Logistics, Pantry, Event Catering'),
                     reqd: 1
                 },
                 {
@@ -443,8 +446,12 @@ window.APExpenseTypeManager = {
         });
     },
 
-    openEditRowTypePrompt: function (doctype, docname, row_idx, current_type, module_scope, callback) {
+    openEditRowTypePrompt: function (doctype, docname, row_idx, current_type, module_scope, callback, custom_label) {
         const self = this;
+        const is_vendor = (doctype === 'Admin Weekly Vendor Claim' || doctype === 'Vendor Invoice Claim' || module_scope === 'Admin Weekly Vendor Claims');
+        const is_event = (doctype === 'Event Expense Claim' || module_scope === 'Events');
+        const label_text = custom_label || (is_vendor ? __('Vendor Category') : (is_event ? __('Expense Category') : __('Expense Type')));
+
         self.getTypes(module_scope, function (types) {
             let options = types.slice();
             if (current_type && !options.includes(current_type)) {
@@ -452,18 +459,18 @@ window.APExpenseTypeManager = {
             }
 
             const d = new frappe.ui.Dialog({
-                title: __(`Edit Expense Type — Row #${row_idx}`),
+                title: __(`Edit ${label_text} — Row #${row_idx}`),
                 fields: [
                     {
                         fieldname: 'expense_type',
                         fieldtype: 'Select',
-                        label: __('Expense Type / Category'),
+                        label: label_text,
                         options: options,
                         default: current_type || options[0],
                         reqd: 1
                     }
                 ],
-                primary_action_label: __('Save Expense Type'),
+                primary_action_label: __(`Save ${label_text}`),
                 primary_action: function (vals) {
                     let final_type = vals.expense_type;
                     d.hide();
@@ -477,11 +484,11 @@ window.APExpenseTypeManager = {
                             expense_type: final_type
                         },
                         freeze: true,
-                        freeze_message: __('Updating Expense Type...'),
+                        freeze_message: __(`Updating ${label_text}...`),
                         callback: function (res) {
                             if (res.message && res.message.status === 'success') {
                                 frappe.show_alert({
-                                    message: __(`✅ Row #${row_idx} Expense Type updated to <b>${final_type}</b>`),
+                                    message: __(`✅ Row #${row_idx} ${label_text} updated to <b>${final_type}</b>`),
                                     indicator: 'green'
                                 }, 4);
                                 if (callback) callback(final_type);

@@ -2,7 +2,7 @@
  "app": "ap_automation",
  "charts": [],
  "content": "[{\"id\":\"header_1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">AP Automation</span>\",\"col\":12}},{\"id\":\"card_a02ed2\",\"type\":\"card\",\"data\":{\"card_name\":\"Lane 1: Petty Cash Management\",\"col\":4}},{\"id\":\"card_32d882\",\"type\":\"card\",\"data\":{\"card_name\":\"Lane 2: Employee Reimbursements\",\"col\":4}},{\"id\":\"card_e701f8\",\"type\":\"card\",\"data\":{\"card_name\":\"Lane 3: Vendor Payments\",\"col\":4}},{\"id\":\"card_382dee\",\"type\":\"card\",\"data\":{\"card_name\":\"Lane 4: Event Spends & Advances\",\"col\":4}},{\"id\":\"card_b38d0c\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Release Funnel & IDFC Bank\",\"col\":4}},{\"id\":\"_f5ePNXQU2\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Release Funnel & IDFC Bank\",\"col\":4}},{\"id\":\"card_a3e78c\",\"type\":\"card\",\"data\":{\"card_name\":\"Reports\",\"col\":4}}]",
- "creation": "2026-09-09 16:32:49.681752",
+ "creation": "2026-10-18 11:56:39.150461",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -249,7 +249,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-10-07 12:21:56.663514",
+ "modified": "2026-11-05 14:29:42.243063",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "AP Automation",
@@ -285,6 +285,12 @@
   },
   {
    "role": "Employee"
+  },
+  {
+   "role": "Receptionist"
+  },
+  {
+   "role": "AP Director"
   }
  ],
  "sequence_id": 1.0,

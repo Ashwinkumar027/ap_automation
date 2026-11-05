@@ -2,7 +2,7 @@
  "app": "ap_automation",
  "charts": [],
  "content": "[{\"id\": \"header_1\", \"type\": \"header\", \"data\": {\"text\": \"Lane 4: Event Spends\", \"level\": 4, \"col\": 12}}, {\"id\": \"card_ed7e1a\", \"type\": \"card\", \"data\": {\"card_name\": \"Event Lifecycle & Budgets\", \"col\": 4}}]",
- "creation": "2026-09-09 16:32:51.024415",
+ "creation": "2026-10-18 11:56:39.358348",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -64,7 +64,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-15 15:03:21.105310",
+ "modified": "2026-11-05 14:29:43.220684",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Lane 4: Event Spends",
@@ -106,6 +106,12 @@
   },
   {
    "role": "Receptionist"
+  },
+  {
+   "role": "Accounts L1 Auditor"
+  },
+  {
+   "role": "AP Director"
   }
  ],
  "sequence_id": 1.4,
@@ -120,18 +126,6 @@
    "color": "Teal",
    "label": "Event Advances",
    "link_to": "Event Advance Request",
-   "type": "DocType"
-  },
-  {
-   "color": "Blue",
-   "label": "Ground Spends (Stream B)",
-   "link_to": "Event Expense Claim",
-   "type": "DocType"
-  },
-  {
-   "color": "Green",
-   "label": "Event Settlements",
-   "link_to": "Event Settlement",
    "type": "DocType"
   }
  ],

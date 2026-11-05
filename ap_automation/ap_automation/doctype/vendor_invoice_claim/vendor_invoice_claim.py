@@ -97,13 +97,10 @@ class VendorInvoiceClaim(APDocument):
         self.invoice_number = getattr(self, "tax_invoice_number", "")
         self.total_amount = self.net_payable_amount
 
-        # Advance status from Draft based on 3-Way matching & proof validation
-        if self.match_status in ("Price Mismatch Flagged", "Quantity Mismatch Flagged", "Missing GRN Flagged"):
-            self.status = "Disputed"
-        elif getattr(self, "status", "Draft") in ("Draft", "Not Saved"):
-            # Route to Manager Approval as first business gate (PRD Stage 3)
-            self.status = "Pending Manager Approval"
-            self.workflow_state = "Awaiting Manager Approval (PRD Stage 3)"
+        # Ensure Draft status is preserved while user uploads documents or edits
+        if getattr(self, "status", "Draft") in ("Draft", "Not Saved"):
+            self.status = "Draft"
+            self.workflow_state = "Draft Filing"
 
         # Auto-resolve and bind claimant's dynamic HRMS reporting manager with O(1) indexed lookup
         if self.status == "Pending Manager Approval" and not getattr(self, "designated_approver", None) and getattr(self, "owner", None):
@@ -499,25 +496,14 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
     doc.manager_approver = user
     doc.manager_approved_on = now_ts
 
-    # Check if Manager is also the Director / Business Head for this company
+    # Check if Manager is also genuine Director / Business Head for this company (Strict check)
     company = getattr(doc, "company", None)
     bus_head = frappe.db.get_value("Company", company, "ap_business_head") if company else None
-    from ap_automation.services.notification_service import _get_matrix_or_role_approvers
-    matrix_dirs = _get_matrix_or_role_approvers(
-        company=company,
-        document_lane="AP Vendor Invoice",
-        level_number=1,
-        fallback_roles=["AP Director", "Accounts Director", "Director Tier", "Director"],
-        stage_keyword="Director"
-    )
     user_roles = frappe.get_roles(user)
     is_also_director = (
         user == bus_head or
-        user in matrix_dirs or
         "AP Director" in user_roles or
-        "Accounts Director" in user_roles or
-        "Director Tier" in user_roles or
-        "Director" in user_roles
+        "Accounts Director" in user_roles
     )
 
     if is_also_director:
@@ -690,8 +676,8 @@ def verify_vendor_claim_by_accounts_l1(docname: str, tally_reference: str, remar
                 exc=APSecurityError
             )
 
-    # Enforce clean 3-way match
-    if doc.match_status in ("Quantity Mismatch Flagged", "Price Mismatch Flagged", "Missing GRN Flagged"):
+    # Enforce clean 3-way match (GRN is non-mandatory)
+    if doc.match_status in ("Quantity Mismatch Flagged", "Price Mismatch Flagged"):
         frappe.throw(
             f"Cannot complete L1 Verification: 3-Way Match Discrepancy Active ({doc.match_status}). "
             f"Diagnostics: {doc.match_variance_details}",
@@ -883,4 +869,58 @@ def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[st
         "status": "Paid",
         "utr": clean_utr,
         "message": f"Claim #{docname} successfully marked Paid with Bank UTR '{clean_utr}'."
+    }
+
+@frappe.whitelist()
+def submit_for_approval(docname: str):
+    """
+    Submits a Vendor Invoice Claim from Draft/Disputed to Pending Manager Approval.
+    """
+    if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
+        frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
+
+    doc = frappe.get_doc("Vendor Invoice Claim", docname)
+
+    if doc.status not in ("Draft", "Disputed", "Not Saved"):
+        frappe.throw(f"Only Draft or Disputed claims can be submitted for approval. Current status is '{doc.status}'.")
+
+    if not doc.vendor:
+        frappe.throw("Vendor is required before submitting for approval.", title="Missing Vendor")
+    if not doc.tax_invoice_number:
+        frappe.throw("Tax Invoice Number is required before submitting for approval.", title="Missing Invoice Number")
+    if not doc.invoice_date:
+        frappe.throw("Invoice Date is required before submitting for approval.", title="Missing Invoice Date")
+    if not doc.base_amount or float(doc.base_amount) <= 0:
+        frappe.throw("Invoice Base Amount must be greater than zero.", title="Invalid Base Amount")
+    if not doc.invoice_attachment:
+        frappe.throw("Invoice Attachment is mandatory before submitting for approval.", title="Missing Invoice Attachment")
+
+    doc.status = "Pending Manager Approval"
+    doc.workflow_state = "Awaiting Manager Approval (PRD Stage 3)"
+
+    # Auto-resolve and bind claimant's dynamic HRMS reporting manager
+    if not getattr(doc, "designated_approver", None) and getattr(doc, "owner", None):
+        claimant_emp = frappe.db.get_value(
+            "Employee",
+            {"user_id": doc.owner, "status": "Active"},
+            ["reports_to"],
+            as_dict=True
+        )
+        if claimant_emp and claimant_emp.reports_to:
+            mgr_user = frappe.db.get_value("Employee", claimant_emp.reports_to, "user_id")
+            if mgr_user:
+                doc.designated_approver = mgr_user
+
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    try:
+        from ap_automation.services.notification_service import notify_vendor_claim_submitted
+        notify_vendor_claim_submitted(docname)
+    except Exception as e:
+        frappe.log_error(f"Vendor claim submission notification dispatch: {e}")
+
+    return {
+        "status": "Pending Manager Approval",
+        "message": f"Claim #{docname} submitted successfully! Routed to Reporting Manager for approval."
     }

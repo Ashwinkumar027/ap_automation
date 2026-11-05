@@ -96,17 +96,11 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
             pr_name = linked_prs[0].parent
             claim_doc.purchase_receipt = pr_name
 
-    # Missing GRN Guard for physical goods (both Standard PO and AP Purchase Order)
+    # GRN Check: Informative/Advisory only. If no GRN linked, proceed with 2-way PO matching without blocking
     if not pr_name and not po_is_service:
-        claim_doc.match_status = "Missing GRN Flagged"
-        claim_doc.match_variance_details = (
-            f"Missing GRN Alert: No Goods Receipt Note (Purchase Receipt) is linked for PO #{po_name}. "
-            "Physical items must be physically received in warehouse and verified before payment approval."
-        )
-        return {
-            "status": "missing_grn",
-            "message": claim_doc.match_variance_details
-        }
+        grn_note = "Direct PO Sign-off (GRN not mandatory / bypassed)"
+    else:
+        grn_note = f"GRN #{pr_name}" if pr_name else "Service Milestone Verified" 
 
     # 3. Price Tolerance Check with Cumulative Over-Invoicing Guard
     billed_base = float(claim_doc.base_amount or 0.0)
@@ -146,16 +140,16 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
             "message": claim_doc.match_variance_details
         }
 
-    # 4. 3-Way Match Passed
-    recon_source = f"PO #{po_name}" + (f" and GRN #{pr_name}" if pr_name else " (Service Milestone Verified)")
-    claim_doc.match_status = "3-Way Match Passed"
+    # 4. 3-Way Match Passed (or 2-Way PO Reconciled)
+    recon_source = f"PO #{po_name}" + (f" and GRN #{pr_name}" if pr_name else " (Direct PO Reconciled)")
+    claim_doc.match_status = "3-Way Match Passed" if pr_name else "2-Way Match Passed (PO Reconciled)"
     claim_doc.match_variance_details = (
-        f"3-Way Match Passed: Invoice base amount (INR {billed_base:,.2f}) is fully reconciled "
+        f"Match Passed: Invoice base amount (INR {billed_base:,.2f}) is fully reconciled "
         f"against {recon_source} (Contracted Value: INR {po_contracted_total:,.2f})."
     )
     return {
         "status": "matched",
         "po_number": po_name,
-        "grn_number": pr_name or "N/A (Service Delivery)",
+        "grn_number": pr_name or "N/A (Bypassed)",
         "message": claim_doc.match_variance_details
     }
