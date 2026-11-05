@@ -289,24 +289,39 @@ def approve_accounts_director_weekly_batch(batch_name: str, remarks: Optional[st
     batch.accounts_director = user
     batch.accounts_director_sign_date = now_datetime()
 
-    # Update all underlying vouchers to Approved for Payment
+    # Role check: Allow Accounts Director or AP Director
+    user_roles = frappe.get_roles(user)
+    if not any(r in user_roles for r in ["Accounts Director", "AP Director", "System Manager", "Administrator"]):
+        frappe.throw(_("Only Accounts Director or AP Director can sign off on the weekly accounts audit batch."))
+
+    # Update all underlying vouchers to Approved for Payment (Multi-DocType support)
     for it in batch.items:
         if it.status == "Audited / Approved":
-            doc = frappe.get_doc("Employee Reimbursement Claim", it.voucher_no)
+            v_type = getattr(it, "voucher_type", None) or "Employee Reimbursement Claim"
+            if not frappe.db.exists(v_type, it.voucher_no):
+                continue
+            doc = frappe.get_doc(v_type, it.voucher_no)
             doc.status = "Approved for Payment"
-            doc.workflow_state = "Approved - Ready for Payment Release"
-            doc.sanctioned_amount = flt(it.sanctioned_amount)
-            doc.net_payable_amount = flt(it.sanctioned_amount)
-            doc.accounts_l2_approver = user
-            doc.append("approval_trail", {
-                "level_number": 7,
-                "level_name": "Accounts Director Sign-Off (Weekly Batch)",
-                "action_taken_by": user,
-                "action": "APPROVED",
-                "action_timestamp": now_datetime(),
-                "remarks": f"Approved via Weekly Batch #{batch.name}. {remarks or ''}"
-            })
-            doc.save(ignore_permissions=True)
+            if hasattr(doc, "workflow_state"):
+                doc.workflow_state = "Approved - Ready for Payment Release"
+            if hasattr(doc, "sanctioned_amount"):
+                doc.sanctioned_amount = flt(it.sanctioned_amount)
+            if hasattr(doc, "net_payable_amount"):
+                doc.net_payable_amount = flt(it.sanctioned_amount)
+            if hasattr(doc, "accounts_l2_approver"):
+                doc.accounts_l2_approver = user
+            if hasattr(doc, "approval_trail"):
+                doc.append("approval_trail", {
+                    "level_number": 7,
+                    "level_name": "Accounts Director Sign-Off (Weekly Batch)",
+                    "action_taken_by": user,
+                    "action": "APPROVED",
+                    "action_timestamp": now_datetime(),
+                    "remarks": f"Approved via Weekly Batch #{batch.name}. {remarks or ''}"
+                })
+            doc.flags.ignore_permissions = True
+            doc.flags.ignore_validate_update_after_submit = True
+            doc.save()
 
     batch.save(ignore_permissions=True)
     frappe.db.commit()
@@ -352,21 +367,28 @@ def release_weekly_payment_batch(batch_name: str, payment_reference: Optional[st
 
     for it in batch.items:
         if it.status == "Audited / Approved":
-            claim = frappe.get_doc("Employee Reimbursement Claim", it.voucher_no)
+            v_type = getattr(it, "voucher_type", None) or "Employee Reimbursement Claim"
+            if not frappe.db.exists(v_type, it.voucher_no):
+                continue
+            claim = frappe.get_doc(v_type, it.voucher_no)
             claim.status = "Paid"
-            claim.workflow_state = "Payment Disbursed & Completed"
+            if hasattr(claim, "workflow_state"):
+                claim.workflow_state = "Payment Disbursed & Completed"
             claim.payment_reference = ref
             claim.payment_release_date = now_datetime()
             claim.payment_releaser = user
-            claim.append("approval_trail", {
-                "level_number": 8,
-                "level_name": "Payment Release (Weekly Batch Disbursal)",
-                "action_taken_by": user,
-                "action": "APPROVED",
-                "action_timestamp": now_datetime(),
-                "remarks": f"Disbursed via Weekly Batch #{batch.name}. Ref: {ref}."
-            })
-            claim.save(ignore_permissions=True)
+            if hasattr(claim, "approval_trail"):
+                claim.append("approval_trail", {
+                    "level_number": 8,
+                    "level_name": "Payment Release (Weekly Batch Disbursal)",
+                    "action_taken_by": user,
+                    "action": "APPROVED",
+                    "action_timestamp": now_datetime(),
+                    "remarks": f"Disbursed via Weekly Batch #{batch.name}. Ref: {ref}."
+                })
+            claim.flags.ignore_permissions = True
+            claim.flags.ignore_validate_update_after_submit = True
+            claim.save()
 
             # Settle spend fingerprints
             frappe.db.sql(
@@ -374,11 +396,12 @@ def release_weekly_payment_batch(batch_name: str, payment_reference: Optional[st
                 (claim.name, claim.doctype)
             )
 
-            # Notify individual employee with UTR
+            # Notify individual payee with UTR
             try:
-                notif.notify_employee_on_payment_released(claim.name, ref)
+                if hasattr(claim, "employee") and claim.employee:
+                    notif.notify_employee_on_payment_released(claim.name, ref)
             except Exception as e:
-                frappe.log_error(f"Failed to notify employee {claim.employee} for payment {claim.name}: {str(e)}", "AP Disbursal Error")
+                frappe.log_error(f"Failed to notify payee for payment {claim.name}: {str(e)}", "AP Disbursal Error")
 
     batch.save(ignore_permissions=True)
     frappe.db.commit()

@@ -35,7 +35,21 @@ def execute():
         "Bank Account": ["Employee", "Receptionist", "AP Director", "Admin L1 Approver", "Admin L2 Approver"],
         "AP Service Type Master": ["Employee", "Receptionist", "Admin L1 Approver", "Admin L2 Approver", "Accounts L1 Auditor", "AP Director", "Payment Releaser"],
         "AP TDS Master": ["Employee", "Receptionist", "Admin L1 Approver", "Admin L2 Approver", "Accounts L1 Auditor", "AP Director", "Payment Releaser"],
-        "AP Expense Type Master": ["Employee", "Receptionist", "Admin L1 Approver", "Admin L2 Approver", "Accounts L1 Auditor", "AP Director", "Payment Releaser"]
+                "AP Service Type Master": ["Employee", "Receptionist", "Admin L1 Approver", "Admin L2 Approver", "Accounts L1 Auditor", "AP Director", "Payment Releaser"],
+        "AP TDS Master": ["Employee", "Receptionist", "Admin L1 Approver", "Admin L2 Approver", "Accounts L1 Auditor", "AP Director", "Payment Releaser"],
+        "AP Expense Type Master": ["Employee", "Receptionist", "Admin L1 Approver", "Admin L2 Approver", "Accounts L1 Auditor", "AP Director", "Payment Releaser"],
+        "Employee Reimbursement Claim": ["Employee", "Receptionist", "Admin L1 Approver", "Admin L2 Approver", "Accounts L1 Auditor", "Accounts Director", "AP Director", "Payment Releaser"],
+        "Admin Weekly Vendor Claim": ["Receptionist", "Admin L1 Approver", "Admin L2 Approver", "Accounts L1 Auditor", "Accounts Director", "AP Director", "Payment Releaser"],
+        "Petty Cash Entry": ["Petty Cash User", "Admin L1 Approver", "Accounts L1 Auditor", "Accounts Director", "AP Director", "Payment Releaser"],
+        "Payment Batch": ["Accounts L1 Auditor", "Accounts Director", "AP Director", "Payment Releaser"],
+        "Weekly Accounts Audit Batch": ["Accounts L1 Auditor", "Accounts Director", "AP Director"],
+        "Pre Travel Request": ["Employee", "Admin L1 Approver", "AP Director"],
+        "AP Clarification Query": ["Employee", "Receptionist", "Admin L1 Approver", "Accounts L1 Auditor", "AP Director"],
+        "AP Expense Head Master": ["Accounts L1 Auditor", "AP Director", "Employee", "Receptionist"],
+        "Event Expense Claim": ["Accounts L1 Auditor", "Accounts Director", "AP Director"],
+        "Event Master": ["Accounts L1 Auditor", "Accounts Director", "AP Director"],
+        "Event Settlement": ["Accounts L1 Auditor", "Accounts Director", "AP Director"],
+        "Event Advance Request": ["Accounts L1 Auditor", "Accounts Director", "AP Director"]
     }
 
     for doctype, roles in permission_matrix.items():

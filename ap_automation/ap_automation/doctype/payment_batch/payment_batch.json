@@ -150,6 +150,27 @@
    "role": "Payment Releaser",
    "share": 1,
    "write": 1
+  },
+  {
+   "role": "AP Director",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
+  },
+  {
+   "role": "Accounts L1 Auditor",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
   }
  ],
  "row_format": "Dynamic",

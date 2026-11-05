@@ -334,6 +334,24 @@ def get_team_participants_query(doctype, txt, searchfield, start, page_len, filt
     any employee can select colleagues / teammates across the organization.
     Prioritizes same-company employees at the top while allowing all active employees to be searched.
     """
+    ref_doctype = kwargs.get("reference_doctype")
+    # If invoked for non-reimbursement doctypes, delegate cleanly to ERPNext standard employee_query
+    if ref_doctype and ref_doctype not in ("Employee Reimbursement Participant", "Employee Reimbursement Claim"):
+        try:
+            from erpnext.controllers.queries import employee_query
+            return employee_query(
+                doctype=doctype,
+                txt=txt,
+                searchfield=searchfield,
+                start=start,
+                page_len=page_len,
+                filters=filters,
+                reference_doctype=ref_doctype,
+                ignore_user_permissions=kwargs.get("ignore_user_permissions", False)
+            )
+        except Exception:
+            pass
+
     if isinstance(filters, str):
         import json
         try:

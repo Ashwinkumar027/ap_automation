@@ -128,6 +128,15 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
         frm.trigger('setup_dashboard_alerts');
         frm.trigger('render_stage_action_buttons');
         frm.trigger('setup_receipt_gallery_and_tools');
+        setup_team_participants_query(frm);
+        frm.set_query('employee_id', 'participants', function() {
+            return {
+                query: 'ap_automation.services.team_bonding_wallet_service.get_team_participants_query',
+                filters: {
+                    company: frm.doc.company || ''
+                }
+            };
+        });
         frm.trigger('calculate_totals');
         disable_auto_save_on_attach(frm); setTimeout(() => bind_custom_grid_uploaders(frm), 250);
     },
@@ -665,7 +674,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         // 7. Accounts L2 Verification Stage
         if (['Pending Accounts L2', 'Pending Director L2 Sanction'].includes(status)) {
-            if (user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || is_system_mgr) {
+            if (user_roles.includes('Accounts Director') || user_roles.includes('AP Director') || user_roles.includes('Accounts Manager') || is_system_mgr) {
                 frm.add_custom_button(__('🏦 Final Sanction (Accounts L2)'), function() {
                     const execute_sanction_flow = function() {
                         frappe.prompt([
@@ -699,7 +708,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         // 8. Payment Release Stage
         if (['Approved for Payment', 'Included in Batch'].includes(status)) {
-            if (user_roles.includes('Payment Releaser') || user_roles.includes('Accounts Manager') || is_system_mgr) {
+            if (user_roles.includes('Payment Releaser') || user_roles.includes('Accounts Director') || user_roles.includes('AP Director') || user_roles.includes('Accounts Manager') || is_system_mgr) {
                 frm.add_custom_button(__('💳 Release Payment'), function() {
                     frappe.prompt([
                         { fieldname: 'payment_reference', fieldtype: 'Data', label: __('Payment Ref / UTR #'), reqd: 1, default: 'UTR-' + frappe.datetime.now_datetime().replace(/[-: ]/g, '') },
@@ -962,6 +971,7 @@ frappe.ui.form.on('Employee Reimbursement Participant', {
         update_team_lunch_calculations(frm);
     },
     participants_add: function(frm) {
+        setup_team_participants_query(frm);
         update_team_lunch_calculations(frm);
     }
 });
@@ -1787,4 +1797,20 @@ function apply_claim_flow_styles() {
     style.id = 'ap-claim-flow-styles';
     style.innerHTML = css;
     document.head.appendChild(style);
+}
+
+function setup_team_participants_query(frm) {
+    if (!frm) return;
+    const query_obj = function() {
+        return {
+            query: 'ap_automation.services.team_bonding_wallet_service.get_team_participants_query',
+            filters: {
+                company: (frm.doc && frm.doc.company) ? frm.doc.company : ''
+            }
+        };
+    };
+    frm.set_query('employee_id', 'participants', query_obj);
+    if (frm.fields_dict && frm.fields_dict.participants && frm.fields_dict.participants.grid) {
+        frm.fields_dict.participants.grid.get_field('employee_id').get_query = query_obj;
+    }
 }

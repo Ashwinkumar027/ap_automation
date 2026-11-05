@@ -34,6 +34,11 @@ app_include_css = [
 
 doctype_js = {}
 
+standard_queries = {
+    "Employee": "ap_automation.services.team_bonding_wallet_service.get_team_participants_query"
+}
+
+
 # --------------------------------------------------------------------------------------
 # PERMISSION QUERY CONDITIONS & HAS_PERMISSION HOOKS
 # --------------------------------------------------------------------------------------

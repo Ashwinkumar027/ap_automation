@@ -934,6 +934,13 @@
    "select": 1,
    "share": 1,
    "write": 1
+  },
+  {
+   "role": "AP Director",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0
   }
  ],
  "row_format": "Dynamic",

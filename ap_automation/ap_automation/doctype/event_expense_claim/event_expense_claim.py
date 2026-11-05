@@ -92,3 +92,45 @@ class EventExpenseClaim(APDocument):
         except Exception as e:
             frappe.log_error(title="Event Expense Claim Spend Sync Error", message=f"Failed to sync ground spends for Event '{self.event}' from Claim '{self.name}': {frappe.get_traceback()}")
             raise
+
+@frappe.whitelist()
+def reject_or_return_event_claim(claim_name: str, reason: str):
+    """
+    Allows Accounts Auditor, Admin, or AP Director to return an Event Expense Claim back to the SPOC.
+    """
+    user = frappe.session.user
+    roles = frappe.get_roles(user)
+    allowed = ["Accounts L1 Auditor", "Admin L1 Approver", "Admin L2 Approver", "Accounts Director", "AP Director", "System Manager", "Administrator"]
+    if not any(r in roles for r in allowed):
+        frappe.throw("You do not have permission to reject or return this Event Expense Claim.")
+
+    if not reason or not reason.strip():
+        frappe.throw("A specific reason or discrepancy description is required to return this claim.")
+
+    doc = frappe.get_doc("Event Expense Claim", claim_name)
+    doc.db_set("status", "Returned to SPOC")
+    doc.add_comment("Comment", f"⚠️ Claim returned to SPOC by {user}. Reason: {reason.strip()}")
+
+    # Notify SPOC
+    if doc.spoc:
+        spoc_user = frappe.db.get_value("Employee", doc.spoc, "user_id") or doc.spoc
+        if spoc_user and spoc_user != user:
+            frappe.sendmail(
+                recipients=[spoc_user],
+                subject=f"⚠️ Event Expense Claim {claim_name} Returned for Clarification",
+                message=f"<p>Hello {getattr(doc, "payee_name", None) or getattr(doc, "spoc", "")},</p><p>Your Event Expense Claim <b>{claim_name}</b> for Event <b>{doc.event}</b> has been returned with the following note:</p><blockquote>{reason.strip()}</blockquote><p>Please review and resubmit with updated documents.</p>"
+            )
+
+    return {"status": "SUCCESS", "message": f"Claim {claim_name} has been returned to SPOC."}
+
+
+@frappe.whitelist()
+def resubmit_event_claim(claim_name: str):
+    """
+    Allows the SPOC to resubmit a returned claim back into review.
+    """
+    user = frappe.session.user
+    doc = frappe.get_doc("Event Expense Claim", claim_name)
+    doc.db_set("status", "Submitted")
+    doc.add_comment("Comment", f"🚀 Claim resubmitted by SPOC {user} for review.")
+    return {"status": "SUCCESS", "message": f"Claim {claim_name} resubmitted successfully."}

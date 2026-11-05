@@ -482,7 +482,7 @@ def sanction_accounts_l2(voucher_name: str, comments: Optional[str] = None) -> D
     user = frappe.session.user
     _lock_document_row(voucher_name)
     doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
-    _enforce_role_or_system_manager(user, ["Accounts Director"], "Accounts Director Sanction", doc=doc, level_number=5)
+    _enforce_role_or_system_manager(user, ["Accounts Director", "AP Director"], "Accounts Director Sanction", doc=doc, level_number=5)
 
     if doc.status != "Pending Accounts L2":
         raise APValidationError(f"Cannot sanction claim #{voucher_name}: status is '{doc.status}', expected 'Pending Accounts L2'.")
@@ -533,7 +533,7 @@ def release_payment(voucher_name: str, payment_reference: Optional[str] = None, 
     user = frappe.session.user
     _lock_document_row(voucher_name)
     doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
-    _enforce_role_or_system_manager(user, ["Payment Releaser"], "Payment Release", doc=doc, level_number=6)
+    _enforce_role_or_system_manager(user, ["Payment Releaser", "Accounts Director", "AP Director", "Accounts Manager"], "Payment Release", doc=doc, level_number=6)
 
     if doc.status != "Approved for Payment":
         raise APValidationError(f"Cannot release payment for claim #{voucher_name}: status is '{doc.status}', expected 'Approved for Payment'.")
