@@ -83,6 +83,7 @@
   "approval_trail",
   "designated_approver",
   "batch_id",
+  "weekly_audit_batch",
   "total_amount",
   "client_code",
   "client_name",
@@ -104,6 +105,7 @@
   "manager_user_id",
   "manager_approver",
   "receptionist_verifier",
+  "receptionist_verified_on",
   "accounts_l2_approver",
   "payment_releaser",
   "target_return_to",
@@ -816,6 +818,19 @@
    "fieldtype": "Data",
    "hidden": 1,
    "label": "Baseline Lines Hash",
+   "read_only": 1
+  },
+  {
+   "fieldname": "weekly_audit_batch",
+   "fieldtype": "Link",
+   "label": "Weekly Audit Batch",
+   "options": "Weekly Accounts Audit Batch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "receptionist_verified_on",
+   "fieldtype": "Datetime",
+   "label": "Receptionist Verified On",
    "read_only": 1
   }
  ],

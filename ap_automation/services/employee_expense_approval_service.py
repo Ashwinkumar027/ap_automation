@@ -274,6 +274,7 @@ def verify_receptionist(voucher_name: str, comments: Optional[str] = None) -> Di
         trail_remarks = comments or "Receptionist verified physical & digital receipts. Queued for Friday Admin Consolidated Batch."
 
     doc.receptionist_verifier = user
+    doc.receptionist_verified_on = now_datetime()
     doc.flags.in_workflow_transition = True
 
     doc.append("approval_trail", {

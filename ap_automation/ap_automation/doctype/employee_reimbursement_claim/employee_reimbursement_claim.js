@@ -293,7 +293,29 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
                    [frm.doc.baseline_amount_at_rejection || 0.0, frm.doc.baseline_lines_hash || 'N/A']
                 )
             );
-        } else if (frm.doc.claim_category === 'Team Lunch / Outing' && frm.doc.activity_date) {
+                } else if (['Queued in Admin Batch', 'Queued for Friday Admin Review', 'Pending Admin Batch', 'Receptionist Verified', 'Admin L2 Approved', 'Pending Accounts L1', 'Pending Accounts L1 Audit'].includes(frm.doc.status)) {
+            const is_admin_phase = ['Queued in Admin Batch', 'Queued for Friday Admin Review', 'Pending Admin Batch', 'Receptionist Verified'].includes(frm.doc.status);
+            const verified_str = frm.doc.receptionist_verified_on ? frappe.datetime.str_to_user(frm.doc.receptionist_verified_on) : 'Verified by Receptionist';
+            const batch_label = frm.doc.weekly_audit_batch
+                ? `<a href="/desk/weekly-accounts-audit-batch/${encodeURIComponent(frm.doc.weekly_audit_batch)}" target="_blank" style="text-decoration: underline; font-weight: 700; color: #166534;">${frm.doc.weekly_audit_batch}</a>`
+                : `<span class="badge" style="background: #dcfce7; color: #15803d; font-weight: 600; padding: 4px 8px; border-radius: 4px;">Accumulating for Next Batch Cut-Off</span>`;
+
+            frm.dashboard.set_headline_alert(
+                `<div class="alert alert-info" style="margin-bottom: 0; background: #f0fdf4; border: 1px solid #86efac; color: #166534; border-radius: 8px; padding: 12px 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                        <div>
+                            <strong style="font-size: 13px;">📦 ${is_admin_phase ? 'Queued for Weekly Admin Settlement Batch' : 'Queued for Weekly Accounts Disbursal Audit'}</strong><br>
+                            <span style="font-size: 11px; color: #15803d;">
+                                Receipts Verified on: <strong>${verified_str}</strong> | Expected Settlement Run: <strong>Friday 10:00 AM / 12:00 PM</strong> (or Mid-Week On-Demand Sync)
+                            </span>
+                        </div>
+                        <div style="font-size: 12px; background: #ffffff; padding: 4px 10px; border-radius: 6px; border: 1px solid #bbf7d0;">
+                            Assigned Batch: ${batch_label}
+                        </div>
+                    </div>
+                </div>`
+            );
+} else if (frm.doc.claim_category === 'Team Lunch / Outing' && frm.doc.activity_date) {
             const act = frappe.datetime.str_to_obj(frm.doc.activity_date);
             const post = frappe.datetime.str_to_obj(frm.doc.posting_date || frappe.datetime.get_today());
             const diff_days = Math.floor((post - act) / (1000 * 60 * 60 * 24));
