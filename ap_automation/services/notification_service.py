@@ -290,7 +290,7 @@ def notify_l1_on_voucher_submitted(voucher_doctype: str, voucher_name: str) -> N
 
     cc_users = [custodian, getattr(doc, "owner", None)]
 
-    subject = f"[Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Submitted"
+    subject = f"Approval Needed: Petty Cash #{voucher_name} (₹ {fmt_money(amount)}) - {company}"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fed7aa; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #ea580c; padding-bottom: 12px; margin-bottom: 16px;">
@@ -345,7 +345,7 @@ def notify_admin_l2_on_l1_approved(voucher_doctype: str, voucher_name: str) -> N
 
     cc_users = _get_claim_rolling_cc(doc, exclude_users=l2_users)
 
-    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Admin L1 Approved"
+    subject = f"Petty Cash #{voucher_name} (₹ {fmt_money(amount)}) - Approved by Admin Lead"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fed7aa; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #ea580c; padding-bottom: 12px; margin-bottom: 16px;">
@@ -400,7 +400,7 @@ def notify_admin_on_l2_approved(voucher_doctype: str, voucher_name: str) -> None
 
     cc_users = _get_claim_rolling_cc(doc, exclude_users=accounts_users)
 
-    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Ready for Accounts Audit"
+    subject = f"Audit Needed: Petty Cash #{voucher_name} (₹ {fmt_money(amount)}) - Accounts Review"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bfdbfe; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: 16px;">
@@ -504,7 +504,7 @@ def notify_on_director_sanction_approved(voucher_doctype: str, voucher_name: str
 
     all_recipients = [recipient] + [r for r in accounts_mgrs if r and r != recipient]
 
-    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Director Sanctioned (Approved for Payment)"
+    subject = f"Approved: Petty Cash #{voucher_name} (₹ {fmt_money(amount)}) approved by Director"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bbf7d0; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #16a34a; padding-bottom: 12px; margin-bottom: 16px;">
@@ -660,7 +660,7 @@ def notify_payment_releaser_on_idfc_upload(
     maker_name = frappe.db.get_value("User", uploaded_by, "full_name") or uploaded_by
     now_time = frappe.utils.format_datetime(frappe.utils.now_datetime(), "dd-MMM-yyyy hh:mm a")
 
-    subject = f"🏦 [Action Required] {subject_tag} ({company}) — Uploaded to IDFC Portal for Payment Release (₹ {fmt_money(amount)})"
+    subject = f"Payment Release: {subject_tag} (₹ {fmt_money(amount)}) uploaded to IDFC Portal"
 
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 620px; margin: auto; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; background: #ffffff; box-shadow: 0 4px 14px rgba(0,0,0,0.06);">
@@ -771,7 +771,7 @@ def notify_reception_on_admin_return(
     recipients = [custodian] if custodian else []
     cc_users = _get_claim_rolling_cc(doc, exclude_users=recipients)
 
-    subject = f"Re: [Voucher #{voucher_name}] {company} {voucher_doctype} (₹ {fmt_money(amount)}) - Returned for Corrections"
+    subject = f"Update: Petty Cash #{voucher_name} was returned for corrections"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #fecaca; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #dc2626; padding-bottom: 12px; margin-bottom: 16px;">
@@ -994,7 +994,7 @@ def notify_payee_and_admin_on_payout_dispatched(
         cc_users = _get_claim_rolling_cc(doc, exclude_users=[recipient]) if doc else []
         company = getattr(doc, "company", "Company") if doc else "Company"
 
-        subject = f"Re: [Voucher #{src_vch}] {company} {src_dt} (₹ {fmt_money(amt)}) - Disbursed via Corporate Bank Transfer (UTR: {utr})"
+        subject = f"Payment Sent: Petty Cash #{src_vch} (₹ {fmt_money(amt)}) transferred (UTR: {utr})"
         html = f"""
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #d1fae5; border-radius: 10px; padding: 24px; background: #ffffff;">
             <div style="border-bottom: 2px solid #10b981; padding-bottom: 12px; margin-bottom: 16px;">
@@ -1498,7 +1498,7 @@ def notify_hod_for_po_approval(po_name: str) -> None:
     base_url = frappe.utils.get_url()
     desk_url = f"{base_url}/desk/ap-purchase-order/{po.name}"
 
-    subject = f"⏳ [PO Approval Needed] #{po.name} - {vendor_name} (₹ {grand_total:,.2f})"
+    subject = f"Approval Needed: Purchase Order #{po.name} for {vendor_name} (₹ {grand_total:,.2f})"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #cbd5e1; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #1e3a8a; padding-bottom: 12px; margin-bottom: 16px;">
@@ -1628,7 +1628,7 @@ def notify_on_vendor_po_signed(po_name: str) -> None:
     if not recipients:
         recipients = ["admin@example.com"]
 
-    internal_subject = f"✅ [PO Signed & Active] #{po.name} - {vendor_name} (₹ {grand_total:,.2f})"
+    internal_subject = f"Approved: Purchase Order #{po.name} for {vendor_name} is active"
     internal_html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bbf7d0; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #16a34a; padding-bottom: 12px; margin-bottom: 16px;">
@@ -2788,7 +2788,7 @@ def notify_clarification_query(query_name: str) -> None:
     if not target_emails and not cc_emails:
         return
 
-    subject = f"💬 [Clarification] [#{parent_dn}] {q.from_full_name} ({q.from_role_badge}): Query on {parent_dt}"
+    subject = f"Question on your {parent_dt} #{parent_dn} from Accounts"
     target_label = q.target_user_name or q.target_role or "Stakeholder"
 
     attachment_html = ""
@@ -2853,7 +2853,7 @@ def notify_clarification_resolved(query_name: str) -> None:
 
     resolver_name = frappe.db.get_value("User", q.resolved_by or frappe.session.user, "full_name") or (q.resolved_by or "Reviewer")
     doc_url = _get_form_url(parent_dt, parent_dn)
-    subject = f"✅ [Resolved] [#{parent_dn}] Clarification Resolved by {resolver_name}"
+    subject = f"Update: Clarification answered on {parent_dt} #{parent_dn}"
 
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bbf7d0; border-radius: 10px; padding: 24px; background: #ffffff;">
