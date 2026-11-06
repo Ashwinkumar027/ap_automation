@@ -39,7 +39,7 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
         """
         SELECT SUM(net_payable_amount) as total
         FROM `tabVendor Invoice Claim`
-        WHERE event = %s AND docstatus = 1
+        WHERE event = %s AND (docstatus = 1 OR status IN ('Approved for Payment', 'Paid', 'Queued in Batch')) AND docstatus != 2
         """,
         (event_name,),
         as_dict=True
