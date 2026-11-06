@@ -326,6 +326,16 @@ class VendorInvoiceClaim(APDocument):
         self.gst_amount = gst
         self.total_invoice_amount = total
 
+        # Event Cost Variance calculation against previous benchmark spend
+        prev_bench = float(getattr(self, "previous_benchmark_spend", 0.0) or 0.0)
+        if prev_bench > 0:
+            diff = total - prev_bench
+            self.cost_variance = round(diff, 2)
+            self.cost_variance_percentage = round((diff / prev_bench) * 100.0, 2)
+        else:
+            self.cost_variance = 0.0
+            self.cost_variance_percentage = 0.0
+
         # Statutory Indian TDS Withholding calculation (1961 & 2025 Act)
         try:
             from ap_automation.services.tds_service import calculate_tds

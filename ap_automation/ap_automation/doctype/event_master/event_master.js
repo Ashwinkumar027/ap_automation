@@ -188,7 +188,17 @@ function setup_event_master_actions(frm) {
     const is_closed = frm.doc.status === "Closed" || frm.doc.status === "Cancelled";
 
     if (!is_closed) {
-        // Quick Action 1: Request Advance
+        // Quick Action 1: File Commercial Vendor Invoice (Stream A with GST & TDS)
+        frm.add_custom_button(__('🧾 File Event Vendor Invoice (Stream A)'), function() {
+            frappe.route_options = {
+                "event": frm.doc.name,
+                "company": frm.doc.company,
+                "invoice_type": "Without PO (Direct Tax Invoice)"
+            };
+            frappe.new_doc("Vendor Invoice Claim");
+        }, __('Actions'));
+
+        // Quick Action 2: Request Imprest Advance (Stream B)
         frm.add_custom_button(__('➕ Request Imprest Advance'), function() {
             frappe.route_options = {
                 "event": frm.doc.name,

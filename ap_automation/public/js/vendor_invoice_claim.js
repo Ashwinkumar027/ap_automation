@@ -69,6 +69,85 @@ frappe.listview_settings["Vendor Invoice Claim"] = {
 };
 
 frappe.ui.form.on("Vendor Invoice Claim", {
+
+    event: function(frm) {
+        frm.trigger("render_event_benchmark_card");
+    },
+
+    previous_benchmark_spend: function(frm) {
+        frm.trigger("calculate_event_cost_variance");
+    },
+
+    calculate_event_cost_variance: function(frm) {
+        let prev = flt(frm.doc.previous_benchmark_spend || 0);
+        let curr = flt(frm.doc.total_invoice_amount || frm.doc.net_payable_amount || frm.doc.base_amount || 0);
+        if (prev > 0) {
+            let diff = curr - prev;
+            let pct = (diff / prev) * 100.0;
+            frm.set_value('cost_variance', Math.round(diff * 100) / 100);
+            frm.set_value('cost_variance_percentage', Math.round(pct * 10) / 10);
+        } else {
+            frm.set_value('cost_variance', 0);
+            frm.set_value('cost_variance_percentage', 0);
+        }
+        frm.trigger("render_event_benchmark_card");
+    },
+
+    render_event_benchmark_card: function(frm) {
+        if (!frm.doc.event) {
+            $(frm.wrapper).find('.ap-event-benchmark-card').remove();
+            return;
+        }
+
+        frappe.db.get_value('Event Master', frm.doc.event, ['event_name', 'start_date', 'event_location', 'allocated_budget', 'remaining_budget', 'event_spoc']).then(r => {
+            if (!r || !r.message) return;
+            const ev = r.message;
+            const format_curr = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(val || 0);
+
+            const prev = flt(frm.doc.previous_benchmark_spend || 0);
+            const curr = flt(frm.doc.total_invoice_amount || frm.doc.net_payable_amount || 0);
+            const diff = flt(frm.doc.cost_variance || (curr - prev));
+            const pct = flt(frm.doc.cost_variance_percentage || (prev > 0 ? (diff / prev) * 100 : 0));
+
+            let diff_badge = '';
+            if (prev > 0) {
+                if (diff < 0) {
+                    diff_badge = `<span style="background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 11px;">📉 Savings: ${format_curr(diff)} (${pct.toFixed(1)}%)</span>`;
+                } else if (diff > 0) {
+                    diff_badge = `<span style="background: #fffbeb; color: #b45309; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 11px;">📈 Cost Escalation: +${format_curr(diff)} (+${pct.toFixed(1)}%)</span>`;
+                } else {
+                    diff_badge = `<span style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 11px;">⚖️ Identical Spend</span>`;
+                }
+            }
+
+            const card_html = `
+                <div class="ap-event-benchmark-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #6366f1; border-radius: 8px; padding: 12px 16px; margin: 12px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+                        <div style="font-size: 12px; font-weight: 700; color: #1e1b4b;">
+                            🎟️ Event Stream A: <b>${ev.event_name || frm.doc.event}</b> &bull; ${ev.event_location || 'Venue N/A'}
+                        </div>
+                        <div>${diff_badge}</div>
+                    </div>
+                    <div style="display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: #475569;">
+                        <div>Prior Benchmark: <b style="color: #0f172a;">${prev > 0 ? format_curr(prev) : 'Not Specified'}</b></div>
+                        <div>Current Invoice: <b style="color: #4338ca;">${format_curr(curr)}</b></div>
+                        <div>Event Budget Left: <b style="color: #15803d;">${format_curr(flt(ev.remaining_budget))}</b></div>
+                    </div>
+                    ${frm.doc.scope_variance_justification ? `
+                        <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed #cbd5e1; font-size: 11px; color: #334155;">
+                            <b>Scope Justification:</b> <i>${frappe.utils.escape_html(frm.doc.scope_variance_justification)}</i>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+
+            $(frm.wrapper).find('.ap-event-benchmark-card').remove();
+            if (frm.fields_dict.sb_event_variance && frm.fields_dict.sb_event_variance.wrapper) {
+                $(frm.fields_dict.sb_event_variance.wrapper).prepend(card_html);
+            }
+        });
+    },
+
     refresh: function(frm) {
         frm.set_query("vendor", function() {
             return {
@@ -79,6 +158,7 @@ frappe.ui.form.on("Vendor Invoice Claim", {
         frm.set_df_property('status', 'read_only', 1);
         frm.set_df_property('workflow_state', 'read_only', 1);
         frm.trigger("toggle_route_fields");
+        frm.trigger("render_event_benchmark_card");
         render_vendor_invoice_dashboard(frm);
         setup_vendor_receipt_gallery_button(frm);
 

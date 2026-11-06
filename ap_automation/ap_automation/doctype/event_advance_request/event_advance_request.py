@@ -201,7 +201,8 @@ def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dic
     frappe.db.set_value("Event Advance Request", advance_name, {
         "status": "Disbursed",
         "approved_advance_amount": doc.requested_advance_amount,
-        "disbursement_reference": clean_ref
+        "disbursement_reference": clean_ref,
+        "utr": clean_ref
     }, update_modified=True)
     frappe.db.commit()
     doc.reload()
@@ -285,4 +286,99 @@ def reject_event_advance(advance_name: str, reason: str) -> Dict[str, Any]:
         "status": "SUCCESS",
         "message": f"Proposal #{advance_name} rejected.",
         "advance": advance_name
+    }
+
+
+@frappe.whitelist()
+def authorize_event_advance_by_accounts_director(advance_name: str, remarks: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Accounts Director (Anshul Sir) maker-checker sign-off on Event Imprest Proposal.
+    Marks status as 'Approved for Payment' and authorizes IDFC Bank bulk disbursal.
+    """
+    if not advance_name or not frappe.db.exists("Event Advance Request", advance_name):
+        frappe.throw(frappe._("Event Advance Request '{0}' not found.").format(advance_name))
+
+    doc = frappe.get_doc("Event Advance Request", advance_name)
+    user = frappe.session.user
+
+    allowed_roles = {"Accounts Director", "Accounts Manager", "AP Director", "System Manager", "Administrator"}
+    user_roles = set(frappe.get_roles(user))
+    if not (allowed_roles & user_roles) and user != "Administrator":
+        frappe.throw(frappe._("Unauthorized: Only Accounts Director or Finance Authority can sign off on event advances."))
+
+    valid_statuses = ("Pending Accounts Disbursal", "Approved by Director", "Approved by Business Head", "Pending Director Sanction")
+    if doc.status not in valid_statuses:
+        frappe.throw(frappe._("Cannot sign off: Event Advance Request '{0}' is in '{1}' status.").format(doc.name, doc.status))
+
+    ad_name = frappe.utils.get_fullname(user) or user
+    now_ts = frappe.utils.now_datetime()
+
+    doc.db_set({
+        "status": "Approved for Payment",
+        "accounts_director": user,
+        "accounts_director_sign_date": now_ts
+    }, update_modified=True)
+
+    rem_text = remarks or "Approved for IDFC Bank Disbursal."
+    doc.add_comment(
+        "Comment",
+        text=f"⭐ <b>Accounts Director Sign-Off:</b> Verified and authorized by <b>{ad_name}</b> ({user}). {rem_text}"
+    )
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "advance_name": doc.name,
+        "accounts_director": user,
+        "message": frappe._("Event Advance Request #{0} authorized by Accounts Director! IDFC Disbursal file is ready for download.").format(doc.name)
+    }
+
+
+@frappe.whitelist()
+def trigger_event_advance_payment_release_notification(advance_name: str) -> Dict[str, Any]:
+    """
+    Maker-Checker Notification Protocol:
+    After IDFC bulk template is uploaded into Netbanking portal, the maker triggers
+    a notification to the Director / AP Director (Checker, TO) with CC to Accounts Director (Supervisor, CC).
+    Strictly resolves approvers from AP Approval Matrix with zero hardcoding.
+    """
+    if not advance_name or not frappe.db.exists("Event Advance Request", advance_name):
+        frappe.throw(frappe._("Event Advance Request '{0}' not found.").format(advance_name))
+
+    doc = frappe.get_doc("Event Advance Request", advance_name)
+    user = frappe.session.user
+
+    from ap_automation.services.notification_service import notify_payment_releaser_on_idfc_upload
+
+    res = notify_payment_releaser_on_idfc_upload(
+        voucher_doctype=doc.doctype,
+        voucher_name=doc.name,
+        uploaded_by=user
+    )
+
+    releaser = res.get("releaser")
+    ad = res.get("accounts_director")
+
+    doc.db_set({
+        "payment_release_notified": 1,
+        "payment_release_notified_on": frappe.utils.now_datetime(),
+        "payment_release_maker": user,
+        "payment_releaser": releaser if releaser and not doc.payment_releaser else doc.payment_releaser
+    }, update_modified=False)
+
+    releaser_display = frappe.db.get_value("User", releaser, "full_name") or releaser
+    ad_display = (frappe.db.get_value("User", ad, "full_name") or ad) if ad else "N/A"
+    doc.add_comment(
+        "Comment",
+        text=f"📤 <b>Payment Release Notified:</b> IDFC Excel disbursal file uploaded to Netbanking by {user}. "
+             f"Payout release request dispatched to AP Director (<b>{releaser_display}</b>) with CC to Accounts Director (<b>{ad_display}</b>)."
+    )
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "advance_name": doc.name,
+        "releaser": releaser,
+        "accounts_director": ad,
+        "message": frappe._("Payment Release notification sent! AP Director ({0}) has been notified.").format(releaser_display)
     }

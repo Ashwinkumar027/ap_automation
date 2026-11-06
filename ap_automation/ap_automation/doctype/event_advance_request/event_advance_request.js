@@ -32,7 +32,7 @@ frappe.ui.form.on("Event Advance Request", {
         if (frm.doc.docstatus === 1) {
             const user_roles = frappe.user_roles || [];
             const is_sys_mgr = user_roles.includes('System Manager') || frappe.session.user === 'Administrator';
-            const is_bh = user_roles.includes('Business Head') || user_roles.includes('Director') || user_roles.includes('Director Tier') || is_sys_mgr;
+            const is_bh = user_roles.includes('Business Head') || user_roles.includes('Director') || user_roles.includes('Director Tier') || user_roles.includes('AP Director') || is_sys_mgr;
             const is_accounts = user_roles.includes('Accounts L1 Auditor') || user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || user_roles.includes('Payment Releaser') || is_sys_mgr;
 
             // STAGE 1: Director Sanction Action
@@ -95,17 +95,96 @@ frappe.ui.form.on("Event Advance Request", {
                 }
             }
 
-            // STAGE 2: Accounts Team Disbursal Action
-            else if (frm.doc.status === 'Pending Accounts Disbursal') {
-                frm.page.set_indicator(__('Pending Accounts Disbursal'), 'blue');
+            // STAGE 2: Accounts Director Sign-off (Anshul Sir)
+            if (['Pending Accounts Disbursal', 'Approved by Director', 'Approved by Business Head'].includes(frm.doc.status)) {
+                frm.page.set_indicator(__('Sanctioned by Director'), 'blue');
                 if (is_accounts) {
-                    frm.add_custom_button(__('💳 Execute Bank Disbursal (Accounts)'), function() {
+                    frm.add_custom_button(__('⭐ Accounts Director Sign-Off'), function() {
+                        frappe.prompt([
+                            {
+                                fieldname: 'remarks',
+                                fieldtype: 'Small Text',
+                                label: __('Authorization Remarks (Optional)'),
+                                default: 'All beneficiary accounts verified. Approved for IDFC Disbursal.'
+                            }
+                        ], function(values) {
+                            frappe.call({
+                                method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.authorize_event_advance_by_accounts_director',
+                                args: {
+                                    advance_name: frm.doc.name,
+                                    remarks: values.remarks
+                                },
+                                freeze: true,
+                                freeze_message: __('Authorizing Event Advance...'),
+                                callback: function(r) {
+                                    if (r.message && r.message.status === 'SUCCESS') {
+                                        frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                        frm.reload_doc();
+                                    }
+                                }
+                            });
+                        }, __('Accounts Director Sign-Off'), __('Authorize'));
+                    }).addClass('btn-primary');
+                }
+            }
+
+            // STAGE 3: Approved for Payment / Disbursal Queue -> IDFC Excel, Maker-Checker Payment Release, Disbursal
+            if (['Approved for Payment', 'Pending Accounts Disbursal'].includes(frm.doc.status)) {
+                if (frm.doc.status === 'Approved for Payment') {
+                    frm.page.set_indicator(__('Approved for Payment'), 'green');
+                }
+
+                // 1. Download IDFC Bank Bulk Disbursal Excel (.xlsx)
+                frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
+                    const download_url = `/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_event_advance_excel?advance_name=${encodeURIComponent(frm.doc.name)}`;
+                    window.open(download_url, '_blank');
+                    frappe.show_alert({
+                        message: __('IDFC Bank Bulk Disbursal Excel downloaded. Please upload to IDFC Netbanking.'),
+                        indicator: 'blue'
+                    });
+                }).addClass('btn-info');
+
+                // 2. Maker-Checker Payment Release Notification (Strict AP Matrix)
+                if (frm.doc.payment_release_notified) {
+                    frm.add_custom_button(__('✓ Payment Release Sent (IDFC Uploaded)'), function() {
+                        const notif_date = frm.doc.payment_release_notified_on ? frappe.datetime.str_to_user(frm.doc.payment_release_notified_on) : 'Recently';
+                        frappe.msgprint({
+                            title: __('Payment Release Already Notified'),
+                            message: __('IDFC Disbursal File was uploaded and notification was dispatched on {0} by {1}. Awaiting final bank release by AP Director.', [notif_date, frm.doc.payment_release_maker || 'Maker']),
+                            indicator: 'green'
+                        });
+                    }).addClass('btn-success disabled');
+                } else {
+                    frm.add_custom_button(__('📤 Payment Release'), function() {
+                        frappe.confirm(
+                            __('Confirm that the IDFC Disbursal Excel has been uploaded to the IDFC Netbanking portal.<br><br>This will send a high-priority payout alert to the <b>AP Director</b> (Checker, TO) with CC to the <b>Accounts Director</b> (Supervisor, CC) from the AP Approval Matrix.<br><br>Proceed with notification dispatch?'),
+                            function() {
+                                frappe.call({
+                                    method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.trigger_event_advance_payment_release_notification',
+                                    args: { advance_name: frm.doc.name },
+                                    freeze: true,
+                                    freeze_message: __('Dispatching Payment Release Alert to AP Director...'),
+                                    callback: function(r) {
+                                        if (r.message && r.message.status === 'SUCCESS') {
+                                            frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                            frm.reload_doc();
+                                        }
+                                    }
+                                });
+                            }
+                        );
+                    }).addClass('btn-warning');
+                }
+
+                // 3. Bank Disbursal & UTR Stamping (Payment Releaser / Accounts)
+                if (is_accounts) {
+                    frm.add_custom_button(__('💳 Release Bank Disbursal (Payment Releaser)'), function() {
                         frappe.prompt([
                             {
                                 fieldname: 'disbursement_ref',
                                 fieldtype: 'Data',
                                 label: __('Bank UTR / Disbursal Reference'),
-                                default: 'UTR-' + Math.floor(100000 + Math.random() * 900000),
+                                default: 'IDFC-EVT-' + Math.floor(10000000 + Math.random() * 90000000),
                                 reqd: 1
                             }
                         ], function(values) {
@@ -116,7 +195,7 @@ frappe.ui.form.on("Event Advance Request", {
                                     disbursement_ref: values.disbursement_ref
                                 },
                                 freeze: true,
-                                freeze_message: __('Disbursing Event Imprest...'),
+                                freeze_message: __('Stamping UTR and Disbursing...'),
                                 callback: function(r) {
                                     if (r.message && r.message.status === 'SUCCESS') {
                                         frappe.show_alert({ message: r.message.message, indicator: 'green' });
@@ -124,12 +203,12 @@ frappe.ui.form.on("Event Advance Request", {
                                     }
                                 }
                             });
-                        }, __('Execute Bank Disbursal'), __('Disburse Funds'));
+                        }, __('Record Bank Disbursal & Stamp UTR'), __('Disburse'));
                     }).addClass('btn-primary');
                 }
             }
 
-            // STAGE 3: Disbursed -> Ready for Post-Event Expense Claim
+            // STAGE 4: Disbursed -> Ready for Post-Event Expense Claim
             else if (frm.doc.status === 'Disbursed') {
                 frm.page.set_indicator(__('Disbursed'), 'green');
                 frm.add_custom_button(__('📋 Create Expense Claim from Proposal'), function() {
@@ -198,6 +277,14 @@ function render_advance_event_context(frm) {
                         <div style="font-size: 13px; font-weight: 700; color: #166534;">Linked Event: ${ev.event_name || frm.doc.event}</div>
                         <div style="font-size: 11px; color: #15803d; margin-top: 2px;">
                             Board Budget: <b>${format_curr(budget)}</b> &nbsp;|&nbsp; Committed: <b>${format_curr(committed)}</b>
+                        </div>
+                        <div style="display: flex; gap: 12px; margin-top: 4px; font-size: 11px;">
+                            <span style="background: #ffffff; padding: 2px 8px; border-radius: 4px; border: 1px solid #bbf7d0; color: #166534; font-weight: 600;">
+                                🏛️ Direct Vendor Payouts: <b>${format_curr(parseFloat(frm.doc.total_direct_vendor_amount || 0))}</b>
+                            </span>
+                            <span style="background: #ffffff; padding: 2px 8px; border-radius: 4px; border: 1px solid #bbf7d0; color: #166534; font-weight: 600;">
+                                💵 SPOC Cash Imprest: <b>${format_curr(parseFloat(frm.doc.total_cash_imprest_amount || 0))}</b>
+                            </span>
                         </div>
                     </div>
                 </div>
