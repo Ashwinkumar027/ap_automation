@@ -3,6 +3,7 @@
 
 import io
 import json
+import re
 from collections import OrderedDict
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -170,16 +171,38 @@ def generate_idfc_bank_excel_bytes(
 
     curr_row = 3
     for item in payment_rows:
-        beneficiary_name = str(item.get("beneficiary_name") or "").strip().upper()
-        account_no = str(item.get("beneficiary_account_number") or "").strip()
+        raw_b_name = str(item.get("beneficiary_name") or "").strip().upper()
+        # Clean special characters: replace & with AND, remove characters not allowed by IDFC CMS
+        cleaned_b_name = raw_b_name.replace("&", "AND")
+        cleaned_b_name = re.sub(r'[^A-Z0-9\s\.\-]', ' ', cleaned_b_name)
+        beneficiary_name = re.sub(r'\s+', ' ', cleaned_b_name).strip() or "BENEFICIARY"
+
+        account_no = re.sub(r'[^0-9A-Za-z]', '', str(item.get("beneficiary_account_number") or "").strip())
         ifsc = str(item.get("ifsc") or "").strip().upper()
-        tx_type = str(item.get("transaction_type") or "NEFT").strip().upper()
+        amount = flt(item.get("amount") or 0.0)
+
+        # IDFC Banking Transaction Type Rules:
+        # 1. IFT: Within IDFC First Bank transfer (IFSC starts with IDFB)
+        # 2. RTGS: Inter-bank transfer where amount >= 200,000 (2 Lakhs)
+        # 3. NEFT: Standard Inter-bank transfer
+        user_tx_type = str(item.get("transaction_type") or "").strip().upper()
+        if ifsc.startswith("IDFB"):
+            tx_type = "IFT"
+        elif user_tx_type in ("IFT", "RTGS", "NEFT"):
+            tx_type = user_tx_type
+        elif amount >= 200000.0:
+            tx_type = "RTGS"
+        else:
+            tx_type = "NEFT"
+
         debit_acc = str(item.get("debit_account_number") or debit_account_no or "10173678610").strip()
         tx_date = str(item.get("transaction_date") or transaction_date_str).strip()
-        amount = flt(item.get("amount") or 0.0)
         currency = "INR"
         email = str(item.get("beneficiary_email") or "").strip() or None
-        remarks = str(item.get("remarks") or "").strip() or None
+
+        raw_remarks = str(item.get("remarks") or "").strip()
+        cleaned_remarks = re.sub(r'[^A-Z0-9\s\.\-_/]', ' ', raw_remarks.upper())
+        remarks = re.sub(r'\s+', ' ', cleaned_remarks).strip()[:30] if raw_remarks else None
 
         row_vals = [
             beneficiary_name,

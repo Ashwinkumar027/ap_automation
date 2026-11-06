@@ -215,6 +215,18 @@ function render_status_guidance_banner(frm) {
 // 4. ACTION BUTTONS & WORKFLOW ACTIONS
 // --------------------------------------------------------------------------------------
 function setup_batch_action_buttons(frm) {
+    // ----------------------------------------------------------------------------------
+    // On-Demand Mid-Week & Friday Fetch Claims Action
+    // ----------------------------------------------------------------------------------
+    const can_fetch_claims = ['Draft', 'Pending Admin L1 Review', 'Pending Admin L2 Review', 'Pending Accounts L1 Audit'].includes(frm.doc.status) &&
+        (frappe.user.has_role(['Admin L1 Approver', 'Admin L2 Approver', 'Accounts L1 Auditor', 'Accounts Director', 'AP Director', 'System Manager']) || frappe.session.user === 'Administrator');
+
+    if (can_fetch_claims && !frm.is_new()) {
+        frm.add_custom_button(__('📥 Fetch Eligible Claims'), function() {
+            open_fetch_claims_dialog(frm);
+        }).addClass('btn-primary');
+    }
+
     // Toggle Raw Items Table in Actions menu
     frm.add_custom_button(__('Toggle Raw Items Table'), function() {
         const isHidden = frm.fields_dict['items'] && frm.fields_dict['items'].df.hidden;
@@ -455,6 +467,52 @@ function setup_batch_action_buttons(frm) {
             'color': '#ffffff',
             'font-weight': '600'
         });
+    }
+
+    // Maker-Checker: Payment Release Action
+    if (frm.doc.status === 'Approved for Payment') {
+        const is_release_sent = frm.doc.payment_release_notified === 1;
+
+        if (!is_release_sent) {
+            frm.add_custom_button(__('📤 Payment Release'), function () {
+                frappe.confirm(
+                    __('Have you uploaded the IDFC Excel disbursal file to the IDFC Netbanking Corporate Portal?<br><br>Click <b>Yes</b> to notify the designated <b>Payment Releaser (AP Director)</b> to authorize and release payment.'),
+                    function () {
+                        frappe.call({
+                            method: 'ap_automation.services.weekly_accounts_batch_service.trigger_batch_payment_release_notification',
+                            args: {
+                                batch_name: frm.doc.name
+                            },
+                            freeze: true,
+                            freeze_message: __('Dispatching Payment Release notification to AP Director...'),
+                            callback: function (r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({
+                                        message: __('📤 ' + r.message.message),
+                                        indicator: 'green'
+                                    }, 7);
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }
+                );
+            }).addClass('btn-primary').css({
+                'background-color': '#0284c7',
+                'border-color': '#0369a1',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
+        } else {
+            frm.add_custom_button(__('✓ Payment Release Sent'), function () {
+                frappe.msgprint(__('Payment Release notification has already been sent to the designated AP Director for this company.'));
+            }).addClass('btn-default').css({
+                'background-color': '#f0fdf4',
+                'border-color': '#86efac',
+                'color': '#166534',
+                'font-weight': '700'
+            });
+        }
     }
 
     // 5. Batch Level Consolidated Excel Export & IDFC Template in Actions
@@ -1091,4 +1149,138 @@ function open_voucher_proofs_modal(voucher_no) {
             }
         }
     });
+}
+
+
+
+// --------------------------------------------------------------------------------------
+// INTERACTIVE ON-DEMAND FETCH CLAIMS DIALOG WITH CUT-OFF DATE & LIVE PREVIEW
+// --------------------------------------------------------------------------------------
+function open_fetch_claims_dialog(frm) {
+    const is_accounts_phase = frm.doc.status === 'Pending Accounts L1 Audit';
+    const default_stage = is_accounts_phase ? 'Admin L2 Approved' : 'Receptionist Verified';
+    const default_date = frm.doc.batch_date || frappe.datetime.nowdate();
+
+    const d = new frappe.ui.Dialog({
+        title: __('📥 Fetch Eligible Claims into Weekly Batch'),
+        fields: [
+            {
+                fieldname: 'company',
+                fieldtype: 'Link',
+                label: __('Company Entity'),
+                options: 'Company',
+                default: frm.doc.company,
+                reqd: 1,
+                change: () => update_fetch_preview()
+            },
+            {
+                fieldname: 'cut_off_date',
+                fieldtype: 'Date',
+                label: __('Cut-Off Date (In-Between / Weekly Cut-Off)'),
+                default: default_date,
+                reqd: 1,
+                description: __('Only claims verified on or before this date will be included. Later claims remain queued.'),
+                change: () => update_fetch_preview()
+            },
+            {
+                fieldname: 'stage_target',
+                fieldtype: 'Select',
+                label: __('Pipeline Stage to Ingest'),
+                options: [
+                    { label: __('Receptionist Verified (Admin Pipeline)'), value: 'Receptionist Verified' },
+                    { label: __('Admin L2 Approved (Accounts Audit Pipeline)'), value: 'Admin Approved' }
+                ],
+                default: default_stage,
+                reqd: 1,
+                change: () => update_fetch_preview()
+            },
+            {
+                fieldname: 'sync_mode',
+                fieldtype: 'Select',
+                label: __('Sync Mode'),
+                options: [
+                    { label: __('Safe Append (Keep existing audited items & add new claims)'), value: 'Safe Append' },
+                    { label: __('Fresh Sync (Replace un-audited rows)'), value: 'Fresh Sync' }
+                ],
+                default: 'Safe Append',
+                reqd: 1
+            },
+            {
+                fieldname: 'preview_section',
+                fieldtype: 'Section Break',
+                label: __('Ingestion Preview & Collision Shield')
+            },
+            {
+                fieldname: 'preview_html',
+                fieldtype: 'HTML'
+            }
+        ],
+        primary_action_label: __('🚀 Ingest Claims into Batch'),
+        primary_action: function(values) {
+            d.hide();
+            frappe.call({
+                method: 'ap_automation.services.weekly_accounts_batch_service.fetch_eligible_claims_for_batch',
+                args: {
+                    batch_name: frm.doc.name,
+                    cut_off_date: values.cut_off_date,
+                    stage_target: values.stage_target,
+                    sync_mode: values.sync_mode,
+                    company: values.company
+                },
+                freeze: true,
+                freeze_message: __('Ingesting Claims with Cut-Off Gate & Deduplication Shield...'),
+                callback: function(r) {
+                    if (r.message && r.message.status === 'SUCCESS') {
+                        frappe.show_alert({
+                            message: r.message.message,
+                            indicator: 'green'
+                        }, 7);
+                        frm.reload_doc();
+                    }
+                }
+            });
+        }
+    });
+
+    function update_fetch_preview() {
+        const comp = d.get_value('company');
+        const c_date = d.get_value('cut_off_date');
+        const stage = d.get_value('stage_target');
+
+        if (!comp || !c_date) return;
+
+        frappe.call({
+            method: 'ap_automation.services.weekly_accounts_batch_service.preview_eligible_claims_count',
+            args: {
+                company: comp,
+                cut_off_date: c_date,
+                stage_target: stage,
+                batch_name: frm.doc.name
+            },
+            callback: function(r) {
+                if (r.message) {
+                    const data = r.message;
+                    const html = `
+                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <strong style="color: #1e293b;">Eligible Claims Found:</strong>
+                                <span class="badge badge-success" style="font-size: 13px; font-weight: 700; background: #16a34a; color: #fff;">${data.eligible_count} Claims</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="color: #64748b;">Total Value to Ingest:</span>
+                                <strong style="color: #0f172a; font-size: 14px;">INR ${Number(data.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                            </div>
+                            <div style="margin-top: 8px; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 6px;">
+                                🛡️ <em>Active Batch Collision Shield active: claims already in another unfinalized batch are automatically excluded.</em>
+                            </div>
+                        </div>
+                    `;
+                    d.fields_dict.preview_html.$wrapper.html(html);
+                }
+            }
+        });
+    }
+
+    d.show();
+    setTimeout(() => update_fetch_preview(), 200);
 }
