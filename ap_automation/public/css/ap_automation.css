@@ -494,3 +494,57 @@
 .ap-attachment-pill:hover {
     background: #e0f2fe !important;
 }
+
+/* ======================================================================================
+   GLOBAL DOCUMENT ID FULL VISIBILITY & BREATHING ROOM
+   Ensures document naming series (e.g., WVPB-2026-W44-00004, EAR-2026-11-03834,
+   VINV-2026-11-03829, EEC-2026-11-03832) are never truncated with ellipsis and
+   have ample horizontal space and padding across ALL Frappe Desk List Views.
+   ====================================================================================== */
+
+/* Target ID / Subject Column in both List Rows and List Header across all views */
+.frappe-list .list-row-col.list-subject,
+.frappe-list .list-row-col.name,
+.list-row-head .list-row-col.list-subject,
+.list-row-head .list-row-col.name,
+.list-header-subject .list-row-col.list-subject,
+.list-header-subject .list-row-col.name,
+.level-left.list-header-subject .list-subject,
+.frappe-list .result .level-left .list-row-col.list-subject,
+.frappe-list .result .level-left .list-row-col.name,
+.list-view .frappe-list .result .level-left .list-row-col.name {
+    min-width: 270px !important;
+    width: 270px !important;
+    flex: 0 0 270px !important;
+}
+
+/* Ensure the link and span do not clip or hide trailing digits */
+.frappe-list .list-row-col.list-subject .level-item,
+.frappe-list .list-row-col.name .level-item,
+.frappe-list .list-row-col.list-subject a,
+.frappe-list .list-row-col.name a,
+.frappe-list .list-row-col.list-subject .level-item a,
+.frappe-list .list-row-col.name .level-item a {
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: nowrap !important;
+    max-width: none !important;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.3px;
+    font-weight: 600;
+}
+
+/* Checkbox spacing in ID column */
+.frappe-list .list-row-col.list-subject .select-like,
+.list-header-subject .select-like {
+    margin-right: 14px !important;
+    min-width: 24px !important;
+}
+
+/* Clear spacing between ID column and the next column (Company, Vendor, Date, etc.) */
+.frappe-list .result .level-left .list-row-col.list-subject + .list-row-col,
+.frappe-list .result .level-left .list-row-col.name + .list-row-col,
+.list-row-head .level-left .list-row-col.list-subject + .list-row-col,
+.list-row-head .level-left .list-row-col.name + .list-row-col {
+    margin-left: 18px !important;
+}

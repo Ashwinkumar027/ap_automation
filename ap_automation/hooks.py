@@ -24,7 +24,8 @@ app_include_js = [
     "/assets/ap_automation/js/ap_expense_type_manager.js",
     "/assets/ap_automation/js/ap_receipt_gallery.js",
     "/assets/ap_automation/js/ap_workspace_dashboard.js",
-    "/assets/ap_automation/js/ap_clarification_thread.js"
+    "/assets/ap_automation/js/ap_clarification_thread.js",
+    "/assets/ap_automation/js/ap_listview_enhancements.js"
 ]
 
 # Scoped to AP Automation DocTypes only to preserve default Frappe Desk across all other apps
