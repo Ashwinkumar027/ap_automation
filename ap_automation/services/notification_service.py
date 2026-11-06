@@ -574,6 +574,23 @@ def notify_payment_releaser_on_idfc_upload(
             <tr><td style="padding: 6px 0; color: #64748b;">Company / Entity:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{company}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Audited Claims:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{getattr(doc, 'total_claims_count', 0)} claims ({getattr(doc, 'total_employees_count', 0)} unique employees)</td></tr>
         """
+    elif voucher_doctype == "Event Advance Request":
+        amount = float(getattr(doc, "approved_advance_amount", 0.0) or getattr(doc, "requested_advance_amount", 0.0) or 0.0)
+        direct_amt = float(getattr(doc, "total_direct_vendor_amount", 0.0) or 0.0)
+        cash_amt = float(getattr(doc, "total_cash_imprest_amount", 0.0) or 0.0)
+        event_name = frappe.db.get_value("Event Master", getattr(doc, "event", None), "event_name") or getattr(doc, "event", "Event")
+        module_title = "Event Advance Request"
+        card_title = "Event Imprest Proposal Uploaded for Payment Release"
+        subject_tag = f"Event Imprest #{voucher_name} ({event_name})"
+        button_label = "🔍 Open Event Advance Request &rarr;"
+        detail_rows = f"""
+            <tr><td style="padding: 6px 0; color: #64748b; width: 40%;">Proposal ID:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 700;">#{voucher_name}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Linked Event:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{event_name}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Company / Entity:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{company}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Event SPOC:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{getattr(doc, 'spoc_name', '') or getattr(doc, 'spoc', '')}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Direct Vendor Payouts:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">₹ {fmt_money(direct_amt)}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">On-Ground Cash Imprest:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">₹ {fmt_money(cash_amt)}</td></tr>
+        """
     elif voucher_doctype == "Weekly Vendor Payment Batch":
         amount = float(getattr(doc, "total_payable_amount", 0.0) or getattr(doc, "total_base_amount", 0.0) or 0.0)
         module_title = "Weekly Vendor Payment Batch"

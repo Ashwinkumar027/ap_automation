@@ -9,6 +9,7 @@
  "field_order": [
   "sb_route",
   "invoice_type",
+  "event",
   "company",
   "vendor",
   "vendor_name",
@@ -32,6 +33,12 @@
   "advance_deducted",
   "net_payable_amount",
   "total_amount",
+  "sb_event_variance",
+  "previous_benchmark_spend",
+  "cb_variance",
+  "cost_variance",
+  "cost_variance_percentage",
+  "scope_variance_justification",
   "sb_attachments",
   "tax_invoice_attachment",
   "email_approval_attachment",
@@ -498,6 +505,47 @@
    "read_only": 1,
    "options": "User",
    "fieldname": "tally_posted_by"
+  },
+  {
+   "fieldname": "event",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Linked Event Master (Stream A)",
+   "options": "Event Master"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sb_event_variance",
+   "fieldtype": "Section Break",
+   "label": "Event Cost Comparison & Scope Justification (Director Review)"
+  },
+  {
+   "fieldname": "previous_benchmark_spend",
+   "fieldtype": "Currency",
+   "label": "Previous Event / Benchmark Spend (INR)",
+   "description": "Historical spend from prior event or initial vendor quotation for comparison"
+  },
+  {
+   "fieldname": "cb_variance",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cost_variance",
+   "fieldtype": "Currency",
+   "label": "Cost Variance (Current - Benchmark)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost_variance_percentage",
+   "fieldtype": "Percent",
+   "label": "Cost Variance (%)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "scope_variance_justification",
+   "fieldtype": "Small Text",
+   "label": "Scope Changes & Commercial Justification",
+   "description": "Explain additions/removals in scope (e.g., removed truss pillars, raised stage, added photobooth)"
   }
  ],
  "grid_page_length": 50,

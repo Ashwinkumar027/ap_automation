@@ -36,6 +36,12 @@
   "approved_by_business_head",
   "business_head_approval_date",
   "business_head_comments",
+  "payment_releaser",
+  "payment_release_maker",
+  "payment_release_notified_on",
+  "payment_release_notified",
+  "accounts_director_sign_date",
+  "accounts_director",
   "batch_id",
   "disbursement_reference",
   "approval_trail",
@@ -200,7 +206,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Director Sanction\nPending Business Head Approval\nApproved by Director\nApproved by Business Head\nPending Accounts Disbursal\nQueued in Batch\nDisbursed\nRejected",
+   "options": "Draft\nPending Director Sanction\nPending Business Head Approval\nApproved by Director\nApproved by Business Head\nApproved for Payment\nPending Accounts Disbursal\nQueued in Batch\nDisbursed\nRejected",
    "allow_on_submit": 1
   },
   {
@@ -254,6 +260,52 @@
    "print_hide": 1,
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "fieldname": "accounts_director",
+   "fieldtype": "Link",
+   "label": "Accounts Director Sign-off",
+   "options": "User",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "accounts_director_sign_date",
+   "fieldtype": "Datetime",
+   "label": "Accounts Director Sign Date",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "payment_release_notified",
+   "fieldtype": "Check",
+   "label": "Payment Release Notified",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "payment_release_notified_on",
+   "fieldtype": "Datetime",
+   "label": "Payment Release Notified On",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "payment_release_maker",
+   "fieldtype": "Link",
+   "label": "Payment Release Maker",
+   "options": "User",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "payment_releaser",
+   "fieldtype": "Link",
+   "label": "Payment Releaser (Director)",
+   "options": "User",
+   "read_only": 1,
+   "allow_on_submit": 1
   }
  ],
  "grid_page_length": 50,

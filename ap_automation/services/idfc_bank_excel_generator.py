@@ -780,3 +780,101 @@ def download_idfc_weekly_vendor_batch_excel(batch_name: str):
     frappe.response["filename"] = filename
     frappe.response["filecontent"] = filebytes
     frappe.response["type"] = "download"
+
+
+@frappe.whitelist()
+def download_idfc_event_advance_excel(advance_name: str):
+    """
+    Generates and downloads the official IDFC Bank Bulk Disbursal Excel (.xlsx)
+    for an Event Advance Request (Lane 4).
+    Consolidates:
+      1. Direct Vendor Payments (to verified vendor bank accounts)
+      2. On-Ground Cash Imprest (to Event SPOC salary bank account)
+    """
+    if not advance_name:
+        frappe.throw(_("Event Advance Request name is required."))
+
+    doc = frappe.get_doc("Event Advance Request", advance_name)
+    company = doc.company or frappe.defaults.get_user_default("Company")
+    debit_account = get_company_debit_account(company)
+
+    today_dt = getdate(nowdate())
+    tx_date_str = today_dt.strftime("%d/%m/%Y")
+
+    payment_rows: List[Dict[str, Any]] = []
+
+    # 1. Direct Vendor Payments from itemized table
+    for idx, row in enumerate(doc.imprest_items or [], start=1):
+        mode = getattr(row, "payment_mode", "Cash / Petty Imprest")
+        amt = flt(row.amount)
+        if amt <= 0:
+            continue
+
+        if mode == "Direct Vendor Payment":
+            b_name = (row.beneficiary_name or "Vendor").strip()
+            b_ac = str(row.bank_account_number or "").strip()
+            b_ifsc = str(row.bank_ifsc_code or "").strip().upper()
+
+            if not b_ac or not b_ifsc:
+                frappe.throw(
+                    _("Direct Vendor Row #{0} ('{1}') is missing Bank Account Number or IFSC Code. "
+                      "Both are strictly required for IDFC bulk disbursal.")
+                    .format(idx, b_name)
+                )
+
+            rem = f"EVT-ADV {doc.name} {row.particulars or 'VEND'}"[:30]
+            payment_rows.append({
+                "beneficiary_name": b_name,
+                "beneficiary_account_number": b_ac,
+                "ifsc": b_ifsc,
+                "debit_account_number": debit_account,
+                "transaction_date": tx_date_str,
+                "amount": amt,
+                "currency": "INR",
+                "beneficiary_email": "",
+                "remarks": rem,
+                "vouchers": [f"{doc.name}-ROW-{idx}"],
+            })
+
+    # 2. Cash / Petty Imprest payout to SPOC
+    cash_total = flt(doc.total_cash_imprest_amount)
+    if cash_total > 0:
+        spoc_name = doc.spoc_name or doc.spoc or "Event SPOC"
+        spoc_ac = str(doc.bank_account_number or "").strip()
+        spoc_ifsc = str(doc.bank_ifsc_code or "").strip().upper()
+
+        if not spoc_ac or not spoc_ifsc:
+            frappe.throw(
+                _("Event SPOC '{0}' is missing Salary Bank Account Number or IFSC Code on the advance request. "
+                  "Please ensure SPOC banking details are populated before downloading IDFC Disbursal file.")
+                .format(spoc_name)
+            )
+
+        spoc_email = frappe.db.get_value("User", doc.spoc, "email") or ""
+        rem = f"EVT-ADV {doc.name} CASH IMPREST"[:30]
+        payment_rows.append({
+            "beneficiary_name": spoc_name,
+            "beneficiary_account_number": spoc_ac,
+            "ifsc": spoc_ifsc,
+            "debit_account_number": debit_account,
+            "transaction_date": tx_date_str,
+            "amount": cash_total,
+            "currency": "INR",
+            "beneficiary_email": spoc_email,
+            "remarks": rem,
+            "vouchers": [f"{doc.name}-CASH"],
+        })
+
+    if not payment_rows:
+        frappe.throw(_("No valid payment rows found in Event Advance Request '{0}'.").format(doc.name))
+
+    filename, filebytes = generate_idfc_bank_excel_bytes(
+        payment_rows=payment_rows,
+        debit_account_no=debit_account,
+        transaction_date_str=tx_date_str,
+        filename_prefix=f"IDFC_Event_Advance_{advance_name}"
+    )
+
+    frappe.response["filename"] = filename
+    frappe.response["filecontent"] = filebytes
+    frappe.response["type"] = "download"
