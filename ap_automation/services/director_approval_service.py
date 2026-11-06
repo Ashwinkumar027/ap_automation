@@ -19,7 +19,7 @@ def evaluate_vendor_approval_workflow(claim_doc) -> str:
     """
     net = float(getattr(claim_doc, "net_payable_amount", 0.0) or 0.0)
     if net > DIRECTOR_TIER_THRESHOLD:
-        return "Pending Director Signoff"
+        return "Pending Director Approval"
     return "Approved for Payment"
 
 
@@ -48,7 +48,7 @@ def approve_accounts_l2(claim_name: str, accounts_user: str) -> Dict[str, Any]:
     next_status = evaluate_vendor_approval_workflow(claim)
     claim.status = next_status
 
-    if next_status == "Pending Director Signoff":
+    if next_status in ("Pending Director Signoff", "Pending Director Approval"):
         claim.workflow_state = "Escalated to Director Tier (> INR 2L)"
         director_id = frappe.db.get_value("Has Role", {"role": ["in", ["Accounts Director", "Director Tier"]], "parenttype": "User"}, "parent")
         if not director_id or not frappe.db.get_value("User", director_id, "enabled"):
@@ -97,7 +97,7 @@ def approve_director_tier(
         raise APValidationError(f"Vendor Invoice Claim '{claim_name}' not found.")
 
     claim = frappe.get_doc("Vendor Invoice Claim", claim_name)
-    if claim.status != "Pending Director Signoff":
+    if claim.status not in ("Pending Director Signoff", "Pending Director Approval"):
         raise APValidationError(
             f"Invalid State: Claim #{claim_name} is currently in '{claim.status}', not 'Pending Director Signoff'."
         )
