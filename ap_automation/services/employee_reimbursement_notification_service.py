@@ -778,7 +778,7 @@ def notify_admin_l1_on_weekly_batch_ready(batch_name: str) -> None:
     claims_count = batch.total_claims_count or len(batch.items or [])
     emp_count = batch.total_employees_count or len(set(i.employee_id for i in (batch.items or [])))
 
-    subject = f"📅 [Friday 10:00 AM] Weekly Reimbursement Batch #{batch.name}: {claims_count} Claims across {emp_count} Employees (₹ {_safe_fmt_money(amount)})"
+    subject = f"Weekly Reimbursement Batch #{batch.name}: {claims_count} Claims (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
         title="Weekly Friday Admin Review Workstation",
         subtitle=f"Batch {batch.week_number} &bull; Operational & Policy Audit",
@@ -809,7 +809,7 @@ def notify_admin_l2_on_admin_l1_batch_approved(batch_name: str) -> None:
     claims_count = batch.total_claims_count or len(batch.items or [])
     emp_count = batch.total_employees_count or len(set(i.employee_id for i in (batch.items or [])))
 
-    subject = f"🏛️ [Action Required] Weekly Batch #{batch.name} Approved by Admin L1: Department Head Sign-Off (₹ {_safe_fmt_money(amount)})"
+    subject = f"Approval Needed: Weekly Batch #{batch.name} - Admin Head Sign-Off (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
         title="Admin L2 Department Head Sign-Off",
         subtitle=f"Stage 3 &bull; Final Administrative Clearance",
@@ -840,7 +840,7 @@ def notify_accounts_l1_on_weekly_batch_ready(batch_name: str) -> None:
     claims_count = batch.total_claims_count or len(batch.items or [])
     emp_count = batch.total_employees_count or len(set(i.employee_id for i in (batch.items or [])))
 
-    subject = f"📅 [Weekly Friday Audit] Reimbursement Batch #{batch.name}: {claims_count} Claims across {emp_count} Employees (₹ {_safe_fmt_money(amount)})"
+    subject = f"Audit Needed: Weekly Reimbursement Batch #{batch.name} - Accounts Review (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
         title="Weekly Friday Accounts Audit Workstation",
         subtitle=f"Batch {batch.week_number} &bull; Consolidated Reimbursements",
@@ -870,7 +870,7 @@ def notify_accounts_director_on_weekly_batch_audited(batch_name: str) -> None:
     amount = flt(batch.total_sanctioned_amount)
     claims_count = batch.total_claims_count
 
-    subject = f"💰 [Action Required] Weekly Batch #{batch.name} Audited by Accounts L1: Director Sign-Off (₹ {_safe_fmt_money(amount)})"
+    subject = f"Approval Needed: Weekly Reimbursement Batch #{batch.name} (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
         title="Weekly Batch Director Authorization",
         subtitle=f"Stage 5 &bull; Financial Sanction Sign-Off",
@@ -899,7 +899,7 @@ def notify_releaser_on_weekly_batch_approved(batch_name: str) -> None:
     doc_url = _get_form_url("Weekly Accounts Audit Batch", batch_name)
     amount = flt(batch.total_sanctioned_amount)
 
-    subject = f"💵 [Action Required] Weekly Batch #{batch.name} Ready for Payment Release (₹ {_safe_fmt_money(amount)})"
+    subject = f"Payment Release: Weekly Employee Batch #{batch.name} (₹ {_safe_fmt_money(amount)}) uploaded to IDFC"
     body = _build_html_template(
         title="Weekly Batch Ready for Disbursal",
         subtitle=f"Stage 6 &bull; Banking Release Queue",
@@ -960,24 +960,24 @@ def notify_event_imprest_submitted(advance_doc) -> None:
     direct_amt = float(getattr(advance_doc, "total_direct_vendor_amount", 0.0) or 0.0)
     cash_amt = float(getattr(advance_doc, "total_cash_imprest_amount", 0.0) or 0.0)
 
-    subject = f"🎟️ [Approval Required] Event Imprest Proposal #{advance_doc.name} - {event_name} (₹ {_safe_fmt_money(amount)})"
+    subject = f"Approval Needed: Advance for Event '{event_name}' (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
-        title="Event Imprest Proposal Submitted",
-        subtitle=f"Stage 1 &bull; Director Sanction Required",
+        title="Event Advance Request Submitted",
+        subtitle=f"Director Approval Needed",
         greeting_name="Director",
         main_message=(
-            f"An itemized Imprest Proposal has been submitted for upcoming event <b>'{event_name}'</b> ({company}).<br><br>"
+            f"An advance request has been submitted for upcoming event <b>'{event_name}'</b> ({company}).<br><br>"
             f"• <b>Direct Vendor Payments:</b> ₹ {_safe_fmt_money(direct_amt)}<br>"
             f"• <b>On-Ground Cash Imprest:</b> ₹ {_safe_fmt_money(cash_amt)}<br>"
-            f"• <b>Total Sanction Requested:</b> ₹ {_safe_fmt_money(amount)}<br><br>"
-            f"Accounts team (Gokulnath & Accounts Director) is CCed for proactive banking audit."
+            f"• <b>Total Advance Requested:</b> ₹ {_safe_fmt_money(amount)}<br><br>"
+            f"The accounts team is CCed for proactive banking review."
         ),
-        metric_label_1="Total Proposed Imprest",
+        metric_label_1="Total Advance",
         metric_val_1=f"₹ {_safe_fmt_money(amount)}",
         metric_label_2="Direct / Cash Split",
         metric_val_2=f"₹ {_safe_fmt_money(direct_amt)} / ₹ {_safe_fmt_money(cash_amt)}",
         doc_url=doc_url,
-        button_text="Review & Sanction Proposal",
+        button_text="Review & Approve Advance",
         badge_color="#4f46e5"
     )
 
@@ -1005,24 +1005,24 @@ def notify_event_imprest_sanctioned(advance_doc) -> None:
     direct_amt = float(getattr(advance_doc, "total_direct_vendor_amount", 0.0) or 0.0)
     cash_amt = float(getattr(advance_doc, "total_cash_imprest_amount", 0.0) or 0.0)
 
-    subject = f"✅ [Ready for Disbursal] Event Imprest #{advance_doc.name} Sanctioned by Director (₹ {_safe_fmt_money(amount)})"
+    subject = f"Approved: Advance for Event '{event_name}' is ready for payment (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
-        title="Event Imprest Sanctioned by Director",
-        subtitle=f"Stage 2 &bull; Accounts Corporate Bank Disbursal Queue",
+        title="Event Advance Approved",
+        subtitle=f"Ready for Bank Payment",
         greeting_name="Accounts Team",
         main_message=(
-            f"Director has officially sanctioned the Imprest Proposal for <b>'{event_name}'</b>.<br><br>"
+            f"The Director has approved the advance request for <b>'{event_name}'</b>.<br><br>"
             f"• <b>Total Sanctioned:</b> ₹ {_safe_fmt_money(amount)}<br>"
-            f"• <b>Direct Vendor Payments:</b> ₹ {_safe_fmt_money(direct_amt)} (Bank A/C verified)<br>"
+            f"• <b>Direct Vendor Payments:</b> ₹ {_safe_fmt_money(direct_amt)}<br>"
             f"• <b>Cash Imprest to SPOC:</b> ₹ {_safe_fmt_money(cash_amt)}<br><br>"
             f"Please verify beneficiary accounts and execute corporate bank payment release."
         ),
         metric_label_1="Sanctioned Payout",
         metric_val_1=f"₹ {_safe_fmt_money(amount)}",
-        metric_label_2="Sanctioned By",
+        metric_label_2="Approved By",
         metric_val_2=f"{advance_doc.approved_by_business_head or 'Director'}",
         doc_url=doc_url,
-        button_text="Review & Disburse",
+        button_text="Review & Pay Advance",
         badge_color="#16a34a"
     )
 
@@ -1047,23 +1047,23 @@ def notify_event_imprest_disbursed(advance_doc) -> None:
     event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
     amount = float(getattr(advance_doc, "approved_advance_amount", advance_doc.requested_advance_amount) or 0.0)
 
-    subject = f"💳 [Funds Disbursed] Event Imprest #{advance_doc.name} Released via Corporate Bank (₹ {_safe_fmt_money(amount)})"
+    subject = f"Payment Sent: Advance of ₹ {_safe_fmt_money(amount)} paid for Event '{event_name}'"
     body = _build_html_template(
-        title="Event Imprest Funds Disbursed",
-        subtitle=f"Stage 3 &bull; Bank Disbursal Complete",
+        title="Event Advance Disbursed",
+        subtitle=f"Bank Payment Completed",
         greeting_name=advance_doc.spoc_name or "Event SPOC",
         main_message=(
-            f"Funds for Event <b>'{event_name}'</b> have been successfully disbursed via corporate banking.<br><br>"
+            f"The advance for Event <b>'{event_name}'</b> has been paid via corporate bank transfer.<br><br>"
             f"• <b>Total Disbursed:</b> ₹ {_safe_fmt_money(amount)}<br>"
-            f"• <b>Bank Reference / UTR:</b> {advance_doc.disbursement_reference or 'BANK-PROCESSED'}<br><br>"
-            f"Please ensure all vendors are settled and retain all GST tax invoices and receipts for post-event settlement."
+            f"• <b>Bank Reference / UTR:</b> {advance_doc.disbursement_reference or 'PROCESSED'}<br><br>"
+            f"Please ensure all vendors are paid and retain all GST tax invoices and receipts for post-event settlement."
         ),
         metric_label_1="Disbursed Amount",
         metric_val_1=f"₹ {_safe_fmt_money(amount)}",
         metric_label_2="Bank Reference",
         metric_val_2=f"{advance_doc.disbursement_reference or 'PROCESSED'}",
         doc_url=doc_url,
-        button_text="View Disbursal Details",
+        button_text="View Payment Details",
         badge_color="#2563eb"
     )
 
@@ -1083,22 +1083,22 @@ def notify_event_advance_rejected(advance_doc, reason: str) -> None:
     amount = float(getattr(advance_doc, "requested_advance_amount", 0.0) or 0.0)
     doc_url = _get_form_url("Event Advance Request", advance_doc.name)
 
-    subject = f"🚫 [REJECTED] Event Imprest Proposal #{advance_doc.name} - {event_name}"
+    subject = f"Update: Advance Request for Event '{event_name}' needs review"
     body = _build_html_template(
-        title="Event Imprest Proposal Rejected",
-        subtitle="Sanction Denied &bull; Revision Required",
+        title="Event Advance Request Returned",
+        subtitle="Changes Requested",
         greeting_name=advance_doc.spoc_name or "Event SPOC",
         main_message=(
-            f"Your Imprest Proposal for <b>'{event_name}'</b> (₹ {_safe_fmt_money(amount)}) has been rejected.<br><br>"
-            f"<b>Rejection Reason:</b> {reason}<br><br>"
-            f"Please update the proposal or line items according to feedback and resubmit."
+            f"Your advance request for <b>'{event_name}'</b> (₹ {_safe_fmt_money(amount)}) was returned.<br><br>"
+            f"<b>Reason / Feedback:</b> {reason}<br><br>"
+            f"Please update the details according to the feedback and resubmit."
         ),
         metric_label_1="Requested Advance",
         metric_val_1=f"₹ {_safe_fmt_money(amount)}",
         metric_label_2="Status",
-        metric_val_2="Rejected",
+        metric_val_2="Returned for Review",
         doc_url=doc_url,
-        button_text="Review Rejected Proposal",
+        button_text="Review & Update Request",
         badge_color="#dc2626"
     )
     _dispatch_reimbursement_email([spoc_email], subject, body, "Event Advance Request", advance_doc.name, alert_color="red")
@@ -1127,40 +1127,41 @@ def notify_event_settlement_submitted(settlement_doc) -> None:
     refund = float(getattr(settlement_doc, "refund_receivable_from_spoc", 0.0) or 0.0)
 
     if s_type == "REFUND_FROM_SPOC":
-        subject = f"⚖️ [Audit Required] Event Settlement #{settlement_doc.name} - Refund Receivable (₹ {_safe_fmt_money(refund)})"
-        title = "Event Settlement Submitted (Refund Verification)"
-        subtitle = "Accounts Audit Required &bull; Bank Credit Verification"
+        subject = f"Event Settlement: '{event_name}' - Refund of ₹ {_safe_fmt_money(refund)} to Company"
+        title = "Event Settlement Submitted"
+        subtitle = "Unspent Balance Refund Verification"
         msg = (
-            f"Event SPOC has submitted settlement for <b>'{event_name}'</b> with an unspent cash refund of <b>₹ {_safe_fmt_money(refund)}</b>.<br><br>"
+            f"Event SPOC has submitted settlement for <b>'{event_name}'</b> with an unspent refund of <b>₹ {_safe_fmt_money(refund)}</b> to the company.<br><br>"
             f"• <b>Disbursed Advance:</b> ₹ {_safe_fmt_money(adv)}<br>"
-            f"• <b>Ground Spends:</b> ₹ {_safe_fmt_money(actuals)}<br>"
+            f"• <b>Actual Spends:</b> ₹ {_safe_fmt_money(actuals)}<br>"
             f"• <b>Refund UTR Provided:</b> {settlement_doc.refund_received_reference or 'Pending Verification'}<br><br>"
-            f"Please verify the bank credit and click <b>Audit & Verify Bank Refund</b> to close the event."
+            f"Please verify bank credit and confirm to close the event."
         )
         badge_color = "#ea580c"
         alert_color = "orange"
         metric_label = "Refund Due to Company"
         metric_val = f"₹ {_safe_fmt_money(refund)}"
     elif s_type == "PAYABLE_TO_SPOC":
-        subject = f"⚖️ [Audit Required] Event Settlement #{settlement_doc.name} - Reimbursement Payable (₹ {_safe_fmt_money(payable)})"
-        title = "Event Settlement Submitted (Reimbursement)"
-        subtitle = "Accounts Audit Required &bull; Payout Execution"
+        subject = f"Event Settlement: '{event_name}' - Reimbursement of ₹ {_safe_fmt_money(payable)} to SPOC"
+        title = "Event Settlement Submitted"
+        subtitle = "Reimbursement Verification"
         msg = (
-            f"Event SPOC has submitted settlement for <b>'{event_name}'</b> with an out-of-pocket balance of <b>₹ {_safe_fmt_money(payable)}</b>.<br><br>"
+            f"Event SPOC has submitted settlement for <b>'{event_name}'</b>. Actual expenses exceeded advance, requiring reimbursement of <b>₹ {_safe_fmt_money(payable)}</b>.<br><br>"
             f"• <b>Disbursed Advance:</b> ₹ {_safe_fmt_money(adv)}<br>"
-            f"• <b>Ground Spends:</b> ₹ {_safe_fmt_money(actuals)}<br><br>"
-            f"Please audit the receipts and click <b>Execute SPOC Reimbursement</b> to disburse funds to the SPOC's verified salary account."
+            f"• <b>Actual Spends:</b> ₹ {_safe_fmt_money(actuals)}<br>"
+            f"• <b>Extra Payable to SPOC:</b> ₹ {_safe_fmt_money(payable)}<br><br>"
+            f"Please review bills and approve for payment."
         )
         badge_color = "#2563eb"
         alert_color = "blue"
-        metric_label = "Reimbursement Due to SPOC"
+        metric_label = "Reimbursement to SPOC"
         metric_val = f"₹ {_safe_fmt_money(payable)}"
     else:
-        subject = f"⚖️ [Audit Required] Event Settlement #{settlement_doc.name} - Balanced (₹ 0.00)"
-        title = "Event Settlement Submitted (Balanced)"
-        subtitle = "Accounts Audit &bull; Ready for Closure"
+        subject = f"Event Settlement: '{event_name}' - All expenses balanced (₹ 0.00)"
+        title = "Event Settlement Submitted"
+        subtitle = "Balanced Settlement"
         msg = (
-            f"Event SPOC has submitted settlement for <b>'{event_name}'</b>. Actual ground spends match the advance exactly (₹ 0.00 balance)."
+            f"Event SPOC has submitted settlement for <b>'{event_name}'</b>. Actual expenses exactly matched advance (₹ 0 balance)."
         )
         badge_color = "#16a34a"
         alert_color = "green"
@@ -1196,25 +1197,25 @@ def notify_event_settlement_closed(settlement_doc) -> None:
     doc_url = _get_form_url("Event Settlement", settlement_doc.name)
     event_name = frappe.db.get_value("Event Master", settlement_doc.event, "event_name") or settlement_doc.event
 
-    subject = f"🏁 [Settlement Closed] Event '{event_name}' Financial Reconciliation Complete"
+    subject = f"Completed: Event '{event_name}' settlement is closed"
     body = _build_html_template(
-        title="Event Financial Settlement Closed",
-        subtitle="Lifecycle Complete &bull; Accounts Balanced",
+        title="Event Settlement Closed",
+        subtitle="Accounts Balanced & Event Closed",
         greeting_name=settlement_doc.spoc_name or "Event SPOC",
         main_message=(
-            f"Post-event financial settlement for <b>'{event_name}'</b> has been formally verified and settled.<br><br>"
-            f"• <b>Total Disbursed Advance:</b> ₹ {_safe_fmt_money(settlement_doc.disbursed_advance)}<br>"
-            f"• <b>Total SPOC Actual Spends:</b> ₹ {_safe_fmt_money(settlement_doc.spoc_actual_spends)}<br>"
-            f"• <b>Settlement Type:</b> {settlement_doc.settlement_type}<br>"
+            f"Financial settlement for <b>'{event_name}'</b> has been completed.<br><br>"
+            f"• <b>Total Advance:</b> ₹ {_safe_fmt_money(settlement_doc.disbursed_advance)}<br>"
+            f"• <b>Total Actual Spends:</b> ₹ {_safe_fmt_money(settlement_doc.spoc_actual_spends)}<br>"
+            f"• <b>Settlement Result:</b> {settlement_doc.settlement_type}<br>"
             f"• <b>Bank / UTR Reference:</b> {settlement_doc.refund_received_reference or 'VERIFIED'}<br><br>"
-            f"The Event Master has been formally marked as <b>Closed</b> with no pending liabilities."
+            f"The Event has been formally marked as <b>Closed</b> with zero pending balance."
         ),
         metric_label_1="Actual Spends",
         metric_val_1=f"₹ {_safe_fmt_money(settlement_doc.spoc_actual_spends)}",
         metric_label_2="Settlement Result",
         metric_val_2=f"{settlement_doc.settlement_type}",
         doc_url=doc_url,
-        button_text="View Final Settlement",
+        button_text="View Closed Settlement",
         badge_color="#16a34a"
     )
     _dispatch_reimbursement_email(list(set(recipients)), subject, body, "Event Settlement", settlement_doc.name, alert_color="green")
@@ -1235,28 +1236,32 @@ def notify_event_ageing_reminder(ev_dict, days_overdue: int, unsettled_advance: 
     doc_url = _get_form_url("Event Master", ev_dict.get("name"))
 
     if level >= 14:
-        subject = f"🚨 [PAYROLL ALERT] Event '{event_name}' Unsettled Advance ({days_overdue} Days Overdue)"
+        subject = f"Action Needed: Settle bills for Event '{event_name}' before salary cutoff (₹ {_safe_fmt_money(unsettled_advance)})"
         badge_color = "#dc2626"
         alert_color = "red"
-        title = "14-Day Payroll Deduction Escalation"
-        sub = "Mandatory Action &bull; HRMS Payroll Deduction Pending"
+        title = "Event Settlement Reminder"
+        sub = "Friendly Reminder &bull; Settlement Due Before Salary Cutoff"
         msg = (
-            f"Event <b>'{event_name}'</b> concluded {days_overdue} days ago, but an unaccounted cash advance of "
-            f"<b>₹ {_safe_fmt_money(unsettled_advance)}</b> remains un-settled.<br><br>"
-            f"Per corporate policy, failure to submit expense receipts or refund unspent funds within 14 days "
-            f"results in an automatic payroll deduction in the upcoming salary cycle."
+            f"Hi {spoc_email.split('@')[0].title()},<br><br>"
+            f"Hope you are doing well! The event <b>'{event_name}'</b> was completed recently. "
+            f"An advance balance of <b>₹ {_safe_fmt_money(unsettled_advance)}</b> is currently pending bill submission and settlement.<br><br>"
+            f"Please take a moment to upload your expense receipts and submit the settlement voucher using the link below before the upcoming monthly salary cutoff.<br><br>"
+            f"If you have already submitted the bills or have any questions, please reach out to the Accounts Team."
         )
     else:
-        subject = f"⏰ [Reminder] Event '{event_name}' Advance Settlement Due ({days_overdue} Days Overdue)"
+        subject = f"Reminder: Please submit bills for Event '{event_name}' (₹ {_safe_fmt_money(unsettled_advance)})"
         badge_color = "#ea580c"
         alert_color = "yellow"
-        title = "7-Day Post-Event Settlement Reminder"
-        sub = "Timely Settlement Required"
+        title = "Post-Event Settlement Reminder"
+        sub = "Settlement Due"
         msg = (
-            f"Event <b>'{event_name}'</b> concluded on {ev_dict.get('end_date')}. Please submit your "
-            f"Event Expense Claim and Settlement voucher for remaining advance balance of <b>₹ {_safe_fmt_money(unsettled_advance)}</b>."
+            f"Hi {spoc_email.split('@')[0].title()},<br><br>"
+            f"The event <b>'{event_name}'</b> concluded on {ev_dict.get('end_date')}. Please submit your "
+            f"expense bills and settlement voucher for the advance balance of <b>₹ {_safe_fmt_money(unsettled_advance)}</b>.<br><br>"
+            f"Thank you for keeping accounts updated on time!"
         )
 
+    btn_text = "Open Event Settlement Form" if level >= 14 else "Submit Event Settlement"
     body = _build_html_template(
         title=title,
         subtitle=sub,
@@ -1267,7 +1272,7 @@ def notify_event_ageing_reminder(ev_dict, days_overdue: int, unsettled_advance: 
         metric_label_2="Days Overdue",
         metric_val_2=f"{days_overdue} Days",
         doc_url=doc_url,
-        button_text="Submit Event Settlement",
+        button_text=btn_text,
         badge_color=badge_color
     )
     _dispatch_reimbursement_email(list(set(recipients)), subject, body, "Event Master", ev_dict.get("name"), alert_color=alert_color)
