@@ -348,42 +348,52 @@ frappe.ui.form.on("Vendor Invoice Claim", {
 
     vendor: function(frm) {
         if (frm.doc.vendor) {
-            frappe.db.get_value("Supplier", frm.doc.vendor, ["supplier_name", "tax_id"]).then(r => {
-                if (r && r.message) {
-                    frm.set_value("vendor_name", r.message.supplier_name);
-                    frm.set_value("vendor_gstin", r.message.tax_id || "");
-                }
-            });
-
-            // Fetch Bank Account & Cheque Proof
             frappe.call({
-                method: "frappe.client.get_list",
-                args: {
-                    doctype: "Bank Account",
-                    filters: { party_type: "Supplier", party: frm.doc.vendor },
-                    fields: ["name", "bank", "bank_account_no", "branch_code", "bank_proof_attachment", "penny_drop_status"],
-                    limit: 1
-                },
-                callback: function(res) {
-                    if (res.message && res.message.length > 0) {
-                        let acc = res.message[0];
-                        frm.set_value("bank_name", acc.bank || "");
-                        frm.set_value("bank_account_number", acc.bank_account_no || "");
-                        frm.set_value("bank_ifsc_code", acc.branch_code || "");
-                        frm.set_value("bank_proof_attachment", acc.bank_proof_attachment || "");
-                        frm._bank_account_doc = acc;
-                    } else {
-                        frm.set_value("bank_name", "");
-                        frm.set_value("bank_account_number", "");
-                        frm.set_value("bank_ifsc_code", "");
-                        frm.set_value("bank_proof_attachment", "");
-                        frm._bank_account_doc = null;
+                method: "ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.get_vendor_bank_info",
+                args: { vendor: frm.doc.vendor },
+                callback: function(r) {
+                    if (r.message) {
+                        let data = r.message;
+                        if (data.disabled) {
+                            frappe.msgprint({
+                                title: __("Disabled Supplier"),
+                                indicator: "red",
+                                message: __("Supplier <b>{0}</b> is marked as disabled in ERPNext.", [frm.doc.vendor])
+                            });
+                            frm.set_value("vendor", "");
+                            return;
+                        }
+                        frm.set_value("vendor_name", data.vendor_name || "");
+                        frm.set_value("vendor_gstin", data.vendor_gstin || "");
+
+                        let acc = data.bank_account;
+                        if (acc && acc.bank_account_number) {
+                            frm.set_value("bank_name", acc.bank_name || "");
+                            frm.set_value("bank_account_number", acc.bank_account_number || "");
+                            frm.set_value("bank_ifsc_code", acc.bank_ifsc_code || "");
+                            frm.set_value("bank_proof_attachment", acc.bank_proof_attachment || "");
+                            frm._bank_account_doc = acc;
+                        } else {
+                            frm.set_value("bank_name", "");
+                            frm.set_value("bank_account_number", "");
+                            frm.set_value("bank_ifsc_code", "");
+                            frm.set_value("bank_proof_attachment", "");
+                            frm._bank_account_doc = null;
+                        }
+                        render_vendor_invoice_dashboard(frm);
                     }
-                    render_vendor_invoice_dashboard(frm);
                 }
             });
+        } else {
+            frm.set_value("vendor_name", "");
+            frm.set_value("vendor_gstin", "");
+            frm.set_value("bank_name", "");
+            frm.set_value("bank_account_number", "");
+            frm.set_value("bank_ifsc_code", "");
+            frm.set_value("bank_proof_attachment", "");
+            frm._bank_account_doc = null;
+            render_vendor_invoice_dashboard(frm);
         }
-        render_vendor_invoice_dashboard(frm);
     },
 
     base_amount: function(frm) {
