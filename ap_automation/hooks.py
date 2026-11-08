@@ -107,6 +107,7 @@ fixtures = [
                     "Admin L2 Approver",
                     "Accounts L1 Auditor",
                     "Accounts Director",
+                    "AP Director",
                     "Payment Releaser"
                 ]
             ]
@@ -117,6 +118,13 @@ fixtures = [
         "filters": [
             ["dt", "=", "Company"],
             ["fieldname", "like", "ap_%"]
+        ]
+    },
+    {
+        "dt": "Custom DocPerm",
+        "filters": [
+            ["parent", "in", ["Company", "Bank Account"]],
+            ["role", "in", ["AP Director", "Accounts Director", "Accounts L1 Auditor", "Payment Releaser"]]
         ]
     }
 ]

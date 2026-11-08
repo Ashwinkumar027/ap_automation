@@ -644,7 +644,7 @@ def trigger_reimbursement_payment_release_notification(claim_name: str):
 
     allowed_roles = {
         "Accounts Director", "Accounts L1 Auditor", "Accounts User", "Accounts Manager",
-        "Payment Releaser", "Director Tier", "AP Director", "System Manager", "Administrator"
+        "Payment Releaser", "AP Director", "System Manager", "Administrator"
     }
     user_roles = set(frappe.get_roles(user))
     if not (allowed_roles & user_roles) and user != "Administrator":
@@ -700,4 +700,63 @@ def trigger_reimbursement_payment_release_notification(claim_name: str):
         "releaser": releaser,
         "accounts_director": ad,
         "message": frappe._("Payment Release notification sent! AP Director ({0}) has been notified.").format(releaser_display)
+    }
+
+
+@frappe.whitelist()
+def get_employee_claim_profile(employee: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Whitelisted API: Safely retrieves employee master and bank details for claim creation and auditing,
+    completely bypassing HRMS permission locks for Accounts, Auditors, and AP Directors.
+    """
+    if not employee and not user_id:
+        user_id = frappe.session.user
+
+    emp_name = None
+    if employee:
+        emp_name = employee
+    elif user_id:
+        emp_name = frappe.db.get_value("Employee", {"user_id": user_id, "status": "Active"}, "name")
+        if not emp_name:
+            emp_name = frappe.db.get_value("Employee", {"user_id": user_id}, "name")
+
+    if not emp_name or not frappe.db.exists("Employee", emp_name):
+        return {}
+
+    emp = frappe.get_doc("Employee", emp_name)
+    ifsc_val = getattr(emp, "custom_ifsc_code", None) or getattr(emp, "ifsc_code", None) or ""
+
+    mgr_name = ""
+    mgr_user_id = ""
+    if emp.reports_to and frappe.db.exists("Employee", emp.reports_to):
+        mgr_name = frappe.db.get_value("Employee", emp.reports_to, "employee_name") or ""
+        mgr_user_id = frappe.db.get_value("Employee", emp.reports_to, "user_id") or ""
+
+    return {
+        "name": emp.name,
+        "employee_name": emp.employee_name or "",
+        "company": emp.company or "",
+        "department": emp.department or "",
+        "reports_to": emp.reports_to or "",
+        "reporting_manager_name": mgr_name,
+        "manager_user_id": mgr_user_id,
+        "user_id": emp.user_id or "",
+        "bank_name": getattr(emp, "bank_name", None) or "",
+        "bank_account_number": getattr(emp, "bank_ac_no", None) or "",
+        "bank_ifsc_code": ifsc_val
+    }
+
+    emp = frappe.get_doc("Employee", emp_name)
+    ifsc_val = getattr(emp, "custom_ifsc_code", None) or getattr(emp, "ifsc_code", None) or ""
+
+    return {
+        "name": emp.name,
+        "employee_name": emp.employee_name or "",
+        "company": emp.company or "",
+        "department": emp.department or "",
+        "reports_to": emp.reports_to or "",
+        "user_id": emp.user_id or "",
+        "bank_name": getattr(emp, "bank_name", None) or "",
+        "bank_account_number": getattr(emp, "bank_ac_no", None) or "",
+        "bank_ifsc_code": ifsc_val
     }

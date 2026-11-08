@@ -140,7 +140,7 @@ def get_event_advance_permission_query_conditions(user: Optional[str] = None) ->
 
     escaped_user = frappe.db.escape(user)
     user_roles = set(frappe.get_roles(user)) if user else set()
-    is_bh = bool(user_roles.intersection({"Business Head", "Director", "Director Tier", "Business Head Approver", "AP Director"}))
+    is_bh = bool(user_roles.intersection({"Business Head", "Business Head Approver", "AP Director", "Accounts Director"}))
 
     if is_bh:
         return f"""(
@@ -167,7 +167,7 @@ def has_event_advance_permission(doc, user: Optional[str] = None, ptype: str = "
         return True
 
     user_roles = set(frappe.get_roles(user)) if user else set()
-    is_bh = bool(user_roles.intersection({"Business Head", "Director", "Director Tier", "Business Head Approver", "AP Director"}))
+    is_bh = bool(user_roles.intersection({"Business Head", "Business Head Approver", "AP Director", "Accounts Director"}))
     if is_bh and getattr(doc, "status", "") in ("Pending Director Sanction", "Pending Business Head Approval"):
         return True
 

@@ -265,7 +265,7 @@ def trigger_vendor_batch_payment_release_notification(batch_name: str) -> Dict[s
 
     allowed_roles = {
         "Accounts Director", "Accounts L1 Auditor", "Accounts User", "Accounts Manager",
-        "Payment Releaser", "Director Tier", "AP Director", "System Manager", "Administrator"
+        "Payment Releaser", "AP Director", "System Manager", "Administrator"
     }
     user_roles = set(frappe.get_roles(user))
     if not (allowed_roles & user_roles) and user != "Administrator":

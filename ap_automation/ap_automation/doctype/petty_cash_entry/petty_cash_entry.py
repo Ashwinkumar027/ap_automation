@@ -355,7 +355,7 @@ class PettyCashEntry(Document):
         user_roles = frappe.get_roles(user) if user else []
         is_accounts_authorized = any(r in user_roles for r in [
             "Accounts L1 Auditor", "Accounts User", "Accounts Manager", "AP Director",
-            "Accounts Director", "Director Tier", "Director", "Dileep Director",
+            "Accounts Director", "AP Director",
             "Payment Releaser", "System Manager"
         ]) or user in ("Administrator", "administrator@example.com")
 
@@ -497,7 +497,7 @@ def trigger_payment_release_notification(voucher_name: str):
 
     allowed_roles = {
         "Accounts Director", "Accounts L1 Auditor", "Accounts User", "Accounts Manager",
-        "Payment Releaser", "Director Tier", "Dileep Director", "System Manager", "Administrator"
+        "Payment Releaser", "AP Director", "System Manager", "Administrator"
     }
     user_roles = set(frappe.get_roles(user))
     if not (allowed_roles & user_roles) and user != "Administrator":
@@ -556,7 +556,7 @@ def record_petty_cash_payment_utr(voucher_name: str, utr_number: str = None, jv_
 
     allowed_roles = {
         "Accounts Director", "Accounts L1 Auditor", "Accounts User",
-        "Payment Releaser", "Director Tier", "Dileep Director", "System Manager", "Administrator"
+        "Payment Releaser", "AP Director", "System Manager", "Administrator"
     }
     user_roles = set(frappe.get_roles(user))
     if not (allowed_roles & user_roles) and user != "Administrator":

@@ -121,7 +121,7 @@ def approve_by_business_head(advance_name: str, comments: Optional[str] = None) 
     user_roles = set(frappe.get_roles(user))
     doc = frappe.get_doc("Event Advance Request", advance_name)
 
-    authorized_roles = {"AP Director", "Business Head", "Director", "Accounts Director", "Director Tier", "System Manager", "Administrator"}
+    authorized_roles = {"AP Director", "Business Head", "Accounts Director", "System Manager", "Administrator"}
 
     # AP Matrix Governance check
     try:
@@ -239,7 +239,7 @@ def reject_event_advance(advance_name: str, reason: str) -> Dict[str, Any]:
 
     user = frappe.session.user
     user_roles = set(frappe.get_roles(user))
-    authorized = {"Business Head", "Director", "Accounts Director", "Accounts Manager", "Director Tier", "System Manager", "Administrator"}
+    authorized = {"AP Director", "Business Head", "Accounts Director", "Accounts Manager", "System Manager", "Administrator"}
     if not user_roles.intersection(authorized):
         raise APSecurityError("Unauthorized: Only Business Head or Accounts Directors can reject Event Imprest Proposals.")
 

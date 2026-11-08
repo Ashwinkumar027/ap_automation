@@ -16,8 +16,7 @@ frappe.ui.form.on('Petty Cash Entry', {
         // Grid permissions & edit rights
         const is_director = frappe.user.has_role([
             'Accounts Director',
-            'Director Tier',
-            'Dileep Director',
+            'AP Director',
             'Payment Releaser',
             'System Manager'
         ]) || frappe.session.user === 'Administrator';
@@ -548,7 +547,7 @@ function render_status_guidance_banner(frm) {
             class: 'banner-approved',
             icon: '⭐',
             title: 'Stage 4: Audited & Ready for Director Sanction (L2)',
-            message: `Accounts verified <b>₹ ${amount_formatted}</b> with zero discrepancies. Waiting for Director Tier sanction.`
+            message: `Accounts verified <b>₹ ${amount_formatted}</b> with zero discrepancies. Waiting for AP Director sanction.`
         };
     } else if (status === 'Approved for Payment' || status === 'Queued in Batch') {
         banner_config = {
@@ -765,7 +764,7 @@ function render_role_based_action_buttons(frm) {
     }
 
     // 3. ADMIN L2 DEPARTMENT HEAD ACTIONS
-    if (status === 'Pending Admin L2' && (frappe.user.has_role(['Admin L2 Approver', 'Admin Manager', 'Accounts Director', 'Director Tier', 'System Manager']) || frappe.session.user === 'Administrator')) {
+    if (status === 'Pending Admin L2' && (frappe.user.has_role(['Admin L2 Approver', 'Admin Manager', 'Accounts Director', 'AP Director', 'System Manager']) || frappe.session.user === 'Administrator')) {
         frm.add_custom_button(__('✅ Approve & Send to Accounts'), function () {
             frappe.confirm(__(`Final Admin Sign-Off: Dispatch voucher <b>#${frm.doc.name}</b> (₹${format_inr_clean(frm.doc.total_amount)}) to Accounts Audit?`), function () {
                 frappe.call({
@@ -862,7 +861,7 @@ function render_role_based_action_buttons(frm) {
                 frm.set_value('workflow_state', 'Audited & Verified by Accounts L1');
                 frm.set_value('current_approval_level', 2);
                 frm.save().then(() => {
-                    frappe.show_alert({ message: __('✅ Passed to Director Tier!'), indicator: 'green' }, 5);
+                    frappe.show_alert({ message: __('✅ Passed to AP Director!'), indicator: 'green' }, 5);
                 });
             });
         }).addClass('btn-primary').css({
@@ -887,8 +886,7 @@ function render_role_based_action_buttons(frm) {
     // 5. DIRECTOR TIER & ANISH SIR (PAYMENT RELEASER) SANCTION / REJECT
     const can_sanction_or_reject = frappe.user.has_role([
         'Accounts Director',
-        'Director Tier',
-        'Dileep Director',
+        'AP Director',
         'Payment Releaser',
         'System Manager'
     ]) || frappe.session.user === 'Administrator';
@@ -1451,7 +1449,7 @@ function open_dispute_split_dialog(frm) {
         });
     });
 
-    const is_director = frappe.user.has_role(['Accounts Director', 'Director Tier', 'Dileep Director', 'System Manager']) || frappe.session.user === 'Administrator';
+    const is_director = frappe.user.has_role(['AP Director', 'Accounts Director', 'System Manager']) || frappe.session.user === 'Administrator';
     const primary_btn_label = frm.doc.status === 'L1 Verified'
         ? __('Fork Disputed Lines & Retain Approved')
         : __('Split & Move Approved to L2');

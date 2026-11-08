@@ -211,7 +211,7 @@ def approve_admin_l2(voucher_name: str, comments: Optional[str] = None) -> Dict[
     Sets status -> 'Submitted' (Seamlessly handsoff to Accounts Audit pipeline).
     """
     user = frappe.session.user
-    _enforce_role_or_system_manager(user, ["Admin L2 Approver", "Admin Manager", "Accounts Director", "Director Tier"], "Admin L2 Approval")
+    _enforce_role_or_system_manager(user, ["Admin L2 Approver", "Admin Manager", "Accounts Director", "AP Director"], "Admin L2 Approval")
 
     if not frappe.db.exists("Petty Cash Entry", voucher_name):
         raise APValidationError(f"Petty Cash Entry '{voucher_name}' not found.")
@@ -264,7 +264,7 @@ def return_admin_l2(voucher_name: str, reason: str, return_to: str = "Reception"
     Admin L2 (Department Head) returns claim either to Admin L1 Supervisor or directly to Reception.
     """
     user = frappe.session.user
-    _enforce_role_or_system_manager(user, ["Admin L2 Approver", "Admin Manager", "Accounts Director", "Director Tier"], "Admin L2 Return")
+    _enforce_role_or_system_manager(user, ["Admin L2 Approver", "Admin Manager", "Accounts Director", "AP Director"], "Admin L2 Return")
 
     if not reason or not reason.strip():
         raise APValidationError("A valid reason is required to return a voucher.")
@@ -378,7 +378,7 @@ def submit_to_accounts_direct(voucher_name: str, comments: Optional[str] = None)
     Time Complexity: O(1)
     """
     user = frappe.session.user
-    _enforce_role_or_system_manager(user, ["Admin L2 Approver", "Admin Manager", "Accounts Director", "Director Tier"], "Admin Head Direct Submission")
+    _enforce_role_or_system_manager(user, ["Admin L2 Approver", "Admin Manager", "Accounts Director", "AP Director"], "Admin Head Direct Submission")
 
     if not frappe.db.exists("Petty Cash Entry", voucher_name):
         raise APValidationError(f"Petty Cash Entry '{voucher_name}' not found.")

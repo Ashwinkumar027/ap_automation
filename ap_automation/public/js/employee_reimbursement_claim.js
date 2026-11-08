@@ -84,19 +84,21 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     onload: function(frm) {
         frappe.require('/assets/ap_automation/css/ap_automation.css');
         if (frm.is_new() && !frm.doc.employee) {
-            frappe.db.get_value('Employee', { user_id: frappe.session.user }, [
-                'name', 'employee_name', 'company', 'department',
-                'bank_name', 'bank_ac_no', 'ifsc_code', 'custom_ifsc_code', 'reports_to'
-            ]).then(r => {
-                if (r && r.message) {
-                    if (r.message.name) frm.set_value('employee', r.message.name);
-                    if (r.message.employee_name) frm.set_value('employee_name', r.message.employee_name);
-                    if (r.message.company) frm.set_value('company', r.message.company);
-                    if (r.message.department) frm.set_value('department', r.message.department);
-                    if (r.message.bank_name) frm.set_value('bank_name', r.message.bank_name);
-                    if (r.message.bank_ac_no) frm.set_value('bank_account_number', r.message.bank_ac_no);
-                    const ifsc_val = r.message.custom_ifsc_code || r.message.ifsc_code; if (ifsc_val) frm.set_value('bank_ifsc_code', ifsc_val);
-                    if (r.message.reports_to) frm.set_value('reporting_manager', r.message.reports_to);
+            frappe.call({
+                method: "ap_automation.ap_automation.doctype.employee_reimbursement_claim.employee_reimbursement_claim.get_employee_claim_profile",
+                args: { user_id: frappe.session.user },
+                callback: function(r) {
+                    if (r && r.message) {
+                        let m = r.message;
+                        if (m.name) frm.set_value('employee', m.name);
+                        if (m.employee_name) frm.set_value('employee_name', m.employee_name);
+                        if (m.company) frm.set_value('company', m.company);
+                        if (m.department) frm.set_value('department', m.department);
+                        if (m.bank_name) frm.set_value('bank_name', m.bank_name);
+                        if (m.bank_account_number) frm.set_value('bank_account_number', m.bank_account_number);
+                        if (m.bank_ifsc_code) frm.set_value('bank_ifsc_code', m.bank_ifsc_code);
+                        if (m.reports_to) frm.set_value('reporting_manager', m.reports_to);
+                    }
                 }
             });
         }
@@ -175,18 +177,21 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
     employee: function(frm) {
         if (frm.doc.employee) {
-            frappe.db.get_value('Employee', frm.doc.employee, [
-                'employee_name', 'department', 'company', 'bank_name', 'bank_ac_no', 'ifsc_code', 'custom_ifsc_code', 'reports_to'
-            ]).then(r => {
-                if (r && r.message) {
-                    frm.set_value('employee_name', r.message.employee_name || '');
-                    frm.set_value('company', r.message.company || '');
-                    frm.set_value('department', r.message.department || '');
-                    frm.set_value('bank_name', r.message.bank_name || '');
-                    frm.set_value('bank_account_number', r.message.bank_ac_no || '');
-                    frm.set_value('bank_ifsc_code', r.message.custom_ifsc_code || r.message.ifsc_code || '');
-                    if (r.message.reports_to) {
-                        frm.set_value('reporting_manager', r.message.reports_to);
+            frappe.call({
+                method: "ap_automation.ap_automation.doctype.employee_reimbursement_claim.employee_reimbursement_claim.get_employee_claim_profile",
+                args: { employee: frm.doc.employee },
+                callback: function(r) {
+                    if (r && r.message) {
+                        let m = r.message;
+                        frm.set_value('employee_name', m.employee_name || '');
+                        frm.set_value('company', m.company || '');
+                        frm.set_value('department', m.department || '');
+                        frm.set_value('bank_name', m.bank_name || '');
+                        frm.set_value('bank_account_number', m.bank_account_number || '');
+                        frm.set_value('bank_ifsc_code', m.bank_ifsc_code || '');
+                        if (m.reports_to) {
+                            frm.set_value('reporting_manager', m.reports_to);
+                        }
                     }
                 }
             });

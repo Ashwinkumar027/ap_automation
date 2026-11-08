@@ -449,7 +449,7 @@ def notify_director_on_l1_audit_completed(voucher_doctype: str, voucher_name: st
         company=company,
         document_lane=voucher_doctype,
         level_number=4,
-        fallback_roles=["Accounts Director", "Director Tier"], stage_keyword="Director"
+        fallback_roles=["AP Director", "Accounts Director"], stage_keyword="Director"
     )
 
     cc_users = _get_claim_rolling_cc(doc, exclude_users=director_users)
@@ -1061,7 +1061,7 @@ def notify_releaser_on_batch_ready(batch_name: str) -> None:
     if not active_releasers:
         directors = frappe.get_all(
             "Has Role",
-            filters={"role": ["in", ["Accounts Director", "Director Tier"]], "parenttype": "User"},
+            filters={"role": ["in", ["AP Director", "Accounts Director"]], "parenttype": "User"},
             pluck="parent"
         )
         active_releasers = [d for d in directors if d != "Administrator" and frappe.db.get_value("User", d, "enabled")]
@@ -1136,7 +1136,7 @@ def send_pending_petty_cash_reminders() -> Dict[str, Any]:
         elif vch.status == "Submitted":
             target_approvers = _get_matrix_or_role_approvers(vch.company, "Petty Cash Entry", 3, ["Accounts L1 Auditor"], stage_keyword="Accounts")
         elif vch.status == "L1 Verified":
-            target_approvers = _get_matrix_or_role_approvers(vch.company, "Petty Cash Entry", 4, ["Accounts Director", "Director Tier"], stage_keyword="Director")
+            target_approvers = _get_matrix_or_role_approvers(vch.company, "Petty Cash Entry", 4, ["AP Director", "Accounts Director"], stage_keyword="Director")
 
         if target_approvers:
             subject = f"[AP-PettyCash] [Reminder] [Action Required] [Voucher #{vch.name}] {vch.company} ({amt_str}) - {vch.status}"
@@ -1321,7 +1321,7 @@ def notify_accounts_l1_sla_reminder(voucher_doctype: str, voucher_name: str) -> 
 
 
 def notify_accounts_director_sla_escalation(voucher_doctype: str, voucher_name: str) -> None:
-    """Dispatches 24-hour SLA Escalation alert to Accounts Director / Director Tier."""
+    """Dispatches 24-hour SLA Escalation alert to Accounts Director / AP Director."""
     if not frappe.db.exists(voucher_doctype, voucher_name):
         return
 
@@ -1331,7 +1331,7 @@ def notify_accounts_director_sla_escalation(voucher_doctype: str, voucher_name: 
     admin_date = getattr(doc, "admin_l2_approval_date", None)
     admin_date_str = frappe.utils.format_datetime(admin_date, "dd-MM-yyyy hh:mm a") if admin_date else "Yesterday"
 
-    directors = _get_matrix_or_role_approvers(company, voucher_doctype, 4, ["Accounts Director", "Director Tier"])
+    directors = _get_matrix_or_role_approvers(company, voucher_doctype, 4, ["AP Director", "Accounts Director"])
     l1_auditors = _get_matrix_or_role_approvers(company, voucher_doctype, 3, ["Accounts L1 Auditor"])
     cc_users = _get_claim_rolling_cc(doc, exclude_users=directors)
     for auditor in l1_auditors:
@@ -1930,7 +1930,7 @@ def notify_vendor_claim_manager_approved(claim_name: str) -> None:
         company=company,
         document_lane="AP Vendor Invoice",
         level_number=1,
-        fallback_roles=["Accounts Director", "Director Tier", "Director"],
+        fallback_roles=["AP Director", "Accounts Director"],
         stage_keyword="Director"
     )
     bus_head = frappe.db.get_value("Company", company, "ap_business_head")
@@ -1989,7 +1989,7 @@ def notify_vendor_claim_hod_approved(claim_name: str) -> None:
             company=company,
             document_lane="AP Vendor Invoice",
             level_number=3,
-            fallback_roles=["Accounts Director", "Director Tier"],
+            fallback_roles=["AP Director", "Accounts Director"],
             stage_keyword="Director"
         )
         bus_head = frappe.db.get_value("Company", company, "ap_business_head")
@@ -2001,7 +2001,7 @@ def notify_vendor_claim_hod_approved(claim_name: str) -> None:
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e9d5ff; border-radius: 10px; padding: 24px; background: #ffffff;">
             <div style="border-bottom: 2px solid #7c3aed; padding-bottom: 12px; margin-bottom: 16px;">
                 <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #6d28d9; font-weight: 700;">Executive Governance • High-Value Signoff</span>
-                <h2 style="margin: 4px 0 0 0; color: #581c87; font-size: 20px;">Vendor Claim Escalated to Director Tier</h2>
+                <h2 style="margin: 4px 0 0 0; color: #581c87; font-size: 20px;">Vendor Claim Escalated to AP Director</h2>
             </div>
             <p style="color: #334155; font-size: 14px; line-height: 1.5;">
                 This claim for <b>{vendor}</b> exceeds the ₹2,00,000 threshold and requires your executive sign-off as Business Head / Executive Director.
@@ -2354,7 +2354,7 @@ def send_pending_vendor_claim_reminders() -> Dict[str, Any]:
         elif claim.status == "Pending Director Approval":
             stage_title = "Executive Director Commercial Sanction"
             target_approvers = _get_matrix_or_role_approvers(
-                company, "AP Vendor Invoice", level_number=1, fallback_roles=["Accounts Director", "Director Tier", "Director"], stage_keyword="Director"
+                company, "AP Vendor Invoice", level_number=1, fallback_roles=["AP Director", "Accounts Director"], stage_keyword="Director"
             )
             bus_head = frappe.db.get_value("Company", company, "ap_business_head")
             if bus_head and bus_head not in target_approvers:
