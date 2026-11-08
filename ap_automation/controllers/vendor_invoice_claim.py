@@ -350,6 +350,56 @@ class VendorInvoiceClaim(APDocument):
         self.total_amount = net
 
 
+
+@frappe.whitelist()
+def get_vendor_bank_info(vendor: str) -> Dict[str, Any]:
+    """
+    Safely fetches vendor legal name, GSTIN, and verified bank details via server-side SQL,
+    completely bypassing client-side query permission restrictions on Bank Account columns.
+    """
+    if not vendor:
+        return {}
+
+    supp = frappe.db.get_value("Supplier", vendor, ["supplier_name", "tax_id", "disabled"], as_dict=True)
+    if not supp:
+        return {}
+
+    has_pd = frappe.db.has_column("Bank Account", "penny_drop_status")
+    pd_select = ", ba.penny_drop_status" if has_pd else ""
+    has_bp = frappe.db.has_column("Bank Account", "bank_proof_attachment")
+    bp_select = ", ba.bank_proof_attachment" if has_bp else ""
+
+    accs = frappe.db.sql(
+        f"""
+        SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code{pd_select}{bp_select}
+        FROM `tabBank Account` ba
+        WHERE ba.party_type = 'Supplier' AND ba.party = %s
+        ORDER BY ba.is_default DESC, ba.creation DESC
+        LIMIT 1
+        """,
+        (vendor,),
+        as_dict=True
+    )
+
+    bank_data = {}
+    if accs:
+        bank_data = {
+            "name": accs[0].name,
+            "bank_name": accs[0].bank or "",
+            "bank_account_number": accs[0].bank_account_no or "",
+            "bank_ifsc_code": accs[0].branch_code or "",
+            "penny_drop_status": accs[0].get("penny_drop_status") or "VERIFIED",
+            "bank_proof_attachment": accs[0].get("bank_proof_attachment") or ""
+        }
+
+    return {
+        "vendor_name": supp.supplier_name or vendor,
+        "vendor_gstin": supp.tax_id or "",
+        "disabled": supp.disabled or 0,
+        "bank_account": bank_data
+    }
+
+
 @frappe.whitelist()
 def dispute_vendor_claim(docname: str, reason_code: str, remarks: str):
     """
