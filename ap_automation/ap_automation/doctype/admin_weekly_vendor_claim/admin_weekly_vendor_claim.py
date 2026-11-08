@@ -215,7 +215,7 @@ class AdminWeeklyVendorClaim(Document):
 
         user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
         roles = frappe.get_roles(user) if user else []
-        is_accounts_authorized = any(r in roles for r in ["Accounts User", "Accounts Manager", "Accounts L1 Auditor", "Accounts Director", "Director Tier", "System Manager", "Administrator"])
+        is_accounts_authorized = any(r in roles for r in ["Accounts User", "Accounts Manager", "Accounts L1 Auditor", "Accounts Director", "AP Director", "System Manager", "Administrator"])
 
         if not is_accounts_authorized:
             old_rows = {r.name: r for r in (old_doc.vendor_lines or [])}
@@ -1001,7 +1001,7 @@ def trigger_payment_release_notification(docname: str):
 
     allowed_roles = {
         "Accounts Director", "Accounts L2 / Director Approver", "Accounts Auditor", "Accounts L1 Approver",
-        "Accounts User", "Accounts Manager", "Admin L2 Approver", "Payment Releaser", "Director Tier",
+        "Accounts User", "Accounts Manager", "Admin L2 Approver", "Payment Releaser", "AP Director",
         "AP Director", "System Manager", "Administrator"
     }
     user_roles = set(frappe.get_roles(user))

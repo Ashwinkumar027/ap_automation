@@ -1,7 +1,7 @@
 """
 Comprehensive End-to-End System Integration Suite (Day 24)
 Verifies:
-1. Full Pipeline Lane 3 (Vendor Invoice with Director Tier Dual-Signoff): > 2L -> TDS -> Director sign-off -> Batch -> 2FA -> UTR -> Tally.
+1. Full Pipeline Lane 3 (Vendor Invoice with AP Director Dual-Signoff): > 2L -> TDS -> Director sign-off -> Batch -> 2FA -> UTR -> Tally.
 2. Full Pipeline Lane 4 (Event Advance & Settlement): Advance -> Ground Spend -> Delta Math -> Event Closed.
 3. All 6 Fraud & Duplicate Scenarios Intercepted with 100% Precision.
 """
@@ -115,12 +115,12 @@ class TestEndToEndSystem(unittest.TestCase):
         vic.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        # 1. Accounts L2 Review escalates to Director Tier
+        # 1. Accounts L2 Review escalates to AP Director
         approve_accounts_l2(vic.name, accounts_user="Administrator")
         vic_esc = frappe.get_doc("Vendor Invoice Claim", vic.name)
         self.assertEqual(vic_esc.status, "Pending Director Signoff")
 
-        # 2. Director Tier Dual-Signoff
+        # 2. AP Director Dual-Signoff
         approve_director_tier(vic.name, director_user="Administrator")
         vic_app = frappe.get_doc("Vendor Invoice Claim", vic.name)
         self.assertEqual(vic_app.status, "Approved for Payment")

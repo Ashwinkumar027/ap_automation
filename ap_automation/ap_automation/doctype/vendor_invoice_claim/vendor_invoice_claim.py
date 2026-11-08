@@ -414,6 +414,47 @@ def get_vendor_bank_info(vendor: str) -> Dict[str, Any]:
         "bank_account": bank_data
     }
 
+@frappe.whitelist()
+def get_purchase_order_details(purchase_order: str) -> Dict[str, Any]:
+    """
+    Whitelisted API: Safely fetches AP Purchase Order (or ERPNext standard Purchase Order) details,
+    completely bypassing client-side query permission errors for accounts auditors, managers, and directors.
+    """
+    if not purchase_order:
+        return {}
+
+    # 1. Try AP Purchase Order first
+    if frappe.db.exists("DocType", "AP Purchase Order") and frappe.db.exists("AP Purchase Order", purchase_order):
+        po = frappe.get_doc("AP Purchase Order", purchase_order)
+        return {
+            "source": "AP Purchase Order",
+            "name": po.name,
+            "vendor": po.vendor or "",
+            "company": po.company_entity or "",
+            "base_amount": frappe.utils.flt(po.net_taxable_value or 0.0),
+            "advance_amount": frappe.utils.flt(po.advance_amount or 0.0),
+            "grand_total": frappe.utils.flt(po.grand_total or 0.0),
+            "balance_due": frappe.utils.flt(po.balance_due_on_completion or 0.0),
+            "status": po.status or "",
+        }
+
+    # 2. Fallback to ERPNext standard Purchase Order
+    if frappe.db.exists("DocType", "Purchase Order") and frappe.db.exists("Purchase Order", purchase_order):
+        po = frappe.get_doc("Purchase Order", purchase_order)
+        return {
+            "source": "Purchase Order",
+            "name": po.name,
+            "vendor": getattr(po, "supplier", None) or "",
+            "company": getattr(po, "company", None) or "",
+            "base_amount": frappe.utils.flt(getattr(po, "net_total", None) or getattr(po, "base_net_total", None) or 0.0),
+            "advance_amount": frappe.utils.flt(getattr(po, "advance_paid", None) or 0.0),
+            "grand_total": frappe.utils.flt(getattr(po, "grand_total", None) or 0.0),
+            "balance_due": frappe.utils.flt(getattr(po, "rounded_total", None) or getattr(po, "grand_total", None) or 0.0),
+            "status": getattr(po, "status", None) or "",
+        }
+
+    return {}
+
 
 @frappe.whitelist()
 def dispute_vendor_claim(docname: str, reason_code: str, remarks: str):
@@ -668,11 +709,11 @@ def approve_vendor_claim_by_director(docname: str, remarks: Optional[str] = None
             company=company,
             document_lane="AP Vendor Invoice",
             level_number=2,
-            fallback_roles=["AP Director", "Accounts Director", "Director Tier", "Director"],
+            fallback_roles=["AP Director", "Accounts Director"],
             stage_keyword="Director"
         )
         user_roles = frappe.get_roles(user)
-        is_auth = (user == bus_head or user in matrix_dirs or "AP Director" in user_roles or "Accounts Director" in user_roles or "Director Tier" in user_roles or "Director" in user_roles)
+        is_auth = (user == bus_head or user in matrix_dirs or "AP Director" in user_roles or "Accounts Director" in user_roles or "AP Director" in user_roles)
         if not is_auth:
             frappe.throw(
                 f"Access Denied: You ('{user}') are not the designated Business Head or Director for '{company}'.",

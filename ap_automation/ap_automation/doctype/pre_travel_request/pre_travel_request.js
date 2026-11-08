@@ -13,9 +13,13 @@ frappe.ui.form.on('Pre Travel Request', {
 
     onload: function(frm) {
         if (frm.is_new() && !frm.doc.employee) {
-            frappe.db.get_value('Employee', { user_id: frappe.session.user }, 'name').then(r => {
-                if (r && r.message && r.message.name) {
-                    frm.set_value('employee', r.message.name);
+            frappe.call({
+                method: "ap_automation.ap_automation.doctype.employee_reimbursement_claim.employee_reimbursement_claim.get_employee_claim_profile",
+                args: { user_id: frappe.session.user },
+                callback: function(r) {
+                    if (r && r.message && r.message.name) {
+                        frm.set_value('employee', r.message.name);
+                    }
                 }
             });
         }
@@ -43,23 +47,24 @@ frappe.ui.form.on('Pre Travel Request', {
 
     employee: function(frm) {
         if (frm.doc.employee) {
-            frappe.db.get_value('Employee', frm.doc.employee, ['employee_name', 'department', 'company', 'reports_to'], (r) => {
-                if (r) {
-                    if (r.employee_name) frm.set_value('employee_name', r.employee_name);
-                    if (r.department) frm.set_value('department', r.department);
-                    if (r.company) frm.set_value('company', r.company);
-                    if (r.reports_to) {
-                        frm.set_value('reporting_manager', r.reports_to);
-                        frappe.db.get_value('Employee', r.reports_to, ['employee_name', 'user_id'], (mgr) => {
-                            if (mgr) {
-                                if (mgr.employee_name) frm.set_value('reporting_manager_name', mgr.employee_name);
-                                if (mgr.user_id) frm.set_value('manager_user_id', mgr.user_id);
-                            }
-                        });
-                    } else {
-                        frm.set_value('reporting_manager', '');
-                        frm.set_value('reporting_manager_name', '');
-                        frm.set_value('manager_user_id', '');
+            frappe.call({
+                method: "ap_automation.ap_automation.doctype.employee_reimbursement_claim.employee_reimbursement_claim.get_employee_claim_profile",
+                args: { employee: frm.doc.employee },
+                callback: function(r) {
+                    if (r && r.message) {
+                        let m = r.message;
+                        if (m.employee_name) frm.set_value('employee_name', m.employee_name);
+                        if (m.department) frm.set_value('department', m.department);
+                        if (m.company) frm.set_value('company', m.company);
+                        if (m.reports_to) {
+                            frm.set_value('reporting_manager', m.reports_to);
+                            frm.set_value('reporting_manager_name', m.reporting_manager_name || '');
+                            frm.set_value('manager_user_id', m.manager_user_id || '');
+                        } else {
+                            frm.set_value('reporting_manager', '');
+                            frm.set_value('reporting_manager_name', '');
+                            frm.set_value('manager_user_id', '');
+                        }
                     }
                 }
             });

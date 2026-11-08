@@ -1,7 +1,7 @@
 """
 Comprehensive Unit Test Suite for Sprint 4 Day 17: Module 5 (Lane 3 - Vendor Payments)
 Verifies:
-1. Director Tier dual-signoff escalation for claims > INR 2,00,000.
+1. AP Director dual-signoff escalation for claims > INR 2,00,000.
 2. Penny drop locked vendor account exclusion from Thursday payment batch.
 3. 3-Way match mismatch held from Accounts L2 approval.
 4. Cross-entity group-wide duplicate spend shield hard-block.
@@ -74,7 +74,7 @@ class TestModule5Certification(unittest.TestCase):
                 "email": cls.director_user,
                 "first_name": "Dileep",
                 "last_name": "Director",
-                "roles": [{"role": "Director Tier"}, {"role": "Desk User"}]
+                "roles": [{"role": "AP Director"}, {"role": "Desk User"}]
             })
             du.flags.ignore_permissions = True
             du.insert(ignore_permissions=True)
@@ -84,7 +84,7 @@ class TestModule5Certification(unittest.TestCase):
                 "doctype": "User",
                 "email": "dileep@quanticus.com",
                 "first_name": "Dileep",
-                "roles": [{"role": "Director Tier"}, {"role": "Desk User"}]
+                "roles": [{"role": "AP Director"}, {"role": "Desk User"}]
             })
             du2.flags.ignore_permissions = True
             du2.insert(ignore_permissions=True)

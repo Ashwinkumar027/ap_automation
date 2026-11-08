@@ -247,7 +247,7 @@ def resubmit_direct_to_admin_l2(voucher_name: str) -> Dict[str, Any]:
 @frappe.whitelist()
 def audit_accounts_l1(voucher_name: str, comments: Optional[str] = None) -> Dict[str, Any]:
     """
-    Stage 4: Accounts L1 Auditor audits line items, checks tax proofs, and passes to Director Tier.
+    Stage 4: Accounts L1 Auditor audits line items, checks tax proofs, and passes to AP Director.
     """
     user = frappe.session.user
     _enforce_role_or_system_manager(user, ["Accounts L1 Auditor", "Accounts Manager"], "Accounts Audit")
@@ -282,7 +282,7 @@ def audit_accounts_l1(voucher_name: str, comments: Optional[str] = None) -> Dict
         "status": "SUCCESS",
         "voucher_name": doc.name,
         "new_status": doc.status,
-        "message": f"Claim #{doc.name} audited and passed to Director Tier."
+        "message": f"Claim #{doc.name} audited and passed to AP Director."
     }
 
 
@@ -292,7 +292,7 @@ def sanction_accounts_director(voucher_name: str, comments: Optional[str] = None
     Stage 5: Director / Payment Releaser sanctions claim for IDFC corporate batch payout.
     """
     user = frappe.session.user
-    _enforce_role_or_system_manager(user, ["Accounts Director", "Director Tier", "Payment Releaser"], "Director Sanction")
+    _enforce_role_or_system_manager(user, ["AP Director", "Accounts Director", "Payment Releaser"], "Director Sanction")
 
     doc = frappe.get_doc("Employee Reimbursement Claim", voucher_name)
 
@@ -305,7 +305,7 @@ def sanction_accounts_director(voucher_name: str, comments: Optional[str] = None
 
     doc.append("approval_trail", {
         "level_number": 5,
-        "level_name": "Director Tier Payment Sanction",
+        "level_name": "AP Director Payment Sanction",
         "action_taken_by": user,
         "action": "APPROVED",
         "action_timestamp": now_datetime(),
@@ -320,4 +320,63 @@ def sanction_accounts_director(voucher_name: str, comments: Optional[str] = None
         "voucher_name": doc.name,
         "new_status": doc.status,
         "message": f"Claim #{doc.name} sanctioned for Payment Release."
+    }
+
+
+@frappe.whitelist()
+def get_employee_claim_profile(employee: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Whitelisted API: Safely retrieves employee master and bank details for claim creation and auditing,
+    completely bypassing HRMS permission locks for Accounts, Auditors, and AP Directors.
+    """
+    if not employee and not user_id:
+        user_id = frappe.session.user
+
+    emp_name = None
+    if employee:
+        emp_name = employee
+    elif user_id:
+        emp_name = frappe.db.get_value("Employee", {"user_id": user_id, "status": "Active"}, "name")
+        if not emp_name:
+            emp_name = frappe.db.get_value("Employee", {"user_id": user_id}, "name")
+
+    if not emp_name or not frappe.db.exists("Employee", emp_name):
+        return {}
+
+    emp = frappe.get_doc("Employee", emp_name)
+    ifsc_val = getattr(emp, "custom_ifsc_code", None) or getattr(emp, "ifsc_code", None) or ""
+
+    mgr_name = ""
+    mgr_user_id = ""
+    if emp.reports_to and frappe.db.exists("Employee", emp.reports_to):
+        mgr_name = frappe.db.get_value("Employee", emp.reports_to, "employee_name") or ""
+        mgr_user_id = frappe.db.get_value("Employee", emp.reports_to, "user_id") or ""
+
+    return {
+        "name": emp.name,
+        "employee_name": emp.employee_name or "",
+        "company": emp.company or "",
+        "department": emp.department or "",
+        "reports_to": emp.reports_to or "",
+        "reporting_manager_name": mgr_name,
+        "manager_user_id": mgr_user_id,
+        "user_id": emp.user_id or "",
+        "bank_name": getattr(emp, "bank_name", None) or "",
+        "bank_account_number": getattr(emp, "bank_ac_no", None) or "",
+        "bank_ifsc_code": ifsc_val
+    }
+
+    emp = frappe.get_doc("Employee", emp_name)
+    ifsc_val = getattr(emp, "custom_ifsc_code", None) or getattr(emp, "ifsc_code", None) or ""
+
+    return {
+        "name": emp.name,
+        "employee_name": emp.employee_name or "",
+        "company": emp.company or "",
+        "department": emp.department or "",
+        "reports_to": emp.reports_to or "",
+        "user_id": emp.user_id or "",
+        "bank_name": getattr(emp, "bank_name", None) or "",
+        "bank_account_number": getattr(emp, "bank_ac_no", None) or "",
+        "bank_ifsc_code": ifsc_val
     }

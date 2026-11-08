@@ -291,12 +291,10 @@ frappe.ui.form.on("Vendor Invoice Claim", {
 
     purchase_order: function(frm) {
         if (frm.doc.purchase_order) {
-            // First fetch our AP Purchase Order
             frappe.call({
-                method: "frappe.client.get",
+                method: "ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.get_purchase_order_details",
                 args: {
-                    doctype: "AP Purchase Order",
-                    name: frm.doc.purchase_order
+                    purchase_order: frm.doc.purchase_order
                 },
                 callback: function(r) {
                     if (r && r.message) {
@@ -304,42 +302,17 @@ frappe.ui.form.on("Vendor Invoice Claim", {
                         if (po.vendor && !frm.doc.vendor) {
                             frm.set_value("vendor", po.vendor);
                         }
-                        if (po.company_entity && !frm.doc.company) {
-                            frm.set_value("company", po.company_entity);
+                        if (po.company && !frm.doc.company) {
+                            frm.set_value("company", po.company);
                         }
-                        if (po.net_taxable_value && !frm.doc.base_amount) {
-                            frm.set_value("base_amount", po.net_taxable_value);
+                        if (po.base_amount && (!frm.doc.base_amount || frm.doc.base_amount === 0)) {
+                            frm.set_value("base_amount", po.base_amount);
                         }
                         if (po.advance_amount && (!frm.doc.advance_deducted || frm.doc.advance_deducted === 0)) {
                             frm.set_value("advance_deducted", po.advance_amount);
                         }
                         calculate_vendor_totals(frm);
                     }
-                },
-                error: function() {
-                    // Graceful fallback to ERPNext Purchase Order for legacy records
-                    frappe.call({
-                        method: "frappe.client.get",
-                        args: {
-                            doctype: "Purchase Order",
-                            name: frm.doc.purchase_order
-                        },
-                        callback: function(r2) {
-                            if (r2 && r2.message) {
-                                let po = r2.message;
-                                if (po.supplier && !frm.doc.vendor) {
-                                    frm.set_value("vendor", po.supplier);
-                                }
-                                if (po.company && !frm.doc.company) {
-                                    frm.set_value("company", po.company);
-                                }
-                                if (po.net_total && !frm.doc.base_amount) {
-                                    frm.set_value("base_amount", po.net_total);
-                                }
-                                calculate_vendor_totals(frm);
-                            }
-                        }
-                    });
                 }
             });
         }
@@ -482,7 +455,7 @@ function render_vendor_claim_approval_buttons(frm) {
 
 // Stage 3: Pending Director Approval
     else if (status === "Pending Director Approval") {
-        let is_dir = (frappe.user.has_role(["AP Director", "Accounts Director", "Director Tier"]) && !is_owner) || frappe.session.user === "Administrator";
+        let is_dir = (frappe.user.has_role(["AP Director", "Accounts Director"]) && !is_owner) || frappe.session.user === "Administrator";
         if (is_dir) {
             frm.add_custom_button(__('⭐ Approve (Director)'), function() {
                 frappe.prompt([

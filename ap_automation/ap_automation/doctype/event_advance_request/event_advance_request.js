@@ -32,7 +32,7 @@ frappe.ui.form.on("Event Advance Request", {
         if (frm.doc.docstatus === 1) {
             const user_roles = frappe.user_roles || [];
             const is_sys_mgr = user_roles.includes('System Manager') || frappe.session.user === 'Administrator';
-            const is_bh = user_roles.includes('Business Head') || user_roles.includes('Director') || user_roles.includes('Director Tier') || user_roles.includes('AP Director') || is_sys_mgr;
+            const is_bh = user_roles.includes('Business Head') || user_roles.includes('AP Director') || is_sys_mgr;
             const is_accounts = user_roles.includes('Accounts L1 Auditor') || user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || user_roles.includes('Payment Releaser') || is_sys_mgr;
 
             // STAGE 1: Director Sanction Action

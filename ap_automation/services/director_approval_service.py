@@ -1,5 +1,5 @@
 """
-Director Tier Dual-Signoff Escalation Service (PRD Section 3 & 12)
+AP Director Dual-Signoff Escalation Service (PRD Section 3 & 12)
 Enforces:
 1. Dual-signoff gate for vendor claims > INR 2,00,000 (INR 2 Lakhs).
 2. Accounts L2 escalation to 'Pending Director Signoff'.
@@ -15,7 +15,7 @@ DIRECTOR_TIER_THRESHOLD = 200000.00
 
 def evaluate_vendor_approval_workflow(claim_doc) -> str:
     """
-    Evaluates if claim requires Executive Director Tier approval.
+    Evaluates if claim requires AP Director approval.
     """
     net = float(getattr(claim_doc, "net_payable_amount", 0.0) or 0.0)
     if net > DIRECTOR_TIER_THRESHOLD:
@@ -26,7 +26,7 @@ def evaluate_vendor_approval_workflow(claim_doc) -> str:
 def approve_accounts_l2(claim_name: str, accounts_user: str) -> Dict[str, Any]:
     """
     Accounts L2 approval handler.
-    Checks 3-way match status and routes > INR 2L claims to Director Tier.
+    Checks 3-way match status and routes > INR 2L claims to AP Director.
     """
     if not frappe.db.exists("Vendor Invoice Claim", claim_name):
         raise APValidationError(f"Vendor Invoice Claim '{claim_name}' not found.")
@@ -49,12 +49,12 @@ def approve_accounts_l2(claim_name: str, accounts_user: str) -> Dict[str, Any]:
     claim.status = next_status
 
     if next_status in ("Pending Director Signoff", "Pending Director Approval"):
-        claim.workflow_state = "Escalated to Director Tier (> INR 2L)"
-        director_id = frappe.db.get_value("Has Role", {"role": ["in", ["Accounts Director", "Director Tier"]], "parenttype": "User"}, "parent")
+        claim.workflow_state = "Escalated to AP Director (> INR 2L)"
+        director_id = frappe.db.get_value("Has Role", {"role": ["in", ["AP Director", "Accounts Director"]], "parenttype": "User"}, "parent")
         if not director_id or not frappe.db.get_value("User", director_id, "enabled"):
             director_id = "Administrator"
         claim.designated_approver = director_id
-        comment = f"Claim amount (INR {claim.net_payable_amount:,.2f}) exceeds INR 2,00,000 threshold. Escalated to Director Tier."
+        comment = f"Claim amount (INR {claim.net_payable_amount:,.2f}) exceeds INR 2,00,000 threshold. Escalated to AP Director."
     else:
         claim.workflow_state = "Approved for Thursday Payment Batch"
         claim.designated_approver = None
@@ -84,12 +84,12 @@ def approve_director_tier(
     comments: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Director Tier sign-off handler for claims > INR 2 Lakhs.
+    AP Director sign-off handler for claims > INR 2 Lakhs.
     """
     roles = frappe.get_roles(director_user)
-    if "Accounts Director" not in roles and "Director Tier" not in roles and "System Manager" not in roles and "Dileep Director" not in roles:
+    if "AP Director" not in roles and "Accounts Director" not in roles and "System Manager" not in roles:
         raise APSecurityError(
-            f"Unauthorized: User '{director_user}' lacks 'Director Tier' privileges required "
+            f"Unauthorized: User '{director_user}' lacks 'AP Director' privileges required "
             "to sanction claims exceeding INR 2 Lakhs."
         )
 
@@ -103,15 +103,15 @@ def approve_director_tier(
         )
 
     claim.status = "Approved for Payment"
-    claim.workflow_state = "Approved by Executive Director Tier"
+    claim.workflow_state = "Approved by AP Director"
     claim.designated_approver = None
 
     claim.append("approval_trail", {
         "approver": director_user,
         "action": "APPROVED",
-        "role": "Director Tier",
+        "role": "AP Director",
         "timestamp": frappe.utils.now_datetime(),
-        "comments": comments or "Sanctioned for IDFC disbursement by Director Tier."
+        "comments": comments or "Sanctioned for IDFC disbursement by AP Director."
     })
     claim.save(ignore_permissions=True)
     frappe.db.commit()
@@ -138,7 +138,7 @@ def sanction_accounts_director(
     from ap_automation.services import notification_service
     user = director_user or frappe.session.user
     roles = frappe.get_roles(user)
-    if "Accounts Director" not in roles and "Director Tier" not in roles and "System Manager" not in roles:
+    if "AP Director" not in roles and "Accounts Director" not in roles and "System Manager" not in roles:
         raise APSecurityError(
             f"Unauthorized: User '{user}' lacks 'Accounts Director' privileges."
         )
@@ -195,7 +195,7 @@ def reject_accounts_director(
     from ap_automation.services import notification_service
     user = director_user or frappe.session.user
     roles = frappe.get_roles(user)
-    if "Accounts Director" not in roles and "Director Tier" not in roles and "System Manager" not in roles:
+    if "AP Director" not in roles and "Accounts Director" not in roles and "System Manager" not in roles:
         raise APSecurityError(
             f"Unauthorized: User '{user}' lacks 'Accounts Director' privileges."
         )

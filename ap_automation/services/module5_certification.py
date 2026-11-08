@@ -4,7 +4,7 @@ Verifies:
 1. DocType schema completeness (Vendor Invoice Claim, Vendor PO Request).
 2. MariaDB indices on tabVendor Invoice Claim.
 3. Bank Account custom fields for Penny Drop.
-4. Director Tier Dual-Signoff threshold & role.
+4. AP Director Dual-Signoff threshold & role.
 """
 from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
@@ -64,10 +64,10 @@ def run_lane3_system_diagnostics() -> Dict[str, Any]:
         "fields": pd_fields
     })
 
-    # 4. Director Tier Role & Threshold
-    role_exists = frappe.db.exists("Role", "Director Tier")
+    # 4. AP Director Role & Threshold
+    role_exists = frappe.db.exists("Role", "AP Director")
     results.append({
-        "check": "Director Tier Escalation Gate (> INR 2L)",
+        "check": "AP Director Escalation Gate (> INR 2L)",
         "status": "OK" if role_exists and DIRECTOR_TIER_THRESHOLD == 200000.00 else "FAILED",
         "threshold": DIRECTOR_TIER_THRESHOLD,
         "director_role_present": bool(role_exists)
