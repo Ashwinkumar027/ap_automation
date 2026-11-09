@@ -1973,7 +1973,7 @@ def notify_vendor_claim_hod_approved(claim_name: str) -> None:
     """
     Triggered after HoD signs off.
     If Net > 2L: Alerts Business Head / Director (Level 3 in AP Matrix).
-    Else: Alerts Accounts L1 (Level 4 in AP Matrix - Gokulnath).
+    Else: Alerts Accounts L1 (Level 4 in AP Matrix (Accounts L1)).
     """
     if not frappe.db.exists("Vendor Invoice Claim", claim_name):
         return
@@ -2060,7 +2060,7 @@ def notify_vendor_claim_hod_approved(claim_name: str) -> None:
 
 
 def notify_vendor_claim_director_approved(claim_name: str) -> None:
-    """Triggered after Director signs off. Alerts Accounts L1 (Level 4 in AP Matrix - Gokulnath)."""
+    """Triggered after Director signs off. Alerts Accounts L1 (Level 4 in AP Matrix (Accounts L1))."""
     if not frappe.db.exists("Vendor Invoice Claim", claim_name):
         return
     doc = frappe.get_doc("Vendor Invoice Claim", claim_name)
@@ -2135,7 +2135,7 @@ def notify_vendor_claim_accounts_l1_verified(claim_name: str) -> None:
             <h2 style="margin: 4px 0 0 0; color: #14532d; font-size: 20px;">Accounts L1 Verified & Tally Logged</h2>
         </div>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-            Accounts L1 Auditor (<b>{doc.accounts_l1_verifier or 'Gokulnath'}</b>) has verified 3-Way matching, statutory TDS, and posted Tally Voucher <code>{tally_ref}</code>. Ready for final L2 payment authorization.
+            Accounts L1 Auditor (<b>{doc.accounts_l1_verifier or 'Accounts L1'}</b>) has verified 3-Way matching, statutory TDS, and posted Tally Voucher <code>{tally_ref}</code>. Ready for final L2 payment authorization.
         </p>
         <div style="background: #f0fdf4; border: 1px solid #dcfce7; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <div style="font-size: 13px; color: #166534; margin-bottom: 4px;">Vendor: <b style="color: #0f172a;">{vendor}</b></div>
@@ -2288,8 +2288,8 @@ def send_pending_vendor_claim_reminders() -> Dict[str, Any]:
     Sends notifications to:
     1. Reporting Manager for 'Pending Manager Approval'
     2. Executive Director for 'Pending Director Approval'
-    3. Accounts L1 (Gokulnath) for 'Pending Accounts Review'
-    4. Accounts L2 (Anshul Sir / Srinivasan Sir) for 'Pending Accounts L2 Approval'
+    3. Accounts L1 for 'Pending Accounts Review'
+    4. Accounts L2 / Director for 'Pending Accounts L2 Approval'
     """
     pending_claims = frappe.get_all(
         "Vendor Invoice Claim",

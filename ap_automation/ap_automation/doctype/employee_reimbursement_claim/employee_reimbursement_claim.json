@@ -850,7 +850,7 @@
    "fieldname": "payment_release_maker",
    "fieldtype": "Link",
    "options": "User",
-   "label": "IDFC Uploaded By (Maker)",
+   "label": "Bank Disbursal Uploaded By (Maker)",
    "read_only": 1
   }
  ],

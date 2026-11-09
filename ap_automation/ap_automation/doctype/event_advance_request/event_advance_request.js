@@ -95,7 +95,7 @@ frappe.ui.form.on("Event Advance Request", {
                 }
             }
 
-            // STAGE 2: Accounts Director Sign-off (Anshul Sir)
+            // STAGE 2: Accounts Director Sign-off
             if (['Pending Accounts Disbursal', 'Approved by Director', 'Approved by Business Head'].includes(frm.doc.status)) {
                 frm.page.set_indicator(__('Sanctioned by Director'), 'blue');
                 if (is_accounts) {

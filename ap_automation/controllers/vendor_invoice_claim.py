@@ -628,7 +628,7 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
 
         return {
             "status": doc.status,
-            "message": f"Claim #{docname} approved! Since you are both Reporting Manager and Director, your single approval satisfies commercial sanction and routes directly to Accounts L1 (Gokulnath)."
+            "message": f"Claim #{docname} approved! Since you are both Reporting Manager and Director, your single approval satisfies commercial sanction and routes directly to Accounts L1."
         }
     else:
         # Standard progression to Director
@@ -710,7 +710,7 @@ def approve_vendor_claim_by_director(docname: str, remarks: Optional[str] = None
     doc.director_approver = user
     doc.director_approved_on = now_ts
     doc.status = "Pending Accounts Review"
-    doc.workflow_state = "Awaiting Accounts L1 Review (Gokulnath)"
+    doc.workflow_state = "Awaiting Accounts L1 Review"
 
     doc.append("approval_trail", {
         "level_number": 2,
@@ -727,16 +727,16 @@ def approve_vendor_claim_by_director(docname: str, remarks: Optional[str] = None
     except Exception as e:
         frappe.log_error(f"Vendor director approval notification dispatch: {e}")
 
-    return {"status": doc.status, "message": f"Claim #{docname} successfully approved by Director. Routed to Accounts L1 (Gokulnath)."}
+    return {"status": doc.status, "message": f"Claim #{docname} successfully approved by Director. Routed to Accounts L1."}
 
 
 @frappe.whitelist()
 def verify_vendor_claim_by_accounts_l1(docname: str, tally_reference: str, remarks: Optional[str] = None):
     """
-    Stage 4 & 6: Accounts L1 Verification (Gokulnath).
+    Stage 4 & 6: Accounts L1 Verification.
     1. Re-runs and verifies 3-Way Match & statutory TDS.
     2. Strictly enforces Tally Voucher Reference logging (PRD Stage 6).
-    3. Advances claim to Accounts L2 Approval (Anshul Sir / Srinivasan Sir).
+    3. Advances claim to Accounts L2 Approval.
     """
     if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
         frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
@@ -779,7 +779,7 @@ def verify_vendor_claim_by_accounts_l1(docname: str, tally_reference: str, remar
     doc.accounts_l1_verifier = user
     doc.accounts_l1_verified_on = now_ts
     doc.status = "Pending Accounts L2 Approval"
-    doc.workflow_state = "Awaiting Accounts L2 Signoff (Anshul Sir / Srinivasan Sir)"
+    doc.workflow_state = "Awaiting Accounts L2 Signoff"
 
     doc.append("approval_trail", {
         "level_number": 4,
@@ -787,7 +787,7 @@ def verify_vendor_claim_by_accounts_l1(docname: str, tally_reference: str, remar
         "action_taken_by": user,
         "action": "APPROVED",
         "action_timestamp": now_ts,
-        "remarks": f"Verified by L1 (Gokulnath) | Tally Ref: {clean_tally} | {remarks or 'Voucher Posted to Tally'}"
+        "remarks": f"Verified by Accounts L1 | Tally Ref: {clean_tally} | {remarks or 'Voucher Posted to Tally'}"
     })
     doc.save(ignore_permissions=True)
     doc.add_comment("Comment", text=f"âœ… <b>Accounts L1 Verified & Tally Logged:</b> {user} | Tally Ref: <code>{clean_tally}</code>")
@@ -806,7 +806,7 @@ def verify_vendor_claim_by_accounts_l1(docname: str, tally_reference: str, remar
 @frappe.whitelist()
 def approve_vendor_claim_by_accounts_l2(docname: str, remarks: Optional[str] = None):
     """
-    Stage 7: Accounts L2 Approval (Anshul Sir / Srinivasan Sir).
+    Stage 7: Accounts L2 Approval.
     Approves what L1 has verified.
     Checks clean penny drop status and advances claim to 'Approved for Payment'.
     """
@@ -853,11 +853,11 @@ def approve_vendor_claim_by_accounts_l2(docname: str, remarks: Optional[str] = N
     doc.accounts_l2_approver = user
     doc.accounts_l2_approved_on = now_ts
     doc.status = "Approved for Payment"
-    doc.workflow_state = "Approved for Shared Payment Core Release (Anish Sir)"
+    doc.workflow_state = "Approved for Shared Payment Core Release"
 
     doc.append("approval_trail", {
         "level_number": 5,
-        "level_name": "Stage 7: Accounts L2 Approval (Anshul Sir / Srinivasan Sir)",
+        "level_name": "Stage 7: Accounts L2 Approval",
         "action_taken_by": user,
         "action": "APPROVED",
         "action_timestamp": now_ts,
@@ -974,11 +974,13 @@ def submit_for_approval(docname: str):
         frappe.throw("Vendor is required before submitting for approval.", title="Missing Vendor")
     if not doc.tax_invoice_number:
         frappe.throw("Tax Invoice Number is required before submitting for approval.", title="Missing Invoice Number")
-    if not doc.invoice_date:
+    inv_date = getattr(doc, "tax_invoice_date", None) or getattr(doc, "invoice_date", None)
+    if not inv_date:
         frappe.throw("Invoice Date is required before submitting for approval.", title="Missing Invoice Date")
     if not doc.base_amount or float(doc.base_amount) <= 0:
         frappe.throw("Invoice Base Amount must be greater than zero.", title="Invalid Base Amount")
-    if not doc.invoice_attachment:
+    inv_att = getattr(doc, "tax_invoice_attachment", None) or getattr(doc, "invoice_attachment", None)
+    if not inv_att:
         frappe.throw("Invoice Attachment is mandatory before submitting for approval.", title="Missing Invoice Attachment")
 
     doc.status = "Pending Manager Approval"

@@ -481,7 +481,7 @@ function render_vendor_claim_approval_buttons(frm) {
         }
     }
 
-    // Stage 4: Pending Accounts Review (Gokulnath)
+    // Stage 4: Pending Accounts Review
     else if (status === "Pending Accounts Review") {
         let is_accounts = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager', 'AP Director', 'Accounts Director']) || is_admin;
         if (is_accounts) {
@@ -521,7 +521,7 @@ function render_vendor_claim_approval_buttons(frm) {
         }
     }
 
-    // Stage 5: Pending Accounts L2 Approval (Anshul Sir / Srinivasan Sir)
+    // Stage 5: Pending Accounts L2 Approval
     else if (status === "Pending Accounts L2 Approval") {
         let is_l2 = frappe.user.has_role(['Accounts Manager', 'Accounts Director', 'AP Director']) || is_admin;
         if (is_l2) {
