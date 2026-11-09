@@ -109,13 +109,15 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Linked Purchase Order",
-   "options": "AP Purchase Order"
+   "options": "AP Purchase Order",
+   "depends_on": "eval:doc.invoice_type=='With Purchase Order'"
   },
   {
    "fieldname": "vendor_po_request",
    "fieldtype": "Link",
    "label": "Linked PO Advance Request",
-   "options": "Vendor PO Request"
+   "options": "Vendor PO Request",
+   "hidden": 1
   },
   {
    "fieldname": "sb_bank",
