@@ -96,14 +96,21 @@ def generate_weekly_accounts_batch(company: str, batch_date: Optional[str] = Non
             "attached_to_name": c.name
         }) or 1
 
-        # Determine primary Expense Head from claim lines
+        # Determine primary Expense Head from claim lines (leave empty for Accounts L1 audit if unclassified)
+        valid_accounting_heads = {
+            "STAFF WELFARE", "FOOD EXPENSES", "OFFICE EXPENSES", "OFFICE EXPENSES - GROCERY",
+            "OFFICE EXPENSES - POOJA", "PRINTING & STATIONARY", "COURIER CHARGES",
+            "POWER & FUEL EXPENSES", "TRAVEL EXPENSES", "OTHER EXPENSES", "OTHER / VENDOR LEDGER"
+        }
         line_heads = frappe.db.sql("""
             SELECT DISTINCT expense_head
             FROM `tabEmployee Reimbursement Line`
             WHERE parent = %s AND expense_head IS NOT NULL AND expense_head != ''
             ORDER BY idx ASC
         """, (c.name,), pluck=True)
-        primary_head = line_heads[0] if line_heads else (c.claim_category or "General Expense")
+        primary_head = ""
+        if line_heads and str(line_heads[0]).strip().upper() in valid_accounting_heads:
+            primary_head = str(line_heads[0]).strip().upper()
 
         batch.append("items", {
             "voucher_type": "Employee Reimbursement Claim",
@@ -1099,14 +1106,21 @@ def fetch_eligible_claims_for_batch(
             "attached_to_name": c.name
         }) or 1
 
-        # Determine Primary Expense Head
+        # Determine Primary Expense Head (leave empty for Accounts L1 audit if unclassified)
+        valid_accounting_heads = {
+            "STAFF WELFARE", "FOOD EXPENSES", "OFFICE EXPENSES", "OFFICE EXPENSES - GROCERY",
+            "OFFICE EXPENSES - POOJA", "PRINTING & STATIONARY", "COURIER CHARGES",
+            "POWER & FUEL EXPENSES", "TRAVEL EXPENSES", "OTHER EXPENSES", "OTHER / VENDOR LEDGER"
+        }
         line_heads = frappe.db.sql("""
             SELECT DISTINCT expense_head
             FROM `tabEmployee Reimbursement Line`
             WHERE parent = %s AND expense_head IS NOT NULL AND expense_head != ''
             ORDER BY idx ASC
         """, (c.name,), pluck=True)
-        primary_head = line_heads[0] if line_heads else (c.claim_category or "General Expense")
+        primary_head = ""
+        if line_heads and str(line_heads[0]).strip().upper() in valid_accounting_heads:
+            primary_head = str(line_heads[0]).strip().upper()
 
         batch.append("items", {
             "voucher_type": "Employee Reimbursement Claim",
