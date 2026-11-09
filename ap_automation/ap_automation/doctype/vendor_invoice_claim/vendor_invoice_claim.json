@@ -462,7 +462,7 @@
   },
   {
    "fieldtype": "Link",
-   "label": "Accounts L1 Verifier (Gokulnath)",
+   "label": "Accounts L1 Verifier",
    "read_only": 1,
    "options": "User",
    "fieldname": "accounts_l1_verifier"
@@ -475,7 +475,7 @@
   },
   {
    "fieldtype": "Link",
-   "label": "Accounts L2 Approver (Anshul Sir / Srinivasan Sir)",
+   "label": "Accounts L2 / Director Approver",
    "read_only": 1,
    "options": "User",
    "fieldname": "accounts_l2_approver"
