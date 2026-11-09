@@ -61,7 +61,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Purchase Order",
-   "options": "Purchase Order"
+   "options": "AP Purchase Order"
   },
   {
    "fieldname": "invoice_date",
