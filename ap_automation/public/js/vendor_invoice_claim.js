@@ -402,7 +402,10 @@ frappe.ui.form.on("Vendor Invoice Claim", {
     toggle_route_fields: function(frm) {
         let is_po = frm.doc.invoice_type === "With Purchase Order";
         frm.toggle_reqd("purchase_order", is_po);
+        frm.toggle_display("purchase_order", is_po);
+        frm.toggle_display("vendor_po_request", false);
         frm.toggle_reqd("email_approval_attachment", !is_po);
+        frm.toggle_display("email_approval_attachment", !is_po);
     }
 });
 
