@@ -240,6 +240,7 @@
   {
    "role": "Accounts L1 Auditor",
    "read": 1,
+   "select": 1,
    "write": 1,
    "create": 0,
    "delete": 0
@@ -247,6 +248,7 @@
   {
    "role": "Accounts Director",
    "read": 1,
+   "select": 1,
    "write": 1,
    "create": 0,
    "delete": 0
@@ -254,6 +256,7 @@
   {
    "role": "AP Director",
    "read": 1,
+   "select": 1,
    "write": 1,
    "create": 0,
    "delete": 0
@@ -261,6 +264,7 @@
   {
    "role": "Payment Releaser",
    "read": 1,
+   "select": 1,
    "write": 1,
    "create": 0,
    "delete": 0

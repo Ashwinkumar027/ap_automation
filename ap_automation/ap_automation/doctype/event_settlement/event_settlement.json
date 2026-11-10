@@ -28,6 +28,12 @@
   "refund_date",
   "sb_status",
   "status",
+  "accounts_director",
+  "accounts_director_sign_date",
+  "payment_release_notified",
+  "payment_release_notified_on",
+  "payment_release_maker",
+  "payment_releaser",
   "approval_trail",
   "amended_from"
  ],
@@ -154,12 +160,59 @@
    "label": "Settlement Lifecycle State"
   },
   {
+   "allow_on_submit": 1,
    "default": "Draft",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nUnder Accounts Review\nSettled\nRejected"
+   "options": "Draft\nUnder Accounts Review\nApproved for Payment\nSettled\nRejected"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "accounts_director",
+   "fieldtype": "Link",
+   "label": "Accounts Director Sign-off",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "accounts_director_sign_date",
+   "fieldtype": "Datetime",
+   "label": "Accounts Director Sign Date",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "payment_release_notified",
+   "fieldtype": "Check",
+   "label": "Payment Release Notified",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "payment_release_notified_on",
+   "fieldtype": "Datetime",
+   "label": "Payment Release Notified On",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "payment_release_maker",
+   "fieldtype": "Link",
+   "label": "Payment Release Maker",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "payment_releaser",
+   "fieldtype": "Link",
+   "label": "Payment Releaser (Director)",
+   "options": "User",
+   "read_only": 1
   },
   {
    "fieldname": "approval_trail",
@@ -191,6 +244,8 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "email": 1,
    "export": 1,
@@ -199,9 +254,12 @@
    "report": 1,
    "role": "System Manager",
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "email": 1,
    "export": 1,
@@ -210,9 +268,12 @@
    "report": 1,
    "role": "Accounts Manager",
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "email": 1,
    "export": 1,
@@ -221,9 +282,12 @@
    "report": 1,
    "role": "Employee",
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "delete": 0,
    "email": 1,
@@ -234,47 +298,66 @@
    "role": "Receptionist",
    "select": 1,
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
    "role": "Admin L1 Approver",
    "read": 1,
+   "select": 1,
    "write": 1,
+   "submit": 1,
+   "cancel": 1,
    "create": 0,
    "delete": 0
   },
   {
    "role": "Admin L2 Approver",
    "read": 1,
+   "select": 1,
    "write": 1,
+   "submit": 1,
+   "cancel": 1,
    "create": 0,
    "delete": 0
   },
   {
    "role": "Accounts L1 Auditor",
    "read": 1,
+   "select": 1,
    "write": 1,
+   "submit": 1,
+   "cancel": 1,
    "create": 0,
    "delete": 0
   },
   {
    "role": "Accounts Director",
    "read": 1,
+   "select": 1,
    "write": 1,
+   "submit": 1,
+   "cancel": 1,
    "create": 0,
    "delete": 0
   },
   {
    "role": "AP Director",
    "read": 1,
+   "select": 1,
    "write": 1,
+   "submit": 1,
+   "cancel": 1,
    "create": 0,
    "delete": 0
   },
   {
    "role": "Payment Releaser",
    "read": 1,
+   "select": 1,
    "write": 1,
+   "submit": 1,
+   "cancel": 1,
    "create": 0,
    "delete": 0
   }

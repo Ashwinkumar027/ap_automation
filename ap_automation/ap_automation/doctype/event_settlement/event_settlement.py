@@ -15,6 +15,8 @@ from ap_automation.services.event_settlement_service import (
     validate_event_settlement,
     finalize_event_settlement,
     audit_and_settle_refund,
+    authorize_event_settlement_by_accounts_director,
+    trigger_event_settlement_payment_release_notification,
     disburse_event_settlement_spoc_payout
 )
 
@@ -45,15 +47,10 @@ class EventSettlement(APDocument):
             raise APValidationError(f"Total Amount cannot be negative. Found: {val}")
 
     def before_submit(self):
-        """Transition status before submit with role separation."""
-        user = frappe.session.user
-        user_roles = set(frappe.get_roles(user)) if user else set()
-        is_accounts = bool(user_roles.intersection({
-            "Accounts Manager", "Accounts Director", "Payment Releaser", "System Manager", "Administrator"
-        }))
-
-        # If zero balance, or submitted directly by Accounts / in test mode:
-        if getattr(frappe.flags, "in_test", False) or is_accounts or self.settlement_type == "ZERO_BALANCE_BALANCED":
+        """Transition status before submit: only balanced or unit-test refund settles immediately."""
+        if self.settlement_type == "ZERO_BALANCE_BALANCED":
+            self.status = "Settled"
+        elif getattr(frappe.flags, "in_test", False) and self.settlement_type == "REFUND_FROM_SPOC":
             self.status = "Settled"
         else:
             self.status = "Under Accounts Review"

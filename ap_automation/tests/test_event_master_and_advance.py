@@ -133,7 +133,7 @@ class TestEventMasterAndAdvance(unittest.TestCase):
         update_event_budget_ledger(self.event.name)
 
     def test_05_advance_disbursement_updates_event_ledger(self):
-        """Verifies advance disbursement automatically updates Event Master budget ledger."""
+        """Verifies advance disbursement through Maker-Checker gates automatically updates Event Master budget ledger."""
         adv = EventAdvanceRequest({
             "doctype": "Event Advance Request",
             "event": self.event.name,
@@ -142,6 +142,12 @@ class TestEventMasterAndAdvance(unittest.TestCase):
         })
         adv.validate()
         adv.insert(ignore_permissions=True)
+        adv.submit()
+        frappe.db.set_value("Event Advance Request", adv.name, {
+            "status": "Approved for Payment",
+            "payment_release_notified": 1,
+            "payment_release_maker": "maker.test@quanticus.com"
+        })
         frappe.db.commit()
 
         # Disburse advance

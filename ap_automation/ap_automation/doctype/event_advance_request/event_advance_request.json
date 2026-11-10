@@ -44,6 +44,7 @@
   "accounts_director",
   "batch_id",
   "disbursement_reference",
+  "utr",
   "approval_trail",
   "amended_from"
  ],
@@ -245,6 +246,14 @@
    "allow_on_submit": 1
   },
   {
+   "fieldname": "utr",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Bank UTR Reference",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
    "fieldname": "approval_trail",
    "fieldtype": "Table",
    "label": "Approval Trail",
@@ -320,6 +329,8 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "email": 1,
    "export": 1,
@@ -328,9 +339,12 @@
    "report": 1,
    "role": "System Manager",
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "email": 1,
    "export": 1,
@@ -339,9 +353,12 @@
    "report": 1,
    "role": "Accounts Manager",
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "email": 1,
    "export": 1,
@@ -350,9 +367,12 @@
    "report": 1,
    "role": "Employee",
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "delete": 0,
    "email": 1,
@@ -363,6 +383,7 @@
    "role": "Receptionist",
    "select": 1,
    "share": 1,
+   "submit": 1,
    "write": 1
   },
   {
@@ -370,6 +391,8 @@
    "read": 1,
    "write": 1,
    "create": 1,
+   "submit": 1,
+   "cancel": 1,
    "delete": 0,
    "select": 1,
    "print": 1,
@@ -383,6 +406,8 @@
    "read": 1,
    "write": 1,
    "create": 1,
+   "submit": 1,
+   "cancel": 1,
    "delete": 0,
    "select": 1,
    "print": 1,
@@ -396,6 +421,8 @@
    "read": 1,
    "write": 1,
    "create": 1,
+   "submit": 1,
+   "cancel": 1,
    "delete": 0,
    "select": 1,
    "print": 1,
@@ -409,6 +436,8 @@
    "read": 1,
    "write": 1,
    "create": 1,
+   "submit": 1,
+   "cancel": 1,
    "delete": 0,
    "select": 1,
    "print": 1,
@@ -422,6 +451,8 @@
    "read": 1,
    "write": 1,
    "create": 1,
+   "submit": 1,
+   "cancel": 1,
    "delete": 0,
    "select": 1,
    "print": 1,
@@ -433,7 +464,10 @@
   {
    "role": "AP Director",
    "read": 1,
+   "select": 1,
    "write": 1,
+   "submit": 1,
+   "cancel": 1,
    "create": 0,
    "delete": 0
   }

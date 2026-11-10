@@ -131,14 +131,16 @@ class VendorInvoiceClaim(APDocument):
         self.calculate_financial_totals()
 
     def on_submit(self):
-        """Registers spend fingerprint lock upon submission."""
+        """Registers spend fingerprint lock and syncs linked Event Master budget ledger."""
         super().on_submit()
         register_spend_fingerprint(self)
+        _sync_event_master_if_linked(getattr(self, "event", None))
 
     def on_cancel(self):
-        """Releases spend fingerprint lock if cancelled."""
+        """Releases spend fingerprint lock and re-syncs linked Event Master budget ledger."""
         super().on_cancel()
         release_spend_fingerprint(self)
+        _sync_event_master_if_linked(getattr(self, "event", None))
 
     def bind_and_lock_vendor_profile(self):
         """
@@ -864,6 +866,7 @@ def approve_vendor_claim_by_accounts_l2(docname: str, remarks: Optional[str] = N
         "remarks": remarks or "Approved by Accounts L2 for payment core release"
     })
     doc.save(ignore_permissions=True)
+    _sync_event_master_if_linked(getattr(doc, "event", None))
     doc.add_comment("Comment", text=f"âœ… <b>Approved by Accounts L2:</b> {user} â€” {remarks or 'Approved for Payment'}")
     try:
         notify_vendor_claim_accounts_l2_approved(docname)
@@ -901,61 +904,36 @@ def save_tally_reference(docname: str, tally_reference: str):
 
     return {"status": "SUCCESS", "tally_reference": clean_ref}
 
+def _sync_event_master_if_linked(event_name: Optional[str]) -> None:
+    """Safely synchronizes Event Master budget ledger for Stream A direct vendor claims."""
+    if not event_name or not frappe.db.exists("Event Master", event_name):
+        return
+    try:
+        from ap_automation.services.event_budget_service import update_event_budget_ledger
+        update_event_budget_ledger(event_name)
+    except Exception:
+        frappe.log_error(
+            title="Event Stream A Sync Error",
+            message=f"Failed to sync Event Master '{event_name}': {frappe.get_traceback()}"
+        )
+
+
+@frappe.whitelist()
+def trigger_vendor_claim_payment_release_notification(docname: str):
+    """Maker-Checker Handoff for Vendor Invoice Claim."""
+    from ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim import (
+        trigger_vendor_claim_payment_release_notification as _canonical_trigger,
+    )
+    return _canonical_trigger(docname)
+
+
 @frappe.whitelist()
 def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[str] = None):
-    """
-    Stage 6: Bank Disbursement & UTR Stamping (Payment Releaser).
-    Validates claim status and stamps bank UTR reference, marking claim as 'Paid'.
-    """
-    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
-    user_roles = set(frappe.get_roles(user)) if user else set()
-    authorized_roles = {"Payment Releaser", "AP Director", "Accounts Director", "System Manager", "Administrator"}
-    if user != "Administrator" and not user_roles.intersection(authorized_roles):
-        raise APSecurityError("Unauthorized: Only Payment Releaser or Accounts Director can disburse commercial vendor invoices.")
-
-    if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
-        frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
-
-    if not utr_reference or not str(utr_reference).strip():
-        frappe.throw("Bank UTR Reference Number is strictly mandatory for disbursement signoff.", title="UTR Required")
-
-    doc = frappe.get_doc("Vendor Invoice Claim", docname)
-
-    if doc.status not in ("Approved for Payment", "Queued in Batch"):
-        frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not ready for bank disbursement.")
-
-    clean_utr = str(utr_reference).strip().upper()
-    now_ts = frappe.utils.now_datetime()
-
-    # Update status directly in database to avoid triggering tamper alert on locked status transition
-    frappe.db.set_value("Vendor Invoice Claim", docname, {
-        "status": "Paid",
-        "workflow_state": "Disbursed via Corporate Bank Transfer"
-    })
-
-    # Record in AP Approval Trail
-    trail_entry = frappe.get_doc({
-        "doctype": "AP Approval Trail",
-        "parent": docname,
-        "parenttype": "Vendor Invoice Claim",
-        "parentfield": "approval_trail",
-        "level_number": 5,
-        "level_name": "Stage 6: Bank Disbursement & UTR Stamped",
-        "action_taken_by": user,
-        "action": "APPROVED",
-        "action_timestamp": now_ts,
-        "remarks": f"Disbursed via Corporate Banking | Bank UTR: {clean_utr} | {remarks or 'Payment Settled'}"
-    })
-    trail_entry.insert(ignore_permissions=True)
-
-    doc.add_comment("Comment", text=f"💳 <b>Payment Disbursed:</b> Bank UTR: <code>{clean_utr}</code> by {user}")
-    frappe.db.commit()
-
-    return {
-        "status": "Paid",
-        "utr": clean_utr,
-        "message": f"Claim #{docname} successfully marked Paid with Bank UTR '{clean_utr}'."
-    }
+    """Stage 6: Delegates cleanly to canonical Vendor Invoice Claim disbursement."""
+    from ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim import (
+        disburse_vendor_claim as _canonical_disburse,
+    )
+    return _canonical_disburse(docname, utr_reference, remarks=remarks)
 
 @frappe.whitelist()
 def submit_for_approval(docname: str):

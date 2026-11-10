@@ -33,7 +33,10 @@ frappe.ui.form.on("Event Advance Request", {
             const user_roles = frappe.user_roles || [];
             const is_sys_mgr = user_roles.includes('System Manager') || frappe.session.user === 'Administrator';
             const is_bh = user_roles.includes('Business Head') || user_roles.includes('AP Director') || is_sys_mgr;
-            const is_accounts = user_roles.includes('Accounts L1 Auditor') || user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || user_roles.includes('Payment Releaser') || is_sys_mgr;
+            const is_acct_dir = user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || is_sys_mgr;
+            const is_maker = user_roles.includes('Accounts L1 Auditor') || user_roles.includes('Accounts User') || user_roles.includes('Accounts Manager') || user_roles.includes('Accounts Director') || is_sys_mgr;
+            const is_finance_viewer = is_maker || user_roles.includes('Payment Releaser') || user_roles.includes('AP Director');
+            const is_checker = user_roles.includes('Payment Releaser') || user_roles.includes('AP Director') || user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || is_sys_mgr;
 
             // STAGE 1: Director Sanction Action
             if (frm.doc.status === 'Pending Director Sanction' || frm.doc.status === 'Pending Business Head Approval') {
@@ -49,7 +52,7 @@ frappe.ui.form.on("Event Advance Request", {
                             }
                         ], function(values) {
                             frappe.call({
-                                method: 'ap_automation.controllers.event_advance_request.approve_by_business_head',
+                                method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.approve_by_business_head',
                                 args: {
                                     advance_name: frm.doc.name,
                                     comments: values.comments
@@ -76,7 +79,7 @@ frappe.ui.form.on("Event Advance Request", {
                             }
                         ], function(values) {
                             frappe.call({
-                                method: 'ap_automation.controllers.event_advance_request.reject_event_advance',
+                                method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.reject_event_advance',
                                 args: {
                                     advance_name: frm.doc.name,
                                     reason: values.reason
@@ -98,7 +101,7 @@ frappe.ui.form.on("Event Advance Request", {
             // STAGE 2: Accounts Director Sign-off
             if (['Pending Accounts Disbursal', 'Approved by Director', 'Approved by Business Head'].includes(frm.doc.status)) {
                 frm.page.set_indicator(__('Sanctioned by Director'), 'blue');
-                if (is_accounts) {
+                if (is_acct_dir) {
                     frm.add_custom_button(__('⭐ Accounts Director Sign-Off'), function() {
                         frappe.prompt([
                             {
@@ -128,13 +131,13 @@ frappe.ui.form.on("Event Advance Request", {
                 }
             }
 
-            // STAGE 3: Approved for Payment / Disbursal Queue -> IDFC Excel, Maker-Checker Payment Release, Disbursal
-            if (['Approved for Payment', 'Pending Accounts Disbursal'].includes(frm.doc.status)) {
+            // STAGE 3: Post-Accounts Director Approval -> IDFC Excel, Maker-Checker Payment Release, Checker Disbursal
+            if (['Approved for Payment', 'Disbursed'].includes(frm.doc.status) && is_finance_viewer) {
                 if (frm.doc.status === 'Approved for Payment') {
                     frm.page.set_indicator(__('Approved for Payment'), 'green');
                 }
 
-                // 1. Download IDFC Bank Bulk Disbursal Excel (.xlsx)
+                // 1. Download IDFC Bank Bulk Disbursal Excel (.xlsx) (Finance/Releaser only, never SPOC/Employee)
                 frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
                     const download_url = `/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_event_advance_excel?advance_name=${encodeURIComponent(frm.doc.name)}`;
                     window.open(download_url, '_blank');
@@ -144,26 +147,60 @@ frappe.ui.form.on("Event Advance Request", {
                     });
                 }).addClass('btn-info');
 
-                // 2. Maker-Checker Payment Release Notification (Strict AP Matrix)
-                if (frm.doc.payment_release_notified) {
-                    frm.add_custom_button(__('✓ Payment Release Sent (IDFC Uploaded)'), function() {
-                        const notif_date = frm.doc.payment_release_notified_on ? frappe.datetime.str_to_user(frm.doc.payment_release_notified_on) : 'Recently';
-                        frappe.msgprint({
-                            title: __('Payment Release Already Notified'),
-                            message: __('IDFC Disbursal File was uploaded and notification was dispatched on {0} by {1}. Awaiting final bank release by AP Director.', [notif_date, frm.doc.payment_release_maker || 'Maker']),
-                            indicator: 'green'
-                        });
-                    }).addClass('btn-success disabled');
-                } else {
-                    frm.add_custom_button(__('📤 Payment Release'), function() {
-                        frappe.confirm(
-                            __('Confirm that the IDFC Disbursal Excel has been uploaded to the IDFC Netbanking portal.<br><br>This will send a high-priority payout alert to the <b>AP Director</b> (Checker, TO) with CC to the <b>Accounts Director</b> (Supervisor, CC) from the AP Approval Matrix.<br><br>Proceed with notification dispatch?'),
-                            function() {
+                if (frm.doc.status === 'Approved for Payment') {
+                    // 2. Maker-Checker Payment Release Notification (Maker Roles only)
+                    if (frm.doc.payment_release_notified) {
+                        frm.add_custom_button(__('✓ Payment Release Sent (IDFC Uploaded)'), function() {
+                            const notif_date = frm.doc.payment_release_notified_on ? frappe.datetime.str_to_user(frm.doc.payment_release_notified_on) : 'Recently';
+                            frappe.msgprint({
+                                title: __('Payment Release Already Notified'),
+                                message: __('IDFC Disbursal File was uploaded and notification was dispatched on {0} by {1}. Awaiting final bank release by Payment Releaser ({2}).', [notif_date, frm.doc.payment_release_maker || 'Maker', frm.doc.payment_releaser || 'Director']),
+                                indicator: 'green'
+                            });
+                        }).addClass('btn-success disabled');
+                    } else if (is_maker) {
+                        frm.add_custom_button(__('📤 Payment Release'), function() {
+                            frappe.confirm(
+                                __('Confirm that the IDFC Disbursal Excel has been uploaded to the IDFC Netbanking portal.<br><br>This will send a high-priority payout alert to the <b>Payment Releaser / AP Director</b> (Checker, TO) with CC to the <b>Accounts Director</b> (Supervisor, CC) from the AP Approval Matrix.<br><br>Proceed with notification dispatch?'),
+                                function() {
+                                    frappe.call({
+                                        method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.trigger_event_advance_payment_release_notification',
+                                        args: { advance_name: frm.doc.name },
+                                        freeze: true,
+                                        freeze_message: __('Dispatching Payment Release Alert to Payment Releaser...'),
+                                        callback: function(r) {
+                                            if (r.message && r.message.status === 'SUCCESS') {
+                                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                                frm.reload_doc();
+                                            }
+                                        }
+                                    });
+                                }
+                            );
+                        }).addClass('btn-warning');
+                    }
+
+                    // 3. Bank Disbursal & UTR Stamping (Checker only: after Payment Release notified, and Checker != Maker)
+                    const not_same_maker = (frm.doc.payment_release_maker !== frappe.session.user) || frappe.session.user === 'Administrator';
+                    if (frm.doc.payment_release_notified && is_checker && not_same_maker) {
+                        frm.add_custom_button(__('💳 Release Bank Disbursal (Payment Releaser)'), function() {
+                            frappe.prompt([
+                                {
+                                    fieldname: 'disbursement_ref',
+                                    fieldtype: 'Data',
+                                    label: __('Bank UTR / Disbursal Reference'),
+                                    default: 'IDFC-EVT-' + Math.floor(10000000 + Math.random() * 90000000),
+                                    reqd: 1
+                                }
+                            ], function(values) {
                                 frappe.call({
-                                    method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.trigger_event_advance_payment_release_notification',
-                                    args: { advance_name: frm.doc.name },
+                                    method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.disburse_event_advance',
+                                    args: {
+                                        advance_name: frm.doc.name,
+                                        disbursement_ref: values.disbursement_ref
+                                    },
                                     freeze: true,
-                                    freeze_message: __('Dispatching Payment Release Alert to AP Director...'),
+                                    freeze_message: __('Stamping UTR and Disbursing...'),
                                     callback: function(r) {
                                         if (r.message && r.message.status === 'SUCCESS') {
                                             frappe.show_alert({ message: r.message.message, indicator: 'green' });
@@ -171,45 +208,14 @@ frappe.ui.form.on("Event Advance Request", {
                                         }
                                     }
                                 });
-                            }
-                        );
-                    }).addClass('btn-warning');
-                }
-
-                // 3. Bank Disbursal & UTR Stamping (Payment Releaser / Accounts)
-                if (is_accounts) {
-                    frm.add_custom_button(__('💳 Release Bank Disbursal (Payment Releaser)'), function() {
-                        frappe.prompt([
-                            {
-                                fieldname: 'disbursement_ref',
-                                fieldtype: 'Data',
-                                label: __('Bank UTR / Disbursal Reference'),
-                                default: 'IDFC-EVT-' + Math.floor(10000000 + Math.random() * 90000000),
-                                reqd: 1
-                            }
-                        ], function(values) {
-                            frappe.call({
-                                method: 'ap_automation.controllers.event_advance_request.disburse_event_advance',
-                                args: {
-                                    advance_name: frm.doc.name,
-                                    disbursement_ref: values.disbursement_ref
-                                },
-                                freeze: true,
-                                freeze_message: __('Stamping UTR and Disbursing...'),
-                                callback: function(r) {
-                                    if (r.message && r.message.status === 'SUCCESS') {
-                                        frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                                        frm.reload_doc();
-                                    }
-                                }
-                            });
-                        }, __('Record Bank Disbursal & Stamp UTR'), __('Disburse'));
-                    }).addClass('btn-primary');
+                            }, __('Record Bank Disbursal & Stamp UTR'), __('Disburse'));
+                        }).addClass('btn-primary');
+                    }
                 }
             }
 
             // STAGE 4: Disbursed -> Ready for Post-Event Expense Claim
-            else if (frm.doc.status === 'Disbursed') {
+            if (frm.doc.status === 'Disbursed') {
                 frm.page.set_indicator(__('Disbursed'), 'green');
                 frm.add_custom_button(__('📋 Create Expense Claim from Proposal'), function() {
                     frappe.route_options = {
