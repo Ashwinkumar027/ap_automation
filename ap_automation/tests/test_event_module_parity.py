@@ -365,6 +365,106 @@ class TestEventModuleParity(unittest.TestCase):
         wb = openpyxl.load_workbook(io.BytesIO(frappe.response["filecontent"]))
         self.assertGreaterEqual(len(wb.sheetnames), 1)
 
+    def test_06_employee_ifsc_resolution_and_direct_vendor_validation(self):
+        """Verifies valid NPCI IFSC wins across custom_ifsc_code/ifsc_code and Direct Vendor validation works cleanly."""
+        from ap_automation.services.event_budget_service import fetch_spoc_salary_bank, get_spoc_salary_bank_for_event
+        from ap_automation.services.hrms_hierarchy_service import resolve_employee_ifsc
+
+        self.assertEqual(resolve_employee_ifsc("IDFB0040101", "MAH000043"), "IDFB0040101")
+        self.assertEqual(resolve_employee_ifsc("MAH000043", "IDFB0040101"), "IDFB0040101")
+        self.assertEqual(resolve_employee_ifsc("", "MAH000043"), "MAH000043")
+
+        emp_name = frappe.db.get_value("Employee", {"user_id": self.spoc_user}, "name")
+        emp_meta = frappe.get_meta("Employee")
+        if emp_meta and emp_meta.has_field("custom_ifsc_code"):
+            orig_ifsc = frappe.db.get_value("Employee", emp_name, "ifsc_code")
+            orig_custom = frappe.db.get_value("Employee", emp_name, "custom_ifsc_code")
+            try:
+                frappe.db.set_value("Employee", emp_name, {"ifsc_code": "MAH000043", "custom_ifsc_code": "MAHB0000043"})
+                bank = fetch_spoc_salary_bank(self.spoc_user)
+                self.assertEqual(bank["ifsc_code"], "MAHB0000043")
+
+                live = get_spoc_salary_bank_for_event(self.event.name)
+                self.assertEqual(live["bank_ifsc_code"], "MAHB0000043")
+            finally:
+                frappe.db.set_value("Employee", emp_name, {"ifsc_code": orig_ifsc, "custom_ifsc_code": orig_custom})
+
+        # Direct Vendor-only submission with valid Vendor IFSC must NOT fail even if SPOC IFSC is stale
+        ev_dv = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"Direct Vendor Only {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "event_spoc": self.spoc_user,
+            "spoc_name": "Parity SPOC",
+            "start_date": "2026-11-28",
+            "end_date": "2026-11-29",
+            "allocated_budget": 40000.00,
+        }).insert(ignore_permissions=True)
+
+        bad_emp_ifsc = frappe.db.get_value("Employee", emp_name, "ifsc_code")
+        orig_emp_custom_ifsc = (
+            frappe.db.get_value("Employee", emp_name, "custom_ifsc_code")
+            if (emp_meta and emp_meta.has_field("custom_ifsc_code"))
+            else None
+        )
+        try:
+            frappe.db.set_value("Employee", emp_name, "ifsc_code", "MAH000043")
+            if emp_meta and emp_meta.has_field("custom_ifsc_code"):
+                frappe.db.set_value("Employee", emp_name, "custom_ifsc_code", "MAH000043")
+
+            dv_adv = frappe.get_doc({
+                "doctype": "Event Advance Request",
+                "event": ev_dv.name,
+                "imprest_items": [{
+                    "particulars": "Direct Vendor Sound",
+                    "amount": 5000.00,
+                    "payment_mode": "Direct Vendor Payment",
+                    "beneficiary_name": "Valid Vendor Co",
+                    "bank_name": "HDFC Bank",
+                    "bank_account_number": "50200011223344",
+                    "bank_ifsc_code": "HDFC0001234",
+                }],
+            }).insert(ignore_permissions=True)
+            dv_res = submit_event_advance(dv_adv.name)
+            self.assertEqual(dv_res["new_status"], "Pending Director Approval")
+
+            # Bad Direct Vendor row IFSC must hard-block on submit
+            bad_dv = frappe.get_doc({
+                "doctype": "Event Advance Request",
+                "event": ev_dv.name,
+                "imprest_items": [{
+                    "particulars": "Bad Vendor IFSC",
+                    "amount": 1000.00,
+                    "payment_mode": "Direct Vendor Payment",
+                    "beneficiary_name": "Bad Vendor",
+                    "bank_name": "Bank",
+                    "bank_account_number": "12345678901",
+                    "bank_ifsc_code": "MAHD4877H",
+                }],
+            }).insert(ignore_permissions=True)
+            with self.assertRaises(APValidationError) as vctx:
+                submit_event_advance(bad_dv.name)
+            self.assertIn("Invalid Vendor IFSC Code", str(vctx.exception))
+
+            # Cash Imprest > 0 with bad SPOC IFSC must hard-block naming SPOC profile
+            bad_cash = frappe.get_doc({
+                "doctype": "Event Advance Request",
+                "event": ev_dv.name,
+                "imprest_items": [{
+                    "particulars": "Cash Float",
+                    "amount": 1000.00,
+                    "payment_mode": "Cash / Petty Imprest",
+                    "beneficiary_name": "Parity SPOC",
+                }],
+            }).insert(ignore_permissions=True)
+            with self.assertRaises(APValidationError) as cctx:
+                submit_event_advance(bad_cash.name)
+            self.assertIn("SPOC Salary Bank IFSC Code", str(cctx.exception))
+        finally:
+            frappe.db.set_value("Employee", emp_name, "ifsc_code", bad_emp_ifsc)
+            if emp_meta and emp_meta.has_field("custom_ifsc_code"):
+                frappe.db.set_value("Employee", emp_name, "custom_ifsc_code", orig_emp_custom_ifsc)
+
 
 if __name__ == "__main__":
     unittest.main()

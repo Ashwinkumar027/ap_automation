@@ -136,17 +136,23 @@ class PettyCashEntry(Document):
                 emp_name = frappe.db.get_value("Employee", {"user_id": self.custodian}, "name")
                 if emp_name:
                     self.custodian = emp_name
-            emp = frappe.db.get_value(
-                "Employee",
-                self.custodian,
-                ["employee_name", "custom_name_as_per_bank", "bank_name", "bank_ac_no", "custom_ifsc_code", "ifsc_code"],
-                as_dict=True
-            )
+            emp_meta = frappe.get_meta("Employee")
+            emp_fields = ["employee_name", "bank_name", "bank_ac_no", "ifsc_code"]
+            if emp_meta and emp_meta.has_field("custom_name_as_per_bank"):
+                emp_fields.append("custom_name_as_per_bank")
+            if emp_meta and emp_meta.has_field("custom_ifsc_code"):
+                emp_fields.append("custom_ifsc_code")
+            emp = frappe.db.get_value("Employee", self.custodian, emp_fields, as_dict=True)
             if emp:
+                from ap_automation.services.hrms_hierarchy_service import resolve_employee_ifsc
+
                 self.beneficiary_name = emp.get("custom_name_as_per_bank") or emp.get("employee_name") or ""
                 self.bank_name = emp.get("bank_name") or ""
                 self.custodian_bank_account = emp.get("bank_ac_no") or ""
-                self.custodian_ifsc_code = emp.get("custom_ifsc_code") or emp.get("ifsc_code") or ""
+                self.custodian_ifsc_code = resolve_employee_ifsc(
+                    emp.get("custom_ifsc_code"),
+                    emp.get("ifsc_code"),
+                )
 
     def validate_expense_lines(self):
         """

@@ -1509,7 +1509,12 @@ function render_vendor_invoice_dashboard(frm) {
         </div>
     `;
 
-    frm.dashboard.set_headline(full_dashboard_html);
+    if (window.APReceiptGallery && typeof window.APReceiptGallery.setHeadlineExclusive === 'function') {
+        window.APReceiptGallery.setHeadlineExclusive(frm, full_dashboard_html);
+    } else {
+        if (typeof frm.dashboard.clear_headline === 'function') frm.dashboard.clear_headline();
+        frm.dashboard.set_headline(full_dashboard_html);
+    }
 
     // Bind Audit Banner Click Handlers with reliable event delegation on frm.wrapper
     $(frm.wrapper).off('click.ap_vendor_claim', '.ap-err-chip').on('click.ap_vendor_claim', '.ap-err-chip', function() {

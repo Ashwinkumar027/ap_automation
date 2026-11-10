@@ -601,11 +601,12 @@ def download_idfc_employee_reimbursement_excel(voucher_name: str):
         or emp_info.get("bank_ac_no")
         or ""
     )
-    b_ifsc = (
-        doc.get("bank_ifsc_code")
-        or emp_info.get("custom_ifsc_code")
-        or emp_info.get("ifsc_code")
-        or ""
+    from ap_automation.services.hrms_hierarchy_service import resolve_employee_ifsc
+
+    b_ifsc = resolve_employee_ifsc(
+        doc.get("bank_ifsc_code"),
+        emp_info.get("custom_ifsc_code"),
+        emp_info.get("ifsc_code"),
     )
     if not str(b_ac).strip() or not str(b_ifsc).strip():
         frappe.throw(
@@ -914,9 +915,13 @@ def download_idfc_event_advance_excel(advance_name: str):
     # 2. Cash / Petty Imprest payout to SPOC
     cash_total = flt(doc.total_cash_imprest_amount)
     if cash_total > 0:
+        from ap_automation.services.event_budget_service import fetch_spoc_salary_bank
+        from ap_automation.services.hrms_hierarchy_service import resolve_employee_ifsc
+
         spoc_name = _resolve_spoc_beneficiary_name(doc)
-        spoc_ac = str(doc.bank_account_number or "").strip()
-        spoc_ifsc = str(doc.bank_ifsc_code or "").strip().upper()
+        live_bank = fetch_spoc_salary_bank(doc.spoc) if getattr(doc, "spoc", None) else {}
+        spoc_ac = str(doc.bank_account_number or live_bank.get("bank_account_no") or "").strip()
+        spoc_ifsc = resolve_employee_ifsc(doc.bank_ifsc_code, live_bank.get("ifsc_code"))
 
         if not spoc_ac or not spoc_ifsc:
             frappe.throw(

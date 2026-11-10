@@ -134,7 +134,12 @@ function render_settlement_verdict_card(frm) {
     const stepper_html = build_settlement_stepper_html(frm);
 
     if (!frm.doc.settlement_type) {
-        frm.dashboard.set_headline(stepper_html);
+        if (window.APReceiptGallery && typeof window.APReceiptGallery.setHeadlineExclusive === 'function') {
+            window.APReceiptGallery.setHeadlineExclusive(frm, stepper_html);
+        } else {
+            if (typeof frm.dashboard.clear_headline === 'function') frm.dashboard.clear_headline();
+            frm.dashboard.set_headline(stepper_html);
+        }
         return;
     }
 
@@ -248,7 +253,12 @@ function render_settlement_verdict_card(frm) {
         `;
     }
 
-    frm.dashboard.set_headline(stepper_html + card_html);
+    if (window.APReceiptGallery && typeof window.APReceiptGallery.setHeadlineExclusive === 'function') {
+        window.APReceiptGallery.setHeadlineExclusive(frm, stepper_html + card_html);
+    } else {
+        if (typeof frm.dashboard.clear_headline === 'function') frm.dashboard.clear_headline();
+        frm.dashboard.set_headline(stepper_html + card_html);
+    }
 }
 
 function run_settlement_with_clarification_gate(frm, callback) {

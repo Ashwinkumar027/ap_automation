@@ -361,7 +361,13 @@ function render_stream_demarcation_banner(frm) {
         </div>
     `;
 
-    frm.dashboard.set_headline(banner_html);
+    if (window.APReceiptGallery && typeof window.APReceiptGallery.setHeadlineExclusive === 'function') {
+        window.APReceiptGallery.setHeadlineExclusive(frm, banner_html);
+    } else {
+        if (typeof frm.dashboard.clear_headline === 'function') frm.dashboard.clear_headline();
+        if (frm.layout && frm.layout.message) frm.layout.message.empty().addClass('hidden');
+        frm.dashboard.set_headline(banner_html);
+    }
 }
 
 frappe.ui.form.on("Event Expense Item", {

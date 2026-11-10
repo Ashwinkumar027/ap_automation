@@ -166,6 +166,15 @@ class EventAdvanceRequest(APDocument):
                             raise APValidationError(
                                 f"Row #{idx}: Bank Account Number and IFSC Code are mandatory for Direct Vendor Payment ('{bene or 'Vendor'}')."
                             )
+                        from ap_automation.integrations.idfc import validate_account_number, validate_ifsc_code
+                        if not validate_account_number(ac_no):
+                            raise APValidationError(
+                                f"Row #{idx} ({bene}): Invalid Vendor Bank Account Number '{ac_no}'. Must be 9 to 18 numeric digits."
+                            )
+                        if not validate_ifsc_code(ifsc):
+                            raise APValidationError(
+                                f"Row #{idx} ({bene}): Invalid Vendor IFSC Code '{ifsc}'. Must be 11 characters conforming to NPCI standard (e.g., IDFB0040101)."
+                            )
                 else:
                     cash_total += amt
 
@@ -182,6 +191,33 @@ class EventAdvanceRequest(APDocument):
 
         validate_advance_request(self)
         super().validate()
+
+    def _validate_beneficiary_banking(self):
+        """
+        Pre-flight validation of SPOC HRMS Salary Bank details when SPOC Cash Imprest > 0.
+        Direct Vendor-only requests validate beneficiary rows strictly instead of blocking on unused SPOC IFSC.
+        """
+        cash_total = float(getattr(self, "total_cash_imprest_amount", 0.0) or 0.0)
+        if cash_total <= 0 and float(getattr(self, "total_direct_vendor_amount", 0.0) or 0.0) > 0:
+            return
+
+        is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved")
+        if not is_submitting:
+            return
+
+        from ap_automation.integrations.idfc import validate_account_number, validate_ifsc_code
+        acc_num = getattr(self, "bank_account_number", None)
+        ifsc = getattr(self, "bank_ifsc_code", None)
+        spoc_label = getattr(self, "spoc_name", None) or getattr(self, "spoc", None) or "Event SPOC"
+
+        if acc_num and not validate_account_number(acc_num):
+            raise APValidationError(
+                f"Invalid SPOC Salary Bank Account Number '{acc_num}' for {spoc_label}. Must be 9 to 18 numeric digits in HRMS Employee profile."
+            )
+        if ifsc and not validate_ifsc_code(ifsc):
+            raise APValidationError(
+                f"Invalid SPOC Salary Bank IFSC Code '{ifsc}' for {spoc_label}. Must be 11 characters conforming to NPCI standard (e.g., IDFB0040101) in HRMS Employee profile."
+            )
 
     def before_save(self):
         """Blocks direct manual `status` tampering and locks financials past Draft."""

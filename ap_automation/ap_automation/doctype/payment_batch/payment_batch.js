@@ -283,7 +283,12 @@ function render_executive_dashboard(frm) {
                 </div>
             `;
 
-            frm.dashboard.set_headline(dashboard_html);
+            if (window.APReceiptGallery && typeof window.APReceiptGallery.setHeadlineExclusive === 'function') {
+                window.APReceiptGallery.setHeadlineExclusive(frm, dashboard_html);
+            } else {
+                if (typeof frm.dashboard.clear_headline === 'function') frm.dashboard.clear_headline();
+                frm.dashboard.set_headline(dashboard_html);
+            }
         }
     });
 }
