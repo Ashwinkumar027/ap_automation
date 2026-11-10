@@ -100,7 +100,7 @@ class TestReconciliationAndTally(unittest.TestCase):
             "event": self.event.name,
             "requested_advance_amount": 60000.00,
             "purpose": "Acoustic stage setup.",
-            "status": "Approved for Advance"
+            "status": "Approved for Payment"
         })
         self.ear.flags.ignore_links = True
         self.ear.insert(ignore_permissions=True)

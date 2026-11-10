@@ -3,35 +3,24 @@
 // 100% Mobile & Desktop Responsive
 
 frappe.ui.form.on("Event Advance Request", {
-    setup: function(frm) {
-        if (window.APReceiptGallery && typeof window.APReceiptGallery.setup === 'function') {
-            window.APReceiptGallery.setup(frm);
-        }
-    },
-
     refresh: function(frm) {
         frm.set_df_property('status', 'read_only', 1);
         calculate_imprest_totals(frm);
         set_advance_status_indicator(frm);
         render_advance_event_context(frm);
 
-        // Print & View Actions
-        if (!frm.is_new()) {
-            frm.add_custom_button(__('📄 Download Imprest PDF'), function() {
-                const pdf_url = frappe.urllib.get_full_url(
-                    `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(frm.doc.doctype)}&name=${encodeURIComponent(frm.doc.name)}&format=Event%20Expense%20Report&no_letterhead=0`
+        if (window.APReceiptGallery) {
+            window.APReceiptGallery.refreshFormButtons(frm);
+            if (!frm.is_new()) {
+                window.APReceiptGallery.addPrintDownloadButtons(
+                    frm,
+                    'Event Expense Report',
+                    __('📄 Download Imprest PDF'),
+                    __('🖨️ View Print Format')
                 );
-                window.open(pdf_url, '_blank');
-            }, __('Print / Download'));
-
-            frm.add_custom_button(__('🖨️ View Print Format'), function() {
-                const print_url = `/printview?doctype=${encodeURIComponent(frm.doc.doctype)}&name=${encodeURIComponent(frm.doc.name)}&format=Event%20Expense%20Report&no_letterhead=0`;
-                window.open(print_url, '_blank');
-            }, __('Print / Download'));
-        }
-
-        if (typeof window.APClarificationThread !== 'undefined' && !frm.is_new()) {
-            window.APClarificationThread.render(frm);
+                window.APReceiptGallery.addExcelExportButton(frm);
+                window.APReceiptGallery.addTallyXmlButton(frm, ['Approved for Payment', 'Disbursed']);
+            }
         }
 
         // DRAFT STAGE (docstatus === 0): Replace generic Frappe Submit with 1-Click Save + Submit to Director
@@ -175,73 +164,85 @@ function set_advance_status_indicator(frm) {
     frm.page.set_indicator(__(status), color_map[status] || 'grey');
 }
 
+function run_advance_with_clarification_gate(frm, callback) {
+    if (window.APClarificationThread && typeof window.APClarificationThread.checkUnresolvedQueries === 'function') {
+        window.APClarificationThread.checkUnresolvedQueries(frm, callback);
+    } else {
+        callback();
+    }
+}
+
 function bind_submitted_stage_buttons(frm, ctx) {
     const status = frm.doc.status;
 
     // STAGE 1: Director Approval
     if (status === 'Pending Director Approval' && ctx.can_director_approve) {
         frm.add_custom_button(__('✅ Approve (Director)'), function() {
-            frappe.prompt([
-                {
-                    fieldname: 'comments',
-                    fieldtype: 'Small Text',
-                    label: __('Director Approval Notes (Optional)'),
-                    default: 'Approved for event operations.'
-                }
-            ], function(values) {
-                frappe.call({
-                    method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.approve_event_advance_by_director',
-                    args: {
-                        advance_name: frm.doc.name,
-                        comments: values.comments
-                    },
-                    freeze: true,
-                    freeze_message: __('Recording Director Approval...'),
-                    callback: function(r) {
-                        if (r.message && r.message.status === 'SUCCESS') {
-                            frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                            frm.reload_doc();
-                        }
+            run_advance_with_clarification_gate(frm, function() {
+                frappe.prompt([
+                    {
+                        fieldname: 'comments',
+                        fieldtype: 'Small Text',
+                        label: __('Director Approval Notes (Optional)'),
+                        default: 'Approved for event operations.'
                     }
-                });
-            }, __('Director Approval'), __('Approve & Forward to Accounts L1'));
+                ], function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.approve_event_advance_by_director',
+                        args: {
+                            advance_name: frm.doc.name,
+                            comments: values.comments
+                        },
+                        freeze: true,
+                        freeze_message: __('Recording Director Approval...'),
+                        callback: function(r) {
+                            if (r.message && r.message.status === 'SUCCESS') {
+                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Director Approval'), __('Approve & Forward to Accounts L1'));
+            });
         }).addClass('btn-success');
     }
 
     // STAGE 2: Accounts L1 Review
     if (status === 'Pending Accounts L1 Review' && ctx.can_accounts_l1_verify) {
         frm.add_custom_button(__('✅ Verify & Forward (Accounts L1)'), function() {
-            frappe.prompt([
-                {
-                    fieldname: 'tally_reference',
-                    fieldtype: 'Data',
-                    label: __('Tally / Audit Reference (Optional)'),
-                    description: __('Enter Tally voucher reference if applicable (optional for advance review).')
-                },
-                {
-                    fieldname: 'remarks',
-                    fieldtype: 'Small Text',
-                    label: __('Accounts L1 Review Remarks (Optional)'),
-                    default: 'Beneficiary banking details & quotes verified.'
-                }
-            ], function(values) {
-                frappe.call({
-                    method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.verify_event_advance_by_accounts_l1',
-                    args: {
-                        advance_name: frm.doc.name,
-                        tally_reference: values.tally_reference || '',
-                        remarks: values.remarks || ''
+            run_advance_with_clarification_gate(frm, function() {
+                frappe.prompt([
+                    {
+                        fieldname: 'tally_reference',
+                        fieldtype: 'Data',
+                        label: __('Tally / Audit Reference (Optional)'),
+                        description: __('Enter Tally voucher reference if applicable (optional for advance review).')
                     },
-                    freeze: true,
-                    freeze_message: __('Verifying & Escalating to Accounts Director...'),
-                    callback: function(r) {
-                        if (r.message && r.message.status === 'SUCCESS') {
-                            frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                            frm.reload_doc();
-                        }
+                    {
+                        fieldname: 'remarks',
+                        fieldtype: 'Small Text',
+                        label: __('Accounts L1 Review Remarks (Optional)'),
+                        default: 'Beneficiary banking details & quotes verified.'
                     }
-                });
-            }, __('Accounts L1 Review'), __('Verify & Forward to Accounts Director'));
+                ], function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.verify_event_advance_by_accounts_l1',
+                        args: {
+                            advance_name: frm.doc.name,
+                            tally_reference: values.tally_reference || '',
+                            remarks: values.remarks || ''
+                        },
+                        freeze: true,
+                        freeze_message: __('Verifying & Escalating to Accounts Director...'),
+                        callback: function(r) {
+                            if (r.message && r.message.status === 'SUCCESS') {
+                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Accounts L1 Review'), __('Verify & Forward to Accounts Director'));
+            });
         }).addClass('btn-primary').css({
             'background-color': '#0284c7',
             'border-color': '#0369a1',
@@ -252,30 +253,32 @@ function bind_submitted_stage_buttons(frm, ctx) {
     // STAGE 3: Accounts Director Sign-Off
     if (status === 'Pending Accounts Director Approval' && ctx.can_accounts_director_signoff) {
         frm.add_custom_button(__('⭐ Accounts Director Sign-Off'), function() {
-            frappe.prompt([
-                {
-                    fieldname: 'remarks',
-                    fieldtype: 'Small Text',
-                    label: __('Authorization Remarks (Optional)'),
-                    default: 'All beneficiary accounts verified. Approved for IDFC Disbursal.'
-                }
-            ], function(values) {
-                frappe.call({
-                    method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.authorize_event_advance_by_accounts_director',
-                    args: {
-                        advance_name: frm.doc.name,
-                        remarks: values.remarks
-                    },
-                    freeze: true,
-                    freeze_message: __('Authorizing Event Advance...'),
-                    callback: function(r) {
-                        if (r.message && r.message.status === 'SUCCESS') {
-                            frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                            frm.reload_doc();
-                        }
+            run_advance_with_clarification_gate(frm, function() {
+                frappe.prompt([
+                    {
+                        fieldname: 'remarks',
+                        fieldtype: 'Small Text',
+                        label: __('Authorization Remarks (Optional)'),
+                        default: 'All beneficiary accounts verified. Approved for IDFC Disbursal.'
                     }
-                });
-            }, __('Accounts Director Sign-Off'), __('Authorize for Payment'));
+                ], function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.authorize_event_advance_by_accounts_director',
+                        args: {
+                            advance_name: frm.doc.name,
+                            remarks: values.remarks
+                        },
+                        freeze: true,
+                        freeze_message: __('Authorizing Event Advance...'),
+                        callback: function(r) {
+                            if (r.message && r.message.status === 'SUCCESS') {
+                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Accounts Director Sign-Off'), __('Authorize for Payment'));
+            });
         }).addClass('btn-primary').css({
             'background-color': '#7c3aed',
             'border-color': '#6d28d9',
@@ -571,7 +574,15 @@ frappe.ui.form.on("Event Imprest Item", {
     payment_mode: function(frm) {
         calculate_imprest_totals(frm);
     },
+    quote_attachment: function(frm) {
+        if (window.APReceiptGallery) {
+            window.APReceiptGallery.refreshFormButtons(frm);
+        }
+    },
     imprest_items_remove: function(frm) {
         calculate_imprest_totals(frm);
+        if (window.APReceiptGallery) {
+            window.APReceiptGallery.refreshFormButtons(frm);
+        }
     }
 });

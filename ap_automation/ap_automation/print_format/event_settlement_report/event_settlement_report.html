@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1e293b; margin: 0; padding: 24px; background: #ffffff; }
+    .header-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+    .header-orange-bar { height: 4px; background: linear-gradient(90deg, #ea580c, #f97316); margin-bottom: 20px; border-radius: 2px; }
+    .tag-title { font-size: 11px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #ea580c; margin-bottom: 4px; }
+    .brand-name { font-size: 24px; font-weight: 800; color: #0f172a; margin: 0 0 4px 0; }
+    .brand-sub { font-size: 12px; color: #64748b; }
+    .meta-box { border: 1.5px solid #fef08a; background: #fefce8; border-radius: 8px; padding: 10px 14px; }
+    .meta-box-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #854d0e; margin-bottom: 3px; }
+    .meta-box-value { font-size: 13px; font-weight: 700; color: #1e293b; }
+    .section-title { font-size: 15px; font-weight: 800; color: #0f172a; margin: 18px 0 10px 0; }
+    .verdict-box { background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 16px; margin-bottom: 22px; }
+    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    .items-table th { background: #0f172a; color: #ffffff; font-size: 10.5px; font-weight: 700; text-transform: uppercase; padding: 9px 10px; text-align: left; }
+    .items-table td { padding: 10px; font-size: 12px; border-bottom: 1px solid #e2e8f0; }
+</style>
+</head>
+<body>
+{% set event_doc = frappe.get_doc("Event Master", doc.event) if doc.event else None %}
+{% set company_lh = doc.company and frappe.db.get_value("Company", doc.company, "default_letter_head") %}
+{% set lh_html = company_lh and frappe.db.get_value("Letter Head", company_lh, "content") %}
+{% if lh_html %}<div style="margin-bottom: 12px;">{{ lh_html }}</div>{% endif %}
+
+<table class="header-table">
+    <tr>
+        <td style="vertical-align: top;">
+            <div class="tag-title">POST-EVENT FINANCIAL SETTLEMENT STATEMENT</div>
+            <h1 class="brand-name">{{ doc.company or "Corporate Event Settlement" }}</h1>
+            <div class="brand-sub">Advance vs actual spend delta reconciliation, refund/payout verification &amp; event closure.</div>
+        </td>
+        <td style="text-align: right; vertical-align: top;">
+            <div style="font-size: 11px; color: #64748b;">Settlement Date</div>
+            <div style="font-size: 12px; font-weight: 700; margin-bottom: 4px;">{{ frappe.utils.formatdate(doc.settlement_date) if doc.settlement_date else "-" }}</div>
+            <div style="font-size: 11px; color: #64748b;">Settlement Ref</div>
+            <div style="font-size: 13px; font-weight: 800; color: #ea580c;">{{ doc.name }}</div>
+        </td>
+    </tr>
+</table>
+<div class="header-orange-bar"></div>
+
+<table style="width: 100%; border-collapse: collapse; margin-bottom: 18px;">
+    <tr>
+        <td style="width: 33%; padding-right: 6px;"><div class="meta-box"><div class="meta-box-label">LINKED EVENT</div><div class="meta-box-value">{{ event_doc.event_name if event_doc else doc.event }}</div></div></td>
+        <td style="width: 33%; padding: 0 4px;"><div class="meta-box"><div class="meta-box-label">EVENT SPOC</div><div class="meta-box-value">{{ doc.spoc_name or doc.spoc or "SPOC" }}</div></div></td>
+        <td style="width: 33%; padding-left: 6px;"><div class="meta-box"><div class="meta-box-label">SETTLEMENT STATUS</div><div class="meta-box-value">{{ doc.status or "Draft" }}</div></div></td>
+    </tr>
+</table>
+
+<div class="section-title">Delta Financial Reconciliation</div>
+<div class="verdict-box">
+    <table style="width: 100%; border-collapse: collapse;">
+        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px; color: #475569;">Total Advance Disbursed to SPOC</td><td style="padding: 8px; text-align: right; font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.disbursed_advance or 0, precision=2) }}</td></tr>
+        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px; color: #475569;">Total SPOC Actual Ground Spends</td><td style="padding: 8px; text-align: right; font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.spoc_actual_spends or 0, precision=2) }}</td></tr>
+        <tr style="border-bottom: 1.5px solid #cbd5e1; background: #f1f5f9;"><td style="padding: 8px; font-weight: 800;">Settlement Delta (Actual - Advance)</td><td style="padding: 8px; text-align: right; font-weight: 800;">₹ {{ frappe.utils.fmt_money(doc.settlement_delta or 0, precision=2) }}</td></tr>
+        <tr><td style="padding: 8px; font-weight: 700; color: #1d4ed8;">Classification / Verdict</td><td style="padding: 8px; text-align: right; font-weight: 800; color: #1d4ed8;">{{ doc.settlement_type or "-" }}</td></tr>
+        {% if (doc.net_payable_to_spoc or 0) > 0 %}
+        <tr style="background: #eff6ff;"><td style="padding: 8px; font-weight: 800; color: #1e40af;">Net Payable to SPOC (Reimbursement)</td><td style="padding: 8px; text-align: right; font-weight: 800; color: #1e40af;">₹ {{ frappe.utils.fmt_money(doc.net_payable_to_spoc or 0, precision=2) }}</td></tr>
+        {% endif %}
+        {% if (doc.refund_receivable_from_spoc or 0) > 0 %}
+        <tr style="background: #fef2f2;"><td style="padding: 8px; font-weight: 800; color: #b91c1c;">Refund Receivable from SPOC</td><td style="padding: 8px; text-align: right; font-weight: 800; color: #b91c1c;">₹ {{ frappe.utils.fmt_money(doc.refund_receivable_from_spoc or 0, precision=2) }}</td></tr>
+        {% endif %}
+        <tr><td style="padding: 8px; color: #475569;">Bank UTR / Settlement Reference</td><td style="padding: 8px; text-align: right; font-weight: 700;">{{ doc.refund_received_reference or "Pending" }}</td></tr>
+        <tr><td style="padding: 8px; color: #475569;">Accounts Director Sign-off</td><td style="padding: 8px; text-align: right; font-weight: 700;">{{ doc.accounts_director or "Pending" }}</td></tr>
+    </table>
+</div>
+
+{% if doc.event %}
+{% set claims = frappe.get_list("Event Expense Claim", filters={"event": doc.event, "docstatus": 1}, fields=["name", "posting_date", "total_claim_amount", "status"], order_by="posting_date asc") %}
+{% if claims %}
+<div class="section-title">Linked Verified Ground Expense Claims</div>
+<table class="items-table">
+    <thead><tr><th>Claim Ref</th><th>Claim Date</th><th>Status</th><th style="text-align: right;">Amount</th></tr></thead>
+    <tbody>
+        {% for cl in claims %}
+        <tr>
+            <td style="font-weight: 700;">{{ cl.name }}</td>
+            <td>{{ frappe.utils.formatdate(cl.posting_date) if cl.posting_date else "-" }}</td>
+            <td>{{ cl.status }}</td>
+            <td style="text-align: right; font-weight: 700;">₹ {{ frappe.utils.fmt_money(cl.total_claim_amount or 0, precision=2) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endif %}
+</body>
+</html>
