@@ -1,6 +1,28 @@
 // Copyright (c) 2026, Quanti and contributors
 // For license information, please see license.txt
 
+function reload_preserving_scroll(frm) {
+    const $scrollParent = $('.layout-main-section-wrapper');
+    frm._ap_saved_scroll = {
+        winY: window.scrollY || window.pageYOffset || 0,
+        panelTop: $scrollParent.length ? $scrollParent.scrollTop() : 0
+    };
+    reload_preserving_scroll(frm);
+}
+
+function restore_saved_scroll(frm) {
+    if (!frm._ap_saved_scroll) return;
+    const saved = frm._ap_saved_scroll;
+    frm._ap_saved_scroll = null;
+    requestAnimationFrame(() => {
+        window.scrollTo(0, saved.winY);
+        const $scrollParent = $('.layout-main-section-wrapper');
+        if ($scrollParent.length && saved.panelTop) {
+            $scrollParent.scrollTop(saved.panelTop);
+        }
+    });
+}
+
 frappe.ui.form.on('Weekly Accounts Audit Batch', {
     onload: function (frm) {
         apply_batch_styles();
@@ -13,6 +35,7 @@ frappe.ui.form.on('Weekly Accounts Audit Batch', {
         render_status_guidance_banner(frm);
         render_audit_workstation_view(frm);
         setup_batch_action_buttons(frm);
+        restore_saved_scroll(frm);
     }
 });
 
@@ -273,7 +296,7 @@ function setup_batch_action_buttons(frm) {
                                 message: r.message.message,
                                 indicator: 'green'
                             });
-                            frm.reload_doc();
+                            reload_preserving_scroll(frm);
                         }
                     }
                 });
@@ -309,7 +332,7 @@ function setup_batch_action_buttons(frm) {
                                 message: r.message.message,
                                 indicator: 'indigo'
                             });
-                            frm.reload_doc();
+                            reload_preserving_scroll(frm);
                         }
                     }
                 });
@@ -342,7 +365,7 @@ function setup_batch_action_buttons(frm) {
                                 message: r.message.message,
                                 indicator: 'green'
                             });
-                            frm.reload_doc();
+                            reload_preserving_scroll(frm);
                         }
                     }
                 });
@@ -375,7 +398,7 @@ function setup_batch_action_buttons(frm) {
                                 message: r.message.message,
                                 indicator: 'green'
                             });
-                            frm.reload_doc();
+                            reload_preserving_scroll(frm);
                         }
                     }
                 });
@@ -408,7 +431,7 @@ function setup_batch_action_buttons(frm) {
                                 message: r.message.message,
                                 indicator: 'green'
                             });
-                            frm.reload_doc();
+                            reload_preserving_scroll(frm);
                         }
                     }
                 });
@@ -449,7 +472,7 @@ function setup_batch_action_buttons(frm) {
                                 message: r.message.message,
                                 indicator: 'green'
                             });
-                            frm.reload_doc();
+                            reload_preserving_scroll(frm);
                         }
                     }
                 });
@@ -491,7 +514,7 @@ function setup_batch_action_buttons(frm) {
                                         message: __('📤 ' + r.message.message),
                                         indicator: 'green'
                                     }, 7);
-                                    frm.reload_doc();
+                                    reload_preserving_scroll(frm);
                                 }
                             }
                         });
@@ -539,7 +562,7 @@ function setup_batch_action_buttons(frm) {
                         message: __('Batch items refreshed from pending queue.'),
                         indicator: 'blue'
                     });
-                    frm.reload_doc();
+                    reload_preserving_scroll(frm);
                 }
             });
         });
@@ -893,7 +916,7 @@ function render_audit_workstation_view(frm) {
     $(wrapper).find('.btn-view-voucher-receipts').on('click', function(e) {
         e.preventDefault();
         const vNo = $(this).data('voucher');
-        open_voucher_proofs_modal(vNo);
+        open_voucher_proofs_modal(frm, vNo);
     });
 
     // 6. Voucher-level Send Back Button
@@ -952,7 +975,7 @@ function render_audit_workstation_view(frm) {
                             message: r.message.message,
                             indicator: 'green'
                         });
-                        frm.reload_doc();
+                        reload_preserving_scroll(frm);
                     }
                 }
             });
@@ -999,7 +1022,7 @@ function render_audit_workstation_view(frm) {
                             message: r.message.message,
                             indicator: 'green'
                         });
-                        frm.reload_doc();
+                        reload_preserving_scroll(frm);
                     }
                 }
             });
@@ -1017,29 +1040,30 @@ function open_employee_aggregated_receipts(frm, emp_name, vouchers) {
         method: 'ap_automation.services.attachment_service.get_multiple_claims_receipt_summary',
         args: {
             claim_names: vouchers,
-            doctype: 'Employee Reimbursement Claim'
+            doctype: 'Employee Reimbursement Claim',
+            batch_name: frm.doc.name
         },
         freeze: true,
         freeze_message: __('Loading receipts for {0} across {1} vouchers...', [emp_name, vouchers.length]),
         callback: function(res) {
-            const attachments = (res.message && res.message.attachments) || [];
-            const dummy_frm = {
-                doc: {
-                    doctype: 'Employee Reimbursement Claim',
-                    name: (vouchers && vouchers.length > 0 ? vouchers[0] : 'BATCH-CLAIM'),
-                    employee_name: emp_name
-                }
-            };
+            const payload = res.message || {};
+            const attachments = payload.attachments || [];
+            const batch_meta = payload.batch_items_meta || {};
             if (!attachments || attachments.length === 0) {
                 if (window.APReceiptGallery && typeof window.APReceiptGallery.openEmptyModal === 'function') {
-                    window.APReceiptGallery.openEmptyModal(dummy_frm);
+                    window.APReceiptGallery.openEmptyModal(frm);
                 } else {
                     frappe.msgprint(__('No digital receipts attached for {0} across the selected vouchers.', [emp_name]));
                 }
                 return;
             }
             if (window.APReceiptGallery && typeof window.APReceiptGallery.openModal === 'function') {
-                window.APReceiptGallery.openModal(dummy_frm, attachments, 0);
+                window.APReceiptGallery.openModal(frm, attachments, 0, {
+                    batch_name: frm.doc.name,
+                    emp_name: emp_name,
+                    batch_items_meta: batch_meta,
+                    on_batch_updated: () => reload_preserving_scroll(frm)
+                });
             } else {
                 frappe.msgprint(__('Receipt Gallery component is loading, please refresh and try again.'));
             }
@@ -1081,7 +1105,7 @@ function prompt_send_back_voucher(frm, voucher_no) {
                         message: r.message.message,
                         indicator: 'orange'
                     });
-                    frm.reload_doc();
+                    reload_preserving_scroll(frm);
                 }
             }
         });
@@ -1113,37 +1137,40 @@ function prompt_dispute_voucher(frm, voucher_no) {
                         message: r.message.message,
                         indicator: 'orange'
                     });
-                    frm.reload_doc();
+                    reload_preserving_scroll(frm);
                 }
             }
         });
     }, __('Dispute Voucher #{0}', [voucher_no]), __('Dispute & Return to Employee'));
 }
 
-function open_voucher_proofs_modal(voucher_no) {
+function open_voucher_proofs_modal(frm, voucher_no) {
     frappe.call({
         method: 'ap_automation.services.attachment_service.get_claim_receipt_summary',
-        args: { claim_name: voucher_no },
+        args: {
+            claim_name: voucher_no,
+            batch_name: frm.doc.name
+        },
         freeze: true,
         freeze_message: __('Loading digital receipts and proofs...'),
         callback: function(res) {
-            const attachments = (res.message && res.message.attachments) || [];
-            const dummy_frm = {
-                doc: {
-                    doctype: 'Employee Reimbursement Claim',
-                    name: voucher_no
-                }
-            };
+            const payload = res.message || {};
+            const attachments = payload.attachments || [];
+            const batch_meta = payload.batch_items_meta || {};
             if (!attachments || attachments.length === 0) {
                 if (window.APReceiptGallery && typeof window.APReceiptGallery.openEmptyModal === 'function') {
-                    window.APReceiptGallery.openEmptyModal(dummy_frm);
+                    window.APReceiptGallery.openEmptyModal(frm);
                 } else {
                     frappe.msgprint(__('No receipts attached to voucher #{0}', [voucher_no]));
                 }
                 return;
             }
             if (window.APReceiptGallery && typeof window.APReceiptGallery.openModal === 'function') {
-                window.APReceiptGallery.openModal(dummy_frm, attachments, 0);
+                window.APReceiptGallery.openModal(frm, attachments, 0, {
+                    batch_name: frm.doc.name,
+                    batch_items_meta: batch_meta,
+                    on_batch_updated: () => reload_preserving_scroll(frm)
+                });
             } else {
                 frappe.msgprint(__('Receipt Gallery component is loading, please try again.'));
             }
@@ -1235,7 +1262,7 @@ function open_fetch_claims_dialog(frm) {
                             message: r.message.message,
                             indicator: 'green'
                         }, 7);
-                        frm.reload_doc();
+                        reload_preserving_scroll(frm);
                     }
                 }
             });

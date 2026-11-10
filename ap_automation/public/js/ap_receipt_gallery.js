@@ -453,32 +453,66 @@ window.APReceiptGallery = {
         d.show();
     },
 
-    openModal: function (frm, attachments, start_idx) {
+    openModal: function (frm, attachments, start_idx, opts) {
         const self = this;
+        opts = opts || {};
         if (!attachments || attachments.length === 0) {
             this.openEmptyModal(frm);
             return;
         }
 
+        const is_batch_audit = Boolean(
+            (frm && frm.doc && frm.doc.doctype === 'Weekly Accounts Audit Batch') || opts.batch_name
+        );
+        const batch_name = opts.batch_name || (frm && frm.doc && frm.doc.doctype === 'Weekly Accounts Audit Batch' ? frm.doc.name : '');
+        const batch_items_meta = opts.batch_items_meta || {};
+        const active_blob_urls = [];
+
         // 1. Normalize attachment objects from all callers & eliminate "nil"
         attachments = attachments.map((att, idx) => {
             const raw_url = (att.file_url || att.receipt_attachment || att.attach_receipt || '').trim();
             const file_name = att.file_name || (raw_url ? raw_url.split('/').pop().split('?')[0] : `receipt_${idx + 1}`);
-            const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : (att.extension || ''));
+            const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : (att.extension || '')).toLowerCase();
             const is_img = att.is_image !== undefined ? att.is_image : ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext);
-            const is_pdf = att.is_pdf !== undefined ? att.is_pdf : ext === '.pdf';
+            const is_pdf = att.is_pdf !== undefined ? att.is_pdf : (ext === '.pdf' || raw_url.toLowerCase().includes('.pdf'));
 
-            const head = att.expense_head || att.head_of_expense || att.vendor_category || '';
+            const claim_no = att.claim_name || (frm && frm.doc && frm.doc.doctype !== 'Weekly Accounts Audit Batch' ? frm.doc.name : '') || '';
+            const b_meta = batch_items_meta[claim_no] || {};
+
+            const head = is_batch_audit
+                ? (att.expense_head !== undefined && att.expense_head !== null && att.expense_head !== '' ? att.expense_head : (b_meta.expense_head || ''))
+                : (att.expense_head || att.head_of_expense || att.vendor_category || '');
             const cat = att.category || att.vendor_category || att.expense_category || '';
             const raw_v = att.vendor_name || att.vendor || att.beneficiary_name || (frm && frm.doc && (frm.doc.vendor_name || frm.doc.supplier_name || frm.doc.vendor || frm.doc.supplier)) || '';
-            const raw_m = raw_v || att.merchant || att.particulars;
+            const raw_m = att.merchant || raw_v || att.particulars;
             const smart_title = self.sanitizeMerchantTitle(raw_m, head, cat);
+
+            const resolved_doctype = att.claim_doctype || (is_batch_audit ? 'Employee Reimbursement Claim' : (frm && frm.doc ? frm.doc.doctype : ''));
+            const resolved_docname = claim_no || (frm && frm.doc ? frm.doc.name : '');
+            const safe_view_url = att.view_url || (raw_url ? `/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url=${encodeURIComponent(raw_url)}&doctype=${encodeURIComponent(resolved_doctype)}&docname=${encodeURIComponent(resolved_docname)}` : '');
+
+            const lower_m = (att.merchant || '').toLowerCase();
+            const lower_cat = (cat || '').toLowerCase();
+            let inferred_type = att.proof_type;
+            if (!inferred_type) {
+                if (lower_m.includes('payment proof') || lower_cat.includes('gpay/upi') || lower_cat.includes('payment confirmation')) {
+                    inferred_type = 'payment';
+                } else if (lower_m.includes('supporting proof') || lower_m.includes('additional') || lower_m.includes('cheque')) {
+                    inferred_type = 'extra';
+                } else {
+                    inferred_type = 'bill';
+                }
+            }
 
             return {
                 source: att.source || 'row',
+                claim_name: claim_no,
+                batch_name: att.batch_name || batch_name,
+                jv_number: att.jv_number || b_meta.jv_number || '',
+                jv_date: att.jv_date || b_meta.jv_date || '',
                 field_source: att.field_source || 'receipt_attachment',
-                proof_type: att.proof_type || 'bill',
-                proof_label: att.proof_label || (att.proof_type === 'payment' ? '💳 2. Payment Proof (GPay/UPI)' : (att.proof_type === 'extra' ? '📎 3. Additional Proof' : '🧾 1. Tax Invoice / Bill')),
+                proof_type: inferred_type,
+                proof_label: att.proof_label || (inferred_type === 'payment' ? '💳 2. Payment Proof (GPay/UPI)' : (inferred_type === 'extra' ? '📎 3. Additional Proof' : '🧾 1. Tax Invoice / Bill')),
                 row_idx: att.row_idx !== undefined ? att.row_idx : (idx + 1),
                 merchant: smart_title,
                 subtitle: att.subtitle || (raw_v || ''),
@@ -492,7 +526,7 @@ window.APReceiptGallery = {
                 date: att.date || att.invoice_date || att.bill_date || att.expense_date || '',
                 bill_no: att.bill_no || att.invoice_number || att.bill_number || '',
                 file_url: raw_url,
-                view_url: att.view_url || (raw_url ? self.buildViewUrl(frm, raw_url) : ''),
+                view_url: safe_view_url,
                 file_name: file_name,
                 is_image: is_img,
                 is_pdf: is_pdf,
@@ -500,27 +534,37 @@ window.APReceiptGallery = {
             };
         });
 
-        // 2. Group attachments by line item to DE-DUPLICATE sidebar (Strictly 1 card per row)
+        // 2. Group attachments by line item + claim_name to DE-DUPLICATE sidebar (Strictly 1 card per row)
         const groups = [];
         const group_map = new Map();
 
         attachments.forEach((att) => {
+            const claim_prefix = att.claim_name ? `${att.claim_name}_` : '';
             let key;
             if (att.source === 'row' && att.row_idx !== null && att.row_idx !== undefined) {
-                key = `row_${att.row_idx}`;
+                key = `${claim_prefix}row_${att.row_idx}`;
             } else {
-                key = `parent_${att.file_url || att.merchant}`;
+                key = `${claim_prefix}parent_${att.file_url || att.merchant}`;
             }
 
             if (!group_map.has(key)) {
                 let clean_title = att.merchant;
                 if (clean_title) {
-                    clean_title = clean_title.replace(/^Payment Proof \(GPay\/UPI\) — /i, '').replace(/^Supporting Proof — /i, '');
+                    clean_title = clean_title
+                        .replace(/^Payment Proof \(GPay\/UPI\) — /i, '')
+                        .replace(/^Payment Proof — /i, '')
+                        .replace(/^Supporting Proof — /i, '')
+                        .replace(/^Additional Travel Proof — /i, '')
+                        .replace(/^Bank Cheque Proof — /i, '');
                 }
 
                 const g = {
                     key: key,
                     source: att.source,
+                    claim_name: att.claim_name || '',
+                    batch_name: att.batch_name || '',
+                    jv_number: att.jv_number || '',
+                    jv_date: att.jv_date || '',
                     row_idx: att.row_idx,
                     merchant: clean_title || att.merchant,
                     subtitle: att.subtitle,
@@ -546,6 +590,9 @@ window.APReceiptGallery = {
             }
             if (!g.category && att.category) g.category = att.category;
             if (!g.expense_head && att.expense_head) g.expense_head = att.expense_head;
+            if (!g.description && att.description) g.description = att.description;
+            if (!g.jv_number && att.jv_number) g.jv_number = att.jv_number;
+            if (!g.jv_date && att.jv_date) g.jv_date = att.jv_date;
 
             let label = att.proof_label;
             if (!label) {
@@ -598,16 +645,21 @@ window.APReceiptGallery = {
         let start_drag_y = 0;
 
         // Build Left Thumbnail List HTML ONCE (Permanent DOM - never duplicate rows)
+        const distinct_claims = new Set(groups.map(g => g.claim_name).filter(Boolean));
+        const multi_claim_mode = is_batch_audit && distinct_claims.size > 1;
         let thumb_items_html = '';
         groups.forEach((group, g_idx) => {
             const is_selected = g_idx === current_group_idx;
             const item_date_formatted = self.formatDate(group.date);
             const v_name = group.vendor_name || group.vendor || '';
-            const row_title = (group.row_idx ? `Row #${group.row_idx}: ` : '') + (v_name ? v_name : (group.merchant || 'Expense'));
+            const row_title = (group.row_idx ? `Row #${group.row_idx}: ` : '') + (is_batch_audit ? (group.merchant || v_name || 'Expense') : (v_name ? v_name : (group.merchant || 'Expense')));
             const proof_count = group.proofs.length;
+            const thumb_subtext = is_batch_audit
+                ? (group.expense_head || 'Unclassified')
+                : (v_name ? '🏢 ' + v_name : (group.expense_head || group.category || ''));
 
             thumb_items_html += `
-                <div class="ap-receipt-thumb-item ${is_selected ? 'ap-selected-row' : ''}" data-gidx="${g_idx}" style="
+                <div class="ap-receipt-thumb-item ${is_selected ? 'ap-selected-row' : ''}" data-gidx="${g_idx}" data-claim="${group.claim_name || ''}" style="
                     display: flex;
                     align-items: center;
                     gap: 12px;
@@ -632,6 +684,9 @@ window.APReceiptGallery = {
                                 </span>
                             ` : ''}
                         </div>
+                        ${multi_claim_mode ? `
+                            <div style="font-size: 10.5px; font-weight: 700; color: #0369a1; margin-top: 2px;">${group.claim_name}</div>
+                        ` : ''}
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; gap: 8px;">
                             <span style="font-size: 12px; font-weight: 700; color: #059669; flex-shrink: 0;">${self.formatINR(group.amount)}</span>
                             <div style="display: flex; align-items: center; gap: 4px; overflow: hidden;">
@@ -640,8 +695,8 @@ window.APReceiptGallery = {
                                         ${proof_count} Proofs
                                     </span>
                                 ` : ''}
-                                <span class="ap-thumb-category-text" style="font-size: 11px; color: #64748b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;" title="${v_name ? 'Vendor: ' + v_name + ' • ' : ''}${group.category || group.expense_head || ''}">
-                                    ${v_name ? '🏢 ' + v_name : (group.expense_head || group.category || '')}
+                                <span class="ap-thumb-category-text" style="font-size: 11px; color: #64748b; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;" title="${thumb_subtext}">
+                                    ${thumb_subtext}
                                 </span>
                             </div>
                         </div>
@@ -754,7 +809,9 @@ window.APReceiptGallery = {
                                 ${proof_left.is_image ? `
                                     <img src="${proof_left.view_url || proof_left.file_url}" alt="${proof_left.file_name}" style="max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.5);" />
                                 ` : (proof_left.is_pdf ? `
-                                    <iframe src="${proof_left.view_url || proof_left.file_url}#view=FitH&toolbar=0" style="width: 100%; height: 100%; border: none; border-radius: 4px; background: #ffffff;"></iframe>
+                                    <div class="ap-sbs-pdf-left ap-pdf-pages-mount" style="width: 100%; height: 100%; overflow: auto; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+                                        <div style="color: #94a3b8; font-size: 12px; padding: 30px;">⏳ Loading PDF...</div>
+                                    </div>
                                 ` : `
                                     <div style="color: #94a3b8; text-align: center;">${proof_left.file_name}</div>
                                 `)}
@@ -777,7 +834,9 @@ window.APReceiptGallery = {
                                 ${proof_right.is_image ? `
                                     <img src="${proof_right.view_url || proof_right.file_url}" alt="${proof_right.file_name}" style="max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.5);" />
                                 ` : (proof_right.is_pdf ? `
-                                    <iframe src="${proof_right.view_url || proof_right.file_url}#view=FitH&toolbar=0" style="width: 100%; height: 100%; border: none; border-radius: 4px; background: #ffffff;"></iframe>
+                                    <div class="ap-sbs-pdf-right ap-pdf-pages-mount" style="width: 100%; height: 100%; overflow: auto; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+                                        <div style="color: #94a3b8; font-size: 12px; padding: 30px;">⏳ Loading PDF...</div>
+                                    </div>
                                 ` : `
                                     <div style="color: #94a3b8; text-align: center;">${proof_right.file_name}</div>
                                 `)}
@@ -900,8 +959,14 @@ window.APReceiptGallery = {
                             Amount: <b style="color: #059669; font-size: 13px;">${self.formatINR(active_group.amount)}</b>
                         </span>
 
-                        <!-- Prominent Vendor Legal Name Pill -->
-                        ${active_vendor ? `
+                        ${(is_batch_audit && active_group.claim_name) ? `
+                            <span style="font-size: 11px; font-weight: 700; color: #0369a1; background: #e0f2fe; border: 1px solid #bae6fd; padding: 2px 7px; border-radius: 4px;">
+                                🧾 ${active_group.claim_name}
+                            </span>
+                        ` : ''}
+
+                        <!-- Prominent Vendor Legal Name Pill (Standard Claim Forms Only) -->
+                        ${(!is_batch_audit && active_vendor) ? `
                             <div class="ap-vendor-badge-pill" style="display: inline-flex; align-items: center; background: #fffbeb; border: 1.5px solid #fcd34d; border-radius: 6px; padding: 2px 8px; gap: 4px;" title="Vendor Legal Name">
                                 <span style="font-size: 11px; font-weight: 700; color: #92400e;">
                                     🏢 <b class="ap-active-vendor-text" style="color: #78350f; font-weight: 800;">${active_vendor}</b>
@@ -909,36 +974,49 @@ window.APReceiptGallery = {
                             </div>
                         ` : ''}
 
-                        <!-- In-Modal Head Pill -->
+                        <!-- In-Modal Head Pill (Present on Both, Syncs Batch Table in Batch Mode) -->
                         <div class="ap-head-badge-pill" style="display: inline-flex; align-items: center; background: #eff6ff; border: 1.5px solid #93c5fd; border-radius: 6px; padding: 2px 8px; gap: 6px;">
                             <span style="font-size: 11px; font-weight: 700; color: #1e40af;">
-                                💼 Head: <span class="ap-active-head-text">${active_group.expense_head || 'Unassigned'}</span>
+                                💼 Expense Head: <span class="ap-active-head-text">${active_group.expense_head || 'Unassigned'}</span>
                             </span>
-                            <button type="button" class="btn btn-xs btn-default ap-btn-edit-head" title="Edit Expenses of Head for this row" style="font-size: 10px; font-weight: 700; color: #1d4ed8; padding: 1px 6px; border: 1px solid #bfdbfe; background: #ffffff; border-radius: 4px; cursor: pointer;">
+                            <button type="button" class="btn btn-xs btn-default ap-btn-edit-head" title="Edit Expenses of Head" style="font-size: 10px; font-weight: 700; color: #1d4ed8; padding: 1px 6px; border: 1px solid #bfdbfe; background: #ffffff; border-radius: 4px; cursor: pointer;">
                                 ✏️ Edit
                             </button>
                         </div>
 
-                        <!-- In-Modal Type Pill -->
-                        <div class="ap-type-badge-pill" style="display: inline-flex; align-items: center; background: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 6px; padding: 2px 8px; gap: 6px;">
-                            <span style="font-size: 11px; font-weight: 700; color: #047857;">
-                                🏷️ ${dynamic_category_label}: <span class="ap-active-type-text">${active_group.category || (is_vendor_claim ? 'General Vendor Claim' : 'General Expense')}</span>
-                            </span>
-                            <button type="button" class="btn btn-xs btn-default ap-btn-edit-type" title="Edit ${dynamic_category_label} for this row" style="font-size: 10px; font-weight: 700; color: #047857; padding: 1px 6px; border: 1px solid #a7f3d0; background: #ffffff; border-radius: 4px; cursor: pointer;">
-                                ✏️ Edit
-                            </button>
-                        </div>
+                        <!-- In-Modal JV # Pill (Batch Audit Mode Only) -->
+                        ${is_batch_audit ? `
+                            <div class="ap-jv-badge-pill" style="display: inline-flex; align-items: center; background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 6px; padding: 2px 8px; gap: 6px;">
+                                <span style="font-size: 11px; font-weight: 700; color: #166534;">
+                                    📝 JV #: <span class="ap-active-jv-text">${active_group.jv_number ? active_group.jv_number + (active_group.jv_date ? ' (' + self.formatDate(active_group.jv_date) + ')' : '') : 'Unassigned'}</span>
+                                </span>
+                                <button type="button" class="btn btn-xs btn-default ap-btn-edit-jv" title="Set / Edit JV Number & Date" style="font-size: 10px; font-weight: 700; color: #15803d; padding: 1px 6px; border: 1px solid #bbf7d0; background: #ffffff; border-radius: 4px; cursor: pointer;">
+                                    ✏️ Edit
+                                </button>
+                            </div>
+                        ` : `
+                            <!-- In-Modal Type Pill (Standard Forms Only) -->
+                            <div class="ap-type-badge-pill" style="display: inline-flex; align-items: center; background: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 6px; padding: 2px 8px; gap: 6px;">
+                                <span style="font-size: 11px; font-weight: 700; color: #047857;">
+                                    🏷️ ${dynamic_category_label}: <span class="ap-active-type-text">${active_group.category || (is_vendor_claim ? 'General Vendor Claim' : 'General Expense')}</span>
+                                </span>
+                                <button type="button" class="btn btn-xs btn-default ap-btn-edit-type" title="Edit ${dynamic_category_label} for this row" style="font-size: 10px; font-weight: 700; color: #047857; padding: 1px 6px; border: 1px solid #a7f3d0; background: #ffffff; border-radius: 4px; cursor: pointer;">
+                                    ✏️ Edit
+                                </button>
+                            </div>
 
-                        <!-- In-Modal Upload / Replace Receipt Button -->
-                        <button type="button" class="btn btn-xs btn-default ap-btn-replace-receipt" title="Upload new / replace receipt proof" style="font-size: 10.5px; font-weight: 700; color: #b45309; padding: 2px 8px; border: 1.5px solid #fde68a; background: #fffbeb; border-radius: 6px; cursor: pointer;">
-                            📷 Upload / Replace
-                        </button>
+                            <!-- In-Modal Upload / Replace Receipt Button (Standard Forms Only) -->
+                            <button type="button" class="btn btn-xs btn-default ap-btn-replace-receipt" title="Upload new / replace receipt proof" style="font-size: 10.5px; font-weight: 700; color: #b45309; padding: 2px 8px; border: 1.5px solid #fde68a; background: #fffbeb; border-radius: 6px; cursor: pointer;">
+                                📷 Upload / Replace
+                            </button>
+                        `}
+
                         ${active_group.description ? `
                             <span style="font-size: 11px; color: #334155; background: #f8fafc; border: 1px solid #cbd5e1; padding: 2px 8px; border-radius: 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${active_group.description}">
                                 📝 ${active_group.description}
                             </span>
                         ` : ''}
-                        ${payment_status ? `
+                        ${(!is_batch_audit && payment_status) ? `
                             <span style="font-size: 11px; font-weight: 700; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 2px 7px; border-radius: 4px;">
                                 ● ${payment_status}
                             </span>
@@ -987,19 +1065,38 @@ window.APReceiptGallery = {
 
             $main_content.html(active_html);
 
-            // If in single view and PDF, render pages via local PDF.js
-            if (!is_side_by_side && active_att.is_pdf) {
+            // Render PDF via fetch + PDF.js / Blob in Single View OR Side-by-Side View
+            if (is_side_by_side && proof_count >= 2) {
+                const p_left = active_group.proofs[0];
+                const p_right = active_group.proofs[active_proof_idx > 0 ? active_proof_idx : 1];
+                if (p_left && p_left.is_pdf) {
+                    render_pdf_with_pdfjs(p_left.view_url || p_left.file_url, $main_content.find('.ap-sbs-pdf-left'), { compact: true });
+                }
+                if (p_right && p_right.is_pdf) {
+                    render_pdf_with_pdfjs(p_right.view_url || p_right.file_url, $main_content.find('.ap-sbs-pdf-right'), { compact: true });
+                }
+            } else if (!is_side_by_side && active_att.is_pdf) {
                 render_pdf_with_pdfjs(target_url, $main_content.find('.ap-pdf-pages-mount'));
             }
         };
 
-        // Render PDF pages onto HTML5 canvas using local PDF.js
-        const render_pdf_with_pdfjs = (url, $mount) => {
-            const do_render = () => {
+        // Bulletproof PDF Renderer: works for ALL private & public PDFs via fetch(Uint8Array) + PDF.js + local Blob fallback
+        const render_pdf_with_pdfjs = (url, $mount, pdf_opts) => {
+            pdf_opts = pdf_opts || {};
+            if (!$mount || !$mount.length) return;
+
+            const show_blob_iframe = (array_buf) => {
+                const pdfBlob = new Blob([array_buf], { type: 'application/pdf' });
+                const blobUrl = URL.createObjectURL(pdfBlob);
+                active_blob_urls.push(blobUrl);
+                $mount.html(`
+                    <iframe src="${blobUrl}#view=FitH&toolbar=1" style="width: 100%; height: 530px; border: none; border-radius: 6px; background: #ffffff;" title="PDF Preview"></iframe>
+                `);
+            };
+
+            const render_buffer_with_pdfjs = (array_buf) => {
                 if (!window.pdfjsLib) {
-                    $mount.html(`
-                        <iframe src="${url}#view=FitH&toolbar=1" style="width: 100%; height: 530px; border: none; border-radius: 6px; background: #ffffff;" title="PDF Preview"></iframe>
-                    `);
+                    show_blob_iframe(array_buf);
                     return;
                 }
 
@@ -1007,15 +1104,16 @@ window.APReceiptGallery = {
                     window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/assets/ap_automation/js/libs/pdf.worker.min.js';
                 } catch (e) {}
 
-                window.pdfjsLib.getDocument({ url: url }).promise.then(pdf => {
+                window.pdfjsLib.getDocument({ data: new Uint8Array(array_buf) }).promise.then(pdf => {
                     $mount.empty();
                     const num_pages = pdf.numPages;
+                    const target_width = pdf_opts.compact ? 420 : 780;
 
                     const renderPage = (pageNum) => {
                         if (pageNum > num_pages) return;
                         pdf.getPage(pageNum).then(page => {
                             const unscaledViewport = page.getViewport({ scale: 1.0 });
-                            const scale = Math.min(2.0, Math.max(1.2, 780 / unscaledViewport.width));
+                            const scale = Math.min(2.2, Math.max(1.1, target_width / unscaledViewport.width));
                             const viewport = page.getViewport({ scale: scale });
 
                             const canvas = document.createElement('canvas');
@@ -1044,12 +1142,10 @@ window.APReceiptGallery = {
 
                             $mount.append(pageWrapper);
 
-                            const render_ctx = {
+                            page.render({
                                 canvasContext: canvas.getContext('2d'),
                                 viewport: viewport
-                            };
-
-                            page.render(render_ctx).promise.then(() => {
+                            }).promise.then(() => {
                                 renderPage(pageNum + 1);
                             });
                         });
@@ -1057,18 +1153,45 @@ window.APReceiptGallery = {
 
                     renderPage(1);
                 }).catch(err => {
-                    console.warn('[AP Gallery] PDF.js rendering error, using responsive iframe:', err);
-                    $mount.html(`
-                        <iframe src="${url}#view=FitH&toolbar=1" style="width: 100%; height: 530px; border: none; border-radius: 6px; background: #ffffff;" title="PDF Preview"></iframe>
-                    `);
+                    console.warn('[AP Gallery] PDF.js error, using local Blob iframe:', err);
+                    show_blob_iframe(array_buf);
                 });
             };
 
-            if (!window.pdfjsLib) {
-                frappe.require('/assets/ap_automation/js/libs/pdf.min.js', do_render);
-            } else {
-                do_render();
-            }
+            fetch(url, { credentials: 'include' }).then(async (resp) => {
+                if (!resp.ok) {
+                    throw new Error(`HTTP ${resp.status}`);
+                }
+                const ct = (resp.headers.get('content-type') || '').toLowerCase();
+                const buf = await resp.arrayBuffer();
+
+                // Handle missing-file SVG or image cleanly instead of failing PDF.js
+                if (ct.includes('image/svg') || ct.startsWith('image/')) {
+                    const imgBlob = new Blob([buf], { type: ct });
+                    const imgBlobUrl = URL.createObjectURL(imgBlob);
+                    active_blob_urls.push(imgBlobUrl);
+                    $mount.html(`<img src="${imgBlobUrl}" style="max-width: 100%; max-height: 520px; border-radius: 6px; object-fit: contain;" />`);
+                    return;
+                }
+
+                if (!window.pdfjsLib) {
+                    frappe.require('/assets/ap_automation/js/libs/pdf.min.js', () => {
+                        render_buffer_with_pdfjs(buf);
+                    });
+                } else {
+                    render_buffer_with_pdfjs(buf);
+                }
+            }).catch(err => {
+                console.warn('[AP Gallery] PDF fetch failed, falling back to direct iframe:', err);
+                $mount.html(`
+                    <div style="text-align: center; padding: 40px 20px; color: #f8fafc;">
+                        <div style="font-size: 36px; margin-bottom: 10px;">📄</div>
+                        <div style="font-size: 14px; font-weight: 600; margin-bottom: 12px;">Preview Unavailable in Embedded Mode</div>
+                        <a href="${url}" target="_blank" class="btn btn-sm btn-primary" style="margin-right: 8px;">↗️ Open PDF in New Tab</a>
+                        <a href="${url}" download class="btn btn-sm btn-default">⬇️ Download PDF</a>
+                    </div>
+                `);
+            });
         };
 
         // Zoom & Pan helper
@@ -1209,12 +1332,13 @@ window.APReceiptGallery = {
             render_active_preview();
         });
 
-        // In-Modal Expense Head Editor (1-Click Update)
+        // In-Modal Expense Head Editor (Syncs Weekly Audit Batch or Standard Claim Row)
         $main_content.off('click', '.ap-btn-edit-head').on('click', '.ap-btn-edit-head', function (e) {
             e.stopPropagation();
             const active_group = groups[current_group_idx];
             const current_head = active_group.expense_head || '';
             const row_num = active_group.row_idx || (current_group_idx + 1);
+            const target_voucher = active_group.claim_name || (frm && frm.doc ? frm.doc.name : '');
 
             frappe.call({
                 method: 'ap_automation.services.attachment_service.get_active_expense_heads',
@@ -1227,18 +1351,18 @@ window.APReceiptGallery = {
                     ];
 
                     const edit_head_dialog = new frappe.ui.Dialog({
-                        title: __(`Edit Expenses of Head — Row #${row_num}`),
+                        title: is_batch_audit ? __(`Modify Expense Head — ${target_voucher}`) : __(`Edit Expenses of Head — Row #${row_num}`),
                         fields: [
                             {
                                 fieldname: 'expense_head',
                                 fieldtype: 'Select',
                                 label: __('Expenses of Head'),
                                 options: heads,
-                                default: current_head || heads[0],
+                                default: heads.includes(current_head) ? current_head : heads[0],
                                 reqd: 1,
                                 change: function () {
                                     const val = edit_head_dialog.get_value('expense_head');
-                                    edit_head_dialog.set_df_property('custom_head', 'hidden', val !== 'OTHER / VENDOR LEDGER');
+                                    edit_head_dialog.set_df_property('custom_head', 'hidden', is_batch_audit || val !== 'OTHER / VENDOR LEDGER');
                                 }
                             },
                             {
@@ -1246,62 +1370,146 @@ window.APReceiptGallery = {
                                 fieldtype: 'Data',
                                 label: __('Custom Head / Ledger Name (Manual Typing)'),
                                 default: active_group.custom_ledger_name || '',
-                                hidden: current_head !== 'OTHER / VENDOR LEDGER',
+                                hidden: is_batch_audit || current_head !== 'OTHER / VENDOR LEDGER',
                                 description: __('Enter custom head or vendor ledger name')
                             }
                         ],
                         primary_action_label: __('Save Head'),
                         primary_action: function (vals) {
                             const selected_head = vals.expense_head;
-                            const custom_val = (selected_head === 'OTHER / VENDOR LEDGER') ? (vals.custom_head || '') : '';
-                            const final_head_to_save = (selected_head === 'OTHER / VENDOR LEDGER' && custom_val) ? custom_val : selected_head;
+                            const custom_val = (!is_batch_audit && selected_head === 'OTHER / VENDOR LEDGER') ? (vals.custom_head || '') : '';
+                            const final_head_to_save = (!is_batch_audit && selected_head === 'OTHER / VENDOR LEDGER' && custom_val) ? custom_val : selected_head;
 
                             edit_head_dialog.hide();
 
-                            frappe.call({
-                                method: 'ap_automation.services.attachment_service.update_claim_row_expense_head',
-                                args: {
-                                    doctype: (frm && frm.doc) ? frm.doc.doctype : 'Petty Cash Entry',
-                                    docname: (frm && frm.doc) ? frm.doc.name : '',
-                                    row_idx: row_num,
-                                    expense_head: final_head_to_save,
-                                    custom_ledger_name: custom_val
-                                },
-                                freeze: true,
-                                freeze_message: __('Updating Expenses of Head...'),
-                                callback: function (res) {
-                                    if (res.message && res.message.status === 'success') {
-                                        active_group.expense_head = final_head_to_save;
-                                        active_group.custom_ledger_name = custom_val;
-                                        $main_content.find('.ap-active-head-text').text(final_head_to_save);
-
-                                        const $thumb = $sidebar.find(`.ap-receipt-thumb-item[data-gidx="${current_group_idx}"]`);
-                                        $thumb.find('.ap-thumb-category-text').text(final_head_to_save);
-
-                                        if (frm && frm.doc) {
-                                            const lines = frm.doc.expense_lines || frm.doc.vendor_lines || frm.doc.expense_items || [];
-                                            const r = lines.find(x => x.idx === row_num);
-                                            if (r) {
-                                                r.expense_head = final_head_to_save;
-                                                if (custom_val) r.custom_ledger_name = custom_val;
-                                                if (frm.fields_dict['expense_lines']) frm.refresh_field('expense_lines');
-                                                if (frm.fields_dict['vendor_lines']) frm.refresh_field('vendor_lines');
+                            if (is_batch_audit) {
+                                frappe.call({
+                                    method: 'ap_automation.services.weekly_accounts_batch_service.update_voucher_expense_head',
+                                    args: {
+                                        batch_name: active_group.batch_name || batch_name,
+                                        voucher_no: target_voucher,
+                                        new_expense_head: final_head_to_save,
+                                        reason: 'Updated via Proof Gallery modal'
+                                    },
+                                    freeze: true,
+                                    freeze_message: __('Updating Expense Head in Batch...'),
+                                    callback: function (res) {
+                                        if (res.message && res.message.status === 'SUCCESS') {
+                                            groups.forEach((g, idx) => {
+                                                if (g.claim_name === target_voucher || idx === current_group_idx) {
+                                                    g.expense_head = final_head_to_save;
+                                                    $sidebar.find(`.ap-receipt-thumb-item[data-gidx="${idx}"] .ap-thumb-category-text`).text(final_head_to_save);
+                                                }
+                                            });
+                                            $main_content.find('.ap-active-head-text').text(final_head_to_save);
+                                            if (typeof opts.on_batch_updated === 'function') {
+                                                opts.on_batch_updated({ type: 'head', voucher_no: target_voucher, new_expense_head: final_head_to_save });
                                             }
+                                            frappe.show_alert({ message: res.message.message, indicator: 'green' });
                                         }
-
-                                        frappe.show_alert({
-                                            message: __(`✅ Row #${row_num} Expenses of Head updated to <b>${final_head_to_save}</b>`),
-                                            indicator: 'green'
-                                        }, 4);
                                     }
-                                }
-                            });
+                                });
+                            } else {
+                                frappe.call({
+                                    method: 'ap_automation.services.attachment_service.update_claim_row_expense_head',
+                                    args: {
+                                        doctype: (frm && frm.doc) ? frm.doc.doctype : 'Petty Cash Entry',
+                                        docname: (frm && frm.doc) ? frm.doc.name : '',
+                                        row_idx: row_num,
+                                        expense_head: final_head_to_save,
+                                        custom_ledger_name: custom_val
+                                    },
+                                    freeze: true,
+                                    freeze_message: __('Updating Expenses of Head...'),
+                                    callback: function (res) {
+                                        if (res.message && res.message.status === 'success') {
+                                            active_group.expense_head = final_head_to_save;
+                                            active_group.custom_ledger_name = custom_val;
+                                            $main_content.find('.ap-active-head-text').text(final_head_to_save);
+
+                                            const $thumb = $sidebar.find(`.ap-receipt-thumb-item[data-gidx="${current_group_idx}"]`);
+                                            $thumb.find('.ap-thumb-category-text').text(final_head_to_save);
+
+                                            if (frm && frm.doc) {
+                                                const lines = frm.doc.expense_lines || frm.doc.vendor_lines || frm.doc.expense_items || [];
+                                                const target = lines.find(x => x.idx === row_num);
+                                                if (target) {
+                                                    target.expense_head = final_head_to_save;
+                                                    if (custom_val) target.custom_ledger_name = custom_val;
+                                                    if (frm.fields_dict['expense_lines']) frm.refresh_field('expense_lines');
+                                                    if (frm.fields_dict['vendor_lines']) frm.refresh_field('vendor_lines');
+                                                }
+                                            }
+
+                                            frappe.show_alert({
+                                                message: __(`✅ Row #${row_num} Expenses of Head updated to <b>${final_head_to_save}</b>`),
+                                                indicator: 'green'
+                                            }, 4);
+                                        }
+                                    }
+                                });
+                            }
                         }
                     });
 
                     edit_head_dialog.show();
                 }
             });
+        });
+
+        // In-Modal JV Number & Date Editor (Weekly Accounts Audit Batch Mode)
+        $main_content.off('click', '.ap-btn-edit-jv').on('click', '.ap-btn-edit-jv', function (e) {
+            e.stopPropagation();
+            const active_group = groups[current_group_idx];
+            const target_voucher = active_group.claim_name || '';
+            const cur_jv = active_group.jv_number || '';
+            const cur_date = active_group.jv_date || (frm && frm.doc ? frm.doc.batch_date : '') || frappe.datetime.nowdate();
+
+            frappe.prompt([
+                {
+                    fieldname: 'jv_number',
+                    fieldtype: 'Data',
+                    label: __('Journal Voucher (JV) Number'),
+                    default: cur_jv,
+                    reqd: 1,
+                    placeholder: __('e.g. 744 or JV-2026-0012')
+                },
+                {
+                    fieldname: 'jv_date',
+                    fieldtype: 'Date',
+                    label: __('JV Date'),
+                    default: cur_date,
+                    reqd: 1
+                }
+            ], function (values) {
+                frappe.call({
+                    method: 'ap_automation.services.weekly_accounts_batch_service.set_voucher_jv',
+                    args: {
+                        batch_name: active_group.batch_name || batch_name,
+                        voucher_no: target_voucher,
+                        jv_number: values.jv_number,
+                        jv_date: values.jv_date
+                    },
+                    freeze: true,
+                    freeze_message: __('Saving JV Number...'),
+                    callback: function (res) {
+                        if (res.message && res.message.status === 'SUCCESS') {
+                            groups.forEach((g, idx) => {
+                                if (g.claim_name === target_voucher || idx === current_group_idx) {
+                                    g.jv_number = values.jv_number;
+                                    g.jv_date = values.jv_date;
+                                }
+                            });
+                            const jv_disp = values.jv_number + (values.jv_date ? ` (${self.formatDate(values.jv_date)})` : '');
+                            $main_content.find('.ap-active-jv-text').text(jv_disp);
+                            if (typeof opts.on_batch_updated === 'function') {
+                                opts.on_batch_updated({ type: 'jv', voucher_no: target_voucher, jv_number: values.jv_number, jv_date: values.jv_date });
+                            }
+                            frappe.show_alert({ message: res.message.message, indicator: 'green' });
+                        }
+                    }
+                });
+            }, __('Set JV Number for ' + target_voucher), __('Save JV'));
         });
 
         // In-Modal Expense Type Editor (1-Click Dynamic Master Update)
@@ -1457,13 +1665,28 @@ window.APReceiptGallery = {
             }
         });
 
-        // Clean up global listeners when dialog closes
+        // Clean up global listeners and Blob URLs when dialog closes
         d.on_hide = function () {
             $(document).off('.ap_gallery');
+            active_blob_urls.forEach((bUrl) => {
+                try { URL.revokeObjectURL(bUrl); } catch (e) {}
+            });
         };
 
-        // ZIP All Download
+        // ZIP All Download (Handles both Single Doc & Weekly Accounts Audit Batch multi-vouchers)
         $wrapper.on('click', '.ap-btn-download-all', function () {
+            if (is_batch_audit) {
+                const claim_list = Array.from(new Set(groups.map(g => g.claim_name).filter(Boolean)));
+                if (claim_list.length === 1) {
+                    const url = `/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent('Employee Reimbursement Claim')}&docname=${encodeURIComponent(claim_list[0])}`;
+                    window.location.href = url;
+                } else if (claim_list.length > 1) {
+                    const lbl = opts.emp_name || batch_name || 'Batch_Receipts';
+                    const url = `/api/method/ap_automation.services.attachment_service.download_multiple_claims_receipts_zip?claim_names=${encodeURIComponent(JSON.stringify(claim_list))}&label=${encodeURIComponent(lbl)}`;
+                    window.location.href = url;
+                }
+                return;
+            }
             const dt = (frm && frm.doc && frm.doc.doctype) ? frm.doc.doctype : '';
             const dn = (frm && frm.doc && frm.doc.name) ? frm.doc.name : '';
             const url = `/api/method/ap_automation.services.attachment_service.download_all_claim_attachments_zip?doctype=${encodeURIComponent(dt)}&docname=${encodeURIComponent(dn)}`;
