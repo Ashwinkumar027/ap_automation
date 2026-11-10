@@ -10,12 +10,14 @@ frappe.ui.form.on("Event Expense Claim", {
     },
 
     refresh: function(frm) {
+        frm.set_df_property('status', 'read_only', 1);
+        set_expense_claim_indicator(frm);
         render_stream_demarcation_banner(frm);
 
         if (frm.doc.docstatus === 0 && frm.doc.event) {
             frm.add_custom_button(__('📋 Populate from Imprest Proposal'), function() {
                 frappe.call({
-                    method: 'ap_automation.controllers.event_expense_claim.populate_from_imprest_proposal',
+                    method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.populate_from_imprest_proposal',
                     args: { event_name: frm.doc.event },
                     freeze: true,
                     freeze_message: __('Loading Imprest Items...'),
@@ -35,14 +37,14 @@ frappe.ui.form.on("Event Expense Claim", {
                             });
                             frm.refresh_field('expense_items');
                             frappe.show_alert({
-                                message: __(`✅ Loaded ${r.message.items_count} items from Imprest #${r.message.advance_name}! Please attach receipt proofs.`),
+                                message: __(`✅ Loaded ${r.message.items_count} items from Advance #${r.message.advance_name}! Please attach receipt proofs.`),
                                 indicator: 'green'
                             }, 5);
                             render_stream_demarcation_banner(frm);
                         }
                     }
                 });
-            }).addClass('btn-primary');
+            }).addClass('btn-default');
         }
 
         // Print & View Actions
@@ -60,20 +62,114 @@ frappe.ui.form.on("Event Expense Claim", {
             }, __('Print / Download'));
         }
 
-        // Tweak 1: 1-Click Settlement Bridge
-        if (frm.doc.docstatus === 1 && frm.doc.event) {
-            frm.add_custom_button(__('⚖️ Settle Event Now'), function() {
-                frappe.route_options = {
-                    event: frm.doc.event
-                };
-                frappe.new_doc('Event Settlement');
-            }).addClass('btn-primary');
+        // 1-Click Draft Submission (replaces ambiguous native Frappe Submit in Draft)
+        if (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft') {
+            if (frm.page.btn_primary && frm.page.btn_primary.text().trim() === __('Submit')) {
+                frm.page.set_primary_action(__('Save'), () => frm.save());
+            }
+
+            frm.add_custom_button(__('🚀 Submit Expense Claim'), function() {
+                if (!frm.doc.event) {
+                    frappe.msgprint({
+                        title: __('Missing Event'),
+                        indicator: 'red',
+                        message: __('Please select a <b>Linked Event Master</b> before submitting.')
+                    });
+                    frm.scroll_to_field('event');
+                    return;
+                }
+                const items = frm.doc.expense_items || [];
+                if (items.length === 0) {
+                    frappe.msgprint({
+                        title: __('Missing Expense Items'),
+                        indicator: 'red',
+                        message: __('Please add at least one expense line item with a receipt before submitting.')
+                    });
+                    frm.scroll_to_field('expense_items');
+                    return;
+                }
+                for (let i = 0; i < items.length; i++) {
+                    const row = items[i];
+                    if (!row.expense_category) {
+                        frappe.msgprint({
+                            title: __('Missing Expense Category'),
+                            indicator: 'red',
+                            message: __(`Row #${i + 1}: Expense Category is mandatory.`)
+                        });
+                        return;
+                    }
+                    if (!row.receipt_attachment) {
+                        frappe.msgprint({
+                            title: __('Missing Receipt Proof'),
+                            indicator: 'red',
+                            message: __(`Row #${i + 1}: Receipt attachment is mandatory before submitting.`)
+                        });
+                        return;
+                    }
+                }
+
+                frappe.confirm(
+                    __('Submit Event Expense Claim for <b>Accounts Verification</b> and sync Event budget spends?'),
+                    function() {
+                        const do_submit = () => {
+                            frappe.call({
+                                method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.submit_event_expense_claim',
+                                args: { claim_name: frm.doc.name },
+                                freeze: true,
+                                freeze_message: __('Submitting Event Expense Claim...'),
+                                callback: function(r) {
+                                    if (r.message && r.message.status === 'SUCCESS') {
+                                        frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
+                                        frm.reload_doc();
+                                    }
+                                }
+                            });
+                        };
+                        if (frm.is_new() || frm.is_dirty()) {
+                            frm.save().then(() => do_submit());
+                        } else {
+                            do_submit();
+                        }
+                    }
+                );
+            }).addClass('btn-primary').css({
+                'background-color': '#2563eb',
+                'border-color': '#1d4ed8',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
         }
 
-        
-        // Rejection / Return Action for Reviewers
-        const can_reject = frappe.user.has_role(['Accounts L1 Auditor', 'Admin L1 Approver', 'Admin L2 Approver', 'Accounts Director', 'AP Director', 'System Manager']) || frappe.session.user === 'Administrator';
-        if (can_reject && frm.doc.status === 'Submitted') {
+        // Accounts Verification & Return Actions on Submitted Claim
+        const can_audit = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager', 'Accounts Director', 'AP Director', 'System Manager']) || frappe.session.user === 'Administrator';
+        if (can_audit && frm.doc.status === 'Submitted') {
+            frm.add_custom_button(__('✅ Verify Ground Bills (Accounts L1)'), function() {
+                frappe.prompt([
+                    {
+                        fieldname: 'remarks',
+                        fieldtype: 'Small Text',
+                        label: __('Accounts Verification Notes (Optional)'),
+                        default: 'All ground receipts and expense categories verified.'
+                    }
+                ], function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.verify_event_expense_claim',
+                        args: {
+                            claim_name: frm.doc.name,
+                            remarks: values.remarks || ''
+                        },
+                        freeze: true,
+                        freeze_message: __('Marking Claim Accounts Verified...'),
+                        callback: function(r) {
+                            if (r.message && r.message.status === 'SUCCESS') {
+                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Accounts Verification'), __('Mark Accounts Verified'));
+            }).addClass('btn-success');
+
             frm.add_custom_button(__('↩️ Return to SPOC'), function() {
                 frappe.prompt([
                     {
@@ -101,28 +197,51 @@ frappe.ui.form.on("Event Expense Claim", {
             }).addClass('btn-danger');
         }
 
+        // 1-Click Settlement Bridge when submitted / verified
+        if (frm.doc.docstatus === 1 && ['Submitted', 'Accounts Verified'].includes(frm.doc.status) && frm.doc.event) {
+            frm.add_custom_button(__('⚖️ Settle Event Now'), function() {
+                frappe.route_options = { event: frm.doc.event };
+                frappe.new_doc('Event Settlement');
+            }).addClass('btn-primary');
+        }
+
         // Resubmit button for owning SPOC when status is Returned to SPOC
         const is_spoc_or_owner = (frm.doc.spoc === frappe.session.user || frm.doc.owner === frappe.session.user || frappe.user.has_role(['Accounts Manager', 'System Manager']) || frappe.session.user === 'Administrator');
         if (frm.doc.status === 'Returned to SPOC' && is_spoc_or_owner) {
+            if (frm.page.btn_primary && frm.page.btn_primary.text().trim() === __('Submit')) {
+                frm.page.set_primary_action(__('Save'), () => frm.save());
+            }
             frm.add_custom_button(__('🚀 Resubmit Corrected Claim'), function() {
-                frappe.call({
-                    method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.resubmit_event_claim',
-                    args: { claim_name: frm.doc.name },
-                    freeze: true,
-                    callback: function(r) {
-                        if (r.message && r.message.status === 'SUCCESS') {
-                            frappe.show_alert({ message: __('Claim resubmitted successfully'), indicator: 'green' });
-                            frm.reload_doc();
+                const do_resubmit = () => {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.resubmit_event_claim',
+                        args: { claim_name: frm.doc.name },
+                        freeze: true,
+                        freeze_message: __('Resubmitting Corrected Claim...'),
+                        callback: function(r) {
+                            if (r.message && r.message.status === 'SUCCESS') {
+                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                frm.reload_doc();
+                            }
                         }
-                    }
-                });
-            }).addClass('btn-primary');
+                    });
+                };
+                if (frm.is_dirty()) {
+                    frm.save().then(() => do_resubmit());
+                } else {
+                    do_resubmit();
+                }
+            }).addClass('btn-primary').css({
+                'background-color': '#059669',
+                'border-color': '#047857',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
         }
 
         if (window.APExpenseTypeManager) {
             window.APExpenseTypeManager.refreshGridOptions(frm, 'expense_items', 'expense_category', 'Events');
         }
-
     },
 
     event: function(frm) {
@@ -137,8 +256,52 @@ frappe.ui.form.on("Event Expense Claim", {
     }
 });
 
+function set_expense_claim_indicator(frm) {
+    const status = frm.doc.status || 'Draft';
+    const colors = {
+        'Draft': 'grey',
+        'Submitted': 'blue',
+        'Returned to SPOC': 'orange',
+        'Accounts Verified': 'cyan',
+        'Settled': 'green',
+        'Rejected': 'red'
+    };
+    frm.page.set_indicator(__(status), colors[status] || 'grey');
+}
+
 function render_stream_demarcation_banner(frm) {
     if (!frm.dashboard) return;
+
+    const status = frm.doc.status || 'Draft';
+    const steps = [
+        { label: '1. Draft (SPOC)' },
+        { label: '2. Accounts Review' },
+        { label: '3. Accounts Verified' },
+        { label: '4. Settled' }
+    ];
+    let active_idx = 0;
+    if (status === 'Submitted') active_idx = 1;
+    else if (status === 'Accounts Verified') active_idx = 2;
+    else if (status === 'Settled') active_idx = 4;
+    else if (status === 'Returned to SPOC' || status === 'Rejected') active_idx = -1;
+
+    const stepper_nodes = steps.map((s, idx) => {
+        let cls = '';
+        let badge = idx + 1;
+        if (status === 'Rejected') {
+            cls = idx === 0 ? 'step-completed' : 'step-rejected';
+            badge = idx === 0 ? '✓' : '✕';
+        } else if (status === 'Returned to SPOC') {
+            cls = idx === 0 ? 'step-returned' : '';
+            badge = idx === 0 ? '↩' : idx + 1;
+        } else if (idx < active_idx) {
+            cls = 'step-completed';
+            badge = '✓';
+        } else if (idx === active_idx) {
+            cls = 'step-active';
+        }
+        return `<div class="ap-step-item ${cls}"><div class="ap-step-node">${badge}</div><div class="ap-step-label">${s.label}</div></div>`;
+    }).join('');
 
     let items_count = (frm.doc.expense_items || []).length;
     let missing_receipts = 0;
@@ -154,6 +317,9 @@ function render_stream_demarcation_banner(frm) {
     const format_curr = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(val || 0);
 
     const banner_html = `
+        <div class="ap-stepper-wrapper" style="margin-bottom: 12px;">
+            <div class="ap-stepper-trail">${stepper_nodes}</div>
+        </div>
         <div class="ap-stream-demarcation-card" style="
             background: #faf5ff;
             border: 1px solid #e9d5ff;
@@ -167,7 +333,7 @@ function render_stream_demarcation_banner(frm) {
                     <span style="font-size: 22px;">ℹ️</span>
                     <div>
                         <div style="font-size: 13px; font-weight: 700; color: #581c87;">
-                            Stream B: SPOC On-Ground Spends Portal
+                            Stream B: SPOC On-Ground Spends Portal (${frappe.utils.escape_html(status)})
                         </div>
                         <div style="font-size: 11px; color: #7e22ce; margin-top: 2px;">
                             Strictly for cash, UPI, fuel, or petty vendors paid by SPOC. Invoices paid directly to vendors by Quanti Finance belong in <b>Vendor Invoice Claims (Stream A)</b>.

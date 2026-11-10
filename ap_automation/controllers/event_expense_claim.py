@@ -5,12 +5,18 @@ Single source of truth lives in:
 """
 from ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim import (
     EventExpenseClaim,
+    submit_event_expense_claim,
+    verify_event_expense_claim,
     reject_or_return_event_claim,
     resubmit_event_claim,
+    populate_from_imprest_proposal,
 )
 
 __all__ = [
     "EventExpenseClaim",
+    "submit_event_expense_claim",
+    "verify_event_expense_claim",
     "reject_or_return_event_claim",
     "resubmit_event_claim",
+    "populate_from_imprest_proposal",
 ]

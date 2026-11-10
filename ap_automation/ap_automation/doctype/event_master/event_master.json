@@ -164,7 +164,8 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Planning\nBudget Approved\nAdvance Disbursed\nIn Progress\nSettlement Pending\nClosed\nCancelled"
+   "options": "Planning\nBudget Approved\nAdvance Disbursed\nIn Progress\nSettlement Pending\nClosed\nCancelled",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

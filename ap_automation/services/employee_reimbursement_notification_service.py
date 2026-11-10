@@ -924,109 +924,274 @@ def notify_releaser_on_weekly_batch_approved(batch_name: str) -> None:
 # EVENT IMPREST & ADVANCE NOTIFICATION SUITE
 # ==============================================================================
 
+def _resolve_event_matrix_approvers(
+    company: str,
+    amount: float,
+    stage_keywords: List[str],
+    fallback_level: int,
+    fallback_roles: List[str],
+    exclude_keywords: Optional[List[str]] = None,
+) -> List[str]:
+    """Resolves Event Advance approver emails cleanly from AP Approval Matrix with role fallback."""
+    recipients: List[str] = []
+    excludes = [k.lower() for k in (exclude_keywords or [])]
+    try:
+        from ap_automation.services.approval_service import get_applicable_matrix
+        matrix = get_applicable_matrix("Event Advance Request", company, amount)
+        if matrix and getattr(matrix, "approval_levels", None):
+            matched_row = None
+            for lvl in matrix.approval_levels:
+                title = (lvl.level_name or "").lower()
+                if excludes and any(ex in title for ex in excludes):
+                    continue
+                if any(kw.lower() in title for kw in stage_keywords):
+                    matched_row = lvl
+                    break
+            if not matched_row:
+                for lvl in matrix.approval_levels:
+                    if int(getattr(lvl, "level_number", 0) or 0) == fallback_level:
+                        matched_row = lvl
+                        break
+            if matched_row and getattr(matched_row, "designated_approver", None):
+                email = _resolve_email_address(matched_row.designated_approver)
+                if email:
+                    recipients.append(email)
+    except Exception:
+        pass
+
+    if not recipients and fallback_roles:
+        recipients = _get_role_recipients(fallback_roles)
+
+    return list(dict.fromkeys([r for r in recipients if r]))
+
+
 def notify_event_imprest_submitted(advance_doc) -> None:
     """
-    Triggered when Event SPOC submits an Event Imprest Proposal.
-    TO: Executive Director (Anish Sir / Dileep Sir based on entity / role)
-    CC: Accounts Team (Gokulnath - Accounts L1 & Accounts Director)
+    Triggered when Event SPOC submits an Event Advance Request.
+    TO: Level 1 Executive Director (from AP Approval Matrix / AP Director)
+    CC: Accounts L1 Auditor & Accounts Director
     """
     if isinstance(advance_doc, str):
         advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
 
     company = advance_doc.company or ""
-    # Dynamically resolve Director / Business Head from Company or AP Approval Matrix
-    bh_email = frappe.db.get_value("Company", company, "ap_business_head") if company else None
-    if not bh_email:
-        from ap_automation.services.approval_service import get_applicable_matrix
-        amt = float(getattr(advance_doc, "requested_advance_amount", 0.0) or 0.0)
-        matrix = get_applicable_matrix("Event Advance Request", company, amt)
-        if matrix:
-            for lvl in getattr(matrix, "approval_levels", []):
-                if lvl.designated_approver and ("@" in lvl.designated_approver):
-                    bh_email = lvl.designated_approver
-                    break
+    amount = float(getattr(advance_doc, "requested_advance_amount", 0.0) or 0.0)
 
-    # Fetch Director & Business Head users
-    bh_users = _get_role_recipients(["Director", "Business Head"])
-    if bh_email and bh_email not in bh_users:
-        bh_users.append(bh_email)
-
-    # Fetch Accounts L1 & Director for visibility
-    accounts_users = _get_role_recipients(["Accounts L1 Auditor", "Accounts Director", "Accounts Manager"])
+    director_recipients = _resolve_event_matrix_approvers(
+        company=company,
+        amount=amount,
+        stage_keywords=["executive director", "director", "business head"],
+        fallback_level=1,
+        fallback_roles=["AP Director", "Director"],
+        exclude_keywords=["accounts", "releaser"],
+    )
+    cc_recipients = (
+        _resolve_event_matrix_approvers(company, amount, ["accounts l1", "l1 auditor"], 2, ["Accounts L1 Auditor"])
+        + _resolve_event_matrix_approvers(company, amount, ["accounts director", "accounts l2"], 3, ["Accounts Director", "Accounts Manager"])
+    )
 
     doc_url = _get_form_url("Event Advance Request", advance_doc.name)
     event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
-    amount = float(getattr(advance_doc, "requested_advance_amount", 0.0) or 0.0)
     direct_amt = float(getattr(advance_doc, "total_direct_vendor_amount", 0.0) or 0.0)
     cash_amt = float(getattr(advance_doc, "total_cash_imprest_amount", 0.0) or 0.0)
 
-    subject = f"Approval Needed: Advance for Event '{event_name}' (₹ {_safe_fmt_money(amount)})"
+    subject = f"Director Approval Needed: Advance for Event '{event_name}' (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
         title="Event Advance Request Submitted",
-        subtitle=f"Director Approval Needed",
+        subtitle="Stage 1 • Executive Director Approval Needed",
         greeting_name="Director",
         main_message=(
-            f"An advance request has been submitted for upcoming event <b>'{event_name}'</b> ({company}).<br><br>"
+            f"An event advance request has been submitted for <b>'{event_name}'</b> ({company}).<br><br>"
             f"• <b>Direct Vendor Payments:</b> ₹ {_safe_fmt_money(direct_amt)}<br>"
             f"• <b>On-Ground Cash Imprest:</b> ₹ {_safe_fmt_money(cash_amt)}<br>"
             f"• <b>Total Advance Requested:</b> ₹ {_safe_fmt_money(amount)}<br><br>"
-            f"The accounts team is CCed for proactive banking review."
+            f"Upon your approval, it will route automatically to <b>Accounts L1 Review</b> and then <b>Accounts Director</b>."
         ),
         metric_label_1="Total Advance",
         metric_val_1=f"₹ {_safe_fmt_money(amount)}",
         metric_label_2="Direct / Cash Split",
         metric_val_2=f"₹ {_safe_fmt_money(direct_amt)} / ₹ {_safe_fmt_money(cash_amt)}",
         doc_url=doc_url,
-        button_text="Review & Approve Advance",
+        button_text="Review & Approve as Director",
         badge_color="#4f46e5"
     )
 
-    all_recipients = list(set(bh_users + accounts_users))
-    _dispatch_reimbursement_email(all_recipients, subject, body, "Event Advance Request", advance_doc.name, alert_color="purple")
+    _dispatch_reimbursement_email(
+        director_recipients or cc_recipients,
+        subject,
+        body,
+        "Event Advance Request",
+        advance_doc.name,
+        cc=cc_recipients,
+        alert_color="purple",
+        is_thread_reply=False,
+    )
 
 
 def notify_event_imprest_sanctioned(advance_doc) -> None:
     """
-    Triggered when Director sanctions the Event Imprest Proposal.
-    TO: Accounts Team (Gokulnath - Accounts L1 & Accounts Director)
-    CC: Event SPOC
+    Triggered when Director approves Event Advance Request.
+    Routes to Stage 2: Accounts L1 Review.
+    TO: Accounts L1 Auditor
+    CC: Accounts Director & Event SPOC
     """
     if isinstance(advance_doc, str):
         advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
 
-    accounts_users = _get_role_recipients(["Accounts L1 Auditor", "Accounts Director", "Accounts Manager", "Payment Releaser"])
+    company = advance_doc.company or ""
+    amount = float(getattr(advance_doc, "approved_advance_amount", advance_doc.requested_advance_amount) or 0.0)
+
+    l1_recipients = _resolve_event_matrix_approvers(
+        company=company,
+        amount=amount,
+        stage_keywords=["accounts l1", "l1 auditor"],
+        fallback_level=2,
+        fallback_roles=["Accounts L1 Auditor", "Accounts Manager"],
+    )
+    cc_list = _resolve_event_matrix_approvers(
+        company=company,
+        amount=amount,
+        stage_keywords=["accounts director", "accounts l2"],
+        fallback_level=3,
+        fallback_roles=["Accounts Director"],
+    )
     spoc_email = _resolve_email_address(advance_doc.spoc)
-    if spoc_email and spoc_email not in accounts_users:
-        accounts_users.append(spoc_email)
+    if spoc_email:
+        cc_list.append(spoc_email)
 
     doc_url = _get_form_url("Event Advance Request", advance_doc.name)
     event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
-    amount = float(getattr(advance_doc, "approved_advance_amount", advance_doc.requested_advance_amount) or 0.0)
     direct_amt = float(getattr(advance_doc, "total_direct_vendor_amount", 0.0) or 0.0)
     cash_amt = float(getattr(advance_doc, "total_cash_imprest_amount", 0.0) or 0.0)
 
-    subject = f"Approved: Advance for Event '{event_name}' is ready for payment (₹ {_safe_fmt_money(amount)})"
+    subject = f"Accounts L1 Review Needed: Advance for Event '{event_name}' (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
-        title="Event Advance Approved",
-        subtitle=f"Ready for Bank Payment",
-        greeting_name="Accounts Team",
+        title="Director Approved • Accounts L1 Review Needed",
+        subtitle="Stage 2 • Beneficiary Banking & Quote Audit",
+        greeting_name="Accounts L1 Auditor",
         main_message=(
             f"The Director has approved the advance request for <b>'{event_name}'</b>.<br><br>"
-            f"• <b>Total Sanctioned:</b> ₹ {_safe_fmt_money(amount)}<br>"
+            f"• <b>Total Approved:</b> ₹ {_safe_fmt_money(amount)}<br>"
             f"• <b>Direct Vendor Payments:</b> ₹ {_safe_fmt_money(direct_amt)}<br>"
             f"• <b>Cash Imprest to SPOC:</b> ₹ {_safe_fmt_money(cash_amt)}<br><br>"
-            f"Please verify beneficiary accounts and execute corporate bank payment release."
+            f"Please review vendor quotes and beneficiary bank details, then verify to escalate to the <b>Accounts Director</b>."
         ),
-        metric_label_1="Sanctioned Payout",
+        metric_label_1="Requested Advance",
         metric_val_1=f"₹ {_safe_fmt_money(amount)}",
-        metric_label_2="Approved By",
+        metric_label_2="Approved By (Director)",
         metric_val_2=f"{advance_doc.approved_by_business_head or 'Director'}",
         doc_url=doc_url,
-        button_text="Review & Pay Advance",
+        button_text="Review & Forward to Accounts Director",
+        badge_color="#0284c7"
+    )
+
+    _dispatch_reimbursement_email(l1_recipients, subject, body, "Event Advance Request", advance_doc.name, cc=cc_list, alert_color="blue")
+
+
+def notify_event_advance_accounts_l1_verified(advance_doc) -> None:
+    """
+    Triggered when Accounts L1 verifies Event Advance Request.
+    Routes to Stage 3: Accounts Director Sign-Off.
+    """
+    if isinstance(advance_doc, str):
+        advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
+
+    company = advance_doc.company or ""
+    amount = float(getattr(advance_doc, "approved_advance_amount", advance_doc.requested_advance_amount) or 0.0)
+
+    ad_recipients = _resolve_event_matrix_approvers(
+        company=company,
+        amount=amount,
+        stage_keywords=["accounts director", "accounts l2"],
+        fallback_level=3,
+        fallback_roles=["Accounts Director", "Accounts Manager"],
+    )
+    cc_list = _resolve_event_matrix_approvers(
+        company=company,
+        amount=amount,
+        stage_keywords=["accounts l1", "l1 auditor"],
+        fallback_level=2,
+        fallback_roles=["Accounts L1 Auditor"],
+    )
+    spoc_email = _resolve_email_address(advance_doc.spoc)
+    if spoc_email:
+        cc_list.append(spoc_email)
+
+    doc_url = _get_form_url("Event Advance Request", advance_doc.name)
+    event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
+
+    subject = f"Accounts Director Sign-Off Needed: Advance for Event '{event_name}' (₹ {_safe_fmt_money(amount)})"
+    body = _build_html_template(
+        title="Accounts L1 Verified • Accounts Director Sign-Off Needed",
+        subtitle="Stage 3 • Final Payment Authorization",
+        greeting_name="Accounts Director",
+        main_message=(
+            f"Accounts L1 (<b>{getattr(advance_doc, 'accounts_l1_verifier', None) or 'Auditor'}</b>) has verified "
+            f"the Event Advance Request for <b>'{event_name}'</b>.<br><br>"
+            f"Please review and execute <b>Accounts Director Sign-Off</b> to unlock IDFC Bank bulk file generation."
+        ),
+        metric_label_1="Sanctioned Amount",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="L1 Verified By",
+        metric_val_2=f"{getattr(advance_doc, 'accounts_l1_verifier', None) or 'Accounts L1'}",
+        doc_url=doc_url,
+        button_text="Review & Sign Off for Payment",
+        badge_color="#7c3aed"
+    )
+
+    _dispatch_reimbursement_email(ad_recipients, subject, body, "Event Advance Request", advance_doc.name, cc=cc_list, alert_color="purple")
+
+
+def notify_event_advance_accounts_director_approved(advance_doc) -> None:
+    """
+    Triggered when Accounts Director signs off ('Approved for Payment').
+    TO: Accounts Maker (Accounts L1 Auditor / Accounts Manager)
+    CC: Accounts Director & Event SPOC
+    """
+    if isinstance(advance_doc, str):
+        advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
+
+    company = advance_doc.company or ""
+    amount = float(getattr(advance_doc, "approved_advance_amount", advance_doc.requested_advance_amount) or 0.0)
+
+    maker_recipients = _resolve_event_matrix_approvers(
+        company=company,
+        amount=amount,
+        stage_keywords=["accounts l1", "l1 auditor"],
+        fallback_level=2,
+        fallback_roles=["Accounts L1 Auditor", "Accounts Manager"],
+    )
+    cc_list: List[str] = []
+    spoc_email = _resolve_email_address(advance_doc.spoc)
+    if spoc_email:
+        cc_list.append(spoc_email)
+    dir_email = _resolve_email_address(getattr(advance_doc, "approved_by_business_head", None))
+    if dir_email:
+        cc_list.append(dir_email)
+
+    doc_url = _get_form_url("Event Advance Request", advance_doc.name)
+    event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
+
+    subject = f"Ready for IDFC Export: Event Advance '{event_name}' Approved for Payment (₹ {_safe_fmt_money(amount)})"
+    body = _build_html_template(
+        title="Accounts Director Signed Off • Ready for Bank Release",
+        subtitle="Stage 4 • Maker IDFC Upload & Payment Release",
+        greeting_name="Accounts Team",
+        main_message=(
+            f"Accounts Director (<b>{getattr(advance_doc, 'accounts_director', None) or 'Accounts Director'}</b>) "
+            f"has authorized Event Advance <b>#{advance_doc.name}</b> for <b>'{event_name}'</b>.<br><br>"
+            f"Please download the <b>IDFC Bank Disbursal Excel (.xlsx)</b>, upload to IDFC Netbanking, and click <b>Payment Release</b>."
+        ),
+        metric_label_1="Authorized Payout",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="Signed Off By",
+        metric_val_2=f"{getattr(advance_doc, 'accounts_director', None) or 'Accounts Director'}",
+        doc_url=doc_url,
+        button_text="Download IDFC Excel & Notify Releaser",
         badge_color="#16a34a"
     )
 
-    _dispatch_reimbursement_email(accounts_users, subject, body, "Event Advance Request", advance_doc.name, alert_color="green")
+    _dispatch_reimbursement_email(maker_recipients, subject, body, "Event Advance Request", advance_doc.name, cc=cc_list, alert_color="green")
 
 
 def notify_event_imprest_disbursed(advance_doc) -> None:

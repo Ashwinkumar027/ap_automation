@@ -266,7 +266,8 @@ class TestPaymentReleaseFunnel(unittest.TestCase):
         })
         ear.validate()
         ear.insert(ignore_permissions=True)
-        ear.status = "Approved for Advance"
+        ear.status = "Approved for Payment"
+        ear.flags.in_workflow_transition = True
         ear.save(ignore_permissions=True)
         frappe.db.commit()
 

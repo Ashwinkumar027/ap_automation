@@ -389,7 +389,7 @@
             <span>₹ {{ frappe.utils.fmt_money(doc.get("requested_advance_amount") or 0, precision=2) }}</span>
         </div>
         <div style="font-size: 11px; color: #64748b; margin-top: 10px; line-height: 1.4;">
-            Prepared by {{ doc.get("spoc_name") or doc.get("spoc") }}, routed to Business Head for approval, and CCed to Accounts automatically.
+            Prepared by {{ doc.get("spoc_name") or doc.get("spoc") }}, routed to Director, Accounts L1 &amp; Accounts Director for approval.
         </div>
     </div>
 {% endif %}

@@ -11,8 +11,12 @@ from typing import Dict, Any, Optional
 import frappe
 from ap_automation.controllers.ap_document import APDocument
 from ap_automation.services.event_duplicate_service import screen_event_expense_items_batch
-from ap_automation.services.event_budget_service import update_event_budget_ledger
-from ap_automation.exceptions import APValidationError
+from ap_automation.services.event_budget_service import (
+    update_event_budget_ledger,
+    enforce_event_status_tamper_lock,
+    append_event_approval_trail,
+)
+from ap_automation.exceptions import APValidationError, APSecurityError
 
 
 class EventExpenseClaim(APDocument):
@@ -61,8 +65,14 @@ class EventExpenseClaim(APDocument):
 
         super().validate()
 
+    def before_save(self):
+        """Blocks direct manual `status` tampering."""
+        enforce_event_status_tamper_lock(self, default_draft_status="Draft")
+        super().before_save()
+
     def before_submit(self):
         """Set status to Submitted."""
+        self.flags.in_workflow_transition = True
         self.status = "Submitted"
 
     def on_submit(self):
@@ -152,6 +162,7 @@ def resubmit_event_claim(claim_name: str):
         frappe.throw(f"Only claims in 'Returned to SPOC' status can be resubmitted. Current status: '{doc.status}'.")
 
     if doc.docstatus == 0:
+        doc.flags.in_workflow_transition = True
         doc.flags.ignore_permissions = True
         doc.save(ignore_permissions=True)
         doc.submit()
@@ -161,3 +172,131 @@ def resubmit_event_claim(claim_name: str):
 
     doc.add_comment("Comment", f"🚀 Claim resubmitted by SPOC {user} for review.")
     return {"status": "SUCCESS", "message": f"Claim {claim_name} resubmitted successfully."}
+
+
+@frappe.whitelist()
+def submit_event_expense_claim(claim_name: str) -> Dict[str, Any]:
+    """
+    1-Click Draft Submission API for Event Expense Claim:
+    Transitions a Draft claim cleanly into 'Submitted' and syncs Event Master spends.
+    """
+    if not claim_name or not frappe.db.exists("Event Expense Claim", claim_name):
+        raise APValidationError(f"Event Expense Claim '{claim_name}' not found.")
+
+    doc = frappe.get_doc("Event Expense Claim", claim_name)
+    user = frappe.session.user
+    user_roles = set(frappe.get_roles(user))
+
+    spoc_user = frappe.db.get_value("Employee", doc.spoc, "user_id") or doc.spoc if doc.spoc else None
+    is_owner_or_spoc = user in (doc.owner, doc.spoc, spoc_user)
+    is_privileged = user == "Administrator" or bool(user_roles.intersection({"System Manager", "Accounts Manager", "Accounts L1 Auditor", "Accounts Director"}))
+    if not is_owner_or_spoc and not is_privileged:
+        raise APSecurityError("Unauthorized: Only the owning Event SPOC or Accounts Team can submit this claim.")
+
+    if doc.docstatus != 0 or doc.status != "Draft":
+        raise APValidationError(f"Only Draft claims can be submitted. Current status is '{doc.status}'.")
+
+    doc.flags.in_workflow_transition = True
+    doc.flags.ignore_permissions = True
+    doc.submit()
+    doc.add_comment("Comment", f"🚀 <b>Submitted for Accounts Verification:</b> Claim submitted by {user}.")
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "claim": doc.name,
+        "new_status": doc.status,
+        "message": f"Event Expense Claim #{doc.name} submitted successfully for Accounts review.",
+    }
+
+
+@frappe.whitelist()
+def verify_event_expense_claim(claim_name: str, remarks: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Accounts L1 / Accounts Director verification of Event Expense Claim receipts & categories.
+    Advances status from 'Submitted' to 'Accounts Verified'.
+    """
+    if not claim_name or not frappe.db.exists("Event Expense Claim", claim_name):
+        raise APValidationError(f"Event Expense Claim '{claim_name}' not found.")
+
+    user = frappe.session.user
+    user_roles = set(frappe.get_roles(user))
+    allowed = {"Accounts L1 Auditor", "Accounts User", "Accounts Manager", "Accounts Director", "AP Director", "System Manager", "Administrator"}
+    if user != "Administrator" and not user_roles.intersection(allowed):
+        raise APSecurityError("Unauthorized: Only Accounts Team can verify Event Expense Claims.")
+
+    doc = frappe.get_doc("Event Expense Claim", claim_name)
+    if doc.status != "Submitted":
+        raise APValidationError(f"Cannot verify claim '{claim_name}': current status is '{doc.status}', expected 'Submitted'.")
+
+    clean_remarks = (remarks or "").strip() or "All ground receipts verified by Accounts."
+    frappe.db.set_value("Event Expense Claim", claim_name, "status", "Accounts Verified", update_modified=True)
+    append_event_approval_trail(
+        doctype="Event Expense Claim",
+        docname=claim_name,
+        level_number=1,
+        level_name="Accounts Ground Bill Verification",
+        action="VERIFIED",
+        action_taken_by=user,
+        designated_approver=user,
+        remarks=clean_remarks,
+    )
+    doc.reload()
+    doc.add_comment("Comment", f"✅ <b>Accounts Verified:</b> Ground expense receipts verified by {user}. {clean_remarks}")
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "claim": claim_name,
+        "new_status": "Accounts Verified",
+        "message": f"Event Expense Claim #{claim_name} verified by Accounts!",
+    }
+
+
+@frappe.whitelist()
+def populate_from_imprest_proposal(event_name: str) -> Dict[str, Any]:
+    """
+    Populates SPOC Cash/Ground expense rows cleanly from the latest Disbursed or Approved Event Advance Request.
+    """
+    if not event_name or not frappe.db.exists("Event Master", event_name):
+        raise APValidationError("Please select a valid Linked Event Master first.")
+
+    advances = frappe.get_all(
+        "Event Advance Request",
+        filters={
+            "event": event_name,
+            "docstatus": 1,
+            "status": ["in", ["Disbursed", "Approved for Payment", "Pending Accounts Director Approval", "Pending Accounts L1 Review", "Pending Director Approval"]],
+        },
+        fields=["name", "status"],
+        order_by="modified desc",
+        limit=1,
+    )
+    if not advances:
+        raise APValidationError(f"No active Event Advance Request found for Event '{event_name}'.")
+
+    adv = frappe.get_doc("Event Advance Request", advances[0]["name"])
+    items = []
+    for row in getattr(adv, "imprest_items", []) or []:
+        if getattr(row, "payment_mode", "") == "Direct Vendor Payment":
+            continue
+        items.append({
+            "particulars": getattr(row, "particulars", "") or "Event Ground Spend",
+            "vendor_name": getattr(row, "beneficiary_name", "") or getattr(adv, "spoc_name", "") or "Vendor",
+            "bill_number": "",
+            "bill_date": frappe.utils.nowdate(),
+            "amount": float(getattr(row, "amount", 0.0) or 0.0),
+            "spend_stream": "SPOC On-Ground Cash Spend",
+            "expense_category": "Event Miscellaneous",
+            "remarks": getattr(row, "remarks", "") or "",
+        })
+
+    if not items:
+        raise APValidationError(f"No Cash / Petty Imprest line items found in Event Advance Request '{adv.name}'.")
+
+    return {
+        "status": "SUCCESS",
+        "advance_name": adv.name,
+        "items_count": len(items),
+        "items": items,
+    }

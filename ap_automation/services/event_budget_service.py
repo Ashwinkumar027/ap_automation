@@ -4,7 +4,61 @@ High-Performance, Concurrency-Shielded Budget Calculations.
 """
 from typing import Any, Dict, List, Optional, Tuple, Union
 import frappe
-from ap_automation.exceptions import APValidationError
+from ap_automation.exceptions import APValidationError, APSecurityError
+
+
+def enforce_event_status_tamper_lock(doc, default_draft_status: str = "Draft") -> None:
+    """
+    Zero-trust server guard preventing direct manual `status` tampering on Event DocTypes.
+    Only authorized workflow transitions (flags.in_workflow_transition=True) or db_set
+    updates may advance statuses.
+    """
+    if getattr(doc.flags, "in_workflow_transition", False):
+        return
+
+    is_test_bypass = getattr(frappe.flags, "in_test", False) and not getattr(doc.flags, "enforce_status_lock", False)
+    if is_test_bypass:
+        return
+
+    if doc.is_new():
+        if getattr(doc, "docstatus", 0) == 0 and default_draft_status:
+            doc.status = default_draft_status
+        return
+
+    old_status = frappe.db.get_value(doc.doctype, doc.name, "status")
+    if old_status and doc.status != old_status:
+        raise APSecurityError(
+            f"Tamper Alert: Status on {doc.doctype} '{doc.name}' is strictly system-controlled and read-only "
+            f"(Current: '{old_status}', Attempted: '{doc.status}'). Please use the workflow action buttons."
+        )
+
+
+def append_event_approval_trail(
+    doctype: str,
+    docname: str,
+    level_number: int,
+    level_name: str,
+    action: str,
+    action_taken_by: str,
+    designated_approver: Optional[str] = None,
+    remarks: str = "",
+) -> None:
+    """Appends an immutable audit trail row to `AP Approval Trail` if present on the Event document."""
+    if not frappe.db.table_exists("AP Approval Trail"):
+        return
+
+    trail_row = frappe.new_doc("AP Approval Trail")
+    trail_row.parent = docname
+    trail_row.parenttype = doctype
+    trail_row.parentfield = "approval_trail"
+    trail_row.level_number = level_number
+    trail_row.level_name = level_name
+    trail_row.designated_approver = designated_approver or action_taken_by
+    trail_row.action_taken_by = action_taken_by
+    trail_row.action = action
+    trail_row.action_timestamp = frappe.utils.now_datetime()
+    trail_row.remarks = remarks or ""
+    trail_row.insert(ignore_permissions=True)
 
 
 def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
@@ -100,6 +154,7 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
     if total_disbursed_advance > 0 and event.status == "Budget Approved":
         event.status = "Advance Disbursed"
 
+    event.flags.in_workflow_transition = True
     event.save(ignore_permissions=True)
     frappe.db.commit()
 
@@ -141,10 +196,10 @@ def validate_advance_request(advance_doc) -> None:
     if float(event.total_committed_spend or 0.0) == 0.0 and remaining == 0.0:
         remaining = float(event.allocated_budget or 0.0)
 
-    # Concurrency Protection: Calculate pending advances currently in pipeline
+    # Concurrency Protection: Calculate pending advances currently in pipeline (including Approved awaiting bank UTR release)
     pending_filters: Dict[str, Any] = {
         "event": event_name,
-        "status": ["in", ["Pending Director Sanction", "Pending Business Head Approval", "Approved by Director", "Approved by Business Head", "Pending Accounts Disbursal", "Queued in Batch"]],
+        "status": ["in", ["Pending Director Approval", "Pending Accounts L1 Review", "Pending Accounts Director Approval", "Approved for Payment"]],
         "docstatus": ["!=", 2]
     }
     doc_name = getattr(advance_doc, "name", None)

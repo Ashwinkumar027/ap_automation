@@ -9,12 +9,20 @@ Verifies:
 """
 import unittest
 import frappe
-from ap_automation.controllers.event_advance_request import EventAdvanceRequest, disburse_event_advance
+from ap_automation.controllers.event_advance_request import (
+    EventAdvanceRequest,
+    submit_event_advance,
+    approve_event_advance_by_director,
+    verify_event_advance_by_accounts_l1,
+    authorize_event_advance_by_accounts_director,
+    trigger_event_advance_payment_release_notification,
+    disburse_event_advance,
+)
 from ap_automation.services.event_budget_service import (
     update_event_budget_ledger,
     validate_advance_request
 )
-from ap_automation.exceptions import APValidationError
+from ap_automation.exceptions import APValidationError, APSecurityError
 
 
 class TestEventMasterAndAdvance(unittest.TestCase):
@@ -165,13 +173,13 @@ class TestEventMasterAndAdvance(unittest.TestCase):
     def test_06_advance_concurrency_pipeline_budget_shield(self):
         """Verifies pipeline advances in flight are deducted to block concurrent budget overrun."""
         # Remaining budget on self.event is INR 350,000
-        # Create Advance 1 for INR 250,000 (status: Pending Business Head Approval)
+        # Create Advance 1 for INR 250,000 (status: Pending Director Approval)
         adv1 = EventAdvanceRequest({
             "doctype": "Event Advance Request",
             "event": self.event.name,
             "requested_advance_amount": 250000.00,
             "purpose": "Logistics and booth fabrication.",
-            "status": "Pending Business Head Approval"
+            "status": "Pending Director Approval"
         })
         adv1.validate()
         adv1.insert(ignore_permissions=True)
@@ -191,6 +199,105 @@ class TestEventMasterAndAdvance(unittest.TestCase):
 
         self.assertIn("Budget Exceeded", str(ctx.exception))
         self.assertIn("advance proposals in flight", str(ctx.exception))
+
+    def test_07_direct_status_tamper_hard_blocked(self):
+        """Verifies direct manual status changes are blocked on Event DocTypes."""
+        draft_adv = frappe.get_doc({
+            "doctype": "Event Advance Request",
+            "event": self.event.name,
+            "requested_advance_amount": 10000.00,
+            "purpose": "Stage lighting deposit.",
+        })
+        draft_adv.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        draft_adv.flags.enforce_status_lock = True
+        draft_adv.status = "Approved for Payment"
+        with self.assertRaises(APSecurityError) as ctx:
+            draft_adv.save(ignore_permissions=True)
+        self.assertIn("read-only", str(ctx.exception))
+
+    def test_08_full_4_tier_event_advance_workflow_and_l1_gate(self):
+        """Verifies SPOC 1-Click Submit -> Director -> Accounts L1 -> Accounts Director -> Maker -> Checker."""
+        fresh_ev = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"4-Tier Summit {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "event_spoc": self.spoc_user,
+            "spoc_name": "Naveen Kumar",
+            "start_date": "2026-11-15",
+            "end_date": "2026-11-16",
+            "allocated_budget": 100000.00,
+        }).insert(ignore_permissions=True)
+
+        draft = frappe.get_doc({
+            "doctype": "Event Advance Request",
+            "event": fresh_ev.name,
+            "requested_advance_amount": 60000.00,
+            "purpose": "Catering advance & logistics.",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.assertEqual(draft.status, "Draft")
+
+        # 1. SPOC 1-Click Submit -> Pending Director Approval
+        sub_res = submit_event_advance(draft.name)
+        self.assertEqual(sub_res["new_status"], "Pending Director Approval")
+
+        # 2. Director Approval -> Pending Accounts L1 Review
+        dir_res = approve_event_advance_by_director(draft.name, comments="Approved for L1 verification")
+        self.assertEqual(dir_res["new_status"], "Pending Accounts L1 Review")
+
+        # Negative check: Accounts Director cannot skip Accounts L1 Review
+        with self.assertRaises(APValidationError):
+            authorize_event_advance_by_accounts_director(draft.name)
+
+        # 3. Accounts L1 Review -> Pending Accounts Director Approval
+        l1_res = verify_event_advance_by_accounts_l1(draft.name, tally_reference="JV-2026-01", remarks="Quotes checked")
+        self.assertEqual(l1_res["new_status"], "Pending Accounts Director Approval")
+
+        # 4. Accounts Director Sign-Off -> Approved for Payment
+        ad_res = authorize_event_advance_by_accounts_director(draft.name, remarks="Cleared for IDFC")
+        self.assertEqual(ad_res["new_status"], "Approved for Payment")
+
+        # Pipeline check: 60k in 'Approved for Payment' leaves only 40k available (50k must fail!)
+        overrun_adv = EventAdvanceRequest({
+            "doctype": "Event Advance Request",
+            "event": fresh_ev.name,
+            "requested_advance_amount": 50000.00,
+            "purpose": "Extra booth",
+        })
+        with self.assertRaises(APValidationError):
+            overrun_adv.validate()
+
+        # 5. Maker notifies & Checker disburses -> Disbursed
+        trigger_event_advance_payment_release_notification(draft.name)
+        disb_res = disburse_event_advance(draft.name, disbursement_ref="IDFC-EVT-TEST-4455")
+        self.assertEqual(disb_res["status"], "SUCCESS")
+
+        final_doc = frappe.get_doc("Event Advance Request", draft.name)
+        self.assertEqual(final_doc.status, "Disbursed")
+        self.assertTrue(bool(final_doc.accounts_l1_verifier))
+
+    def test_09_legacy_status_migration_and_readonly_metadata(self):
+        """Verifies migration normalizes old Business Head statuses and enforces read_only status."""
+        from ap_automation.patches.normalize_event_advance_statuses import execute as run_norm
+
+        frappe.db.sql(
+            """UPDATE `tabEvent Advance Request` SET status = 'Pending Business Head Approval'
+               WHERE event = %s LIMIT 1""",
+            (self.event.name,),
+        )
+        run_norm()
+        leftovers = frappe.db.count(
+            "Event Advance Request",
+            {"status": ["in", ["Pending Business Head Approval", "Approved by Business Head", "Approved by Director", "Pending Accounts Disbursal", "Pending Director Sanction"]]},
+        )
+        self.assertEqual(leftovers, 0)
+
+        for dt in ("Event Advance Request", "Event Expense Claim", "Event Settlement", "Event Master"):
+            meta = frappe.get_meta(dt)
+            sf = meta.get_field("status")
+            self.assertEqual(int(sf.read_only or 0), 1, f"{dt}.status must be read_only")
 
 
 if __name__ == "__main__":
