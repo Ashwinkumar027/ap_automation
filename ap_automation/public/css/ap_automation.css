@@ -548,3 +548,26 @@
 .list-row-head .level-left .list-row-col.name + .list-row-col {
     margin-left: 18px !important;
 }
+
+/* ======================================================================================
+   WEEKLY ACCOUNTS AUDIT BATCH: FULL-WIDTH WORKSTATION & CLEAN TABLE LAYOUT
+   Overrides Frappe v16 --page-max-width (900px) squeeze so the Audit Workstation matches
+   the full-width Stage Banner & Stepper above and renders all 9 columns without wrapping.
+   ====================================================================================== */
+.page-container[data-page-route="Weekly Accounts Audit Batch"] .std-form-layout .section-head,
+.page-container[data-page-route="Weekly Accounts Audit Batch"] .std-form-layout .section-body,
+body[data-route^="Form/Weekly Accounts Audit Batch"] .std-form-layout .section-head,
+body[data-route^="Form/Weekly Accounts Audit Batch"] .std-form-layout .section-body {
+    max-width: 100% !important;
+}
+
+.ap-workstation-table-scroll {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.ap-workstation-table th,
+.ap-workstation-table td {
+    vertical-align: middle !important;
+}

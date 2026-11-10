@@ -617,6 +617,8 @@ def approve_admin_l2_weekly_batch(batch_name: str, remarks: Optional[str] = None
         if it.status not in ("Disputed / Returned", "Returned to Employee", "Returned to Receptionist"):
             try:
                 doc = frappe.get_doc("Employee Reimbursement Claim", it.voucher_no)
+                doc.flags.in_workflow_transition = True
+                doc.flags.ignore_validate_update_after_submit = True
                 doc.status = "Admin L2 Approved"
                 doc.workflow_state = "Admin L2 Cleared - Queued for Accounts Audit"
                 doc.admin_l2_approver = user
