@@ -252,7 +252,7 @@
    "fieldtype": "Attach",
    "in_list_view": 1,
    "label": "Bank Proof / Cheque",
-   "read_only": 1,
+   "read_only": 0,
    "columns": 2
   },
   {

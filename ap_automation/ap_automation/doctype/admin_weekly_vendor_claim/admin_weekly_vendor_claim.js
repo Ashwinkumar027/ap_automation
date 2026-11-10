@@ -213,6 +213,8 @@ frappe.ui.form.on('Admin Vendor Claim Item', {
             frappe.model.set_value(cdt, cdn, 'bank_account_number', '');
             frappe.model.set_value(cdt, cdn, 'bank_ifsc_code', '');
             frappe.model.set_value(cdt, cdn, 'penny_drop_status', '');
+            frappe.model.set_value(cdt, cdn, 'bank_proof_attachment', '');
+            setTimeout(() => bind_custom_grid_uploaders(frm), 200);
             return;
         }
 
@@ -236,13 +238,20 @@ frappe.ui.form.on('Admin Vendor Claim Item', {
                     frappe.model.set_value(cdt, cdn, 'bank_account_number', data.bank_account_number || '');
                     frappe.model.set_value(cdt, cdn, 'bank_ifsc_code', data.bank_ifsc_code || '');
                     frappe.model.set_value(cdt, cdn, 'penny_drop_status', data.penny_drop_status || 'UNVERIFIED');
-                    frappe.model.set_value(cdt, cdn, 'bank_proof_attachment', data.bank_proof_attachment || '');
+                    if (data.bank_proof_attachment) {
+                        frappe.model.set_value(cdt, cdn, 'bank_proof_attachment', data.bank_proof_attachment);
+                    }
+                    setTimeout(() => bind_custom_grid_uploaders(frm), 200);
                 }
             }
         });
     },
 
     receipt_attachment: function (frm, cdt, cdn) {
+        setTimeout(() => bind_custom_grid_uploaders(frm), 200);
+    },
+
+    bank_proof_attachment: function (frm, cdt, cdn) {
         setTimeout(() => bind_custom_grid_uploaders(frm), 200);
     },
 
@@ -781,66 +790,90 @@ function apply_grid_role_permissions(frm) {
     safe_toggle_enable('service_type', true);
     safe_toggle_enable('line_status', true);
     safe_toggle_enable('discrepancy_remarks', true);
+    safe_toggle_enable('bank_proof_attachment', true);
 }
 
 // --------------------------------------------------------------------------------------
 // 7. IN-GRID RECEIPT UPLOADERS & BADGES (WITH HEADER ROW PROTECTION)
 // --------------------------------------------------------------------------------------
+function render_grid_attach_cell(frm, grid, row_elem, row_data, idx, cfg) {
+    const cell = row_elem.find(`.grid-static-col[data-fieldname="${cfg.fieldname}"]`);
+    if (!cell.length || !row_data) return;
+
+    const current_val = row_data[cfg.fieldname] || null;
+    if (cell.attr('data-rendered-url') === (current_val || 'empty') && cell.children().length > 0) return;
+    cell.attr('data-rendered-url', current_val || 'empty');
+    cell.empty();
+
+    if (current_val) {
+        const badge = $(`
+            <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:5px; background:${cfg.badgeBg}; border:1px solid ${cfg.badgeBorder}; border-radius:5px; padding:2px 7px; cursor:pointer; max-width:100%;" title="${cfg.viewTitle}">
+                <span style="font-size:11px; font-weight:700; color:${cfg.badgeColor}; white-space:nowrap;">${cfg.attachedText}</span>
+                <a href="${current_val}" download target="_blank" style="text-decoration:none; color:${cfg.badgeColor}; font-size:11px;" title="Download">⬇️</a>
+            </div>
+        `);
+        badge.on('click', function (e) {
+            if ($(e.target).is('a')) return;
+            e.stopPropagation();
+            open_admin_receipt_gallery(frm, idx);
+        });
+        cell.append(badge);
+    } else {
+        const upload_btn = $(`
+            <button type="button" class="btn btn-xs btn-default ap-upload-btn" style="border:1px dashed #94a3b8; color:#475569; font-size:11px; font-weight:600; padding:2px 7px; border-radius:4px; background:#f8fafc; white-space:nowrap;">
+                ${cfg.emptyText}
+            </button>
+        `);
+        upload_btn.on('click', function (e) {
+            e.stopPropagation();
+            const live_row = (grid.grid_rows && grid.grid_rows[idx] && grid.grid_rows[idx].doc) || row_data;
+            new frappe.ui.FileUploader({
+                folder: 'Home/Attachments',
+                doctype: frm.doc.doctype,
+                docname: frm.doc.name,
+                fieldname: 'vendor_lines',
+                on_success: (file_doc) => {
+                    frappe.model.set_value(live_row.doctype, live_row.name, cfg.fieldname, file_doc.file_url);
+                    calculate_grid_totals(frm);
+                    setTimeout(() => bind_custom_grid_uploaders(frm), 200);
+                }
+            });
+        });
+        cell.append(upload_btn);
+    }
+}
+
 function bind_custom_grid_uploaders(frm) {
     if (!frm.fields_dict['vendor_lines'] || !frm.fields_dict['vendor_lines'].grid) return;
 
     const grid = frm.fields_dict['vendor_lines'].grid;
-    // CRITICAL BUG FIX: Target strictly .grid-body .grid-row so the column header row is NEVER modified!
     const grid_rows = $(grid.wrapper).find('.grid-body .grid-row');
+
+    const attach_configs = [
+        {
+            fieldname: 'receipt_attachment',
+            emptyText: '📷 Add Photo',
+            attachedText: '🧾 Attached',
+            viewTitle: 'Click to view bill receipt',
+            badgeBg: '#ecfdf5',
+            badgeBorder: '#10b981',
+            badgeColor: '#065f46'
+        },
+        {
+            fieldname: 'bank_proof_attachment',
+            emptyText: '🏦 Add Cheque',
+            attachedText: '🏦 Cheque',
+            viewTitle: 'Click to view bank proof / cheque',
+            badgeBg: '#eff6ff',
+            badgeBorder: '#3b82f6',
+            badgeColor: '#1e40af'
+        }
+    ];
 
     grid_rows.each(function (idx) {
         const row_elem = $(this);
-        const cell = row_elem.find('.grid-static-col[data-fieldname="receipt_attachment"]');
-        if (!cell.length) return;
-
-        const row_data = (frm.doc.vendor_lines || [])[idx];
-        const current_val = row_data ? row_data.receipt_attachment : null;
-
-        if (cell.attr('data-rendered-url') === (current_val || 'empty')) return;
-        cell.attr('data-rendered-url', current_val || 'empty');
-        cell.empty();
-
-        if (current_val) {
-            const badge = $(`
-                <div class="ap-attached-badge" style="display:inline-flex; align-items:center; gap:6px; background:#ecfdf5; border:1px solid #10b981; border-radius:5px; padding:2px 8px; cursor:pointer;" title="Click to view full receipt or click download">
-                    <img src="${current_val}" style="width:18px; height:18px; object-fit:cover; border-radius:3px;" onerror="this.style.display='none'" />
-                    <span style="font-size:11px; font-weight:700; color:#065f46;">🧾 Attached</span>
-                    <a href="${current_val}" download target="_blank" style="text-decoration:none; color:#059669; font-size:11px; margin-left:2px;" title="Direct Download Receipt">⬇️</a>
-                </div>
-            `);
-            badge.on('click', function (e) {
-                if ($(e.target).is('a')) return;
-                e.stopPropagation();
-                open_admin_receipt_gallery(frm, idx);
-            });
-            cell.append(badge);
-        } else {
-            const upload_btn = $(`
-                <button type="button" class="btn btn-xs btn-default ap-upload-btn" style="border:1px dashed #94a3b8; color:#475569; font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:#f8fafc;">
-                    📷 Add Photo
-                </button>
-            `);
-            upload_btn.on('click', function (e) {
-                e.stopPropagation();
-                new frappe.ui.FileUploader({
-                    folder: 'Home/Attachments',
-                    doctype: frm.doc.doctype,
-                    docname: frm.doc.name,
-                    fieldname: 'vendor_lines',
-                    on_success: (file_doc) => {
-                        frappe.model.set_value(row_data.doctype, row_data.name, 'receipt_attachment', file_doc.file_url);
-                        calculate_grid_totals(frm);
-                        setTimeout(() => bind_custom_grid_uploaders(frm), 200);
-                    }
-                });
-            });
-            cell.append(upload_btn);
-        }
+        const row_data = (grid.grid_rows && grid.grid_rows[idx] && grid.grid_rows[idx].doc) || (frm.doc.vendor_lines || [])[idx];
+        attach_configs.forEach(cfg => render_grid_attach_cell(frm, grid, row_elem, row_data, idx, cfg));
     });
 }
 
@@ -866,6 +899,9 @@ function open_admin_receipt_gallery(frm, start_idx) {
             const file_name = clean_url.split('/').pop();
             const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
             atts.push({
+                source: 'row',
+                proof_type: 'bill',
+                proof_label: '🧾 1. Vendor Tax Invoice / Bill',
                 row_idx: row.idx || (idx + 1),
                 vendor: row.vendor_name || row.vendor || 'Vendor Bill',
                 vendor_name: row.vendor_name || row.vendor || 'Vendor Bill',
@@ -889,6 +925,9 @@ function open_admin_receipt_gallery(frm, start_idx) {
             const bp_name = bp_clean.split('/').pop();
             const bp_ext = (bp_name.lastIndexOf('.') !== -1 ? bp_name.substring(bp_name.lastIndexOf('.')).toLowerCase() : '');
             atts.push({
+                source: 'row',
+                proof_type: 'extra',
+                proof_label: '🏦 2. Bank Cheque Proof',
                 row_idx: row.idx || (idx + 1),
                 vendor: row.vendor_name || row.vendor || 'Vendor Bank Proof',
                 vendor_name: row.vendor_name || row.vendor || 'Vendor Bank Proof',
@@ -1042,16 +1081,24 @@ function enforce_default_grid_columns(frm) {
     if (!frm.fields_dict['vendor_lines'] || !frm.fields_dict['vendor_lines'].grid) return;
     const grid = frm.fields_dict['vendor_lines'].grid;
 
-    // 2. Ensure all docfields have in_list_view: 1
+    // 2. Ensure required docfields stay visible (except intentionally hidden company) and bank_proof_attachment is editable
     if (grid.docfields) {
         grid.docfields.forEach(df => {
+            if (df.fieldname === 'company') {
+                df.in_list_view = 0;
+                df.hidden = 1;
+                return;
+            }
+            if (df.fieldname === 'bank_proof_attachment') {
+                df.read_only = 0;
+            }
             df.in_list_view = 1;
             df.hidden = 0;
         });
     }
 
-    // 3. Reset grid if visible_columns has fewer than all columns
-    if (!grid.visible_columns || grid.visible_columns.length < REQUIRED_GRID_COLUMNS.length) {
+    // 3. Rebuild visible columns if mismatched
+    if (!grid.visible_columns || grid.visible_columns.length !== REQUIRED_GRID_COLUMNS.length) {
         grid.visible_columns = [];
         grid.user_defined_columns = [];
         grid.setup_visible_columns();
@@ -1064,7 +1111,6 @@ function enforce_default_grid_columns(frm) {
         grid.refresh();
     }
 
-    // Always reset left position and scroll to start on render
     setTimeout(() => {
         if (grid.wrapper) {
             grid.wrapper.find('.form-grid').css({'left': '0px'});
@@ -1073,8 +1119,47 @@ function enforce_default_grid_columns(frm) {
     }, 100);
 }
 
+const ADMIN_VENDOR_COL_WIDTHS = {
+    vendor_category: 145,
+    service_type: 155,
+    vendor: 170,
+    vendor_name: 170,
+    invoice_number: 135,
+    invoice_date: 120,
+    receipt_attachment: 140,
+    base_amount: 125,
+    tax_type: 175,
+    gst_rate: 90,
+    cgst_amount: 115,
+    sgst_amount: 115,
+    igst_amount: 115,
+    gst_amount: 125,
+    total_invoice_amount: 135,
+    tds_section: 250,
+    tds_rate: 95,
+    tds_amount: 125,
+    amount: 135,
+    line_status: 140,
+    discrepancy_remarks: 175,
+    bank_beneficiary_name: 170,
+    bank_account_number: 145,
+    bank_ifsc_code: 120,
+    penny_drop_status: 130,
+    bank_proof_attachment: 145,
+    remarks: 175
+};
+
 function apply_admin_vendor_styles() {
     if (document.getElementById('admin-vendor-flow-styles')) return;
+
+    const col_width_rules = Object.entries(ADMIN_VENDOR_COL_WIDTHS).map(([fn, w]) => `
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="${fn}"] {
+            flex: 0 0 ${w}px !important;
+            width: ${w}px !important;
+            min-width: ${w}px !important;
+            max-width: ${w}px !important;
+        }
+    `).join('');
 
     const style = document.createElement('style');
     style.id = 'admin-vendor-flow-styles';
@@ -1110,7 +1195,7 @@ function apply_admin_vendor_styles() {
         .banner-paid { background: #f0fdf4; border: 1.5px solid #86efac; color: #14532d; }
         .banner-rejected { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
 
-        /* Excel-Style Horizontal Scrolling Grid Row (All 27 Columns Side-by-Side starting from Left) */
+        /* Pixel-Locked Horizontal Grid Alignment Across Header & Body Rows */
         [data-fieldname="vendor_lines"] .form-grid-container {
             overflow-x: auto !important;
             position: relative !important;
@@ -1125,46 +1210,119 @@ function apply_admin_vendor_styles() {
             border-radius: 8px;
         }
         [data-fieldname="vendor_lines"] .grid-heading-row,
+        [data-fieldname="vendor_lines"] .grid-heading-row .grid-row,
+        [data-fieldname="vendor_lines"] .grid-heading-row .data-row,
+        [data-fieldname="vendor_lines"] .grid-body .grid-row,
         [data-fieldname="vendor_lines"] .grid-body .grid-row .data-row {
             display: flex !important;
             flex-wrap: nowrap !important;
-            min-width: 3800px !important;
+            align-items: center !important;
+            width: max-content !important;
+            min-width: max-content !important;
+            box-sizing: border-box !important;
         }
+        [data-fieldname="vendor_lines"] .grid-body .grid-row,
+        [data-fieldname="vendor_lines"] .grid-body .grid-row .data-row {
+            min-height: 42px !important;
+        }
+        /* Lock left checkbox & row-index widths identically on header + rows */
+        [data-fieldname="vendor_lines"] .row-check {
+            flex: 0 0 36px !important;
+            width: 36px !important;
+            min-width: 36px !important;
+            max-width: 36px !important;
+            box-sizing: border-box !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 6px 4px !important;
+        }
+        [data-fieldname="vendor_lines"] .row-index,
+        [data-fieldname="vendor_lines"] .row-index.grid-static-col {
+            flex: 0 0 46px !important;
+            width: 46px !important;
+            min-width: 46px !important;
+            max-width: 46px !important;
+            box-sizing: border-box !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 6px 4px !important;
+        }
+        /* Lock right-most settings gear (header) & edit pencil (body) identically */
+        [data-fieldname="vendor_lines"] .grid-heading-row .data-row > .col:last-child,
+        [data-fieldname="vendor_lines"] .grid-body .data-row > .col:last-child {
+            flex: 0 0 42px !important;
+            width: 42px !important;
+            min-width: 42px !important;
+            max-width: 42px !important;
+            box-sizing: border-box !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 4px !important;
+        }
+        /* Common static column formatting */
         [data-fieldname="vendor_lines"] .grid-static-col {
             flex-shrink: 0 !important;
+            flex-grow: 0 !important;
+            box-sizing: border-box !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
             white-space: nowrap !important;
             padding: 6px 8px !important;
-            min-width: 130px !important;
+            margin: 0 !important;
         }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="vendor_category"] { min-width: 140px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="service_type"] { min-width: 150px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="vendor"] { min-width: 160px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="vendor_name"] { min-width: 160px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="company"] { display: none !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="invoice_number"] { min-width: 120px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="invoice_date"] { min-width: 110px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="receipt_attachment"] { min-width: 130px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="base_amount"] { min-width: 120px !important; text-align: right; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tax_type"] { min-width: 160px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="gst_rate"] { min-width: 90px !important; text-align: center; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="cgst_amount"] { min-width: 120px !important; text-align: right; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="sgst_amount"] { min-width: 120px !important; text-align: right; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="igst_amount"] { min-width: 120px !important; text-align: right; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="gst_amount"] { min-width: 120px !important; text-align: right; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="total_invoice_amount"] { min-width: 130px !important; text-align: right; font-weight: 600; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_section"] { min-width: 240px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_rate"] { min-width: 90px !important; text-align: center; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_amount"] { min-width: 120px !important; text-align: right; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="amount"] { min-width: 130px !important; text-align: right; font-weight: 700; color: #15803d; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="line_status"] { min-width: 110px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="discrepancy_remarks"] { min-width: 160px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="bank_beneficiary_name"] { min-width: 160px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="bank_account_number"] { min-width: 140px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="bank_ifsc_code"] { min-width: 120px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="penny_drop_status"] { min-width: 130px !important; }
-        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="remarks"] { min-width: 160px !important; }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="company"] {
+            display: none !important;
+        }
+        /* Keep inputs/selects/textareas inside active row locked to cell width & height */
+        [data-fieldname="vendor_lines"] .data-row .field-area,
+        [data-fieldname="vendor_lines"] .data-row .static-area,
+        [data-fieldname="vendor_lines"] .data-row .form-group {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            overflow: hidden !important;
+        }
+        [data-fieldname="vendor_lines"] .data-row .form-control,
+        [data-fieldname="vendor_lines"] .data-row input,
+        [data-fieldname="vendor_lines"] .data-row select,
+        [data-fieldname="vendor_lines"] .data-row textarea {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            height: 28px !important;
+            min-height: 28px !important;
+            max-height: 28px !important;
+            padding: 2px 6px !important;
+            font-size: 12px !important;
+            box-sizing: border-box !important;
+            resize: none !important;
+            overflow: hidden !important;
+        }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="base_amount"],
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="cgst_amount"],
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="sgst_amount"],
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="igst_amount"],
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="gst_amount"],
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="total_invoice_amount"],
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_amount"] {
+            text-align: right;
+        }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="total_invoice_amount"] {
+            font-weight: 600;
+        }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="amount"] {
+            text-align: right;
+            font-weight: 700;
+            color: #15803d;
+        }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="gst_rate"],
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="tds_rate"] {
+            text-align: center;
+        }
+        ${col_width_rules}
     `;
     document.head.appendChild(style);
 }
