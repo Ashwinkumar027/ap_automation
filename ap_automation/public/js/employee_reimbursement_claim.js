@@ -2,11 +2,77 @@
 function setup_expense_subtype_query(frm) {
     if (!frm) return;
     try {
-        frm.set_df_property('expense_lines', 'expense_type', 'hidden', 1);
-        frm.set_df_property('expense_lines', 'expense_type', 'reqd', 0);
+        frm.set_df_property('expense_lines', 'hidden', 1, frm.docname, 'expense_type');
+        frm.set_df_property('expense_lines', 'reqd', 0, frm.docname, 'expense_type');
         const grid = frm.get_field('expense_lines') && frm.get_field('expense_lines').grid;
         if (grid) {
             grid.set_column_disp('expense_type', false);
+        }
+    } catch (e) {}
+}
+
+/**
+ * Show Branch Expense Type at the top of Expense Lines only for Branch Expense & Maintenance.
+ */
+function toggle_branch_expense_column(frm) {
+    if (!frm) return;
+    try {
+        const is_branch = (frm.doc.claim_category === 'Branch Expense & Maintenance');
+        const hidden_val = is_branch ? 0 : 1;
+        const list_val = is_branch ? 1 : 0;
+
+        const field = frm.get_field('expense_lines');
+        const grid = field && field.grid;
+        if (!grid) return;
+
+        frm.set_df_property('expense_lines', 'hidden', hidden_val, frm.docname, 'branch_expense_category');
+        frm.set_df_property('expense_lines', 'in_list_view', list_val, frm.docname, 'branch_expense_category');
+
+        const base_meta_df = frappe.meta.get_docfield('Employee Reimbursement Line', 'branch_expense_category');
+        if (base_meta_df) {
+            base_meta_df.hidden = hidden_val;
+            base_meta_df.in_list_view = list_val;
+        }
+        const meta_df = frappe.meta.get_docfield('Employee Reimbursement Line', 'branch_expense_category', frm.docname);
+        if (meta_df) {
+            meta_df.hidden = hidden_val;
+            meta_df.in_list_view = list_val;
+        }
+        const grid_df = grid.get_docfield('branch_expense_category');
+        if (grid_df) {
+            grid_df.hidden = hidden_val;
+            grid_df.in_list_view = list_val;
+        }
+        if (grid.fields_map && grid.fields_map['branch_expense_category']) {
+            grid.fields_map['branch_expense_category'].hidden = hidden_val;
+            grid.fields_map['branch_expense_category'].in_list_view = list_val;
+        }
+        if (Array.isArray(grid.docfields)) {
+            const found_df = grid.docfields.find(d => d.fieldname === 'branch_expense_category');
+            if (found_df) {
+                found_df.hidden = hidden_val;
+                found_df.in_list_view = list_val;
+            }
+        }
+
+        if (Array.isArray(grid.grid_rows) && grid.grid_rows.length > 0) {
+            grid.update_docfield_property('branch_expense_category', 'hidden', hidden_val);
+            grid.update_docfield_property('branch_expense_category', 'in_list_view', list_val);
+        }
+
+        // Preserve Branch Expense Type column when user saved older custom GridView columns
+        if (is_branch) {
+            const us = frappe.get_user_settings(frm.doctype, 'GridView');
+            const custom_cols = us && us['Employee Reimbursement Line'];
+            if (Array.isArray(custom_cols) && custom_cols.length > 0 && !custom_cols.some(c => c.fieldname === 'branch_expense_category')) {
+                custom_cols.splice(1, 0, { fieldname: 'branch_expense_category', columns: 2 });
+            }
+        }
+
+        if (grid._branch_col_visible !== is_branch) {
+            grid._branch_col_visible = is_branch;
+            grid.reset_grid();
+            setTimeout(() => bind_custom_grid_uploaders(frm), 150);
         }
     } catch (e) {}
 }
@@ -48,6 +114,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     setup: function(frm) {
         apply_claim_flow_styles();
         setup_expense_subtype_query(frm);
+        toggle_branch_expense_column(frm);
         frm.set_query('pre_travel_request', function() {
             return {
                 filters: {
@@ -127,6 +194,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
 
         toggle_category_sections(frm, false);
         setup_expense_subtype_query(frm);
+        toggle_branch_expense_column(frm);
         frm.trigger('setup_dashboard_alerts');
         frm.trigger('render_stage_action_buttons');
         frm.trigger('setup_receipt_gallery_and_tools');
@@ -224,6 +292,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
         }
         toggle_category_sections(frm, true);
         setup_expense_subtype_query(frm);
+        toggle_branch_expense_column(frm);
         update_multi_leg_travel_calculations(frm);
         update_team_lunch_calculations(frm);
         frm.trigger('calculate_totals');
@@ -980,6 +1049,7 @@ frappe.ui.form.on('Employee Reimbursement Line', {
         frm.trigger('calculate_totals');
         setTimeout(() => bind_custom_grid_uploaders(frm), 200);
         setup_expense_subtype_query(frm);
+        toggle_branch_expense_column(frm);
     },
     form_render: function(frm) {
         setTimeout(() => bind_custom_grid_uploaders(frm), 200);
