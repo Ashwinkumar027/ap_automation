@@ -73,7 +73,12 @@ function render_vendor_batch_dashboard(frm) {
     }
 
     if (banner_html) {
-        frm.dashboard.set_headline(banner_html);
+        if (window.APReceiptGallery && typeof window.APReceiptGallery.setHeadlineExclusive === 'function') {
+            window.APReceiptGallery.setHeadlineExclusive(frm, banner_html);
+        } else {
+            if (typeof frm.dashboard.clear_headline === 'function') frm.dashboard.clear_headline();
+            frm.dashboard.set_headline(banner_html);
+        }
     }
 }
 

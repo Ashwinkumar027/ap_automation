@@ -29,6 +29,10 @@ frappe.ui.form.on("Event Advance Request", {
                 frm.page.set_primary_action(__('Save'), () => frm.save());
             }
 
+            if (frm.doc.event) {
+                sync_spoc_salary_bank_in_draft(frm, !frm.doc.spoc || frm.is_new());
+            }
+
             frm.add_custom_button(__('🚀 Submit to Director'), function() {
                 if (!frm.doc.event) {
                     frappe.msgprint({
@@ -62,11 +66,22 @@ frappe.ui.form.on("Event Advance Request", {
                         return;
                     }
                     if (row.payment_mode === 'Direct Vendor Payment') {
-                        if (!(row.beneficiary_name || '').trim() || !(row.bank_account_number || '').trim() || !(row.bank_ifsc_code || '').trim()) {
+                        const bene = (row.beneficiary_name || '').trim();
+                        const ac_no = (row.bank_account_number || '').trim();
+                        const ifsc = (row.bank_ifsc_code || '').trim().toUpperCase();
+                        if (!bene || !ac_no || !ifsc) {
                             frappe.msgprint({
                                 title: __('Missing Vendor Bank Details'),
                                 indicator: 'red',
                                 message: __(`Row #${i + 1}: Beneficiary Name, Bank Account Number, and IFSC Code are mandatory for Direct Vendor Payment.`)
+                            });
+                            return;
+                        }
+                        if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) {
+                            frappe.msgprint({
+                                title: __('Invalid Vendor IFSC Code'),
+                                indicator: 'red',
+                                message: __(`Row #${i + 1} (${frappe.utils.escape_html(bene)}): Invalid IFSC Code '${frappe.utils.escape_html(ifsc)}'. Must be 11 characters conforming to NPCI standard (5th char must be 0, e.g., IDFB0040101).`)
                             });
                             return;
                         }
@@ -127,23 +142,8 @@ frappe.ui.form.on("Event Advance Request", {
 
     event: function(frm) {
         if (frm.doc.event) {
-            frappe.db.get_doc('Event Master', frm.doc.event).then(ev => {
-                frm.set_value('company', ev.company);
-                frm.set_value('spoc', ev.event_spoc);
-                frm.set_value('spoc_name', ev.spoc_name);
-                frm.set_value('event_date', ev.start_date);
-                if (ev.event_location) {
-                    frm.set_value('venue', ev.event_location);
-                }
-                if (ev.company) {
-                    frappe.db.get_value('Company', ev.company, 'default_letter_head').then(r => {
-                        if (r && r.message && r.message.default_letter_head) {
-                            frm.set_value('letter_head', r.message.default_letter_head);
-                        }
-                    });
-                }
-                render_advance_event_context(frm);
-            });
+            sync_spoc_salary_bank_in_draft(frm, true);
+            render_advance_event_context(frm);
         } else {
             render_advance_event_context(frm);
         }
@@ -475,19 +475,61 @@ function build_advance_stepper_html(frm, pending_with) {
     `;
 }
 
+function set_advance_headline(frm, html) {
+    if (window.APReceiptGallery && typeof window.APReceiptGallery.setHeadlineExclusive === 'function') {
+        window.APReceiptGallery.setHeadlineExclusive(frm, html);
+        return;
+    }
+    if (!frm || !frm.dashboard) return;
+    if (typeof frm.dashboard.clear_headline === 'function') {
+        frm.dashboard.clear_headline();
+    }
+    if (frm.layout && frm.layout.message) {
+        frm.layout.message.empty().addClass('hidden');
+    }
+    if (html) {
+        frm.dashboard.set_headline(html);
+    }
+}
+
+function sync_spoc_salary_bank_in_draft(frm, force_event_fields) {
+    if (!frm || !frm.doc || !frm.doc.event || frm.doc.docstatus !== 0) return;
+    const seq = (frm._ap_bank_sync_seq || 0) + 1;
+    frm._ap_bank_sync_seq = seq;
+
+    frappe.call({
+        method: 'ap_automation.services.event_budget_service.get_spoc_salary_bank_for_event',
+        args: { event_name: frm.doc.event },
+        callback: function(r) {
+            if (frm._ap_bank_sync_seq !== seq || !r || !r.message || frm.doc.docstatus !== 0) return;
+            const d = r.message;
+            const fields = ['bank_name', 'bank_account_number', 'bank_ifsc_code'];
+            if (force_event_fields) {
+                fields.unshift('company', 'spoc', 'spoc_name', 'event_date', 'venue', 'letter_head');
+            }
+            fields.forEach(f => {
+                if (d[f] !== undefined && d[f] !== null && d[f] !== '' && frm.doc[f] !== d[f]) {
+                    frm.set_value(f, d[f]);
+                }
+            });
+            render_advance_event_context(frm);
+        }
+    });
+}
+
 function render_advance_event_context(frm, pending_with) {
     if (!frm.dashboard) return;
+    const seq = (frm._ap_ctx_seq || 0) + 1;
+    frm._ap_ctx_seq = seq;
     const stepper_html = build_advance_stepper_html(frm, pending_with || '');
 
+    set_advance_headline(frm, stepper_html);
     if (!frm.doc.event) {
-        frm.dashboard.set_headline(stepper_html);
         return;
     }
 
-    frm.dashboard.set_headline(stepper_html);
-
     frappe.db.get_value('Event Master', frm.doc.event, ['event_name', 'allocated_budget', 'remaining_budget', 'total_committed_spend']).then(r => {
-        if (!r || !r.message) return;
+        if (frm._ap_ctx_seq !== seq || !r || !r.message) return;
         const ev = r.message;
         const budget = parseFloat(ev.allocated_budget || 0.0);
         const committed = parseFloat(ev.total_committed_spend || 0.0);
@@ -533,7 +575,7 @@ function render_advance_event_context(frm, pending_with) {
             </div>
         `;
 
-        frm.dashboard.set_headline(banner_html);
+        set_advance_headline(frm, banner_html);
     });
 }
 
@@ -570,9 +612,11 @@ function calculate_imprest_totals(frm) {
 frappe.ui.form.on("Event Imprest Item", {
     amount: function(frm) {
         calculate_imprest_totals(frm);
+        render_advance_event_context(frm);
     },
     payment_mode: function(frm) {
         calculate_imprest_totals(frm);
+        render_advance_event_context(frm);
     },
     quote_attachment: function(frm) {
         if (window.APReceiptGallery) {
@@ -581,6 +625,7 @@ frappe.ui.form.on("Event Imprest Item", {
     },
     imprest_items_remove: function(frm) {
         calculate_imprest_totals(frm);
+        render_advance_event_context(frm);
         if (window.APReceiptGallery) {
             window.APReceiptGallery.refreshFormButtons(frm);
         }

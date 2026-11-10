@@ -21,16 +21,16 @@ website_route_rules = [
 ]
 
 app_include_js = [
-    "/assets/ap_automation/js/ap_expense_type_manager.js?v=20261110f",
-    "/assets/ap_automation/js/ap_receipt_gallery.js?v=20261110f",
-    "/assets/ap_automation/js/ap_workspace_dashboard.js?v=20261110f",
-    "/assets/ap_automation/js/ap_clarification_thread.js?v=20261110f",
-    "/assets/ap_automation/js/ap_listview_enhancements.js?v=20261110f"
+    "/assets/ap_automation/js/ap_expense_type_manager.js?v=20261110g",
+    "/assets/ap_automation/js/ap_receipt_gallery.js?v=20261110g",
+    "/assets/ap_automation/js/ap_workspace_dashboard.js?v=20261110g",
+    "/assets/ap_automation/js/ap_clarification_thread.js?v=20261110g",
+    "/assets/ap_automation/js/ap_listview_enhancements.js?v=20261110g"
 ]
 
 # Scoped to AP Automation DocTypes only to preserve default Frappe Desk across all other apps
 app_include_css = [
-    "/assets/ap_automation/css/ap_automation.css?v=20261110f"
+    "/assets/ap_automation/css/ap_automation.css?v=20261110g"
 ]
 
 doctype_js = {}

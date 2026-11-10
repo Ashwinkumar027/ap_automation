@@ -343,8 +343,10 @@ def get_employee_claim_profile(employee: Optional[str] = None, user_id: Optional
     if not emp_name or not frappe.db.exists("Employee", emp_name):
         return {}
 
+    from ap_automation.services.hrms_hierarchy_service import resolve_employee_ifsc
+
     emp = frappe.get_doc("Employee", emp_name)
-    ifsc_val = getattr(emp, "custom_ifsc_code", None) or getattr(emp, "ifsc_code", None) or ""
+    ifsc_val = resolve_employee_ifsc(getattr(emp, "custom_ifsc_code", None), getattr(emp, "ifsc_code", None))
 
     mgr_name = ""
     mgr_user_id = ""
@@ -366,8 +368,10 @@ def get_employee_claim_profile(employee: Optional[str] = None, user_id: Optional
         "bank_ifsc_code": ifsc_val
     }
 
+    from ap_automation.services.hrms_hierarchy_service import resolve_employee_ifsc
+
     emp = frappe.get_doc("Employee", emp_name)
-    ifsc_val = getattr(emp, "custom_ifsc_code", None) or getattr(emp, "ifsc_code", None) or ""
+    ifsc_val = resolve_employee_ifsc(getattr(emp, "custom_ifsc_code", None), getattr(emp, "ifsc_code", None))
 
     return {
         "name": emp.name,

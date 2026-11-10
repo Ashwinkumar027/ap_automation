@@ -188,7 +188,13 @@ function render_event_master_dashboard(frm) {
         </div>
     `;
 
-    frm.dashboard.set_headline(dashboard_html);
+    if (window.APReceiptGallery && typeof window.APReceiptGallery.setHeadlineExclusive === 'function') {
+        window.APReceiptGallery.setHeadlineExclusive(frm, dashboard_html);
+    } else {
+        if (typeof frm.dashboard.clear_headline === 'function') frm.dashboard.clear_headline();
+        if (frm.layout && frm.layout.message) frm.layout.message.empty().addClass('hidden');
+        frm.dashboard.set_headline(dashboard_html);
+    }
 }
 
 function setup_event_master_actions(frm) {

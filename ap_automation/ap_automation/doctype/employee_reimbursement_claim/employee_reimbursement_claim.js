@@ -345,6 +345,9 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     },
 
     setup_dashboard_alerts: function(frm) {
+        if (frm && frm.dashboard && typeof frm.dashboard.clear_headline === 'function') {
+            frm.dashboard.clear_headline();
+        }
         const is_returned_to_emp = [
             'Returned to Employee', 'Disputed', 'Pending Employee Resubmission', 'Returned for Correction', 'Returned', 'Rejected'
         ].includes(frm.doc.status) || (frm.doc.status && frm.doc.status.startsWith('Returned'));

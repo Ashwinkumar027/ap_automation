@@ -551,6 +551,19 @@ window.APReceiptGallery = {
         });
     },
 
+    setHeadlineExclusive: function (frm, html, color, permanent) {
+        if (!frm || !frm.dashboard) return;
+        if (typeof frm.dashboard.clear_headline === 'function') {
+            frm.dashboard.clear_headline();
+        }
+        if (frm.layout && frm.layout.message) {
+            frm.layout.message.empty().addClass('hidden');
+        }
+        if (html) {
+            frm.dashboard.set_headline(html, color, permanent);
+        }
+    },
+
     addPrintDownloadButtons: function (frm, formatName, pdfLabel, printLabel) {
         if (!frm || !frm.doc || frm.is_new() || !formatName) return;
         const pdf_btn = pdfLabel || __('📄 Download PDF');

@@ -12,6 +12,20 @@ import frappe
 from ap_automation.exceptions import APValidationError, APSecurityError
 
 
+def resolve_employee_ifsc(*candidates: Any) -> str:
+    """
+    Resolves the cleanest IFSC code across Employee `custom_ifsc_code`, standard `ifsc_code`,
+    and `Bank Account.branch_code`, preferring any valid 11-char NPCI IFSC over stale invalid strings.
+    """
+    from ap_automation.integrations.idfc import validate_ifsc_code
+
+    cleaned = [str(c).strip().upper() for c in candidates if c and str(c).strip()]
+    for cand in cleaned:
+        if validate_ifsc_code(cand):
+            return cand
+    return cleaned[0] if cleaned else ""
+
+
 def get_employee_hrms_profile(user_or_emp: str) -> Dict[str, Any]:
     """
     Fetches the verified HRMS profile for a given user ID or employee ID.
@@ -26,31 +40,34 @@ def get_employee_hrms_profile(user_or_emp: str) -> Dict[str, Any]:
     else:
         filters["user_id"] = user_or_emp
 
-    emp_data = frappe.db.get_value(
-        "Employee",
-        filters,
-        [
-            "name",
-            "employee_name",
-            "user_id",
-            "company",
-            "department",
-            "designation",
-            "reports_to",
-            "status",
-            "bank_name",
-            "bank_ac_no",
-            "ifsc_code",
-            "custom_ifsc_code",
-            "prefered_email",
-            "cell_number"
-        ],
-        as_dict=True
-    )
+    emp_meta = frappe.get_meta("Employee")
+    proj = [
+        "name",
+        "employee_name",
+        "user_id",
+        "company",
+        "department",
+        "designation",
+        "reports_to",
+        "status",
+        "bank_name",
+        "bank_ac_no",
+        "ifsc_code",
+        "prefered_email",
+        "cell_number",
+    ]
+    if emp_meta and emp_meta.has_field("custom_ifsc_code"):
+        proj.append("custom_ifsc_code")
+
+    emp_data = frappe.db.get_value("Employee", filters, proj, as_dict=True)
 
     if emp_data:
-        if not emp_data.get("ifsc_code") and emp_data.get("custom_ifsc_code"):
-            emp_data["ifsc_code"] = emp_data.get("custom_ifsc_code")
+        resolved_ifsc = resolve_employee_ifsc(
+            emp_data.get("custom_ifsc_code"),
+            emp_data.get("ifsc_code"),
+        )
+        if resolved_ifsc:
+            emp_data["ifsc_code"] = resolved_ifsc
 
     if not emp_data:
         raise APValidationError(f"Active HRMS Employee record not found for '{user_or_emp}'.")

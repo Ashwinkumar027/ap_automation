@@ -238,35 +238,85 @@ def validate_advance_request(advance_doc) -> None:
 
 
 def fetch_spoc_salary_bank(user_email: str) -> Dict[str, Any]:
-    emp = frappe.db.get_value(
-        "Employee",
-        {"user_id": user_email, "status": "Active"},
-        ["name", "employee_name", "bank_name", "bank_ac_no", "ifsc_code"],
-        as_dict=True
-    )
-    if emp and emp.get("bank_ac_no"):
-        return {
-            "bank_name": emp.bank_name or "Corporate Salary Bank",
-            "bank_account_no": emp.bank_ac_no,
-            "ifsc_code": emp.ifsc_code or "CORP0001"
-        }
+    """Resolves SPOC salary bank details from HRMS Employee (both `ifsc_code` and `custom_ifsc_code`) & Bank Account."""
+    if not user_email:
+        return {}
 
-    ba = frappe.db.sql(
-        """
-        SELECT ba.bank, ba.bank_account_no, ba.branch_code
-        FROM `tabBank Account` ba
-        JOIN `tabEmployee` emp ON emp.name = ba.party
-        WHERE emp.user_id = %s AND ba.is_default = 1
-        LIMIT 1
-        """,
-        (user_email,),
-        as_dict=True
+    from ap_automation.services.hrms_hierarchy_service import resolve_employee_ifsc
+
+    emp_meta = frappe.get_meta("Employee")
+    emp_fields = ["name", "employee_name", "bank_name", "bank_ac_no", "ifsc_code"]
+    if emp_meta and emp_meta.has_field("custom_ifsc_code"):
+        emp_fields.append("custom_ifsc_code")
+
+    emp = (
+        frappe.db.get_value("Employee", {"user_id": user_email, "status": "Active"}, emp_fields, as_dict=True)
+        or frappe.db.get_value("Employee", {"company_email": user_email, "status": "Active"}, emp_fields, as_dict=True)
+        or frappe.db.get_value("Employee", {"prefered_email": user_email, "status": "Active"}, emp_fields, as_dict=True)
+        or frappe.db.get_value("Employee", {"user_id": user_email}, emp_fields, as_dict=True)
     )
-    if ba:
+
+    ba = []
+    if emp and emp.get("name"):
+        ba = frappe.db.sql(
+            """
+            SELECT bank, bank_account_no, branch_code
+            FROM `tabBank Account`
+            WHERE party_type = 'Employee' AND party = %s
+            ORDER BY is_default DESC, modified DESC
+            LIMIT 1
+            """,
+            (emp["name"],),
+            as_dict=True,
+        ) or frappe.db.sql(
+            """
+            SELECT bank, bank_account_no, branch_code
+            FROM `tabBank Account`
+            WHERE party = %s
+            ORDER BY is_default DESC, modified DESC
+            LIMIT 1
+            """,
+            (emp["name"],),
+            as_dict=True,
+        )
+
+    ba_row = ba[0] if ba else {}
+    bank_ac = (emp.get("bank_ac_no") if emp else None) or ba_row.get("bank_account_no") or ""
+    if bank_ac:
+        best_ifsc = resolve_employee_ifsc(
+            emp.get("custom_ifsc_code") if emp else None,
+            emp.get("ifsc_code") if emp else None,
+            ba_row.get("branch_code"),
+        )
         return {
-            "bank_name": ba[0].bank or "Corporate Salary Bank",
-            "bank_account_no": ba[0].bank_account_no or "",
-            "ifsc_code": ba[0].branch_code or "CORP0001"
+            "bank_name": (emp.get("bank_name") if emp else None) or ba_row.get("bank") or "Corporate Salary Bank",
+            "bank_account_no": str(bank_ac).strip(),
+            "ifsc_code": best_ifsc or "CORP0001",
         }
 
     return {}
+
+
+@frappe.whitelist()
+def get_spoc_salary_bank_for_event(event_name: str) -> Dict[str, Any]:
+    """Fetches live Event Master metadata and SPOC HRMS salary bank details for Event Advance Request UI sync."""
+    if not event_name or not frappe.db.exists("Event Master", event_name):
+        raise APValidationError(f"Event Master '{event_name}' not found.")
+    if not frappe.has_permission("Event Master", ptype="read", doc=event_name):
+        raise frappe.PermissionError(f"Access Denied: You do not have read permission on Event Master '{event_name}'.")
+
+    ev = frappe.get_doc("Event Master", event_name)
+    bank_info = fetch_spoc_salary_bank(ev.event_spoc) if ev.event_spoc else {}
+    letter_head = frappe.db.get_value("Company", ev.company, "default_letter_head") if ev.company else ""
+    return {
+        "event": ev.name,
+        "company": ev.company or "",
+        "spoc": ev.event_spoc or "",
+        "spoc_name": ev.spoc_name or "",
+        "event_date": str(ev.start_date or ""),
+        "venue": ev.event_location or "",
+        "letter_head": letter_head or "",
+        "bank_name": bank_info.get("bank_name", ""),
+        "bank_account_number": bank_info.get("bank_account_no", ""),
+        "bank_ifsc_code": bank_info.get("ifsc_code", ""),
+    }
