@@ -44,8 +44,8 @@ class EventAdvanceRequest(APDocument):
         if not items and req_amt > 0:
             self.append("imprest_items", {
                 "particulars": getattr(self, "purpose", None) or "Event Operations Advance",
-                "payment_mode": "Direct Vendor Payment",
-                "beneficiary_name": getattr(self, "spoc_name", None) or "Vendor",
+                "payment_mode": "Cash / Petty Imprest",
+                "beneficiary_name": getattr(self, "spoc_name", None) or getattr(self, "spoc", None) or "Event SPOC",
                 "amount": req_amt
             })
             items = self.imprest_items
@@ -61,7 +61,8 @@ class EventAdvanceRequest(APDocument):
                 mode = getattr(row, "payment_mode", "Cash / Petty Imprest")
                 if mode == "Direct Vendor Payment":
                     direct_total += amt
-                    is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved")
+                    curr_status = getattr(self, "status", None) or "Draft"
+                    is_submitting = getattr(self, "docstatus", 0) == 1 or curr_status not in ("Draft", "Not Saved")
                     if is_submitting:
                         bene = (getattr(row, "beneficiary_name", "") or "").strip()
                         ac_no = (getattr(row, "bank_account_number", "") or "").strip()
@@ -151,7 +152,7 @@ def approve_by_business_head(advance_name: str, comments: Optional[str] = None) 
     bh_name = frappe.utils.get_fullname(user) or user
     frappe.db.set_value("Event Advance Request", advance_name, {
         "status": "Pending Accounts Disbursal",
-        "approved_by_business_head": bh_name,
+        "approved_by_business_head": user,
         "business_head_approval_date": frappe.utils.now_datetime(),
         "business_head_comments": comments or "Sanctioned by Director for event operations.",
         "approved_advance_amount": doc.requested_advance_amount
@@ -179,31 +180,66 @@ def approve_by_business_head(advance_name: str, comments: Optional[str] = None) 
 @frappe.whitelist()
 def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dict[str, Any]:
     """
-    Stage 2: Accounts Team executes corporate payout for the sanctioned imprest.
+    Stage 4 (Checker): Payment Releaser / Director executes corporate payout after Accounts Director Sign-Off
+    and Maker IDFC Payment Release notification. Enforces strict Maker != Checker segregation.
     Marks status as 'Disbursed' and updates Event Master live budget ledger.
     """
     if not frappe.db.exists("Event Advance Request", advance_name):
         raise APValidationError(f"Event Advance Request '{advance_name}' not found.")
 
+    doc = frappe.get_doc("Event Advance Request", advance_name)
     user = frappe.session.user
     user_roles = set(frappe.get_roles(user))
-    authorized_roles = {"AP Director", "Accounts Manager", "Accounts L1 Auditor", "Accounts Director", "Payment Releaser", "System Manager", "Administrator"}
+    authorized_roles = {"Payment Releaser", "AP Director", "Accounts Director", "Accounts Manager", "System Manager", "Administrator"}
 
-    if not user_roles.intersection(authorized_roles):
-        raise APSecurityError("Unauthorized: Only Accounts Team or Payment Releasers can execute imprest disbursal.")
+    is_designated_releaser = False
+    try:
+        from ap_automation.services.approval_service import get_matrix_designated_payment_releaser_and_accounts_director
+        designated_releaser, _ = get_matrix_designated_payment_releaser_and_accounts_director(
+            company=doc.company,
+            doctype=doc.doctype,
+            amount=float(doc.approved_advance_amount or doc.requested_advance_amount or 0.0)
+        )
+        if designated_releaser and user == designated_releaser:
+            is_designated_releaser = True
+    except Exception:
+        pass
+
+    if user != "Administrator" and not is_designated_releaser and not user_roles.intersection(authorized_roles):
+        raise APSecurityError("Unauthorized: Only Payment Releaser or authorized Finance Authority can release event imprest disbursals.")
+
+    if doc.status not in ("Approved for Payment", "Queued in Batch"):
+        raise APValidationError(
+            f"Cannot disburse Event Advance Request #{advance_name}: status is '{doc.status}', "
+            "must complete Accounts Director Sign-Off ('Approved for Payment') first."
+        )
+
+    if not frappe.utils.cint(getattr(doc, "payment_release_notified", 0)):
+        raise APValidationError(
+            f"Maker-Checker Gate: IDFC Payment Release notification must be triggered by Maker before releasing funds for #{advance_name}."
+        )
+
+    maker = getattr(doc, "payment_release_maker", None)
+    if maker and user == maker and user != "Administrator":
+        raise APSecurityError(
+            f"Maker-Checker Segregation Violation: '{user}' triggered the Payment Release notification (Maker) "
+            "and cannot act as Checker to disburse the same advance."
+        )
 
     if not disbursement_ref or str(disbursement_ref).strip() in ("", "IDFC-DISB-MOCK"):
         raise APValidationError("A valid corporate bank transaction / UTR reference is mandatory.")
 
-    doc = frappe.get_doc("Event Advance Request", advance_name)
     clean_ref = str(disbursement_ref).strip()
-
-    frappe.db.set_value("Event Advance Request", advance_name, {
+    updates = {
         "status": "Disbursed",
         "approved_advance_amount": doc.requested_advance_amount,
         "disbursement_reference": clean_ref,
-        "utr": clean_ref
-    }, update_modified=True)
+        "payment_releaser": user
+    }
+    if frappe.db.has_column("Event Advance Request", "utr"):
+        updates["utr"] = clean_ref
+
+    frappe.db.set_value("Event Advance Request", advance_name, updates, update_modified=True)
     frappe.db.commit()
     doc.reload()
 
@@ -301,14 +337,29 @@ def authorize_event_advance_by_accounts_director(advance_name: str, remarks: Opt
     doc = frappe.get_doc("Event Advance Request", advance_name)
     user = frappe.session.user
 
-    allowed_roles = {"Accounts Director", "Accounts Manager", "AP Director", "System Manager", "Administrator"}
+    allowed_roles = {"Accounts Director", "Accounts Manager", "System Manager", "Administrator"}
     user_roles = set(frappe.get_roles(user))
-    if not (allowed_roles & user_roles) and user != "Administrator":
-        frappe.throw(frappe._("Unauthorized: Only Accounts Director or Finance Authority can sign off on event advances."))
+    is_matrix_ad = False
+    try:
+        from ap_automation.services.approval_service import get_matrix_designated_payment_releaser_and_accounts_director
+        _, matrix_ad = get_matrix_designated_payment_releaser_and_accounts_director(
+            company=doc.company,
+            doctype=doc.doctype,
+            amount=float(doc.requested_advance_amount or 0.0)
+        )
+        if matrix_ad and user == matrix_ad:
+            is_matrix_ad = True
+    except Exception:
+        pass
 
-    valid_statuses = ("Pending Accounts Disbursal", "Approved by Director", "Approved by Business Head", "Pending Director Sanction")
+    if not (allowed_roles & user_roles) and not is_matrix_ad and user != "Administrator":
+        raise APSecurityError(frappe._("Unauthorized: Only Accounts Director can sign off on event advances."))
+
+    valid_statuses = ("Pending Accounts Disbursal", "Approved by Director", "Approved by Business Head")
     if doc.status not in valid_statuses:
-        frappe.throw(frappe._("Cannot sign off: Event Advance Request '{0}' is in '{1}' status.").format(doc.name, doc.status))
+        raise APValidationError(
+            frappe._("Cannot sign off: Event Advance Request '{0}' is in '{1}' status (must be Sanctioned by Director first).").format(doc.name, doc.status)
+        )
 
     ad_name = frappe.utils.get_fullname(user) or user
     now_ts = frappe.utils.now_datetime()
@@ -347,6 +398,18 @@ def trigger_event_advance_payment_release_notification(advance_name: str) -> Dic
 
     doc = frappe.get_doc("Event Advance Request", advance_name)
     user = frappe.session.user
+    user_roles = set(frappe.get_roles(user))
+    maker_roles = {
+        "Accounts L1 Auditor", "Accounts User", "Accounts Manager",
+        "Accounts Director", "System Manager", "Administrator"
+    }
+    if user != "Administrator" and not (maker_roles & user_roles):
+        raise APSecurityError(frappe._("Unauthorized: Only Accounts Makers can trigger IDFC Payment Release notifications."))
+
+    if doc.status not in ("Approved for Payment", "Queued in Batch"):
+        raise APValidationError(
+            frappe._("Event Advance Request #{0} must be 'Approved for Payment' (after Accounts Director Sign-Off) before triggering Payment Release. Current status: '{1}'.").format(doc.name, doc.status)
+        )
 
     from ap_automation.services.notification_service import notify_payment_releaser_on_idfc_upload
 

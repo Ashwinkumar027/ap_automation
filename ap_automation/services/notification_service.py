@@ -245,9 +245,16 @@ def _send_email_and_desk_alert(
         except Exception as e:
             frappe.log_error(f"Failed to send email for {reference_name}: {str(e)}", "AP Notification Error")
 
-    # 2. Desk Real-time Notification
+    # 2. Desk Real-time & Persistent Notification Log
     for user in desk_users:
         try:
+            create_desk_notification_log(
+                for_user=user,
+                subject=subject,
+                document_type=reference_doctype,
+                document_name=reference_name,
+                content=message_html
+            )
             ref_link = f"<br><a href='/desk/{reference_doctype.lower().replace(' ', '-')}/{reference_name}'>View {reference_name}</a>" if reference_name else ""
             frappe.publish_realtime(
                 event="msgprint",
@@ -628,6 +635,34 @@ def notify_payment_releaser_on_idfc_upload(
             <tr><td style="padding: 6px 0; color: #64748b;">Company / Entity:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{company}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Beneficiary Employee:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{emp_name} ({getattr(doc, 'employee', '')})</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Claim Category:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{getattr(doc, 'claim_category', 'General Expense')}</td></tr>
+        """
+    elif voucher_doctype == "Event Settlement":
+        amount = float(getattr(doc, "net_payable_to_spoc", 0.0) or getattr(doc, "total_amount", 0.0) or 0.0)
+        event_name = frappe.db.get_value("Event Master", getattr(doc, "event", None), "event_name") or getattr(doc, "event", "Event")
+        spoc_display = getattr(doc, "spoc_name", None) or getattr(doc, "spoc", "Event SPOC")
+        module_title = "Event Settlement"
+        card_title = "Event SPOC Settlement Payout Uploaded for Payment Release"
+        subject_tag = f"Event Settlement #{voucher_name} ({event_name})"
+        button_label = "🔍 Open Event Settlement &rarr;"
+        detail_rows = f"""
+            <tr><td style="padding: 6px 0; color: #64748b; width: 40%;">Settlement ID:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 700;">#{voucher_name}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Linked Event:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{event_name}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Company / Entity:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{company}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Beneficiary SPOC:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{spoc_display}</td></tr>
+        """
+    elif voucher_doctype == "Vendor Invoice Claim":
+        amount = float(getattr(doc, "net_payable_amount", 0.0) or getattr(doc, "total_invoice_amount", 0.0) or getattr(doc, "total_amount", 0.0) or 0.0)
+        vendor_display = getattr(doc, "vendor_name", None) or getattr(doc, "vendor", "Vendor")
+        inv_no = getattr(doc, "tax_invoice_number", None) or "N/A"
+        module_title = "Vendor Invoice Claim"
+        card_title = "Vendor Invoice Claim Uploaded for Payment Release"
+        subject_tag = f"Vendor Invoice #{voucher_name} ({vendor_display})"
+        button_label = "🔍 Open Vendor Invoice Claim &rarr;"
+        detail_rows = f"""
+            <tr><td style="padding: 6px 0; color: #64748b; width: 40%;">Claim ID:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 700;">#{voucher_name}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Vendor / Payee:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{vendor_display}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Tax Invoice #:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{inv_no}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;">Company / Entity:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{company}</td></tr>
         """
     else:  # Petty Cash Entry or general fallback
         amount = float(getattr(doc, "total_amount", 0.0) or getattr(doc, "net_payable_amount", 0.0) or 0.0)

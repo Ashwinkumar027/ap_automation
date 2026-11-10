@@ -657,16 +657,48 @@ def download_idfc_employee_reimbursement_excel(voucher_name: str):
     frappe.response["type"] = "binary"
 
 
+IDFC_EXPORT_AUTHORIZED_ROLES = {
+    "Accounts L1 Auditor",
+    "Accounts User",
+    "Accounts Manager",
+    "Accounts Director",
+    "Payment Releaser",
+    "AP Director",
+    "System Manager",
+    "Administrator",
+}
+
+
+def _assert_idfc_export_role() -> None:
+    """Restricts corporate IDFC bank upload Excel generation to authorized Finance/AP roles."""
+    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+    if user == "Administrator":
+        return
+    user_roles = set(frappe.get_roles(user))
+    if not user_roles.intersection(IDFC_EXPORT_AUTHORIZED_ROLES):
+        frappe.throw(
+            _("Unauthorized: Only authorized Accounts or Payment Releaser users can download IDFC Bank Disbursal Excel templates."),
+            exc=frappe.PermissionError
+        )
+
+
 @frappe.whitelist()
 def download_idfc_vendor_invoice_excel(voucher_name: str):
     """
     Direct endpoint: Generates and downloads the official IDFC Bank Bulk Disbursal Excel (.xlsx)
     for Vendor Invoice Claim after Accounts L2 / Director Approval.
     """
+    _assert_idfc_export_role()
+
     if not voucher_name:
         frappe.throw(_("Voucher name is required."))
 
     doc = frappe.get_doc("Vendor Invoice Claim", voucher_name)
+    if doc.status not in ("Approved for Payment", "Queued in Batch", "Paid"):
+        frappe.throw(
+            _("Cannot generate IDFC Bank Excel for Vendor Invoice Claim {0}: current status is '{1}'. Must be 'Approved for Payment' first.")
+            .format(doc.name, doc.status)
+        )
     company = doc.company or frappe.defaults.get_user_default("Company")
     debit_account = get_company_debit_account(company)
 
@@ -805,6 +837,19 @@ def download_idfc_weekly_vendor_batch_excel(batch_name: str):
     frappe.response["type"] = "download"
 
 
+def _resolve_spoc_beneficiary_name(doc) -> str:
+    """Resolves human-readable employee/user name instead of email ID for bank beneficiary fields."""
+    spoc_emp_name = frappe.db.get_value("Employee", {"user_id": doc.spoc}, "employee_name") if getattr(doc, "spoc", None) else None
+    spoc_user_fullname = frappe.db.get_value("User", doc.spoc, "full_name") if getattr(doc, "spoc", None) else None
+    return (
+        (doc.spoc_name if getattr(doc, "spoc_name", None) and "@" not in doc.spoc_name else None)
+        or spoc_emp_name
+        or spoc_user_fullname
+        or getattr(doc, "spoc", None)
+        or "Event SPOC"
+    )
+
+
 @frappe.whitelist()
 def download_idfc_event_advance_excel(advance_name: str):
     """
@@ -814,10 +859,17 @@ def download_idfc_event_advance_excel(advance_name: str):
       1. Direct Vendor Payments (to verified vendor bank accounts)
       2. On-Ground Cash Imprest (to Event SPOC salary bank account)
     """
+    _assert_idfc_export_role()
+
     if not advance_name:
         frappe.throw(_("Event Advance Request name is required."))
 
     doc = frappe.get_doc("Event Advance Request", advance_name)
+    if doc.status not in ("Approved for Payment", "Queued in Batch", "Disbursed", "Disbursed via IDFC", "Paid"):
+        frappe.throw(
+            _("Cannot generate IDFC Bank Excel for Event Advance Request {0}: current status is '{1}'. Must complete Accounts Director Sign-Off ('Approved for Payment') first.")
+            .format(doc.name, doc.status)
+        )
     company = doc.company or frappe.defaults.get_user_default("Company")
     debit_account = get_company_debit_account(company)
 
@@ -862,7 +914,7 @@ def download_idfc_event_advance_excel(advance_name: str):
     # 2. Cash / Petty Imprest payout to SPOC
     cash_total = flt(doc.total_cash_imprest_amount)
     if cash_total > 0:
-        spoc_name = doc.spoc_name or doc.spoc or "Event SPOC"
+        spoc_name = _resolve_spoc_beneficiary_name(doc)
         spoc_ac = str(doc.bank_account_number or "").strip()
         spoc_ifsc = str(doc.bank_ifsc_code or "").strip().upper()
 
@@ -896,6 +948,69 @@ def download_idfc_event_advance_excel(advance_name: str):
         debit_account_no=debit_account,
         transaction_date_str=tx_date_str,
         filename_prefix=f"IDFC_Event_Advance_{advance_name}"
+    )
+
+    frappe.response["filename"] = filename
+    frappe.response["filecontent"] = filebytes
+    frappe.response["type"] = "download"
+
+
+@frappe.whitelist()
+def download_idfc_event_settlement_excel(settlement_name: str):
+    """
+    Generates and downloads the official IDFC Bank Disbursal Excel (.xlsx)
+    for PAYABLE_TO_SPOC Event Settlement reimbursements after Accounts Director Sign-Off.
+    """
+    _assert_idfc_export_role()
+
+    if not settlement_name:
+        frappe.throw(_("Event Settlement name is required."))
+
+    doc = frappe.get_doc("Event Settlement", settlement_name)
+    if doc.settlement_type != "PAYABLE_TO_SPOC":
+        frappe.throw(_("IDFC Disbursal Excel is only applicable for 'PAYABLE_TO_SPOC' settlements."))
+    if doc.status not in ("Approved for Payment", "Settled"):
+        frappe.throw(
+            _("Cannot generate IDFC Bank Excel for Event Settlement {0}: current status is '{1}'. Must be 'Approved for Payment' first.")
+            .format(doc.name, doc.status)
+        )
+
+    amount = flt(doc.net_payable_to_spoc)
+    if amount <= 0:
+        frappe.throw(_("Net payable amount to SPOC must be greater than zero."))
+
+    from ap_automation.services.event_budget_service import fetch_spoc_salary_bank
+    bank_info = fetch_spoc_salary_bank(doc.spoc) if doc.spoc else {}
+    spoc_ac = str((bank_info or {}).get("bank_account_no") or "").strip()
+    spoc_ifsc = str((bank_info or {}).get("ifsc_code") or "").strip().upper()
+    if not spoc_ac or not spoc_ifsc:
+        frappe.throw(_("Event SPOC '{0}' is missing HRMS Salary Bank Account Number or IFSC Code.").format(doc.spoc))
+
+    spoc_name = _resolve_spoc_beneficiary_name(doc)
+    spoc_email = frappe.db.get_value("User", doc.spoc, "email") or "" if doc.spoc else ""
+
+    company = doc.company or frappe.defaults.get_user_default("Company")
+    debit_account = get_company_debit_account(company)
+    tx_date_str = getdate(nowdate()).strftime("%d/%m/%Y")
+
+    payment_rows = [{
+        "beneficiary_name": spoc_name,
+        "beneficiary_account_number": spoc_ac,
+        "ifsc": spoc_ifsc,
+        "debit_account_number": debit_account,
+        "transaction_date": tx_date_str,
+        "amount": amount,
+        "currency": "INR",
+        "beneficiary_email": spoc_email,
+        "remarks": f"EVT-SET {doc.name}"[:30],
+        "vouchers": [doc.name],
+    }]
+
+    filename, filebytes = generate_idfc_bank_excel_bytes(
+        payment_rows=payment_rows,
+        debit_account_no=debit_account,
+        transaction_date_str=tx_date_str,
+        filename_prefix=f"IDFC_Event_Settlement_{doc.name}"
     )
 
     frappe.response["filename"] = filename

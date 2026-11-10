@@ -18,7 +18,7 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
 
     event = frappe.get_doc("Event Master", event_name)
 
-    # 1. Query total disbursed advances (supporting generic and legacy statuses)
+    # 1. Query total disbursed advances, separating SPOC On-Ground Cash Imprest from Direct Vendor Payouts
     adv_records = frappe.get_all(
         "Event Advance Request",
         filters={
@@ -26,15 +26,25 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
             "status": ["in", ["Disbursed", "Disbursed via IDFC", "Paid"]],
             "docstatus": ["!=", 2]
         },
-        fields=["requested_advance_amount", "approved_advance_amount"]
+        fields=["requested_advance_amount", "approved_advance_amount", "total_cash_imprest_amount", "total_direct_vendor_amount"]
     )
-    db_disbursed = sum(
-        float(r.approved_advance_amount or r.requested_advance_amount or 0.0)
-        for r in adv_records
-    )
-    total_disbursed_advance = round(float(db_disbursed), 2) if db_disbursed > 0 else round(float(event.disbursed_advance or 0.0), 2)
+    db_cash_disbursed = 0.0
+    db_ear_direct_vendor = 0.0
+    for r in adv_records:
+        cash_amt = float(r.total_cash_imprest_amount or 0.0)
+        dir_amt = float(r.total_direct_vendor_amount or 0.0)
+        if cash_amt > 0 or dir_amt > 0:
+            db_cash_disbursed += cash_amt
+            db_ear_direct_vendor += dir_amt
+        else:
+            db_cash_disbursed += float(r.approved_advance_amount or r.requested_advance_amount or 0.0)
 
-    # 2. Dynamic Stream A: Direct Finance Spends from tabVendor Invoice Claim
+    if adv_records:
+        total_disbursed_advance = round(db_cash_disbursed, 2)
+    else:
+        total_disbursed_advance = round(float(event.disbursed_advance or 0.0), 2)
+
+    # 2. Dynamic Stream A: Direct Finance Spends from tabVendor Invoice Claim + Direct Vendor rows in Disbursed Advances
     direct_spends_query = frappe.db.sql(
         """
         SELECT SUM(net_payable_amount) as total
@@ -45,7 +55,11 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
         as_dict=True
     )
     db_direct_finance = float(direct_spends_query[0].total or 0.0)
-    direct_finance = round(float(db_direct_finance), 2) if db_direct_finance > 0 else round(float(event.direct_finance_spends or 0.0), 2)
+    combined_direct = round(db_direct_finance + db_ear_direct_vendor, 2)
+    if combined_direct > 0 or db_ear_direct_vendor > 0:
+        direct_finance = combined_direct
+    else:
+        direct_finance = round(float(event.direct_finance_spends or 0.0), 2)
 
     # 3. Dynamic Stream B: SPOC Actual Spends from tabEvent Expense Claim
     spoc_spends_query = frappe.db.sql(
@@ -118,7 +132,8 @@ def validate_advance_request(advance_doc) -> None:
 
     requested_amt = float(getattr(advance_doc, "requested_advance_amount", 0.0) or getattr(advance_doc, "advance_amount", 0.0) or getattr(advance_doc, "amount", 0.0) or 0.0)
     advance_doc.requested_advance_amount = requested_amt
-    is_submitting = getattr(advance_doc, "docstatus", 0) == 1 or getattr(advance_doc, "status", "Draft") not in ("Draft", "Not Saved")
+    curr_status = getattr(advance_doc, "status", None) or "Draft"
+    is_submitting = getattr(advance_doc, "docstatus", 0) == 1 or curr_status not in ("Draft", "Not Saved")
     if is_submitting and requested_amt <= 0:
         raise APValidationError("Requested Advance Amount must be strictly greater than zero upon submission.")
 

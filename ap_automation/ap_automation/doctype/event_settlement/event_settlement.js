@@ -174,31 +174,98 @@ function setup_settlement_workflow_actions(frm) {
     if (frm.doc.docstatus === 1) {
         const user_roles = frappe.user_roles || [];
         const is_sys_mgr = user_roles.includes('System Manager') || frappe.session.user === 'Administrator';
-        const is_accounts = user_roles.includes('Accounts L1 Auditor') || user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || user_roles.includes('Payment Releaser') || is_sys_mgr;
+        const is_acct_dir = user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || is_sys_mgr;
+        const is_maker = user_roles.includes('Accounts L1 Auditor') || user_roles.includes('Accounts User') || user_roles.includes('Accounts Manager') || user_roles.includes('Accounts Director') || is_sys_mgr;
+        const is_finance_viewer = is_maker || user_roles.includes('Payment Releaser') || user_roles.includes('AP Director');
+        const is_checker = user_roles.includes('Payment Releaser') || user_roles.includes('AP Director') || user_roles.includes('Accounts Director') || user_roles.includes('Accounts Manager') || is_sys_mgr;
 
         if (frm.doc.status === 'Under Accounts Review') {
             frm.page.set_indicator(__('Under Accounts Review'), 'orange');
 
-            if (is_accounts) {
-                if (frm.doc.settlement_type === 'REFUND_FROM_SPOC') {
-                    frm.add_custom_button(__('✅ Audit & Verify Bank Refund'), function() {
-                        frappe.prompt([
-                            {
-                                fieldname: 'verified_utr',
-                                fieldtype: 'Data',
-                                label: __('Verified Bank Credit UTR Reference'),
-                                default: frm.doc.refund_received_reference || '',
-                                reqd: 1
+            if (frm.doc.settlement_type === 'REFUND_FROM_SPOC' && (is_maker || user_roles.includes('Payment Releaser'))) {
+                frm.add_custom_button(__('✅ Audit & Verify Bank Refund'), function() {
+                    frappe.prompt([
+                        {
+                            fieldname: 'verified_utr',
+                            fieldtype: 'Data',
+                            label: __('Verified Bank Credit UTR Reference'),
+                            default: frm.doc.refund_received_reference || '',
+                            reqd: 1
+                        }
+                    ], function(vals) {
+                        frappe.call({
+                            method: 'ap_automation.services.event_settlement_service.audit_and_settle_refund',
+                            args: {
+                                settlement_name: frm.doc.name,
+                                verified_utr: vals.verified_utr
+                            },
+                            freeze: true,
+                            freeze_message: __('Verifying Bank Credit & Closing Event...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                    frm.reload_doc();
+                                }
                             }
-                        ], function(vals) {
+                        });
+                    }, __('Verify Bank Credit & Close Settlement'), __('Audit & Close'));
+                }).addClass('btn-success');
+            } else if (frm.doc.settlement_type === 'PAYABLE_TO_SPOC' && is_acct_dir) {
+                frm.add_custom_button(__('⭐ Accounts Director Sign-Off'), function() {
+                    frappe.prompt([
+                        {
+                            fieldname: 'remarks',
+                            fieldtype: 'Small Text',
+                            label: __('Authorization Remarks (Optional)'),
+                            default: 'Settlement variance verified. Approved for IDFC SPOC Reimbursement.'
+                        }
+                    ], function(vals) {
+                        frappe.call({
+                            method: 'ap_automation.services.event_settlement_service.authorize_event_settlement_by_accounts_director',
+                            args: {
+                                settlement_name: frm.doc.name,
+                                remarks: vals.remarks
+                            },
+                            freeze: true,
+                            freeze_message: __('Authorizing Settlement Payout...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }, __('Accounts Director Sign-Off'), __('Authorize'));
+                }).addClass('btn-primary');
+            }
+        } else if (frm.doc.status === 'Approved for Payment' && frm.doc.settlement_type === 'PAYABLE_TO_SPOC' && is_finance_viewer) {
+            frm.page.set_indicator(__('Approved for Payment'), 'blue');
+
+            frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
+                const url = `/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_event_settlement_excel?settlement_name=${encodeURIComponent(frm.doc.name)}`;
+                window.open(url, '_blank');
+                frappe.show_alert({ message: __('IDFC SPOC Settlement Excel downloaded.'), indicator: 'blue' });
+            }).addClass('btn-info');
+
+            if (frm.doc.payment_release_notified) {
+                frm.add_custom_button(__('✓ Payment Release Sent (IDFC Uploaded)'), function() {
+                    const notif_date = frm.doc.payment_release_notified_on ? frappe.datetime.str_to_user(frm.doc.payment_release_notified_on) : 'Recently';
+                    frappe.msgprint({
+                        title: __('Payment Release Already Notified'),
+                        message: __('Uploaded on {0} by {1}. Awaiting final payout release by Payment Releaser ({2}).', [notif_date, frm.doc.payment_release_maker || 'Maker', frm.doc.payment_releaser || 'Director']),
+                        indicator: 'green'
+                    });
+                }).addClass('btn-success disabled');
+            } else if (is_maker) {
+                frm.add_custom_button(__('📤 Payment Release'), function() {
+                    frappe.confirm(
+                        __('Confirm that the IDFC Disbursal Excel has been uploaded to the IDFC Netbanking portal.<br><br>This will notify the Payment Releaser (Checker) to release SPOC reimbursement.'),
+                        function() {
                             frappe.call({
-                                method: 'ap_automation.services.event_settlement_service.audit_and_settle_refund',
-                                args: {
-                                    settlement_name: frm.doc.name,
-                                    verified_utr: vals.verified_utr
-                                },
+                                method: 'ap_automation.services.event_settlement_service.trigger_event_settlement_payment_release_notification',
+                                args: { settlement_name: frm.doc.name },
                                 freeze: true,
-                                freeze_message: __('Verifying Bank Credit & Closing Event...'),
+                                freeze_message: __('Dispatching Payment Release Notification...'),
                                 callback: function(r) {
                                     if (r.message && r.message.status === 'SUCCESS') {
                                         frappe.show_alert({ message: r.message.message, indicator: 'green' });
@@ -206,40 +273,49 @@ function setup_settlement_workflow_actions(frm) {
                                     }
                                 }
                             });
-                        }, __('Verify Bank Credit & Close Settlement'), __('Audit & Close'));
-                    }).addClass('btn-success');
-                } else if (frm.doc.settlement_type === 'PAYABLE_TO_SPOC') {
-                    frm.add_custom_button(__('💳 Execute SPOC Reimbursement'), function() {
-                        frappe.prompt([
-                            {
-                                fieldname: 'payment_ref',
-                                fieldtype: 'Data',
-                                label: __('Bank Disbursal UTR / Transaction Reference'),
-                                default: 'UTR-SPOC-' + Math.floor(100000 + Math.random() * 900000),
-                                reqd: 1
-                            }
-                        ], function(vals) {
-                            frappe.call({
-                                method: 'ap_automation.services.event_settlement_service.disburse_event_settlement_spoc_payout',
-                                args: {
-                                    settlement_name: frm.doc.name,
-                                    payment_reference: vals.payment_ref
-                                },
-                                freeze: true,
-                                freeze_message: __('Releasing SPOC Reimbursement & Closing Event...'),
-                                callback: function(r) {
-                                    if (r.message && r.message.status === 'SUCCESS') {
-                                        frappe.show_alert({ message: __('Reimbursement executed successfully! Event closed.'), indicator: 'green' });
-                                        frm.reload_doc();
-                                    }
+                        }
+                    );
+                }).addClass('btn-warning');
+            }
+
+            const not_same_maker = (frm.doc.payment_release_maker !== frappe.session.user) || frappe.session.user === 'Administrator';
+            if (frm.doc.payment_release_notified && is_checker && not_same_maker) {
+                frm.add_custom_button(__('💳 Execute SPOC Reimbursement'), function() {
+                    frappe.prompt([
+                        {
+                            fieldname: 'payment_ref',
+                            fieldtype: 'Data',
+                            label: __('Bank Disbursal UTR / Transaction Reference'),
+                            default: 'UTR-SPOC-' + Math.floor(100000 + Math.random() * 900000),
+                            reqd: 1
+                        }
+                    ], function(vals) {
+                        frappe.call({
+                            method: 'ap_automation.services.event_settlement_service.disburse_event_settlement_spoc_payout',
+                            args: {
+                                settlement_name: frm.doc.name,
+                                payment_reference: vals.payment_ref
+                            },
+                            freeze: true,
+                            freeze_message: __('Releasing SPOC Reimbursement & Closing Event...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: __('Reimbursement executed successfully! Event closed.'), indicator: 'green' });
+                                    frm.reload_doc();
                                 }
-                            });
-                        }, __('Execute SPOC Reimbursement'), __('Disburse Funds'));
-                    }).addClass('btn-primary');
-                }
+                            }
+                        });
+                    }, __('Execute SPOC Reimbursement'), __('Disburse Funds'));
+                }).addClass('btn-primary');
             }
         } else if (frm.doc.status === 'Settled') {
             frm.page.set_indicator(__('Settled & Closed'), 'green');
+            if (frm.doc.settlement_type === 'PAYABLE_TO_SPOC' && is_finance_viewer) {
+                frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
+                    const url = `/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_event_settlement_excel?settlement_name=${encodeURIComponent(frm.doc.name)}`;
+                    window.open(url, '_blank');
+                }).addClass('btn-info');
+            }
         }
     }
 }

@@ -186,8 +186,12 @@ function setup_event_master_actions(frm) {
     frm.page.clear_inner_toolbar();
 
     const is_closed = frm.doc.status === "Closed" || frm.doc.status === "Cancelled";
+    const is_sys = frappe.session.user === 'Administrator' || frappe.user.has_role('System Manager');
+    const is_spoc_or_owner = (frm.doc.event_spoc === frappe.session.user || frm.doc.owner === frappe.session.user);
+    const is_accounts = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts Director', 'Accounts Manager', 'AP Director']) || is_sys;
+    const can_intake = is_spoc_or_owner || frappe.user.has_role(['Employee', 'Receptionist', 'Accounts L1 Auditor', 'Accounts Manager', 'AP Director']) || is_sys;
 
-    if (!is_closed) {
+    if (!is_closed && can_intake) {
         // Quick Action 1: File Commercial Vendor Invoice (Stream A with GST & TDS)
         frm.add_custom_button(__('🧾 File Event Vendor Invoice (Stream A)'), function() {
             frappe.route_options = {
@@ -207,7 +211,7 @@ function setup_event_master_actions(frm) {
             frappe.new_doc("Event Advance Request");
         }, __('Actions'));
 
-        // Quick Action 2: File Expense Claim
+        // Quick Action 3: File Expense Claim
         frm.add_custom_button(__('📋 File Ground Expense Claim'), function() {
             frappe.route_options = {
                 "event": frm.doc.name,
@@ -216,7 +220,7 @@ function setup_event_master_actions(frm) {
             frappe.new_doc("Event Expense Claim");
         }, __('Actions'));
 
-        // Quick Action 3: Settle Event
+        // Quick Action 4: Settle Event
         frm.add_custom_button(__('⚖️ Reconcile & Settle Event'), function() {
             frappe.route_options = {
                 "event": frm.doc.name,
@@ -226,21 +230,23 @@ function setup_event_master_actions(frm) {
         }, __('Actions'));
     }
 
-    // Quick Action 4: Refresh Live Ledger
-    frm.add_custom_button(__('🔄 Sync Live Ledger'), function() {
-        frappe.call({
-            method: 'ap_automation.services.event_budget_service.update_event_budget_ledger',
-            args: { event_name: frm.doc.name },
-            freeze: true,
-            freeze_message: __('Synchronizing Event Ledger...'),
-            callback: function(r) {
-                if (r.message) {
-                    frm.reload_doc();
-                    frappe.show_alert({ message: __('Event budget ledger synchronized successfully!'), indicator: 'green' });
+    // Quick Action 5: Refresh Live Ledger (SPOC / Accounts / Director)
+    if (is_spoc_or_owner || is_accounts) {
+        frm.add_custom_button(__('🔄 Sync Live Ledger'), function() {
+            frappe.call({
+                method: 'ap_automation.services.event_budget_service.update_event_budget_ledger',
+                args: { event_name: frm.doc.name },
+                freeze: true,
+                freeze_message: __('Synchronizing Event Ledger...'),
+                callback: function(r) {
+                    if (r.message) {
+                        frm.reload_doc();
+                        frappe.show_alert({ message: __('Event budget ledger synchronized successfully!'), indicator: 'green' });
+                    }
                 }
-            }
-        });
-    }, __('Actions'));
+            });
+        }, __('Actions'));
+    }
 
     // View Live Report
     frm.add_custom_button(__('📊 View Spend Statement'), function() {

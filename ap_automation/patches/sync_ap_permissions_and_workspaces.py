@@ -46,10 +46,10 @@ def execute():
         "Pre Travel Request": ["Employee", "Admin L1 Approver", "AP Director"],
         "AP Clarification Query": ["Employee", "Receptionist", "Admin L1 Approver", "Accounts L1 Auditor", "AP Director"],
         "AP Expense Head Master": ["Accounts L1 Auditor", "AP Director", "Employee", "Receptionist"],
-        "Event Expense Claim": ["Accounts L1 Auditor", "Accounts Director", "AP Director"],
-        "Event Master": ["Accounts L1 Auditor", "Accounts Director", "AP Director"],
-        "Event Settlement": ["Accounts L1 Auditor", "Accounts Director", "AP Director"],
-        "Event Advance Request": ["Accounts L1 Auditor", "Accounts Director", "AP Director"]
+        "Event Expense Claim": ["Accounts L1 Auditor", "Accounts Director", "AP Director", "Payment Releaser"],
+        "Event Master": ["Accounts L1 Auditor", "Accounts Director", "AP Director", "Payment Releaser"],
+        "Event Settlement": ["Accounts L1 Auditor", "Accounts Director", "AP Director", "Payment Releaser"],
+        "Event Advance Request": ["Accounts L1 Auditor", "Accounts Director", "AP Director", "Payment Releaser"]
     }
 
     for doctype, roles in permission_matrix.items():
@@ -92,6 +92,12 @@ def execute():
                         docperm.insert(ignore_permissions=True)
                     except Exception:
                         pass
+
+    try:
+        from ap_automation.setup import sync_event_and_vendor_custom_docperms
+        sync_event_and_vendor_custom_docperms()
+    except Exception as e:
+        frappe.log_error(f"Failed to sync event/vendor Custom DocPerms: {e}")
 
     frappe.db.commit()
     frappe.clear_cache()

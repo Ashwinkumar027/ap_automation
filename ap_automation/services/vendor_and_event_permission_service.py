@@ -126,6 +126,47 @@ def has_admin_weekly_vendor_permission(doc, user: Optional[str] = None, ptype: s
 # 2. LANE 4: EVENT SPENDS PERMISSION HOOKS
 # ==============================================================================
 
+def get_event_master_permission_query_conditions(user: Optional[str] = None) -> str:
+    """
+    Accounts/Finance/Business Heads see all Event Masters.
+    Regular employees/SPOCs see ONLY Event Masters they created or where they are designated Event SPOC.
+    """
+    if not user:
+        user = frappe.session.user
+
+    if is_accounts_user(user):
+        return ""
+
+    user_roles = set(frappe.get_roles(user)) if user else set()
+    if user_roles.intersection({"Business Head", "Business Head Approver"}):
+        return ""
+
+    escaped_user = frappe.db.escape(user)
+    return f"""(
+        `tabEvent Master`.`owner` = {escaped_user}
+        OR `tabEvent Master`.`event_spoc` = {escaped_user}
+    )"""
+
+
+def has_event_master_permission(doc, user: Optional[str] = None, ptype: str = "read") -> Optional[bool]:
+    if not user:
+        user = frappe.session.user
+    if not doc or isinstance(doc, str):
+        return None
+
+    if is_accounts_user(user):
+        return True
+
+    user_roles = set(frappe.get_roles(user)) if user else set()
+    if user_roles.intersection({"Business Head", "Business Head Approver"}):
+        return True
+
+    return bool(
+        getattr(doc, "owner", None) == user
+        or getattr(doc, "event_spoc", None) == user
+    )
+
+
 def get_event_advance_permission_query_conditions(user: Optional[str] = None) -> str:
     """
     Accounts team sees ALL Event Advance Requests.

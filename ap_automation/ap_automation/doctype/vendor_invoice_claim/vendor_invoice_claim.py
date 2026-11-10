@@ -131,14 +131,16 @@ class VendorInvoiceClaim(APDocument):
         self.calculate_financial_totals()
 
     def on_submit(self):
-        """Registers spend fingerprint lock upon submission."""
+        """Registers spend fingerprint lock and syncs linked Event Master budget ledger."""
         super().on_submit()
         register_spend_fingerprint(self)
+        _sync_event_master_if_linked(getattr(self, "event", None))
 
     def on_cancel(self):
-        """Releases spend fingerprint lock if cancelled."""
+        """Releases spend fingerprint lock and re-syncs linked Event Master budget ledger."""
         super().on_cancel()
         release_spend_fingerprint(self)
+        _sync_event_master_if_linked(getattr(self, "event", None))
 
     def bind_and_lock_vendor_profile(self):
         """
@@ -879,6 +881,7 @@ def approve_vendor_claim_by_accounts_l2(docname: str, remarks: Optional[str] = N
         "remarks": remarks or "Approved by Accounts L2 for payment core release"
     })
     doc.save(ignore_permissions=True)
+    _sync_event_master_if_linked(getattr(doc, "event", None))
     doc.add_comment("Comment", text=f"âœ… <b>Approved by Accounts L2:</b> {user} â€” {remarks or 'Approved for Payment'}")
     try:
         notify_vendor_claim_accounts_l2_approved(docname)
@@ -916,28 +919,117 @@ def save_tally_reference(docname: str, tally_reference: str):
 
     return {"status": "SUCCESS", "tally_reference": clean_ref}
 
+def _sync_event_master_if_linked(event_name: Optional[str]) -> None:
+    """Safely synchronizes Event Master budget ledger for Stream A direct vendor claims."""
+    if not event_name or not frappe.db.exists("Event Master", event_name):
+        return
+    try:
+        from ap_automation.services.event_budget_service import update_event_budget_ledger
+        update_event_budget_ledger(event_name)
+    except Exception:
+        frappe.log_error(
+            title="Event Stream A Sync Error",
+            message=f"Failed to sync Event Master '{event_name}': {frappe.get_traceback()}"
+        )
+
+
+@frappe.whitelist()
+def trigger_vendor_claim_payment_release_notification(docname: str):
+    """
+    Maker-Checker Handoff for Vendor Invoice Claim:
+    Triggered by Accounts Maker after uploading IDFC Excel. Notifies Payment Releaser (Checker).
+    """
+    if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
+        frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
+
+    doc = frappe.get_doc("Vendor Invoice Claim", docname)
+    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+    user_roles = set(frappe.get_roles(user)) if user else set()
+    maker_roles = {"Accounts L1 Auditor", "Accounts User", "Accounts Manager", "Accounts Director", "System Manager", "Administrator"}
+    if user != "Administrator" and not user_roles.intersection(maker_roles):
+        raise APSecurityError("Unauthorized: Only Accounts Makers can trigger Payment Release notifications.")
+
+    if doc.status not in ("Approved for Payment", "Queued in Batch"):
+        frappe.throw(f"Claim '{docname}' must be 'Approved for Payment' before triggering Payment Release. Current status: '{doc.status}'.")
+
+    from ap_automation.services.notification_service import notify_payment_releaser_on_idfc_upload
+    res = notify_payment_releaser_on_idfc_upload(
+        voucher_doctype=doc.doctype,
+        voucher_name=doc.name,
+        uploaded_by=user
+    )
+    releaser = res.get("releaser")
+    ad = res.get("accounts_director")
+
+    frappe.db.set_value("Vendor Invoice Claim", docname, {
+        "payment_release_notified": 1,
+        "payment_release_notified_on": frappe.utils.now_datetime(),
+        "payment_release_maker": user,
+        "payment_releaser": releaser if releaser and not getattr(doc, "payment_releaser", None) else getattr(doc, "payment_releaser", None)
+    }, update_modified=False)
+
+    releaser_display = frappe.db.get_value("User", releaser, "full_name") or releaser
+    doc.add_comment(
+        "Comment",
+        text=f"📤 <b>Payment Release Notified:</b> Uploaded to IDFC by {user}. Dispatched to Payment Releaser (<b>{releaser_display}</b>)."
+    )
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "docname": docname,
+        "releaser": releaser,
+        "accounts_director": ad,
+        "message": f"Payment Release notification sent to Payment Releaser ({releaser_display})."
+    }
+
+
 @frappe.whitelist()
 def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[str] = None):
     """
-    Stage 6: Bank Disbursement & UTR Stamping (Payment Releaser).
-    Validates claim status and stamps bank UTR reference, marking claim as 'Paid'.
+    Stage 6 (Checker): Bank Disbursement & UTR Stamping (Payment Releaser).
+    Validates claim status, Maker notification, and Maker != Checker segregation, then marks 'Paid' and syncs Event Master.
     """
+    if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
+        frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
+
+    doc = frappe.get_doc("Vendor Invoice Claim", docname)
     user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
     user_roles = set(frappe.get_roles(user)) if user else set()
     authorized_roles = {"Payment Releaser", "AP Director", "Accounts Director", "System Manager", "Administrator"}
-    if user != "Administrator" and not user_roles.intersection(authorized_roles):
-        raise APSecurityError("Unauthorized: Only Payment Releaser or Accounts Director can disburse commercial vendor invoices.")
 
-    if not docname or not frappe.db.exists("Vendor Invoice Claim", docname):
-        frappe.throw(f"Vendor Invoice Claim '{docname}' not found.")
+    is_designated_releaser = False
+    try:
+        from ap_automation.services.approval_service import get_matrix_designated_payment_releaser_and_accounts_director
+        designated_releaser, _ = get_matrix_designated_payment_releaser_and_accounts_director(
+            company=doc.company,
+            doctype=doc.doctype,
+            amount=float(doc.net_payable_amount or doc.total_invoice_amount or 0.0)
+        )
+        if designated_releaser and user == designated_releaser:
+            is_designated_releaser = True
+    except Exception:
+        pass
+
+    if user != "Administrator" and not is_designated_releaser and not user_roles.intersection(authorized_roles):
+        raise APSecurityError("Unauthorized: Only Payment Releaser or Accounts Director can disburse commercial vendor invoices.")
 
     if not utr_reference or not str(utr_reference).strip():
         frappe.throw("Bank UTR Reference Number is strictly mandatory for disbursement signoff.", title="UTR Required")
 
-    doc = frappe.get_doc("Vendor Invoice Claim", docname)
-
     if doc.status not in ("Approved for Payment", "Queued in Batch"):
         frappe.throw(f"Claim '{docname}' is in status '{doc.status}', not ready for bank disbursement.")
+
+    if not frappe.utils.cint(getattr(doc, "payment_release_notified", 0)):
+        frappe.throw(
+            f"Maker-Checker Gate: IDFC Payment Release notification must be triggered by Maker before disbursing Claim '{docname}'."
+        )
+
+    maker = getattr(doc, "payment_release_maker", None)
+    if maker and user == maker and user != "Administrator":
+        raise APSecurityError(
+            f"Maker-Checker Segregation Violation: '{user}' triggered Payment Release notification (Maker) and cannot disburse the same claim."
+        )
 
     clean_utr = str(utr_reference).strip().upper()
     now_ts = frappe.utils.now_datetime()
@@ -945,7 +1037,8 @@ def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[st
     # Update status directly in database to avoid triggering tamper alert on locked status transition
     frappe.db.set_value("Vendor Invoice Claim", docname, {
         "status": "Paid",
-        "workflow_state": "Disbursed via Corporate Bank Transfer"
+        "workflow_state": "Disbursed via Corporate Bank Transfer",
+        "payment_releaser": user
     })
 
     # Record in AP Approval Trail
@@ -962,6 +1055,8 @@ def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[st
         "remarks": f"Disbursed via Corporate Banking | Bank UTR: {clean_utr} | {remarks or 'Payment Settled'}"
     })
     trail_entry.insert(ignore_permissions=True)
+
+    _sync_event_master_if_linked(getattr(doc, "event", None))
 
     doc.add_comment("Comment", text=f"💳 <b>Payment Disbursed:</b> Bank UTR: <code>{clean_utr}</code> by {user}")
     frappe.db.commit()

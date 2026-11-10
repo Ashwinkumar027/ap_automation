@@ -547,10 +547,42 @@ function render_vendor_claim_approval_buttons(frm) {
         }
     }
 
-    // Stage 6: Approved for Payment / Queued in Batch (Payment Releaser)
+    // Stage 6: Approved for Payment / Queued in Batch -> Maker Payment Release & Checker Disbursal
     else if (status === "Approved for Payment" || status === "Queued in Batch") {
+        let is_maker = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager', 'Accounts Director', 'System Manager']) || is_admin;
         let is_releaser = frappe.user.has_role(['Payment Releaser', 'Accounts Director', 'Accounts Manager', 'AP Director', 'System Manager']) || is_admin;
-        if (is_releaser) {
+        let not_same_maker = (frm.doc.payment_release_maker !== frappe.session.user) || frappe.session.user === "Administrator";
+
+        if (frm.doc.payment_release_notified) {
+            if (is_maker || is_releaser) {
+                frm.add_custom_button(__('✓ Payment Release Sent (IDFC Uploaded)'), function() {
+                    const notif_date = frm.doc.payment_release_notified_on ? frappe.datetime.str_to_user(frm.doc.payment_release_notified_on) : 'Recently';
+                    frappe.msgprint(__('IDFC file uploaded and Payment Release notification sent on {0} by {1}.', [notif_date, frm.doc.payment_release_maker || 'Maker']));
+                }).addClass('btn-success disabled');
+            }
+        } else if (is_maker) {
+            frm.add_custom_button(__('📤 Payment Release'), function() {
+                frappe.confirm(
+                    __('Confirm that the IDFC Excel has been uploaded to IDFC Netbanking.<br><br>This will notify the Payment Releaser (Checker) to release funds.'),
+                    function() {
+                        frappe.call({
+                            method: 'ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.trigger_vendor_claim_payment_release_notification',
+                            args: { docname: frm.doc.name },
+                            freeze: true,
+                            freeze_message: __('Dispatching Payment Release Notification...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: __(r.message.message), indicator: 'green' });
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }
+                );
+            }).addClass('btn-warning');
+        }
+
+        if (frm.doc.payment_release_notified && is_releaser && not_same_maker) {
             frm.add_custom_button(__('💳 Disburse & Stamp UTR'), function() {
                 frappe.prompt([
                     {
@@ -587,9 +619,10 @@ function render_vendor_claim_approval_buttons(frm) {
         }
     }
 
-    // POST-DIRECTOR APPROVAL: Official IDFC Bank Bulk Disbursal Template (.xlsx)
+    // POST-DIRECTOR APPROVAL: Official IDFC Bank Bulk Disbursal Template (.xlsx) (Finance/Releaser only)
     const post_director_statuses = ['Approved for Payment', 'Queued in Batch', 'Paid'];
-    if (post_director_statuses.includes(status)) {
+    let is_excel_authorized = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager', 'Accounts Director', 'Payment Releaser', 'AP Director']) || is_admin;
+    if (post_director_statuses.includes(status) && is_excel_authorized) {
         frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
             window.open(`/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_vendor_invoice_excel?voucher_name=${encodeURIComponent(frm.doc.name)}`, '_blank');
         }).addClass('btn-info idfc-excel-btn').css({

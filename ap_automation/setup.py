@@ -230,8 +230,12 @@ def reload_doctype_permissions():
         "vendor_invoice_claim",
         "admin_weekly_vendor_claim",
         "admin_vendor_claim_item",
+        "event_master",
+        "event_advance_request",
+        "event_imprest_item",
         "event_expense_claim",
         "event_expense_item",
+        "event_settlement",
         "ap_purchase_order",
         "ap_po_item",
         "payment_batch",
@@ -277,10 +281,64 @@ def ensure_ap_permission_rules():
             pass
 
 
+def sync_event_and_vendor_custom_docperms():
+    """
+    Ensures any site-level Custom DocPerm overrides on Lane 3/4 Event & Vendor DocTypes
+    retain required role read/write/select/submit/cancel flags matching their JSON definitions.
+    """
+    import json
+    import os
+
+    target_doctypes = [
+        ("Event Master", "event_master"),
+        ("Event Advance Request", "event_advance_request"),
+        ("Event Expense Claim", "event_expense_claim"),
+        ("Event Settlement", "event_settlement"),
+        ("Vendor Invoice Claim", "vendor_invoice_claim"),
+    ]
+    perm_flags = ("read", "write", "create", "submit", "cancel", "amend", "select", "delete", "print", "email", "export", "report", "share")
+
+    for dt_name, dt_slug in target_doctypes:
+        if not frappe.db.exists("DocType", dt_name):
+            continue
+        custom_rows = frappe.get_all("Custom DocPerm", filters={"parent": dt_name, "permlevel": 0}, fields=["name", "role"])
+        if not custom_rows:
+            continue
+
+        json_path = frappe.get_app_path("ap_automation", "ap_automation", "doctype", dt_slug, f"{dt_slug}.json")
+        if not os.path.exists(json_path):
+            continue
+        with open(json_path, "r", encoding="utf-8") as f:
+            dt_def = json.load(f)
+
+        existing_by_role = {r["role"]: r["name"] for r in custom_rows}
+        for p in dt_def.get("permissions", []):
+            if p.get("permlevel", 0) != 0:
+                continue
+            role = p.get("role")
+            if not role or not frappe.db.exists("Role", role):
+                continue
+            values = {k: int(p.get(k, 0) or 0) for k in perm_flags}
+            if role in existing_by_role:
+                frappe.db.set_value("Custom DocPerm", existing_by_role[role], values, update_modified=False)
+            else:
+                cdoc = frappe.get_doc({
+                    "doctype": "Custom DocPerm",
+                    "parent": dt_name,
+                    "parenttype": "DocType",
+                    "parentfield": "permissions",
+                    "permlevel": 0,
+                    "role": role,
+                    **values,
+                })
+                cdoc.insert(ignore_permissions=True)
+
+
 def after_install():
     """Hook executed after app is installed on a site."""
     setup_roles()
     reload_doctype_permissions()
+    sync_event_and_vendor_custom_docperms()
     ensure_ap_permission_rules()
     setup_reports()
     setup_workspaces()
@@ -368,6 +426,7 @@ def after_migrate():
     setup_roles()
     setup_custom_fields()
     reload_doctype_permissions()
+    sync_event_and_vendor_custom_docperms()
     reset_stale_ap_grid_user_settings()
     ensure_ap_permission_rules()
     setup_reports()
