@@ -38,9 +38,11 @@
   {
    "fieldname": "department",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Department",
    "options": "Department",
-   "read_only": 1
+   "read_only": 1,
+   "columns": 2
   },
   {
    "fieldname": "branch_location",
@@ -100,7 +102,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-09-29 15:55:00.000000",
+ "modified": "2026-11-10 13:20:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Employee Reimbursement Participant",

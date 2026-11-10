@@ -7,8 +7,8 @@
  "engine": "InnoDB",
  "field_order": [
   "visit_date",
-  "client_code",
   "client_name",
+  "client_code",
   "client_phone",
   "purpose",
   "cb_leg_route",
@@ -35,12 +35,6 @@
    "columns": 1
   },
   {
-   "fieldname": "client_code",
-   "fieldtype": "Data",
-   "in_list_view": 0,
-   "label": "Client / Lead ID"
-  },
-  {
    "fieldname": "client_name",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -49,10 +43,18 @@
    "columns": 2
   },
   {
+   "fieldname": "client_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Client / Lead ID",
+   "columns": 1
+  },
+  {
    "fieldname": "client_phone",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Contact Phone",
-   "in_list_view": 0
+   "columns": 2
   },
   {
    "fieldname": "purpose",
@@ -161,7 +163,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-09-23 16:00:00.000000",
+ "modified": "2026-11-10 13:20:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Employee Client Visit Leg",

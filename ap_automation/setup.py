@@ -225,8 +225,21 @@ def reload_doctype_permissions():
         "pre_travel_client_visit",
         "employee_client_visit_leg",
         "employee_reimbursement_claim",
+        "employee_reimbursement_line",
+        "employee_reimbursement_participant",
         "vendor_invoice_claim",
+        "admin_weekly_vendor_claim",
+        "admin_vendor_claim_item",
+        "event_expense_claim",
+        "event_expense_item",
+        "ap_purchase_order",
+        "ap_po_item",
         "payment_batch",
+        "payment_batch_item",
+        "weekly_vendor_payment_batch",
+        "weekly_vendor_payment_item",
+        "weekly_accounts_audit_batch",
+        "weekly_accounts_audit_item",
         "payment_instruction"
     ]
     for dt in doctypes_to_reload:
@@ -291,11 +304,71 @@ def setup_custom_fields():
     }, update=True)
 
 
+def reset_stale_ap_grid_user_settings():
+    """Clear pre-upgrade GridView user settings on AP child tables so updated default columns appear automatically."""
+    import json
+    from frappe.model.utils.user_settings import sync_user_settings
+
+    try:
+        sync_user_settings()
+    except Exception:
+        pass
+
+    required_cols = {
+        "Employee Client Visit Leg": {"client_code", "client_phone"},
+        "Employee Reimbursement Participant": {"department"},
+        "Employee Reimbursement Line": {"is_b2b", "is_disputed", "dispute_reason"},
+        "Petty Cash Line Item": {"line_decision", "merchant_gstin", "remarks", "custom_ledger_name"},
+        "Pre Travel Client Visit": {"client_code", "client_phone"},
+        "Event Expense Item": {"line_status", "tax_id"},
+        "AP PO Item": {"description", "discount_amount"},
+        "Payment Batch Item": {"account_number", "ifsc_code"},
+        "Weekly Vendor Payment Item": {"invoice_date", "base_amount"},
+    }
+    parent_doctypes = (
+        "Employee Reimbursement Claim",
+        "Petty Cash Entry",
+        "Pre Travel Request",
+        "Event Expense Claim",
+        "AP Purchase Order",
+        "Payment Batch",
+        "Weekly Vendor Payment Batch",
+    )
+    rows = frappe.db.sql(
+        """SELECT user, doctype, data FROM `__UserSettings` WHERE doctype IN %s""",
+        (parent_doctypes,),
+        as_dict=True,
+    )
+    for r in rows:
+        try:
+            data = json.loads(r.data or "{}")
+        except Exception:
+            continue
+        gv = data.get("GridView")
+        if not isinstance(gv, dict):
+            continue
+        changed = False
+        for child_dt, req_fields in required_cols.items():
+            cols = gv.get(child_dt)
+            if isinstance(cols, list):
+                existing = {c.get("fieldname") for c in cols if isinstance(c, dict)}
+                if not req_fields.issubset(existing):
+                    del gv[child_dt]
+                    changed = True
+        if changed:
+            frappe.db.sql(
+                """UPDATE `__UserSettings` SET data=%s WHERE user=%s AND doctype=%s""",
+                (json.dumps(data), r.user, r.doctype),
+            )
+            frappe.cache.hdel("_user_settings", f"{r.doctype}::{r.user}")
+
+
 def after_migrate():
     """Hook executed after bench migrate runs on a site."""
     setup_roles()
     setup_custom_fields()
     reload_doctype_permissions()
+    reset_stale_ap_grid_user_settings()
     ensure_ap_permission_rules()
     setup_reports()
     setup_workspaces()

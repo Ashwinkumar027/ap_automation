@@ -31,7 +31,7 @@
    "columns": 2,
    "fieldname": "description",
    "fieldtype": "Small Text",
-   "in_list_view": 0,
+   "in_list_view": 1,
    "label": "Description / Scope of Work"
   },
   {
@@ -73,7 +73,7 @@
    "default": "0",
    "fieldname": "discount_amount",
    "fieldtype": "Currency",
-   "in_list_view": 0,
+   "in_list_view": 1,
    "label": "Discount (₹)"
   },
   {
@@ -114,7 +114,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-10-06 22:30:00.000000",
+ "modified": "2026-11-10 13:20:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "AP PO Item",
