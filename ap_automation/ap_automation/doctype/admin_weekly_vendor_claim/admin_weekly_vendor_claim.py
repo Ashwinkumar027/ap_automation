@@ -145,7 +145,10 @@ class AdminWeeklyVendorClaim(Document):
                 row.bank_account_number = bank_info.get("bank_account_no") or ""
                 row.bank_ifsc_code = bank_info.get("ifsc_code") or ""
                 row.penny_drop_status = bank_info.get("penny_drop_status") or "UNVERIFIED"
-                row.bank_proof_attachment = bank_info.get("bank_proof_attachment") or ""
+                # Auto-fill from Bank Master only if available; preserve manual attachment uploaded on the row
+                fetched_proof = bank_info.get("bank_proof_attachment") or ""
+                if fetched_proof or not getattr(row, "bank_proof_attachment", None):
+                    row.bank_proof_attachment = fetched_proof or getattr(row, "bank_proof_attachment", "") or ""
 
                 if is_submitting and bank_info.get("penny_drop_status") == "LOCKED_PENNY_DROP_MISMATCH":
                     frappe.throw(
@@ -261,13 +264,23 @@ class AdminWeeklyVendorClaim(Document):
             as_dict=True
         )
         if accs:
+            bp_url = accs[0].get("bank_proof_attachment") or ""
+            if not bp_url:
+                bp_url = frappe.db.get_value(
+                    "File",
+                    {"attached_to_doctype": "Bank Account", "attached_to_name": accs[0].name},
+                    "file_url",
+                    order_by="creation desc"
+                ) or ""
+            if not bp_url and frappe.db.has_column("Supplier", "bank_proof_attachment"):
+                bp_url = frappe.db.get_value("Supplier", supplier_id, "bank_proof_attachment") or ""
             return {
                 "bank_name": accs[0].bank or "",
                 "bank_account_no": accs[0].bank_account_no or "",
                 "ifsc_code": accs[0].branch_code or "",
                 "penny_drop_status": accs[0].get("penny_drop_status") or "VERIFIED",
                 "bank_beneficiary_name": accs[0].account_name or "",
-                "bank_proof_attachment": accs[0].get("bank_proof_attachment") or ""
+                "bank_proof_attachment": bp_url
             }
         return None
 

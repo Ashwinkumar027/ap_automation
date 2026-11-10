@@ -114,7 +114,7 @@
    "fieldname": "total_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Grand Total Net Pay (\u00e2\u201a\u00b9)",
+   "label": "Grand Total Net Pay (\u20b9)",
    "read_only": 1
   },
   {
