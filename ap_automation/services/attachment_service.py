@@ -9,11 +9,13 @@ Provides permission-safe streaming of both Public and Private files directly
 to the AP Proof & Receipt Gallery.
 """
 
+import json
 import os
 import io
 import mimetypes
+import urllib.parse
 import zipfile
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional
 from urllib.parse import quote, unquote
 
 import frappe
@@ -21,12 +23,153 @@ from frappe import _
 from ap_automation.exceptions import APValidationError, APSecurityError
 
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
+
+BATCH_AUDIT_ROLES = {
+    "Accounts L1 Auditor",
+    "Accounts Director",
+    "AP Director",
+    "Accounts Manager",
+    "Admin L1 Approver",
+    "Admin L2 Approver",
+    "Admin Manager",
+    "Receptionist",
+    "Payment Releaser",
+    "System Manager",
+}
+
+
 def _check_document_permission(doctype: str, docname: str, ptype: str = "read") -> None:
-    """Verifies user has permission on the parent AP document."""
-    if not frappe.has_permission(doctype, ptype=ptype, doc=docname):
-        raise APSecurityError(
-            f"Access Denied: You do not possess '{ptype}' permission on {doctype} #{docname}."
+    """Verifies user has permission on the parent AP document or an enclosing audit batch."""
+    if not doctype or not docname:
+        return
+    if frappe.has_permission(doctype, ptype=ptype, doc=docname):
+        return
+
+    user = frappe.session.user
+    user_roles = set(frappe.get_roles(user)) if user else set()
+    if ptype == "read" and (user == "Administrator" or user_roles.intersection(BATCH_AUDIT_ROLES)):
+        if frappe.db.exists("Weekly Accounts Audit Item", {"voucher_no": docname}):
+            return
+
+    raise APSecurityError(
+        f"Access Denied: You do not possess '{ptype}' permission on {doctype} #{docname}."
+    )
+
+
+def _unpack_raw_file_url(file_url: str) -> str:
+    """Unpacks nested view_receipt_file?file_url=... query URLs cleanly."""
+    clean = unquote((file_url or "").strip())
+    if "file_url=" in clean:
+        parsed = urllib.parse.parse_qs(urllib.parse.urlparse(clean).query)
+        if parsed.get("file_url"):
+            clean = unquote(parsed["file_url"][0].strip())
+    return clean.split("?")[0]
+
+
+def _resolve_physical_file_path(raw_url: str) -> Optional[str]:
+    """Resolves public or private Frappe File path safely within the current site directory."""
+    if not raw_url:
+        return None
+
+    clean_url = _unpack_raw_file_url(raw_url)
+    site_path = os.path.normpath(frappe.get_site_path())
+    file_name = os.path.basename(clean_url)
+    rel_clean = clean_url.lstrip("/")
+
+    candidates = []
+    if clean_url.startswith("/private/files/"):
+        candidates.append(os.path.join(site_path, rel_clean))
+    elif clean_url.startswith("/files/"):
+        candidates.append(os.path.join(site_path, "public", rel_clean))
+    else:
+        candidates.append(os.path.join(site_path, rel_clean))
+
+    candidates.extend([
+        os.path.join(site_path, "public", "files", file_name),
+        os.path.join(site_path, "private", "files", file_name),
+    ])
+
+    for cand in candidates:
+        norm = os.path.normpath(cand)
+        if norm.startswith(site_path) and os.path.exists(norm) and os.path.isfile(norm):
+            return norm
+
+    # Fallback lookup via tabFile for moved or subfolder-stored files
+    file_doc = (
+        frappe.db.get_value("File", {"file_url": clean_url}, ["file_url", "is_private"], as_dict=True)
+        or frappe.db.get_value("File", {"file_url": ["like", f"%{file_name}"]}, ["file_url", "is_private"], as_dict=True)
+    )
+    if file_doc and file_doc.get("file_url"):
+        stored_url = file_doc["file_url"].lstrip("/")
+        sub_path = (
+            os.path.join(site_path, stored_url)
+            if stored_url.startswith("private/")
+            else os.path.join(site_path, "public", stored_url)
         )
+        folder = "private/files" if file_doc.get("is_private") else "public/files"
+        base_path = os.path.join(site_path, folder, os.path.basename(stored_url))
+        for p in (sub_path, base_path):
+            norm = os.path.normpath(p)
+            if norm.startswith(site_path) and os.path.exists(norm) and os.path.isfile(norm):
+                return norm
+
+    return None
+
+
+def _build_attachment_entry(
+    *,
+    doctype: str,
+    docname: str,
+    doc: Any,
+    source: str,
+    proof_type: str,
+    proof_label: str,
+    row_idx: Optional[int],
+    merchant: str,
+    vendor: str,
+    category: str,
+    expense_head: str,
+    custom_ledger_name: str,
+    description: str,
+    amount: float,
+    date_val: str,
+    bill_no: str,
+    file_url: str,
+) -> Dict[str, Any]:
+    """Builds a normalized attachment dictionary matching APReceiptGallery expectations."""
+    clean_url = file_url.strip()
+    file_name = clean_url.split("/")[-1].split("?")[0]
+    ext = os.path.splitext(file_name)[1].lower()
+    view_url = (
+        f"/api/method/ap_automation.services.attachment_service.view_receipt_file"
+        f"?file_url={quote(clean_url)}&doctype={quote(doctype)}&docname={quote(docname)}"
+    )
+    return {
+        "source": source,
+        "claim_name": docname,
+        "proof_type": proof_type,
+        "proof_label": proof_label,
+        "row_idx": row_idx,
+        "merchant": merchant or "Expense Item",
+        "vendor": vendor or "",
+        "vendor_name": vendor or "",
+        "expense_head": expense_head or "",
+        "custom_ledger_name": custom_ledger_name or "",
+        "category": category or "Expense Line",
+        "description": description or "",
+        "amount": float(amount or 0.0),
+        "date": str(date_val or ""),
+        "bill_no": str(bill_no or ""),
+        "jv_number": getattr(doc, "jv_number", None) or "",
+        "jv_date": str(getattr(doc, "jv_date", "") or ""),
+        "file_url": clean_url,
+        "view_url": view_url,
+        "file_name": file_name,
+        "is_image": ext in IMAGE_EXTENSIONS,
+        "is_pdf": ext == ".pdf",
+        "extension": ext,
+    }
 
 
 def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]]:
@@ -43,173 +186,130 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
     # 1. Scan Main Expense Lines (Petty Cash & Employee Reimbursements)
     if hasattr(doc, "expense_lines") and doc.expense_lines:
         for row in doc.expense_lines:
-            file_url = (
-                getattr(row, "receipt_attachment", None)
-                or getattr(row, "attach_receipt", None)
-                or getattr(row, "attachment", None)
+            r_idx = getattr(row, "idx", len(attachments) + 1)
+            m_title = (
+                getattr(row, "merchant_name", None)
+                or getattr(row, "merchant", None)
+                or getattr(row, "supplier_name", None)
+                or getattr(row, "supplier", None)
+                or "Expense Item"
             )
-            if file_url and isinstance(file_url, str) and file_url.strip():
-                file_url = file_url.strip()
-                file_name = file_url.split("/")[-1]
-                ext = os.path.splitext(file_name)[1].lower()
+            r_vendor = getattr(row, "vendor_name", None) or getattr(row, "vendor", None) or m_title
+            r_head = getattr(row, "expense_head", None) or getattr(row, "head_of_expense", None) or ""
+            r_custom_head = getattr(row, "custom_ledger_name", None) or ""
+            r_cat = (
+                getattr(row, "expense_type", None)
+                or getattr(row, "expense_category", None)
+                or getattr(row, "vendor_category", None)
+                or getattr(row, "category", None)
+                or "Expense Line"
+            )
+            r_desc = (
+                getattr(row, "description", None)
+                or getattr(row, "remarks", None)
+                or getattr(row, "particulars", None)
+                or ""
+            )
+            r_amt = float(getattr(row, "amount", 0.0) or 0.0)
+            r_date = str(getattr(row, "expense_date", "") or doc.get("posting_date", ""))
+            r_bill = (
+                getattr(row, "invoice_number", None)
+                or getattr(row, "bill_number", None)
+                or getattr(row, "bill_no", None)
+                or getattr(row, "bill_ref", "")
+            )
 
-                view_url = f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(file_url)}&doctype={doctype}&docname={docname}"
-
-                attachments.append({
-                    "source": "row",
-                    "row_idx": getattr(row, "idx", len(attachments) + 1),
-                    "merchant": (
-                        getattr(row, "merchant_name", None)
-                        or getattr(row, "merchant", None)
-                        or getattr(row, "supplier_name", None)
-                        or getattr(row, "supplier", None)
-                        or "Expense Item"
-                    ),
-                    "category": (
-                        getattr(row, "expense_head", None)
-                        or getattr(row, "expense_type", None)
-                        or getattr(row, "expense_category", None)
-                        or getattr(row, "vendor_category", None)
-                        or getattr(row, "category", None)
-                        or "Expense Line"
-                    ),
-                    "amount": float(getattr(row, "amount", 0.0) or 0.0),
-                    "date": str(getattr(row, "expense_date", "") or doc.get("posting_date", "")),
-                    "bill_no": (
-                        getattr(row, "invoice_number", None)
-                        or getattr(row, "bill_number", None)
-                        or getattr(row, "bill_no", None)
-                        or getattr(row, "bill_ref", "")
-                    ),
-                    "file_url": file_url,
-                    "view_url": view_url,
-                    "file_name": file_name,
-                    "is_image": ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
-                    "is_pdf": ext == ".pdf",
-                    "extension": ext
-                })
-
-            # 1b. In-row Payment Proof (Google Pay / PhonePe / Card Slip)
-            pay_url = getattr(row, "payment_proof_attachment", None)
-            if pay_url and isinstance(pay_url, str) and pay_url.strip():
-                pay_url = pay_url.strip()
-                pay_name = pay_url.split("/")[-1]
-                p_ext = os.path.splitext(pay_name)[1].lower()
-                m_title = (
-                    getattr(row, "merchant_name", None)
-                    or getattr(row, "merchant", None)
-                    or getattr(row, "supplier_name", None)
-                    or getattr(row, "supplier", None)
-                    or "Expense Item"
-                )
-                attachments.append({
-                    "source": "row",
-                    "row_idx": getattr(row, "idx", len(attachments) + 1),
-                    "merchant": f"Payment Proof (GPay/UPI) — {m_title}",
-                    "category": "Payment Confirmation (GPay/UPI)",
-                    "amount": float(getattr(row, "amount", 0.0) or 0.0),
-                    "date": str(getattr(row, "expense_date", "") or doc.get("posting_date", "")),
-                    "bill_no": getattr(row, "invoice_number", "") or "",
-                    "file_url": pay_url,
-                    "view_url": f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(pay_url)}&doctype={doctype}&docname={docname}",
-                    "file_name": pay_name,
-                    "is_image": p_ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
-                    "is_pdf": p_ext == ".pdf",
-                    "extension": p_ext
-                })
-
-            # 1c. In-row Additional Bill / Proof
-            add_url = getattr(row, "additional_proof_attachment", None)
-            if add_url and isinstance(add_url, str) and add_url.strip():
-                add_url = add_url.strip()
-                add_name = add_url.split("/")[-1]
-                a_ext = os.path.splitext(add_name)[1].lower()
-                m_title = (
-                    getattr(row, "merchant_name", None)
-                    or getattr(row, "merchant", None)
-                    or getattr(row, "supplier_name", None)
-                    or getattr(row, "supplier", None)
-                    or "Expense Item"
-                )
-                attachments.append({
-                    "source": "row",
-                    "row_idx": getattr(row, "idx", len(attachments) + 1),
-                    "merchant": f"Supporting Proof — {m_title}",
-                    "category": "Additional Supporting Proof",
-                    "amount": float(getattr(row, "amount", 0.0) or 0.0),
-                    "date": str(getattr(row, "expense_date", "") or doc.get("posting_date", "")),
-                    "bill_no": getattr(row, "invoice_number", "") or "",
-                    "file_url": add_url,
-                    "view_url": f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(add_url)}&doctype={doctype}&docname={docname}",
-                    "file_name": add_name,
-                    "is_image": a_ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
-                    "is_pdf": a_ext == ".pdf",
-                    "extension": a_ext
-                })
+            proof_slots = [
+                (
+                    getattr(row, "receipt_attachment", None)
+                    or getattr(row, "attach_receipt", None)
+                    or getattr(row, "attachment", None),
+                    "bill",
+                    "🧾 1. Tax Invoice / Bill",
+                    m_title,
+                    r_cat,
+                ),
+                (
+                    getattr(row, "payment_proof_attachment", None),
+                    "payment",
+                    "💳 2. Payment Proof (GPay/UPI)",
+                    f"Payment Proof (GPay/UPI) — {m_title}",
+                    "Payment Confirmation (GPay/UPI)",
+                ),
+                (
+                    getattr(row, "additional_proof_attachment", None),
+                    "extra",
+                    "📎 3. Additional Proof",
+                    f"Supporting Proof — {m_title}",
+                    "Additional Supporting Proof",
+                ),
+            ]
+            for f_url, p_type, p_label, p_merch, p_cat in proof_slots:
+                if f_url and isinstance(f_url, str) and f_url.strip():
+                    attachments.append(_build_attachment_entry(
+                        doctype=doctype, docname=docname, doc=doc, source="row",
+                        proof_type=p_type, proof_label=p_label, row_idx=r_idx,
+                        merchant=p_merch, vendor=r_vendor, category=p_cat,
+                        expense_head=r_head, custom_ledger_name=r_custom_head,
+                        description=r_desc, amount=r_amt, date_val=r_date,
+                        bill_no=r_bill, file_url=f_url,
+                    ))
 
     # 2. Scan Multi-Leg Client Travel Table (legs or client_visit_legs)
     legs_rows = getattr(doc, "client_visit_legs", None) or getattr(doc, "legs", None) or []
-    if legs_rows:
-        for leg in legs_rows:
-            file_url = getattr(leg, "receipt_attachment", None) or getattr(leg, "toll_parking_receipt", None) or getattr(leg, "odometer_proof", None)
-            if file_url and isinstance(file_url, str) and file_url.strip():
-                file_url = file_url.strip()
-                file_name = file_url.split("/")[-1]
-                ext = os.path.splitext(file_name)[1].lower()
+    for leg in legs_rows:
+        l_idx = getattr(leg, "idx", len(attachments) + 1)
+        client_label = getattr(leg, "client_name", None) or "Client Visit"
+        travel_mode = getattr(leg, "mode_of_travel", None) or "Travel"
+        travel_desc = f"{client_label} ({travel_mode})"
+        route_cat = f"Travel: {getattr(leg, 'from_location', '')} → {getattr(leg, 'to_location', '')}"
+        l_amt = float(getattr(leg, "leg_amount", 0.0) or 0.0) + float(getattr(leg, "toll_parking_amount", 0.0) or 0.0)
+        l_date = str(getattr(leg, "visit_date", "") or getattr(leg, "travel_date", "") or doc.get("posting_date", ""))
+        l_desc = getattr(leg, "purpose", None) or getattr(leg, "purpose_of_visit", None) or getattr(leg, "description", None) or ""
+        l_head = getattr(leg, "expense_head", None) or "TRAVEL EXPENSES"
 
-                view_url = f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(file_url)}&doctype={doctype}&docname={docname}"
-                travel_desc = f"{getattr(leg, 'client_name', 'Client Visit')} ({getattr(leg, 'mode_of_travel', 'Travel')})"
-                attachments.append({
-                    "source": "row",
-                    "row_idx": getattr(leg, "idx", len(attachments) + 1),
-                    "merchant": travel_desc,
-                    "category": f"Travel: {getattr(leg, 'from_location', '')} → {getattr(leg, 'to_location', '')}",
-                    "amount": float(getattr(leg, "leg_amount", 0.0) or 0.0) + float(getattr(leg, "toll_parking_amount", 0.0) or 0.0),
-                    "date": str(getattr(leg, "visit_date", "") or getattr(leg, "travel_date", "") or doc.get("posting_date", "")),
-                    "bill_no": str(getattr(leg, "idx", "")),
-                    "file_url": file_url,
-                    "view_url": view_url,
-                    "file_name": file_name,
-                    "is_image": ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
-                    "is_pdf": ext == ".pdf",
-                    "extension": ext
-                })
+        leg_slots = [
+            (
+                getattr(leg, "receipt_attachment", None)
+                or getattr(leg, "toll_parking_receipt", None)
+                or getattr(leg, "odometer_proof", None),
+                "bill",
+                "🧾 1. Travel Ticket / Bill",
+                travel_desc,
+                route_cat,
+            ),
+            (
+                getattr(leg, "payment_proof_attachment", None),
+                "payment",
+                "💳 2. Payment Proof (GPay/UPI)",
+                f"Payment Proof (GPay/UPI) — {travel_desc}",
+                "Payment Confirmation (GPay/UPI)",
+            ),
+            (
+                getattr(leg, "additional_proof_attachment", None),
+                "extra",
+                "📎 3. Additional Travel Proof",
+                f"Additional Travel Proof — {travel_desc}",
+                "Additional Supporting Proof",
+            ),
+        ]
+        for f_url, p_type, p_label, p_merch, p_cat in leg_slots:
+            if f_url and isinstance(f_url, str) and f_url.strip():
+                attachments.append(_build_attachment_entry(
+                    doctype=doctype, docname=docname, doc=doc, source="row",
+                    proof_type=p_type, proof_label=p_label, row_idx=l_idx,
+                    merchant=p_merch, vendor=client_label, category=p_cat,
+                    expense_head=l_head, custom_ledger_name="",
+                    description=l_desc, amount=l_amt, date_val=l_date,
+                    bill_no=str(l_idx), file_url=f_url,
+                ))
 
-            # Leg Payment Proof / GPay
-            leg_pay = getattr(leg, "payment_proof_attachment", None)
-            if leg_pay and isinstance(leg_pay, str) and leg_pay.strip():
-                leg_pay = leg_pay.strip()
-                p_name = leg_pay.split("/")[-1]
-                p_ext = os.path.splitext(p_name)[1].lower()
-                travel_desc = f"{getattr(leg, 'client_name', 'Client Visit')} ({getattr(leg, 'mode_of_travel', 'Travel')})"
-                attachments.append({
-                    "source": "row",
-                    "row_idx": getattr(leg, "idx", len(attachments) + 1),
-                    "merchant": f"Payment Proof (GPay/UPI) — {travel_desc}",
-                    "category": "Payment Confirmation (GPay/UPI)",
-                    "amount": float(getattr(leg, "leg_amount", 0.0) or 0.0) + float(getattr(leg, "toll_parking_amount", 0.0) or 0.0),
-                    "date": str(getattr(leg, "visit_date", "") or getattr(leg, "travel_date", "") or doc.get("posting_date", "")),
-                    "bill_no": str(getattr(leg, "idx", "")),
-                    "file_url": leg_pay,
-                    "view_url": f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(leg_pay)}&doctype={doctype}&docname={docname}",
-                    "file_name": p_name,
-                    "is_image": p_ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
-                    "is_pdf": p_ext == ".pdf",
-                    "extension": p_ext
-                })
-
-    # 3. Scan Generic other child tables (e.g. lines, items, instructions, vendor_lines, expense_items, imprest_items)
+    # 3. Scan Generic other child tables
     other_child_tables = ["lines", "items", "instructions", "vendor_lines", "expense_items", "imprest_items"]
     for table_field in other_child_tables:
         rows = getattr(doc, table_field, []) or []
         for row in rows:
-            file_url = (
-                getattr(row, "receipt_attachment", None)
-                or getattr(row, "attach_receipt", None)
-                or getattr(row, "attachment", None)
-                or getattr(row, "quote_attachment", None)
-                or getattr(row, "tax_invoice_attachment", None)
-            )
+            r_idx = getattr(row, "idx", len(attachments) + 1)
             raw_v = (
                 getattr(row, "vendor_name", None)
                 or getattr(row, "beneficiary_name", None)
@@ -218,94 +318,85 @@ def get_all_claim_attachments(doctype: str, docname: str) -> List[Dict[str, Any]
                 or getattr(row, "merchant", None)
                 or getattr(row, "particulars", "")
             )
-            if file_url and isinstance(file_url, str) and file_url.strip():
-                file_url = file_url.strip()
-                file_name = file_url.split("/")[-1]
-                ext = os.path.splitext(file_name)[1].lower()
+            r_head = getattr(row, "expense_head", None) or ""
+            r_cat = getattr(row, "category", "") or getattr(row, "vendor_category", "") or getattr(row, "expense_type", "Expense Line")
+            r_desc = getattr(row, "description", None) or getattr(row, "remarks", None) or getattr(row, "particulars", "")
+            r_amt = float(getattr(row, "amount", 0.0) or getattr(row, "total_invoice_amount", 0.0) or getattr(row, "base_amount", 0.0) or 0.0)
+            r_date = str(getattr(row, "invoice_date", "") or getattr(row, "expense_date", "") or getattr(row, "bill_date", "") or doc.get("posting_date", ""))
+            r_bill = getattr(row, "invoice_number", "") or getattr(row, "bill_number", "")
 
-                view_url = f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(file_url)}&doctype={doctype}&docname={docname}"
-
-                attachments.append({
-                    "source": "row",
-                    "row_idx": getattr(row, "idx", len(attachments) + 1),
-                    "merchant": raw_v or getattr(row, "particulars", "Expense Item"),
-                    "vendor": raw_v,
-                    "vendor_name": raw_v,
-                    "category": getattr(row, "category", "") or getattr(row, "vendor_category", "") or getattr(row, "expense_type", "Expense Line"),
-                    "amount": float(getattr(row, "amount", 0.0) or getattr(row, "total_invoice_amount", 0.0) or getattr(row, "base_amount", 0.0) or 0.0),
-                    "date": str(getattr(row, "invoice_date", "") or getattr(row, "expense_date", "") or getattr(row, "bill_date", "") or doc.get("posting_date", "")),
-                    "bill_no": getattr(row, "invoice_number", "") or getattr(row, "bill_number", ""),
-                    "file_url": file_url,
-                    "view_url": view_url,
-                    "file_name": file_name,
-                    "is_image": ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
-                    "is_pdf": ext == ".pdf",
-                    "extension": ext
-                })
-
-            # Check if row has Bank Proof attachment
-            row_bp = getattr(row, "bank_proof_attachment", None)
-            if row_bp and isinstance(row_bp, str) and row_bp.strip():
-                bp_url = row_bp.strip()
-                bp_name = bp_url.split("/")[-1]
-                bp_ext = os.path.splitext(bp_name)[1].lower()
-                attachments.append({
-                    "source": "row",
-                    "row_idx": getattr(row, "idx", len(attachments) + 1),
-                    "merchant": f"Bank Cheque Proof — {raw_v or 'Vendor'}",
-                    "vendor": raw_v,
-                    "vendor_name": raw_v,
-                    "category": "Bank Account Proof (Cancelled Cheque)",
-                    "amount": float(getattr(row, "amount", 0.0) or getattr(row, "total_invoice_amount", 0.0) or 0.0),
-                    "date": str(getattr(row, "invoice_date", "") or doc.get("posting_date", "")),
-                    "bill_no": getattr(row, "invoice_number", ""),
-                    "file_url": bp_url,
-                    "view_url": f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(bp_url)}&doctype={doctype}&docname={docname}",
-                    "file_name": bp_name,
-                    "is_image": bp_ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
-                    "is_pdf": bp_ext == ".pdf",
-                    "extension": bp_ext
-                })
+            generic_slots = [
+                (
+                    getattr(row, "receipt_attachment", None)
+                    or getattr(row, "attach_receipt", None)
+                    or getattr(row, "attachment", None)
+                    or getattr(row, "quote_attachment", None)
+                    or getattr(row, "tax_invoice_attachment", None),
+                    "bill",
+                    "🧾 1. Tax Invoice / Bill",
+                    raw_v or getattr(row, "particulars", "Expense Item"),
+                    r_cat,
+                ),
+                (
+                    getattr(row, "payment_proof_attachment", None),
+                    "payment",
+                    "💳 2. Payment Proof (GPay/UPI)",
+                    f"Payment Proof — {raw_v or 'Vendor'}",
+                    "Payment Confirmation (GPay/UPI)",
+                ),
+                (
+                    getattr(row, "additional_proof_attachment", None),
+                    "extra",
+                    "📎 3. Additional Proof",
+                    f"Supporting Proof — {raw_v or 'Vendor'}",
+                    "Additional Supporting Proof",
+                ),
+                (
+                    getattr(row, "bank_proof_attachment", None),
+                    "extra",
+                    "🏦 Bank Cheque Proof",
+                    f"Bank Cheque Proof — {raw_v or 'Vendor'}",
+                    "Bank Account Proof (Cancelled Cheque)",
+                ),
+            ]
+            for f_url, p_type, p_label, p_merch, p_cat in generic_slots:
+                if f_url and isinstance(f_url, str) and f_url.strip():
+                    attachments.append(_build_attachment_entry(
+                        doctype=doctype, docname=docname, doc=doc, source="row",
+                        proof_type=p_type, proof_label=p_label, row_idx=r_idx,
+                        merchant=p_merch, vendor=raw_v, category=p_cat,
+                        expense_head=r_head, custom_ledger_name="",
+                        description=r_desc, amount=r_amt, date_val=r_date,
+                        bill_no=r_bill, file_url=f_url,
+                    ))
 
     # 4. Scan Parent-Level Direct Attachment Fields
     parent_vendor = getattr(doc, "vendor_name", None) or getattr(doc, "supplier_name", None) or getattr(doc, "vendor", None) or getattr(doc, "supplier", "")
     parent_fields = [
-        ("activity_photo", "📸 Team Activity Photo Proof", "Team Engagement & Recreation"),
-        ("pre_approval_attachment", "📋 Pre-Approval Authorization Screenshot", "Audit Proof Document"),
-        ("tax_invoice_attachment", f"Vendor Tax Invoice — {parent_vendor}" if parent_vendor else "Vendor Tax Invoice", "Audit Proof Document"),
-        ("email_approval_attachment", "Manager Email Approval", "Audit Proof Document"),
-        ("bank_proof_attachment", f"Bank Cheque Proof — {parent_vendor}" if parent_vendor else "Bank Account Proof (Cancelled Cheque / Passbook)", "Bank Details Verification"),
-        ("grn_attachment", "Goods Receipt Note / Delivery Proof", "Audit Proof Document"),
-        ("advance_receipt_attachment", "Advance Payment Proof", "Audit Proof Document"),
-        ("settlement_statement", "Event Settlement Statement", "Audit Proof Document")
+        ("activity_photo", "📸 Team Activity Photo Proof", "Team Engagement & Recreation", "bill"),
+        ("pre_approval_attachment", "📋 Pre-Approval Authorization Screenshot", "Audit Proof Document", "extra"),
+        ("tax_invoice_attachment", f"Vendor Tax Invoice — {parent_vendor}" if parent_vendor else "Vendor Tax Invoice", "Audit Proof Document", "bill"),
+        ("email_approval_attachment", "Manager Email Approval", "Audit Proof Document", "payment"),
+        ("bank_proof_attachment", f"Bank Cheque Proof — {parent_vendor}" if parent_vendor else "Bank Account Proof (Cancelled Cheque / Passbook)", "Bank Details Verification", "extra"),
+        ("grn_attachment", "Goods Receipt Note / Delivery Proof", "Audit Proof Document", "extra"),
+        ("advance_receipt_attachment", "Advance Payment Proof", "Audit Proof Document", "payment"),
+        ("settlement_statement", "Event Settlement Statement", "Audit Proof Document", "extra"),
     ]
 
-    for fieldname, label, cat_label in parent_fields:
+    p_amt = float(getattr(doc, "total_claim_amount", 0.0) or getattr(doc, "total_amount", 0.0) or getattr(doc, "total_invoice_amount", 0.0) or getattr(doc, "grand_total", 0.0) or 0.0)
+    p_date = str(doc.get("posting_date", "") or doc.get("activity_date", "") or doc.get("invoice_date", ""))
+
+    for fieldname, label, cat_label, p_type in parent_fields:
         file_url = getattr(doc, fieldname, None)
         if file_url and isinstance(file_url, str) and file_url.strip():
-            file_url = file_url.strip()
-            file_name = file_url.split("/")[-1]
-            ext = os.path.splitext(file_name)[1].lower()
-
-            view_url = f"/api/method/ap_automation.services.attachment_service.view_receipt_file?file_url={quote(file_url)}&doctype={doctype}&docname={docname}"
-
-            attachments.append({
-                "source": "parent",
-                "row_idx": None,
-                "merchant": label,
-                "vendor": parent_vendor,
-                "vendor_name": parent_vendor,
-                "category": cat_label,
-                "amount": float(getattr(doc, "total_claim_amount", 0.0) or getattr(doc, "total_amount", 0.0) or getattr(doc, "total_invoice_amount", 0.0) or getattr(doc, "grand_total", 0.0) or 0.0),
-                "date": str(doc.get("posting_date", "") or doc.get("activity_date", "") or doc.get("invoice_date", "")),
-                "bill_no": str(doc.get("name", "")),
-                "file_url": file_url,
-                "view_url": view_url,
-                "file_name": file_name,
-                "is_image": ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"],
-                "is_pdf": ext == ".pdf",
-                "extension": ext
-            })
+            attachments.append(_build_attachment_entry(
+                doctype=doctype, docname=docname, doc=doc, source="parent",
+                proof_type=p_type, proof_label=label, row_idx=None,
+                merchant=label, vendor=parent_vendor, category=cat_label,
+                expense_head="", custom_ledger_name="",
+                description="", amount=p_amt, date_val=p_date,
+                bill_no=str(doc.get("name", "")), file_url=file_url,
+            ))
 
     return attachments
 
@@ -321,9 +412,7 @@ def _generate_missing_file_svg(file_name: str) -> bytes:
         <text x="300" y="215" font-size="18" font-weight="700" fill="#f87171" text-anchor="middle">Receipt File Missing on Disk</text>
         <rect x="80" y="235" width="440" height="34" rx="6" fill="#0f172a" stroke="#334155"/>
         <text x="300" y="258" font-size="13" font-family="monospace" font-weight="600" fill="#38bdf8" text-anchor="middle">{clean_fn}</text>
-        <text x="300" y="300" font-size="12" fill="#94a3b8" text-anchor="middle">This receipt attachment URL was referenced on the voucher line,</text>
-        <text x="300" y="320" font-size="12" fill="#94a3b8" text-anchor="middle">but the physical file is not present in server storage.</text>
-        <text x="300" y="360" font-size="12" font-weight="600" fill="#fbbf24" text-anchor="middle">⚠️ Please ask the employee to re-upload the original bill or receipt.</text>
+        <text x="300" y="300" font-size="12" fill="#94a3b8" text-anchor="middle">The physical file is missing from /files/ or /private/files/.</text>
     </svg>"""
     return svg_content.encode("utf-8")
 
@@ -332,49 +421,17 @@ def _generate_missing_file_svg(file_name: str) -> bytes:
 def view_receipt_file(file_url: str, doctype: Optional[str] = None, docname: Optional[str] = None):
     """
     Direct, permission-safe file streaming endpoint for AP Proof Gallery and Reviewers.
-    Streams receipt images and PDFs directly to the browser (even if stored in private/files/)
-    without 403 Forbidden or 404 Werkzeug errors.
+    Streams receipt images and PDFs cleanly (public and private) using raw inline bytes.
     """
     if not file_url:
         frappe.throw(_("File URL is required."))
 
-    file_url = unquote(file_url.strip())
-    # Unpack nested view_url if passed
-    if "file_url=" in file_url:
-        import urllib.parse
-        parsed = urllib.parse.parse_qs(urllib.parse.urlparse(file_url).query)
-        if "file_url" in parsed and parsed["file_url"]:
-            file_url = parsed["file_url"][0]
+    if doctype and docname and frappe.db.exists(doctype, docname):
+        _check_document_permission(doctype, docname, ptype="read")
 
-    clean_url = file_url.split("?")[0]
-    site_path = frappe.get_site_path()
-    file_name = os.path.basename(clean_url)
-
-    # Search paths in order of preference
-    possible_paths = [
-        # 1. Direct if relative to site
-        os.path.join(site_path, clean_url.lstrip("/")),
-        # 2. Public files
-        os.path.join(site_path, "public", "files", file_name),
-        # 3. Private files
-        os.path.join(site_path, "private", "files", file_name),
-    ]
-
-    target_path = None
-    for p in possible_paths:
-        norm = os.path.normpath(p)
-        if norm.startswith(os.path.normpath(site_path)) and os.path.exists(norm) and os.path.isfile(norm):
-            target_path = norm
-            break
-
-    if not target_path:
-        # Check tabFile for file_url
-        file_doc = frappe.db.get_value("File", {"file_url": ["like", f"%{file_name}"]}, ["file_url", "is_private"], as_dict=True)
-        if file_doc:
-            folder = "private/files" if file_doc.get("is_private") else "public/files"
-            p = os.path.join(site_path, folder, file_name)
-            if os.path.exists(p) and os.path.isfile(p):
-                target_path = p
+    target_path = _resolve_physical_file_path(file_url)
+    clean_url = _unpack_raw_file_url(file_url)
+    file_name = os.path.basename(clean_url) or "receipt"
 
     if not target_path:
         svg_bytes = _generate_missing_file_svg(file_name)
@@ -385,29 +442,26 @@ def view_receipt_file(file_url: str, doctype: Optional[str] = None, docname: Opt
         frappe.response["content_type"] = "image/svg+xml"
         return
 
-    # Determine Content-Type
-    ext = os.path.splitext(file_name)[1].lower()
-    content_type, encoding = mimetypes.guess_type(target_path)
-    if not content_type:
-        if ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]:
-            content_type = f"image/{ext.lstrip('.')}"
-        elif ext == ".pdf":
-            content_type = "application/pdf"
-        else:
-            content_type = "application/octet-stream"
-
     with open(target_path, "rb") as f:
         file_bytes = f.read()
 
+    ext = os.path.splitext(target_path)[1].lower()
+    is_pdf_bytes = file_bytes[:5] == b"%PDF-" or ext == ".pdf"
+
+    if is_pdf_bytes:
+        content_type = "application/pdf"
+        if not file_name.lower().endswith(".pdf"):
+            file_name = f"{file_name}.pdf"
+    else:
+        content_type, _enc = mimetypes.guess_type(target_path)
+        if not content_type:
+            content_type = f"image/{ext.lstrip('.')}" if ext in IMAGE_EXTENSIONS else "application/octet-stream"
+
     frappe.response["filename"] = file_name
     frappe.response["filecontent"] = file_bytes
-    if ext == ".pdf":
-        frappe.response["type"] = "pdf"
-        frappe.response["content_type"] = "application/pdf"
-    else:
-        frappe.response["type"] = "download"
-        frappe.response["display_content_as"] = "inline"
-        frappe.response["content_type"] = content_type
+    frappe.response["type"] = "download"
+    frappe.response["display_content_as"] = "inline"
+    frappe.response["content_type"] = content_type
 
 
 @frappe.whitelist()
@@ -423,33 +477,10 @@ def download_all_claim_attachments_zip(doctype: str, docname: str) -> None:
         frappe.throw(_("No receipt files or attachments found to download for this document."))
 
     zip_buffer = io.BytesIO()
-    site_path = frappe.get_site_path()
-
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         for idx, att in enumerate(attachments, start=1):
-            raw_url = att["file_url"]
-
-            # Resolve physical file path on disk
-            if raw_url.startswith("/private/files/"):
-                file_rel = raw_url.replace("/private/files/", "private/files/")
-                physical_path = os.path.join(site_path, file_rel)
-            elif raw_url.startswith("/files/"):
-                file_rel = raw_url.replace("/files/", "public/files/")
-                physical_path = os.path.join(site_path, file_rel)
-            else:
-                physical_path = os.path.join(site_path, "public", "files", os.path.basename(raw_url))
-
-            # Check if exists in private/files as fallback
-            if not os.path.exists(physical_path):
-                alt_priv = os.path.join(site_path, "private", "files", os.path.basename(raw_url))
-                if os.path.exists(alt_priv):
-                    physical_path = alt_priv
-
-            norm_path = os.path.normpath(physical_path)
-            if not norm_path.startswith(os.path.normpath(site_path)):
-                continue
-
-            if os.path.exists(norm_path) and os.path.isfile(norm_path):
+            norm_path = _resolve_physical_file_path(att["file_url"])
+            if norm_path:
                 ext = att["extension"] or ".png"
                 clean_merchant = "".join(c for c in (att["merchant"] or "Expense") if c.isalnum() or c in (" ", "-", "_")).strip()
                 clean_cat = "".join(c for c in (att["category"] or "Receipt") if c.isalnum() or c in (" ", "-", "_")).strip()
@@ -488,15 +519,63 @@ def download_voucher_receipts_zip(voucher_type: Optional[str] = None, voucher_na
     return download_all_claim_attachments_zip(dt, dn)
 
 
+def _enrich_attachments_with_batch_meta(
+    attachments: List[Dict[str, Any]],
+    batch_name: Optional[str] = None
+) -> Dict[str, Dict[str, Any]]:
+    """Enriches attachments with Weekly Accounts Audit Batch row fields (Expense Head & JV #/Date)."""
+    batch_items_meta: Dict[str, Dict[str, Any]] = {}
+    if not batch_name or not frappe.db.exists("Weekly Accounts Audit Batch", batch_name):
+        return batch_items_meta
+
+    rows = frappe.get_all(
+        "Weekly Accounts Audit Item",
+        filters={"parent": batch_name},
+        fields=["voucher_no", "expense_head", "jv_number", "jv_date", "status", "employee_name"],
+    )
+    for r in rows:
+        if r.get("voucher_no"):
+            batch_items_meta[r["voucher_no"]] = {
+                "voucher_no": r["voucher_no"],
+                "expense_head": r.get("expense_head") or "",
+                "jv_number": r.get("jv_number") or "",
+                "jv_date": str(r.get("jv_date") or ""),
+                "status": r.get("status") or "",
+                "employee_name": r.get("employee_name") or "",
+            }
+
+    for att in attachments:
+        v_no = att.get("claim_name") or ""
+        meta = batch_items_meta.get(v_no)
+        if meta:
+            att["batch_name"] = batch_name
+            att["expense_head"] = meta["expense_head"]
+            att["jv_number"] = meta["jv_number"]
+            att["jv_date"] = meta["jv_date"]
+            att["audit_status"] = meta["status"]
+        else:
+            att["batch_name"] = batch_name
+
+    return batch_items_meta
+
+
 @frappe.whitelist()
-def get_claim_receipt_summary(claim_name: str, doctype: str = "Employee Reimbursement Claim"):
+def get_claim_receipt_summary(
+    claim_name: str,
+    doctype: str = "Employee Reimbursement Claim",
+    batch_name: Optional[str] = None
+):
     """Returns structured list of attachments and receipts for a claim to populate audit modals."""
     attachments = get_all_claim_attachments(doctype=doctype, docname=claim_name)
+    batch_meta = _enrich_attachments_with_batch_meta(attachments, batch_name)
     return {
         "claim_name": claim_name,
+        "batch_name": batch_name,
+        "batch_items_meta": batch_meta,
         "total_receipts": len(attachments),
         "attachments": attachments
     }
+
 
 def _parse_claim_names_list(claim_names):
     chars = " '\"[]"
@@ -544,14 +623,18 @@ def _parse_claim_names_list(claim_names):
 
 
 @frappe.whitelist()
-def get_multiple_claims_receipt_summary(claim_names=None, doctype="Employee Reimbursement Claim"):
+def get_multiple_claims_receipt_summary(
+    claim_names=None,
+    doctype: str = "Employee Reimbursement Claim",
+    batch_name: Optional[str] = None
+):
     """
     Returns aggregated list of attachments across multiple claims/vouchers
     for employee-level audit view in Weekly Accounts Audit Batch.
     """
     clean_claims = _parse_claim_names_list(claim_names)
     if not clean_claims:
-        return {"total_receipts": 0, "attachments": []}
+        return {"total_receipts": 0, "attachments": [], "batch_items_meta": {}}
 
     all_attachments = []
     for c_name in clean_claims:
@@ -565,7 +648,11 @@ def get_multiple_claims_receipt_summary(claim_names=None, doctype="Employee Reim
         except Exception as e:
             frappe.log_error(f"Error fetching attachments for claim {c_name}: {e}")
 
+    batch_meta = _enrich_attachments_with_batch_meta(all_attachments, batch_name)
+
     return {
+        "batch_name": batch_name,
+        "batch_items_meta": batch_meta,
         "total_receipts": len(all_attachments),
         "attachments": all_attachments
     }
@@ -600,25 +687,8 @@ def download_multiple_claims_receipts_zip(claim_names=None, label="Employee_Rece
                 if not raw_url:
                     continue
 
-                if raw_url.startswith("/private/files/"):
-                    file_rel = raw_url.replace("/private/files/", "private/files/")
-                    physical_path = os.path.join(site_path, file_rel)
-                elif raw_url.startswith("/files/"):
-                    file_rel = raw_url.replace("/files/", "public/files/")
-                    physical_path = os.path.join(site_path, file_rel)
-                else:
-                    physical_path = os.path.join(site_path, "public", "files", os.path.basename(raw_url))
-
-                if not os.path.exists(physical_path):
-                    alt_priv = os.path.join(site_path, "private", "files", os.path.basename(raw_url))
-                    if os.path.exists(alt_priv):
-                        physical_path = alt_priv
-
-                norm_path = os.path.normpath(physical_path)
-                if not norm_path.startswith(os.path.normpath(site_path)):
-                    continue
-
-                if os.path.exists(norm_path) and os.path.isfile(norm_path):
+                norm_path = _resolve_physical_file_path(raw_url)
+                if norm_path:
                     ext = att.get("extension") or ".png"
                     clean_merchant = "".join(c for c in (att.get("merchant") or "Expense") if c.isalnum() or c in (" ", "-", "_")).strip()
                     clean_cat = "".join(c for c in (att.get("category") or "Receipt") if c.isalnum() or c in (" ", "-", "_")).strip()
