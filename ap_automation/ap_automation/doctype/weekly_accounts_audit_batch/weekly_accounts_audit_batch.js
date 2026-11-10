@@ -754,18 +754,19 @@ function render_audit_workstation_view(frm) {
                 </div>
 
                 <!-- Vouchers Table Under Employee -->
-                <table class="table table-bordered table-sm" style="margin: 0; background: #ffffff; font-size: 12px;">
+                <div class="ap-workstation-table-scroll" style="width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;">
+                <table class="table table-bordered table-sm ap-workstation-table" style="width: 100%; min-width: 1120px; margin: 0; background: #ffffff; font-size: 12px;">
                     <thead>
                         <tr style="background: #f1f5f9; color: #475569;">
-                            <th style="width: 13%;">Voucher #</th>
-                            <th style="width: 11%;">Category</th>
-                            <th style="width: 14%;">Expense Head</th>
-                            <th style="width: 8%;">Claim Date</th>
-                            <th style="width: 9%; text-align: right;">Claimed (INR)</th>
-                            <th style="width: 9%; text-align: right;">Sanctioned (INR)</th>
-                            <th style="width: 10%; text-align: center;">Audit Status</th>
-                            <th style="width: 11%; text-align: center;">JV # & Date</th>
-                            <th style="width: 15%; text-align: center;">Actions</th>
+                            <th style="min-width: 165px; white-space: nowrap;">Voucher #</th>
+                            <th style="min-width: 110px; white-space: nowrap;">Category</th>
+                            <th style="min-width: 160px; white-space: nowrap;">Expense Head</th>
+                            <th style="min-width: 95px; white-space: nowrap;">Claim Date</th>
+                            <th style="min-width: 115px; white-space: nowrap; text-align: right;">Claimed (INR)</th>
+                            <th style="min-width: 120px; white-space: nowrap; text-align: right;">Sanctioned (INR)</th>
+                            <th style="min-width: 125px; white-space: nowrap; text-align: center;">Audit Status</th>
+                            <th style="min-width: 105px; white-space: nowrap; text-align: center;">JV # & Date</th>
+                            <th style="min-width: 245px; white-space: nowrap; text-align: center;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -801,15 +802,15 @@ function render_audit_workstation_view(frm) {
                 : '';
 
             const expHeadBadge = `
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
-                    <span style="font-weight: 600; color: #1e293b; font-size: 11px; word-break: break-word;">🏷️ ${frappe.utils.escape_html(expHead)}</span>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; white-space: nowrap;">
+                    <span style="font-weight: 600; color: #1e293b; font-size: 11px; white-space: nowrap;">🏷️ ${frappe.utils.escape_html(expHead)}</span>
                     ${editHeadBtn}
                 </div>
             `;
 
             const jvBadge = v.jv_number
-                ? `<div style="font-weight: 700; color: #1e3a8a; font-size: 11.5px;">JV ${frappe.utils.escape_html(String(v.jv_number))}</div><div style="font-size: 10px; color: #64748b;">${v.jv_date || ''}</div>`
-                : `<span style="color: #94a3b8; font-size: 11px; font-style: italic;">No JV</span>`;
+                ? `<div style="font-weight: 700; color: #1e3a8a; font-size: 11.5px; white-space: nowrap;">JV ${frappe.utils.escape_html(String(v.jv_number))}</div><div style="font-size: 10px; color: #64748b; white-space: nowrap;">${v.jv_date || ''}</div>`
+                : `<span style="color: #94a3b8; font-size: 11px; font-style: italic; white-space: nowrap;">No JV</span>`;
             
             const jvEditBtn = isAccountsRole
                 ? `<button type="button" class="btn btn-xs btn-outline-info btn-set-voucher-jv" data-voucher="${v.voucher_no}" data-jv="${v.jv_number || ''}" data-date="${v.jv_date || ''}" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="Set Journal Voucher (JV) Number and Date">📝 JV</button>`
@@ -817,18 +818,18 @@ function render_audit_workstation_view(frm) {
 
             html += `
                 <tr style="${isReturned ? 'background: #fff5f5; opacity: 0.85;' : ''}">
-                    <td>
-                        <a href="${v.voucher_no ? '/desk/employee-reimbursement-claim/' + encodeURIComponent(v.voucher_no) : '#'}" target="_blank" rel="noopener noreferrer" style="font-weight: 600; color: #2563eb;">
+                    <td style="white-space: nowrap;">
+                        <a href="${v.voucher_no ? '/desk/employee-reimbursement-claim/' + encodeURIComponent(v.voucher_no) : '#'}" target="_blank" rel="noopener noreferrer" style="font-weight: 600; color: #2563eb; white-space: nowrap;">
                             ${v.voucher_no} ↗
                         </a>
                     </td>
-                    <td>${catBadge}</td>
-                    <td>${expHeadBadge}</td>
-                    <td>${v.claim_date || 'N/A'}</td>
-                    <td style="text-align: right; font-weight: 500;">₹ ${format_currency(v.claimed_amount)}</td>
-                    <td style="text-align: right; font-weight: 700; color: #16a34a;">₹ ${format_currency(v.sanctioned_amount || v.claimed_amount)}</td>
-                    <td style="text-align: center;">${statusBadge}</td>
-                    <td style="text-align: center;">${jvBadge}</td>
+                    <td style="white-space: nowrap;">${catBadge}</td>
+                    <td style="white-space: nowrap;">${expHeadBadge}</td>
+                    <td style="white-space: nowrap;">${v.claim_date || 'N/A'}</td>
+                    <td style="text-align: right; font-weight: 500; white-space: nowrap;">₹ ${format_currency(v.claimed_amount)}</td>
+                    <td style="text-align: right; font-weight: 700; color: #16a34a; white-space: nowrap;">₹ ${format_currency(v.sanctioned_amount || v.claimed_amount)}</td>
+                    <td style="text-align: center; white-space: nowrap;">${statusBadge}</td>
+                    <td style="text-align: center; white-space: nowrap;">${jvBadge}</td>
                     <td style="text-align: center; white-space: nowrap;">
                         ${jvEditBtn}
                         <button type="button" class="btn btn-xs btn-outline-primary btn-view-voucher-receipts" data-voucher="${v.voucher_no}" style="font-size: 11px; padding: 2px 6px; margin-right: 2px;" title="View Receipts in Lightbox">👁️ Proofs</button>
@@ -843,6 +844,7 @@ function render_audit_workstation_view(frm) {
         html += `
                     </tbody>
                 </table>
+                </div>
             </div>
         `;
     });
@@ -853,6 +855,14 @@ function render_audit_workstation_view(frm) {
     `;
 
     $(wrapper).html(html);
+
+    // Override Frappe v16 --page-max-width (900px) constraint so the Workstation fills full layout width
+    const $formPage = $(wrapper).closest('.form-page');
+    if ($formPage.length) {
+        $formPage.find('.section-head, .section-body').css('max-width', '100%');
+    } else {
+        $(wrapper).closest('.section-body').css('max-width', '100%');
+    }
 
     // 1. Employee-level View Receipts (Aggregate Lightbox Gallery)
     $(wrapper).find('.btn-view-emp-receipts').on('click', function(e) {
