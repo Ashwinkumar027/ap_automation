@@ -42,16 +42,26 @@ window.APClarificationThread = {
         }
     },
 
-    render: function (frm) {
+    render: function (frm, force) {
         if (!frm || !frm.doc || frm.is_new()) return;
         const self = this;
         const dt = frm.doc.doctype;
         const dn = frm.doc.name;
+        const now = Date.now();
+        const key = `${dt}:${dn}:${frm.doc.modified || ''}`;
+        if (!force && frm._ap_clarif_inflight === key && (now - (frm._ap_clarif_ts || 0)) < 400) {
+            return;
+        }
+        frm._ap_clarif_inflight = key;
+        frm._ap_clarif_ts = now;
 
         frappe.call({
             method: 'ap_automation.services.clarification_service.get_clarification_thread',
             args: { doctype: dt, docname: dn },
             callback: function (r) {
+                if (frm._ap_clarif_inflight === key) {
+                    frm._ap_clarif_inflight = null;
+                }
                 if (r && r.message && r.message.success) {
                     const data = r.message;
                     frm._clarification_thread_data = data;
@@ -293,7 +303,7 @@ window.APClarificationThread = {
 
         // 1. Refresh Button
         $container.find('.btn-refresh-clarification').off('click').on('click', function () {
-            self.render(frm);
+            self.render(frm, true);
         });
 
         // 2. Attach File Button via Frappe native FileUploader
@@ -327,7 +337,7 @@ window.APClarificationThread = {
                     callback: function (r) {
                         if (r && r.message && r.message.success) {
                             frappe.show_alert({ message: __('Query marked as resolved'), indicator: 'green' });
-                            self.render(frm);
+                            self.render(frm, true);
                         }
                     }
                 });
@@ -380,7 +390,7 @@ window.APClarificationThread = {
                         $container.find('.ap-attached-file-url').val('');
                         $container.find('.ap-attached-file-badge').text('').hide();
                         $container.find('.ap-is-resolution-chk').prop('checked', false);
-                        self.render(frm);
+                        self.render(frm, true);
                     }
                 },
                 error: function () {
@@ -448,6 +458,7 @@ window.APClarificationThread = {
         'Employee Reimbursement Claim',
         'Vendor Invoice Claim',
         'Admin Weekly Vendor Claim',
+        'Event Master',
         'Event Advance Request',
         'Event Expense Claim',
         'Event Settlement',

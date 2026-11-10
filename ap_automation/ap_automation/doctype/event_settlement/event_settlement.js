@@ -11,12 +11,6 @@ function format_inr(val) {
 }
 
 frappe.ui.form.on("Event Settlement", {
-    setup: function(frm) {
-        if (window.APReceiptGallery && typeof window.APReceiptGallery.setup === 'function') {
-            window.APReceiptGallery.setup(frm);
-        }
-    },
-
     onload: function(frm) {
         if (frm.is_new() && frm.doc.event) {
             frm.trigger('event');
@@ -27,6 +21,23 @@ frappe.ui.form.on("Event Settlement", {
         frm.set_df_property('status', 'read_only', 1);
         set_settlement_status_indicator(frm);
         render_settlement_verdict_card(frm);
+
+        if (!frm.is_new() && window.APReceiptGallery) {
+            window.APReceiptGallery.addPrintDownloadButtons(
+                frm,
+                'Event Settlement Report',
+                __('📄 Download Settlement PDF'),
+                __('🖨️ View Print Format')
+            );
+            window.APReceiptGallery.addExcelExportButton(frm);
+            window.APReceiptGallery.addTallyXmlButton(frm, ['Approved for Payment', 'Settled']);
+            if (frm.doc.event) {
+                window.APReceiptGallery.refreshEventAggregatedButtons(frm, frm.doc.event);
+            } else {
+                window.APReceiptGallery.refreshFormButtons(frm);
+            }
+        }
+
         setup_settlement_workflow_actions(frm);
     },
 
@@ -240,6 +251,14 @@ function render_settlement_verdict_card(frm) {
     frm.dashboard.set_headline(stepper_html + card_html);
 }
 
+function run_settlement_with_clarification_gate(frm, callback) {
+    if (window.APClarificationThread && typeof window.APClarificationThread.checkUnresolvedQueries === 'function') {
+        window.APClarificationThread.checkUnresolvedQueries(frm, callback);
+    } else {
+        callback();
+    }
+}
+
 function setup_settlement_workflow_actions(frm) {
     if (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft') {
         if (frm.page.btn_primary && frm.page.btn_primary.text().trim() === __('Submit')) {
@@ -312,58 +331,62 @@ function setup_settlement_workflow_actions(frm) {
 
             if (frm.doc.settlement_type === 'REFUND_FROM_SPOC' && (is_maker || user_roles.includes('Payment Releaser'))) {
                 frm.add_custom_button(__('✅ Audit & Verify Bank Refund'), function() {
-                    frappe.prompt([
-                        {
-                            fieldname: 'verified_utr',
-                            fieldtype: 'Data',
-                            label: __('Verified Bank Credit UTR Reference'),
-                            default: frm.doc.refund_received_reference || '',
-                            reqd: 1
-                        }
-                    ], function(vals) {
-                        frappe.call({
-                            method: 'ap_automation.services.event_settlement_service.audit_and_settle_refund',
-                            args: {
-                                settlement_name: frm.doc.name,
-                                verified_utr: vals.verified_utr
-                            },
-                            freeze: true,
-                            freeze_message: __('Verifying Bank Credit & Closing Event...'),
-                            callback: function(r) {
-                                if (r.message && r.message.status === 'SUCCESS') {
-                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                                    frm.reload_doc();
-                                }
+                    run_settlement_with_clarification_gate(frm, function() {
+                        frappe.prompt([
+                            {
+                                fieldname: 'verified_utr',
+                                fieldtype: 'Data',
+                                label: __('Verified Bank Credit UTR Reference'),
+                                default: frm.doc.refund_received_reference || '',
+                                reqd: 1
                             }
-                        });
-                    }, __('Verify Bank Credit & Close Settlement'), __('Audit & Close'));
+                        ], function(vals) {
+                            frappe.call({
+                                method: 'ap_automation.services.event_settlement_service.audit_and_settle_refund',
+                                args: {
+                                    settlement_name: frm.doc.name,
+                                    verified_utr: vals.verified_utr
+                                },
+                                freeze: true,
+                                freeze_message: __('Verifying Bank Credit & Closing Event...'),
+                                callback: function(r) {
+                                    if (r.message && r.message.status === 'SUCCESS') {
+                                        frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                        frm.reload_doc();
+                                    }
+                                }
+                            });
+                        }, __('Verify Bank Credit & Close Settlement'), __('Audit & Close'));
+                    });
                 }).addClass('btn-success');
             } else if (frm.doc.settlement_type === 'PAYABLE_TO_SPOC' && is_acct_dir) {
                 frm.add_custom_button(__('⭐ Accounts Director Sign-Off'), function() {
-                    frappe.prompt([
-                        {
-                            fieldname: 'remarks',
-                            fieldtype: 'Small Text',
-                            label: __('Authorization Remarks (Optional)'),
-                            default: 'Settlement variance verified. Approved for IDFC SPOC Reimbursement.'
-                        }
-                    ], function(vals) {
-                        frappe.call({
-                            method: 'ap_automation.services.event_settlement_service.authorize_event_settlement_by_accounts_director',
-                            args: {
-                                settlement_name: frm.doc.name,
-                                remarks: vals.remarks
-                            },
-                            freeze: true,
-                            freeze_message: __('Authorizing Settlement Payout...'),
-                            callback: function(r) {
-                                if (r.message && r.message.status === 'SUCCESS') {
-                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                                    frm.reload_doc();
-                                }
+                    run_settlement_with_clarification_gate(frm, function() {
+                        frappe.prompt([
+                            {
+                                fieldname: 'remarks',
+                                fieldtype: 'Small Text',
+                                label: __('Authorization Remarks (Optional)'),
+                                default: 'Settlement variance verified. Approved for IDFC SPOC Reimbursement.'
                             }
-                        });
-                    }, __('Accounts Director Sign-Off'), __('Authorize'));
+                        ], function(vals) {
+                            frappe.call({
+                                method: 'ap_automation.services.event_settlement_service.authorize_event_settlement_by_accounts_director',
+                                args: {
+                                    settlement_name: frm.doc.name,
+                                    remarks: vals.remarks
+                                },
+                                freeze: true,
+                                freeze_message: __('Authorizing Settlement Payout...'),
+                                callback: function(r) {
+                                    if (r.message && r.message.status === 'SUCCESS') {
+                                        frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                        frm.reload_doc();
+                                    }
+                                }
+                            });
+                        }, __('Accounts Director Sign-Off'), __('Authorize'));
+                    });
                 }).addClass('btn-primary');
             }
         } else if (frm.doc.status === 'Approved for Payment' && frm.doc.settlement_type === 'PAYABLE_TO_SPOC' && is_finance_viewer) {

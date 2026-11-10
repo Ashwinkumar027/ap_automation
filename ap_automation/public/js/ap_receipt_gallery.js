@@ -71,14 +71,17 @@ window.APReceiptGallery = {
             const v_name = row.vendor_name || row.vendor || row.merchant_name || '';
 
             // 1.1 Primary Bill / Tax Invoice
-            const file_url = row.attach_receipt || row.receipt_attachment || row.attachment || row.tax_invoice_attachment || row.bill_attachment;
+            const line_bill_field = ['attach_receipt', 'receipt_attachment', 'attachment', 'tax_invoice_attachment', 'bill_attachment']
+                .find(f => typeof row[f] === 'string' && row[f].trim()) || 'receipt_attachment';
+            const file_url = row[line_bill_field];
             if (file_url && typeof file_url === 'string' && file_url.trim()) {
                 const clean_url = file_url.trim();
                 const file_name = clean_url.split('/').pop().split('?')[0];
                 const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
                 atts.push({
                     source: 'row',
-                    field_source: 'receipt_attachment',
+                    table_field: 'expense_lines',
+                    field_source: line_bill_field,
                     proof_type: 'bill',
                     proof_label: '🧾 1. Tax Invoice / Bill',
                     row_idx: row.idx || (idx + 1),
@@ -110,6 +113,7 @@ window.APReceiptGallery = {
                 const pay_ext = (pay_name.lastIndexOf('.') !== -1 ? pay_name.substring(pay_name.lastIndexOf('.')).toLowerCase() : '');
                 atts.push({
                     source: 'row',
+                    table_field: 'expense_lines',
                     field_source: 'payment_proof_attachment',
                     proof_type: 'payment',
                     proof_label: '💳 2. Payment Proof (GPay/UPI)',
@@ -142,6 +146,7 @@ window.APReceiptGallery = {
                 const add_ext = (add_name.lastIndexOf('.') !== -1 ? add_name.substring(add_name.lastIndexOf('.')).toLowerCase() : '');
                 atts.push({
                     source: 'row',
+                    table_field: 'expense_lines',
                     field_source: 'additional_proof_attachment',
                     proof_type: 'extra',
                     proof_label: '📎 3. Additional Proof',
@@ -175,14 +180,16 @@ window.APReceiptGallery = {
             const leg_dt = leg.visit_date || leg.travel_date || frm.doc.posting_date || '';
 
             // 2.1 Primary Travel Ticket / Bill
-            const file_url = leg.receipt_attachment || leg.attachment;
+            const leg_bill_field = leg.receipt_attachment ? 'receipt_attachment' : 'attachment';
+            const file_url = leg[leg_bill_field];
             if (file_url && typeof file_url === 'string' && file_url.trim()) {
                 const clean_url = file_url.trim();
                 const file_name = clean_url.split('/').pop().split('?')[0];
                 const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
                 atts.push({
                     source: 'row',
-                    field_source: 'receipt_attachment',
+                    table_field: 'client_visit_legs',
+                    field_source: leg_bill_field,
                     proof_type: 'bill',
                     proof_label: '🧾 1. Travel Ticket / Bill',
                     row_idx: leg.idx || (idx + 1),
@@ -213,6 +220,7 @@ window.APReceiptGallery = {
                 const pay_ext = (pay_name.lastIndexOf('.') !== -1 ? pay_name.substring(pay_name.lastIndexOf('.')).toLowerCase() : '');
                 atts.push({
                     source: 'row',
+                    table_field: 'client_visit_legs',
                     field_source: 'payment_proof_attachment',
                     proof_type: 'payment',
                     proof_label: '💳 2. Payment Proof (GPay/UPI)',
@@ -245,6 +253,7 @@ window.APReceiptGallery = {
                 const add_ext = (add_name.lastIndexOf('.') !== -1 ? add_name.substring(add_name.lastIndexOf('.')).toLowerCase() : '');
                 atts.push({
                     source: 'row',
+                    table_field: 'client_visit_legs',
                     field_source: 'additional_proof_attachment',
                     proof_type: 'extra',
                     proof_label: '📎 3. Additional Travel Proof',
@@ -283,7 +292,9 @@ window.APReceiptGallery = {
                 const dt = row.invoice_date || row.expense_date || row.bill_date || frm.doc.posting_date || '';
                 const b_no = row.invoice_number || row.bill_number || row.bill_no || '';
 
-                const file_url = row.attach_receipt || row.receipt_attachment || row.attachment || row.quote_attachment || row.tax_invoice_attachment;
+                const child_bill_field = ['attach_receipt', 'receipt_attachment', 'attachment', 'quote_attachment', 'tax_invoice_attachment']
+                    .find(f => typeof row[f] === 'string' && row[f].trim()) || 'receipt_attachment';
+                const file_url = row[child_bill_field];
                 if (file_url && typeof file_url === 'string' && file_url.trim()) {
                     const clean_url = file_url.trim();
                     const file_name = clean_url.split('/').pop().split('?')[0];
@@ -291,7 +302,8 @@ window.APReceiptGallery = {
 
                     atts.push({
                         source: 'row',
-                        field_source: 'receipt_attachment',
+                        table_field: table_field,
+                        field_source: child_bill_field,
                         proof_type: 'bill',
                         proof_label: '🧾 1. Tax Invoice / Bill',
                         row_idx: row.idx || (idx + 1),
@@ -322,6 +334,7 @@ window.APReceiptGallery = {
                     const bp_ext = (bp_name.lastIndexOf('.') !== -1 ? bp_name.substring(bp_name.lastIndexOf('.')).toLowerCase() : '');
                     atts.push({
                         source: 'row',
+                        table_field: table_field,
                         field_source: 'bank_proof_attachment',
                         proof_type: 'bank',
                         proof_label: '🏦 Bank / Cheque Proof',
@@ -372,6 +385,7 @@ window.APReceiptGallery = {
                 const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
                 atts.push({
                     source: 'parent',
+                    table_field: null,
                     field_source: pf.field,
                     proof_type: pf.proof_type || 'bill',
                     proof_label: pf.label,
@@ -407,7 +421,7 @@ window.APReceiptGallery = {
             this.openEmptyModal(frm);
             return;
         }
-        this.openModal(frm, atts, opts.active_index || 0);
+        this.openModal(frm, atts, opts.active_index || 0, opts);
     },
 
     setup: function (frm) {
@@ -421,6 +435,141 @@ window.APReceiptGallery = {
                 }, __('Audit Proofs')).addClass('btn-info');
             }
         }, 500);
+    },
+
+    refreshFormButtons: function (frm, opts) {
+        if (!frm || !frm.doc) return;
+        const self = this;
+        opts = opts || {};
+        const atts = Array.isArray(opts.attachments) ? opts.attachments : self.extractLocalAttachments(frm);
+
+        if (frm.page && frm.page.inner_toolbar) {
+            frm.page.inner_toolbar.find('button[data-label], button').each(function () {
+                const rawLabel = decodeURIComponent($(this).attr('data-label') || '');
+                const txt = (rawLabel || $(this).text() || '').trim();
+                if (txt.startsWith('👁️ View Receipts') || txt.startsWith('🧾 Proof Gallery') || txt === '📦 Download ZIP') {
+                    if (typeof frm.remove_custom_button === 'function') {
+                        frm.remove_custom_button(txt);
+                    }
+                    $(this).remove();
+                }
+            });
+        }
+
+        if (!atts || atts.length === 0) return;
+
+        frm.add_custom_button(__(`👁️ View Receipts (${atts.length})`), function () {
+            if (Array.isArray(opts.attachments)) {
+                self.openModal(frm, atts, 0, opts);
+            } else {
+                self.show(frm);
+            }
+        });
+
+        if (!frm.is_new()) {
+            frm.add_custom_button(__('📦 Download ZIP'), function () {
+                if (opts.event_name) {
+                    const url = `/api/method/ap_automation.services.attachment_service.download_event_all_attachments_zip?event_name=${encodeURIComponent(opts.event_name)}`;
+                    window.open(url, '_blank');
+                } else {
+                    self.download_all_zip(frm);
+                }
+            });
+        }
+    },
+
+    refreshEventAggregatedButtons: function (frm, event_name) {
+        if (!frm || !frm.doc || frm.is_new() || !event_name) return;
+        const self = this;
+        const seq = (frm._ap_agg_proof_seq || 0) + 1;
+        frm._ap_agg_proof_seq = seq;
+
+        frappe.call({
+            method: 'ap_automation.services.attachment_service.get_event_all_attachments',
+            args: { event_name: event_name },
+            callback: function (r) {
+                if (frm._ap_agg_proof_seq !== seq) return;
+                const remote_atts = (r && r.message && Array.isArray(r.message.attachments)) ? r.message.attachments : [];
+                const local_atts = self.extractLocalAttachments(frm) || [];
+                const merged = local_atts.concat(remote_atts);
+                self.refreshFormButtons(frm, {
+                    attachments: merged,
+                    is_event_aggregated: true,
+                    event_name: event_name
+                });
+            }
+        });
+    },
+
+    addExcelExportButton: function (frm, label) {
+        if (!frm || !frm.doc || frm.is_new()) return;
+        const btnLabel = label || __('📊 Export Excel');
+        if (typeof frm.remove_custom_button === 'function') {
+            frm.remove_custom_button(btnLabel);
+        }
+        frm.add_custom_button(btnLabel, function () {
+            const url = `/api/method/ap_automation.services.export_service.download_voucher_excel?doctype=${encodeURIComponent(frm.doc.doctype)}&docname=${encodeURIComponent(frm.doc.name)}`;
+            window.open(url, '_blank');
+        });
+    },
+
+    addTallyXmlButton: function (frm, allowedStatuses) {
+        if (!frm || !frm.doc || frm.is_new()) return;
+        const status = frm.doc.status || 'Draft';
+        if (Array.isArray(allowedStatuses) && !allowedStatuses.includes(status)) return;
+
+        const is_accounts_or_dir = frappe.user.has_role([
+            'Accounts L1 Auditor', 'Accounts User', 'Accounts Director', 'Accounts Manager', 'AP Director', 'System Manager'
+        ]) || frappe.session.user === 'Administrator';
+        if (!is_accounts_or_dir) return;
+
+        const btnLabel = __('📑 Tally Journal XML');
+        if (typeof frm.remove_custom_button === 'function') {
+            frm.remove_custom_button(btnLabel);
+        }
+        frm.add_custom_button(btnLabel, function () {
+            frappe.call({
+                method: 'ap_automation.services.tally_service.export_tally_journal_xml_for_event',
+                args: { doctype: frm.doc.doctype, docname: frm.doc.name },
+                freeze: true,
+                freeze_message: __('Generating Tally Journal XML...'),
+                callback: function (r) {
+                    if (r.message) {
+                        const blob = new Blob([r.message], { type: 'application/xml;charset=utf-8' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `Tally_Journal_${frm.doc.name}.xml`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        frappe.show_alert({ message: __('✅ Tally Journal XML downloaded! Ready for TallyPrime import.'), indicator: 'green' }, 5);
+                    }
+                }
+            });
+        });
+    },
+
+    addPrintDownloadButtons: function (frm, formatName, pdfLabel, printLabel) {
+        if (!frm || !frm.doc || frm.is_new() || !formatName) return;
+        const pdf_btn = pdfLabel || __('📄 Download PDF');
+        const print_btn = printLabel || __('🖨️ View Print Format');
+        const dt = encodeURIComponent(frm.doc.doctype);
+        const dn = encodeURIComponent(frm.doc.name);
+        const fmt = encodeURIComponent(formatName);
+
+        frm.add_custom_button(pdf_btn, function () {
+            const pdf_url = frappe.urllib.get_full_url(
+                `/api/method/frappe.utils.print_format.download_pdf?doctype=${dt}&name=${dn}&format=${fmt}&no_letterhead=0`
+            );
+            window.open(pdf_url, '_blank');
+        }, __('Print / Download'));
+
+        frm.add_custom_button(print_btn, function () {
+            const print_url = `/printview?doctype=${dt}&name=${dn}&format=${fmt}&no_letterhead=0`;
+            window.open(print_url, '_blank');
+        }, __('Print / Download'));
     },
 
     download_all_zip: function (frm) {
@@ -464,6 +613,8 @@ window.APReceiptGallery = {
         const is_batch_audit = Boolean(
             (frm && frm.doc && frm.doc.doctype === 'Weekly Accounts Audit Batch') || opts.batch_name
         );
+        const is_event_aggregated = Boolean(opts.is_event_aggregated || opts.event_name);
+        const event_name = opts.event_name || '';
         const batch_name = opts.batch_name || (frm && frm.doc && frm.doc.doctype === 'Weekly Accounts Audit Batch' ? frm.doc.name : '');
         const batch_items_meta = opts.batch_items_meta || {};
         const active_blob_urls = [];
@@ -506,6 +657,8 @@ window.APReceiptGallery = {
 
             return {
                 source: att.source || 'row',
+                table_field: att.table_field || null,
+                claim_doctype: resolved_doctype,
                 claim_name: claim_no,
                 batch_name: att.batch_name || batch_name,
                 jv_number: att.jv_number || b_meta.jv_number || '',
@@ -926,8 +1079,13 @@ window.APReceiptGallery = {
                 }
             }
 
-            const is_vendor_claim = (frm && frm.doc && (frm.doc.doctype === 'Admin Weekly Vendor Claim' || frm.doc.doctype === 'Vendor Invoice Claim'));
-            const is_event_claim = (frm && frm.doc && frm.doc.doctype === 'Event Expense Claim');
+            const frm_dt = (frm && frm.doc && frm.doc.doctype) ? frm.doc.doctype : '';
+            const is_vendor_claim = (frm_dt === 'Admin Weekly Vendor Claim' || frm_dt === 'Vendor Invoice Claim');
+            const is_event_doc = ['Event Master', 'Event Advance Request', 'Event Expense Claim', 'Event Settlement'].includes(frm_dt);
+            const is_event_claim = (frm_dt === 'Event Expense Claim');
+            const show_edit_head = is_batch_audit || !is_event_doc;
+            const show_edit_type = !is_batch_audit && !is_event_aggregated && (!is_event_doc || is_event_claim);
+            const show_replace_receipt = !is_batch_audit && !is_event_aggregated && (!is_event_doc || (frm.doc && frm.doc.docstatus === 0));
             const dynamic_category_label = is_vendor_claim ? 'Vendor Category' : (is_event_claim ? 'Expense Category' : 'Expense Type');
 
             const active_html = `
@@ -959,7 +1117,7 @@ window.APReceiptGallery = {
                             Amount: <b style="color: #059669; font-size: 13px;">${self.formatINR(active_group.amount)}</b>
                         </span>
 
-                        ${(is_batch_audit && active_group.claim_name) ? `
+                        ${((is_batch_audit || is_event_aggregated) && active_group.claim_name) ? `
                             <span style="font-size: 11px; font-weight: 700; color: #0369a1; background: #e0f2fe; border: 1px solid #bae6fd; padding: 2px 7px; border-radius: 4px;">
                                 🧾 ${active_group.claim_name}
                             </span>
@@ -974,6 +1132,7 @@ window.APReceiptGallery = {
                             </div>
                         ` : ''}
 
+                        ${show_edit_head ? `
                         <!-- In-Modal Head Pill (Present on Both, Syncs Batch Table in Batch Mode) -->
                         <div class="ap-head-badge-pill" style="display: inline-flex; align-items: center; background: #eff6ff; border: 1.5px solid #93c5fd; border-radius: 6px; padding: 2px 8px; gap: 6px;">
                             <span style="font-size: 11px; font-weight: 700; color: #1e40af;">
@@ -983,6 +1142,7 @@ window.APReceiptGallery = {
                                 ✏️ Edit
                             </button>
                         </div>
+                        ` : ''}
 
                         <!-- In-Modal JV # Pill (Batch Audit Mode Only) -->
                         ${is_batch_audit ? `
@@ -995,6 +1155,7 @@ window.APReceiptGallery = {
                                 </button>
                             </div>
                         ` : `
+                            ${show_edit_type ? `
                             <!-- In-Modal Type Pill (Standard Forms Only) -->
                             <div class="ap-type-badge-pill" style="display: inline-flex; align-items: center; background: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 6px; padding: 2px 8px; gap: 6px;">
                                 <span style="font-size: 11px; font-weight: 700; color: #047857;">
@@ -1004,11 +1165,14 @@ window.APReceiptGallery = {
                                     ✏️ Edit
                                 </button>
                             </div>
+                            ` : ''}
 
+                            ${show_replace_receipt ? `
                             <!-- In-Modal Upload / Replace Receipt Button (Standard Forms Only) -->
                             <button type="button" class="btn btn-xs btn-default ap-btn-replace-receipt" title="Upload new / replace receipt proof" style="font-size: 10.5px; font-weight: 700; color: #b45309; padding: 2px 8px; border: 1.5px solid #fde68a; background: #fffbeb; border-radius: 6px; cursor: pointer;">
                                 📷 Upload / Replace
                             </button>
+                            ` : ''}
                         `}
 
                         ${active_group.description ? `
@@ -1559,45 +1723,67 @@ window.APReceiptGallery = {
             e.stopPropagation();
             const active_group = groups[current_group_idx];
             const current_proof = is_side_by_side ? active_group.proofs[0] : (active_group.proofs[active_proof_idx] || active_group.proofs[0]);
+            const TABLE_MAP = {
+                'Petty Cash Entry': 'expense_lines',
+                'Employee Reimbursement Claim': 'expense_lines',
+                'Admin Weekly Vendor Claim': 'vendor_lines',
+                'Event Expense Claim': 'expense_items',
+                'Event Advance Request': 'imprest_items'
+            };
+            const resolved_table = (current_proof && current_proof.table_field) || TABLE_MAP[frm.doc.doctype] || 'claim_items';
+            const upload_field = (current_proof && current_proof.source === 'parent')
+                ? (current_proof.field_source || 'tax_invoice_attachment')
+                : resolved_table;
 
             new frappe.ui.FileUploader({
                 folder: 'Home/Attachments',
                 doctype: frm.doc.doctype,
                 docname: frm.doc.name,
-                fieldname: 'expense_lines',
+                fieldname: upload_field,
                 on_success: (file_doc) => {
-                    const table_name = frm.doc.doctype === 'Petty Cash Entry' ? 'expense_lines' : (frm.doc.doctype === 'Admin Weekly Vendor Claim' ? 'vendor_lines' : (frm.doc.doctype === 'Employee Reimbursement Claim' ? 'expense_lines' : 'claim_items'));
-                    const lines = frm.doc[table_name] || [];
-                    const row_num = active_group.row_idx || (current_group_idx + 1);
-                    const row = lines.find(x => x.idx === row_num) || lines[current_group_idx] || lines[0];
-                    if (row) {
-                        let target_field = 'receipt_attachment';
-                        if (current_proof && current_proof.proof_type === 'payment') {
-                            target_field = 'payment_proof_attachment';
-                        } else if (current_proof && current_proof.proof_type === 'extra') {
-                            target_field = 'additional_proof_attachment';
-                        } else if (row.receipt_attachment !== undefined) {
-                            target_field = 'receipt_attachment';
-                        } else if (row.attach_receipt !== undefined) {
-                            target_field = 'attach_receipt';
-                        } else if (row.attachment !== undefined) {
-                            target_field = 'attachment';
-                        }
-
-                        frappe.model.set_value(row.doctype, row.name, target_field, file_doc.file_url);
+                    const sync_preview = () => {
                         if (current_proof) {
                             current_proof.file_url = file_doc.file_url;
                             current_proof.view_url = self.buildViewUrl(frm, file_doc.file_url);
                             current_proof.file_name = file_doc.file_url.split('/').pop().split('?')[0];
-                            const ext = current_proof.file_name.substring(current_proof.file_name.lastIndexOf('.')).toLowerCase();
+                            const ext = current_proof.file_name.lastIndexOf('.') !== -1
+                                ? current_proof.file_name.substring(current_proof.file_name.lastIndexOf('.')).toLowerCase()
+                                : '';
                             current_proof.is_image = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext);
                             current_proof.is_pdf = ext === '.pdf';
                             current_proof.extension = ext;
                         }
-
-                        if (frm.fields_dict[table_name]) frm.refresh_field(table_name);
                         render_active_preview();
                         frappe.show_alert({ message: __('Receipt updated successfully!'), indicator: 'green' });
+                    };
+
+                    if (current_proof && current_proof.source === 'parent' && current_proof.field_source) {
+                        frm.set_value(current_proof.field_source, file_doc.file_url);
+                        sync_preview();
+                        return;
+                    }
+
+                    const lines = frm.doc[resolved_table] || [];
+                    const row_num = active_group.row_idx || (current_group_idx + 1);
+                    const row = lines.find(x => x.idx === row_num) || lines[current_group_idx] || lines[0];
+                    if (row) {
+                        let target_field = (current_proof && current_proof.field_source && row[current_proof.field_source] !== undefined)
+                            ? current_proof.field_source
+                            : null;
+                        if (!target_field) {
+                            if (current_proof && current_proof.proof_type === 'payment') {
+                                target_field = 'payment_proof_attachment';
+                            } else if (current_proof && current_proof.proof_type === 'extra') {
+                                target_field = 'additional_proof_attachment';
+                            } else {
+                                target_field = ['receipt_attachment', 'quote_attachment', 'attach_receipt', 'attachment', 'tax_invoice_attachment']
+                                    .find(f => row[f] !== undefined) || 'receipt_attachment';
+                            }
+                        }
+
+                        frappe.model.set_value(row.doctype, row.name, target_field, file_doc.file_url);
+                        if (frm.fields_dict[resolved_table]) frm.refresh_field(resolved_table);
+                        sync_preview();
                     }
                 }
             });
@@ -1673,8 +1859,13 @@ window.APReceiptGallery = {
             });
         };
 
-        // ZIP All Download (Handles both Single Doc & Weekly Accounts Audit Batch multi-vouchers)
+        // ZIP All Download (Handles Single Doc, Event Aggregated & Weekly Accounts Audit Batch)
         $wrapper.on('click', '.ap-btn-download-all', function () {
+            if (is_event_aggregated && event_name) {
+                const url = `/api/method/ap_automation.services.attachment_service.download_event_all_attachments_zip?event_name=${encodeURIComponent(event_name)}`;
+                window.location.href = url;
+                return;
+            }
             if (is_batch_audit) {
                 const claim_list = Array.from(new Set(groups.map(g => g.claim_name).filter(Boolean)));
                 if (claim_list.length === 1) {

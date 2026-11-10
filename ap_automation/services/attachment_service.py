@@ -147,6 +147,7 @@ def _build_attachment_entry(
     )
     return {
         "source": source,
+        "claim_doctype": doctype,
         "claim_name": docname,
         "proof_type": proof_type,
         "proof_label": proof_label,
@@ -706,6 +707,101 @@ def download_multiple_claims_receipts_zip(claim_names=None, label="Employee_Rece
     download_filename = f"{clean_label}_Receipts.zip"
 
     frappe.response["filename"] = download_filename
+    frappe.response["filecontent"] = zip_buffer.getvalue()
+    frappe.response["type"] = "download"
+
+
+_EVENT_PROOF_SOURCES = (
+    ("Event Advance Request", "Advances"),
+    ("Event Expense Claim", "Expense_Claims"),
+    ("Vendor Invoice Claim", "Vendor_Invoices"),
+    ("Event Settlement", "Settlement"),
+)
+
+
+def _collect_event_linked_attachments(event_name: str) -> List[Dict[str, Any]]:
+    """Collects readable receipts, quotes, and vendor invoices across all documents linked to an Event Master."""
+    if not event_name or not frappe.db.exists("Event Master", event_name):
+        raise APValidationError(f"Event Master '{event_name}' not found.")
+
+    _check_document_permission("Event Master", event_name, ptype="read")
+
+    aggregated: List[Dict[str, Any]] = []
+    for src_dt, folder_name in _EVENT_PROOF_SOURCES:
+        meta = frappe.get_meta(src_dt)
+        if not meta or not meta.has_field("event"):
+            continue
+        names = frappe.get_all(
+            src_dt,
+            filters={"event": event_name, "docstatus": ["!=", 2]},
+            pluck="name",
+            order_by="creation asc",
+        )
+        for docname in names:
+            if not frappe.has_permission(src_dt, ptype="read", doc=docname):
+                continue
+            try:
+                atts = get_all_claim_attachments(src_dt, docname)
+                for att in atts:
+                    att["claim_doctype"] = src_dt
+                    att["claim_name"] = docname
+                    att["event_folder"] = folder_name
+                    aggregated.append(att)
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed scanning event attachment on {src_dt} {docname}: {e}",
+                    "Event Aggregated Attachments",
+                )
+
+    return aggregated
+
+
+@frappe.whitelist()
+def get_event_all_attachments(event_name: str) -> Dict[str, Any]:
+    """Returns consolidated proof & receipt metadata across all Advances, Claims, Invoices, and Settlement for an Event."""
+    attachments = _collect_event_linked_attachments(event_name)
+    return {
+        "event_name": event_name,
+        "total_receipts": len(attachments),
+        "attachments": attachments,
+    }
+
+
+@frappe.whitelist()
+def download_event_all_attachments_zip(event_name: str) -> None:
+    """Packages all readable proofs/receipts/quotes linked to an Event Master into a single structured ZIP."""
+    attachments = _collect_event_linked_attachments(event_name)
+    if not attachments:
+        frappe.throw(_("No receipt files, quotes, or tax invoices found to download for this Event."))
+
+    zip_buffer = io.BytesIO()
+    seen_paths = set()
+    files_added = 0
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for idx, att in enumerate(attachments, start=1):
+            norm_path = _resolve_physical_file_path(att.get("file_url") or "")
+            if not norm_path:
+                continue
+            ext = att.get("extension") or ".png"
+            folder = att.get("event_folder") or "Proofs"
+            doc_folder = str(att.get("claim_name") or "Doc").replace("/", "-")
+            clean_merchant = "".join(c for c in (att.get("merchant") or "Expense") if c.isalnum() or c in (" ", "-", "_")).strip() or "Expense"
+            clean_cat = "".join(c for c in (att.get("category") or "Proof") if c.isalnum() or c in (" ", "-", "_")).strip() or "Proof"
+            row_tag = f"Row-{att['row_idx']}_" if att.get("row_idx") else ""
+            candidate_path = f"{folder}/{doc_folder}/{row_tag}{clean_cat}_{clean_merchant}_{idx}{ext}"
+            while candidate_path in seen_paths:
+                candidate_path = f"{folder}/{doc_folder}/{row_tag}{clean_cat}_{clean_merchant}_{idx}_{len(seen_paths)}{ext}"
+            seen_paths.add(candidate_path)
+            zip_file.write(norm_path, arcname=candidate_path)
+            files_added += 1
+
+    if files_added == 0:
+        frappe.throw(_("Could not read physical receipt files from disk for this Event."))
+
+    zip_buffer.seek(0)
+    clean_event = str(event_name).replace("/", "-")
+    frappe.response["filename"] = f"Event_{clean_event}_All_Proofs.zip"
     frappe.response["filecontent"] = zip_buffer.getvalue()
     frappe.response["type"] = "download"
 

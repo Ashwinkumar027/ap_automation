@@ -3,16 +3,24 @@
 // 100% Mobile & Desktop Responsive
 
 frappe.ui.form.on("Event Expense Claim", {
-    setup: function(frm) {
-        if (window.APReceiptGallery && typeof window.APReceiptGallery.setup === 'function') {
-            window.APReceiptGallery.setup(frm);
-        }
-    },
-
     refresh: function(frm) {
         frm.set_df_property('status', 'read_only', 1);
         set_expense_claim_indicator(frm);
         render_stream_demarcation_banner(frm);
+
+        if (window.APReceiptGallery) {
+            window.APReceiptGallery.refreshFormButtons(frm);
+            if (!frm.is_new()) {
+                window.APReceiptGallery.addPrintDownloadButtons(
+                    frm,
+                    'Event Expense Claim Report',
+                    __('📄 Download Claim PDF'),
+                    __('🖨️ View Print Format')
+                );
+                window.APReceiptGallery.addExcelExportButton(frm);
+                window.APReceiptGallery.addTallyXmlButton(frm, ['Submitted', 'Accounts Verified', 'Settled']);
+            }
+        }
 
         if (frm.doc.docstatus === 0 && frm.doc.event) {
             frm.add_custom_button(__('📋 Populate from Imprest Proposal'), function() {
@@ -45,21 +53,6 @@ frappe.ui.form.on("Event Expense Claim", {
                     }
                 });
             }).addClass('btn-default');
-        }
-
-        // Print & View Actions
-        if (!frm.is_new()) {
-            frm.add_custom_button(__('📄 Download Claim PDF'), function() {
-                const pdf_url = frappe.urllib.get_full_url(
-                    `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(frm.doc.doctype)}&name=${encodeURIComponent(frm.doc.name)}&format=Event%20Expense%20Report&no_letterhead=0`
-                );
-                window.open(pdf_url, '_blank');
-            }, __('Print / Download'));
-
-            frm.add_custom_button(__('🖨️ View Print Format'), function() {
-                const print_url = `/printview?doctype=${encodeURIComponent(frm.doc.doctype)}&name=${encodeURIComponent(frm.doc.name)}&format=Event%20Expense%20Report&no_letterhead=0`;
-                window.open(print_url, '_blank');
-            }, __('Print / Download'));
         }
 
         // 1-Click Draft Submission (replaces ambiguous native Frappe Submit in Draft)
@@ -144,30 +137,37 @@ frappe.ui.form.on("Event Expense Claim", {
         const can_audit = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager', 'Accounts Director', 'AP Director', 'System Manager']) || frappe.session.user === 'Administrator';
         if (can_audit && frm.doc.status === 'Submitted') {
             frm.add_custom_button(__('✅ Verify Ground Bills (Accounts L1)'), function() {
-                frappe.prompt([
-                    {
-                        fieldname: 'remarks',
-                        fieldtype: 'Small Text',
-                        label: __('Accounts Verification Notes (Optional)'),
-                        default: 'All ground receipts and expense categories verified.'
-                    }
-                ], function(values) {
-                    frappe.call({
-                        method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.verify_event_expense_claim',
-                        args: {
-                            claim_name: frm.doc.name,
-                            remarks: values.remarks || ''
-                        },
-                        freeze: true,
-                        freeze_message: __('Marking Claim Accounts Verified...'),
-                        callback: function(r) {
-                            if (r.message && r.message.status === 'SUCCESS') {
-                                frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                                frm.reload_doc();
-                            }
+                const open_verify_prompt = function() {
+                    frappe.prompt([
+                        {
+                            fieldname: 'remarks',
+                            fieldtype: 'Small Text',
+                            label: __('Accounts Verification Notes (Optional)'),
+                            default: 'All ground receipts and expense categories verified.'
                         }
-                    });
-                }, __('Accounts Verification'), __('Mark Accounts Verified'));
+                    ], function(values) {
+                        frappe.call({
+                            method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.verify_event_expense_claim',
+                            args: {
+                                claim_name: frm.doc.name,
+                                remarks: values.remarks || ''
+                            },
+                            freeze: true,
+                            freeze_message: __('Marking Claim Accounts Verified...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }, __('Accounts Verification'), __('Mark Accounts Verified'));
+                };
+                if (window.APClarificationThread && typeof window.APClarificationThread.checkUnresolvedQueries === 'function') {
+                    window.APClarificationThread.checkUnresolvedQueries(frm, open_verify_prompt);
+                } else {
+                    open_verify_prompt();
+                }
             }).addClass('btn-success');
 
             frm.add_custom_button(__('↩️ Return to SPOC'), function() {
@@ -375,8 +375,14 @@ frappe.ui.form.on("Event Expense Item", {
     },
     receipt_attachment: function(frm) {
         render_stream_demarcation_banner(frm);
+        if (window.APReceiptGallery) {
+            window.APReceiptGallery.refreshFormButtons(frm);
+        }
     },
     expense_items_remove: function(frm) {
         render_stream_demarcation_banner(frm);
+        if (window.APReceiptGallery) {
+            window.APReceiptGallery.refreshFormButtons(frm);
+        }
     }
 });

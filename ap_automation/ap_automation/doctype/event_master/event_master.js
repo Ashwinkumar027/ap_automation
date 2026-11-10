@@ -291,9 +291,15 @@ function setup_event_master_actions(frm) {
         }, __('Actions'));
     }
 
-    // View Live Report
-    frm.add_custom_button(__('📊 View Spend Statement'), function() {
-        const print_url = `/printview?doctype=Event%20Master&name=${encodeURIComponent(frm.doc.name)}&format=Event%20Expense%20Report&no_letterhead=0`;
-        window.open(print_url, '_blank');
-    }, __('Print / Download'));
+    // View & Export Statements + Aggregated Proofs
+    if (window.APReceiptGallery) {
+        window.APReceiptGallery.addPrintDownloadButtons(
+            frm,
+            'Event Master Spend Statement',
+            __('📄 Download Statement PDF'),
+            __('📊 View Spend Statement')
+        );
+        window.APReceiptGallery.addExcelExportButton(frm);
+        window.APReceiptGallery.refreshEventAggregatedButtons(frm, frm.doc.name);
+    }
 }

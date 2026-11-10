@@ -19,7 +19,7 @@ def _map_doctype_to_lane(doctype: str) -> str:
         return "AP Vendor Invoice"
     if dt in ("Admin Weekly Vendor Claim", "Admin Weekly Vendor"):
         return "Admin Weekly Vendor Claim"
-    if dt in ("Event Advance Request", "Event Expense Claim", "Event Settlement"):
+    if dt in ("Event Master", "Event Advance Request", "Event Expense Claim", "Event Settlement"):
         return "Event Advance Request"
     return dt
 
@@ -75,6 +75,7 @@ def resolve_document_stakeholders(doctype: str, docname: str) -> List[Dict[str, 
     claimant_val = (
         getattr(doc, "employee", None)
         or getattr(doc, "claimant", None)
+        or getattr(doc, "event_spoc", None)
         or getattr(doc, "spoc", None)
         or getattr(doc, "custodian", None)
         or getattr(doc, "prepared_by", None)
@@ -85,8 +86,12 @@ def resolve_document_stakeholders(doctype: str, docname: str) -> List[Dict[str, 
     # 2. Document Explicit Stage Assignees (if already stamped on doc)
     if getattr(doc, "reporting_manager", None):
         _add_stakeholder("Reporting Manager", doc.reporting_manager, "Document Field")
+    if getattr(doc, "approved_by_business_head", None):
+        _add_stakeholder("Director", doc.approved_by_business_head, "Document Field")
     if getattr(doc, "admin_l1_approver", None):
         _add_stakeholder("Admin Reviewer", doc.admin_l1_approver, "Document Field")
+    if getattr(doc, "accounts_l1_verifier", None):
+        _add_stakeholder("Accounts L1 Auditor", doc.accounts_l1_verifier, "Document Field")
     if getattr(doc, "accounts_l1_approver", None):
         _add_stakeholder("Accounts L1 Auditor (Gokul)", doc.accounts_l1_approver, "Document Field")
     if getattr(doc, "accounts_auditor", None):
@@ -121,7 +126,11 @@ def resolve_document_stakeholders(doctype: str, docname: str) -> List[Dict[str, 
             if not approver:
                 continue
 
-            if "director" in lvl_name or lvl.level_number in (4, 5) and "accounts" in lvl_name:
+            if ("accounts" in lvl_name and "director" in lvl_name) or (lvl.level_number in (4, 5) and "accounts" in lvl_name):
+                _add_stakeholder("Accounts Director", approver, f"Matrix L{lvl.level_number}")
+            elif lane == "Event Advance Request" and ("executive" in lvl_name or "business head" in lvl_name or lvl.level_number == 1):
+                _add_stakeholder("Director", approver, f"Matrix L{lvl.level_number}")
+            elif "director" in lvl_name:
                 _add_stakeholder("Accounts Director", approver, f"Matrix L{lvl.level_number}")
             elif "l1" in lvl_name or "audit" in lvl_name or "accounts" in lvl_name:
                 _add_stakeholder("Accounts L1 Auditor (Gokul)", approver, f"Matrix L{lvl.level_number}")

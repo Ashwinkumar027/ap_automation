@@ -12,7 +12,7 @@ import uuid
 import xml.sax.saxutils as saxutils
 from collections import defaultdict
 import frappe
-from ap_automation.exceptions import APValidationError
+from ap_automation.exceptions import APValidationError, APSecurityError
 
 
 def clean_xml_text(val: Optional[str]) -> str:
@@ -337,3 +337,279 @@ def export_tally_xml_for_batch(batch_id: str) -> str:
     frappe.db.set_value("Tally Voucher Log", log_name, "status", "Exported to Tally")
     frappe.db.commit()
     return xml
+
+
+TALLY_EXPORT_ROLES = {
+    "Accounts L1 Auditor",
+    "Accounts User",
+    "Accounts Director",
+    "Accounts Manager",
+    "AP Director",
+    "System Manager",
+    "Administrator",
+}
+
+
+def _format_tally_date(date_val: Any) -> str:
+    raw = date_val or frappe.utils.nowdate()
+    return str(raw)[:10].replace("-", "")
+
+
+def _make_ledger_master_xml(ledger_name: str, parent_group: str) -> str:
+    escaped = clean_xml_text(ledger_name)
+    escaped_parent = clean_xml_text(parent_group)
+    return f"""
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <LEDGER NAME="{escaped}" ACTION="Create">
+            <NAME>{escaped}</NAME>
+            <PARENT>{escaped_parent}</PARENT>
+            <ISBILLWISEON>No</ISBILLWISEON>
+            <AFFECTSSTOCK>No</AFFECTSSTOCK>
+          </LEDGER>
+        </TALLYMESSAGE>"""
+
+
+def _make_ledger_entry_xml(ledger_name: str, amount: float, is_debit: bool, is_party: bool = False) -> str:
+    escaped = clean_xml_text(ledger_name)
+    signed_amt = f"-{abs(amount):.2f}" if is_debit else f"{abs(amount):.2f}"
+    return f"""
+            <ALLLEDGERENTRIES.LIST>
+              <LEDGERNAME>{escaped}</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>{"Yes" if is_debit else "No"}</ISDEEMEDPOSITIVE>
+              <ISPARTYLEDGER>{"Yes" if is_party else "No"}</ISPARTYLEDGER>
+              <AMOUNT>{signed_amt}</AMOUNT>
+            </ALLLEDGERENTRIES.LIST>"""
+
+
+def _build_tally_voucher_envelope(
+    *,
+    vch_type: str,
+    posting_date: str,
+    tally_guid: str,
+    narration: str,
+    voucher_number: str,
+    masters_xml: List[str],
+    entries_xml: List[str],
+    party_ledger_name: Optional[str] = None,
+) -> str:
+    party_xml = f"\n            <PARTYLEDGERNAME>{clean_xml_text(party_ledger_name)}</PARTYLEDGERNAME>" if party_ledger_name else ""
+    return f"""<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDATA>
+        {''.join(masters_xml)}
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <VOUCHER VCHTYPE="{clean_xml_text(vch_type)}" ACTION="Create" OBJVIEW="Accounting Voucher View">
+            <DATE>{posting_date}</DATE>
+            <GUID>{tally_guid}</GUID>
+            <NARRATION>{clean_xml_text(narration)}</NARRATION>
+            <VOUCHERTYPENAME>{clean_xml_text(vch_type)}</VOUCHERTYPENAME>
+            <VOUCHERNUMBER>{clean_xml_text(voucher_number)}</VOUCHERNUMBER>{party_xml}
+            {''.join(entries_xml)}
+          </VOUCHER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>"""
+
+
+def _save_tally_voucher_log(company: Optional[str], docname: str, vch_type: str, vch_date: Any, total_debit: float, tally_guid: str, xml_payload: str) -> None:
+    try:
+        existing_log = frappe.db.get_value("Tally Voucher Log", {"batch_id": docname}, "name")
+        if existing_log:
+            frappe.db.set_value("Tally Voucher Log", existing_log, {
+                "tally_guid": tally_guid,
+                "voucher_type": vch_type,
+                "total_debit_amount": round(total_debit, 2),
+                "tally_xml_payload": xml_payload,
+                "status": "Exported to Tally",
+            })
+        else:
+            tally_log = frappe.get_doc({
+                "doctype": "Tally Voucher Log",
+                "company": company,
+                "batch_id": docname,
+                "voucher_type": vch_type,
+                "voucher_date": vch_date,
+                "total_debit_amount": round(total_debit, 2),
+                "tally_guid": tally_guid,
+                "status": "Exported to Tally",
+                "export_timestamp": frappe.utils.now(),
+                "tally_xml_payload": xml_payload,
+            })
+            tally_log.insert(ignore_permissions=True, ignore_links=True)
+        frappe.db.commit()
+    except Exception as e:
+        frappe.log_error(f"Failed to record Tally Voucher Log for {docname}: {str(e)}")
+
+
+def _resolve_event_spoc_imprest_ledger(doc: Any) -> str:
+    spoc_name = getattr(doc, "spoc_name", None) or getattr(doc, "spoc", None) or "Event SPOC"
+    return f"{str(spoc_name).strip()} Event Imprest"
+
+
+@frappe.whitelist()
+def export_tally_journal_xml_for_event(doctype: str, docname: str) -> str:
+    """
+    Generates Tally XML Voucher (Journal / Payment) for Event Advance Request, Event Expense Claim, or Event Settlement.
+    """
+    supported = {"Event Advance Request", "Event Expense Claim", "Event Settlement"}
+    if doctype not in supported:
+        raise APValidationError(f"Tally XML export is not supported for DocType '{doctype}'.")
+    if not docname or not frappe.db.exists(doctype, docname):
+        raise APValidationError(f"{doctype} '{docname}' not found.")
+
+    user = frappe.session.user
+    roles = set(frappe.get_roles(user))
+    if user != "Administrator" and not roles.intersection(TALLY_EXPORT_ROLES):
+        raise APSecurityError("Unauthorized: Only Accounts or Finance Directors can export Tally XML.")
+    if not frappe.has_permission(doctype, "read", docname):
+        raise APSecurityError(f"Access Denied: You do not have read permission on {doctype} '{docname}'.")
+
+    doc = frappe.get_doc(doctype, docname)
+    event_title = frappe.db.get_value("Event Master", getattr(doc, "event", None), "event_name") or getattr(doc, "event", "")
+    imprest_ledger = _resolve_event_spoc_imprest_ledger(doc)
+    bank_ledger = "IDFC FIRST Bank Operating A/c"
+    tally_guid = str(uuid.uuid4())
+    seen_masters = set()
+    masters_xml: List[str] = []
+    entries_xml: List[str] = []
+
+    def _ensure_master(name: str, group: str):
+        if name not in seen_masters:
+            seen_masters.add(name)
+            masters_xml.append(_make_ledger_master_xml(name, group))
+
+    if doctype == "Event Expense Claim":
+        if doc.status not in ("Submitted", "Accounts Verified", "Settled"):
+            raise APValidationError(f"Cannot export Tally XML while Event Expense Claim is '{doc.status}'.")
+        items = getattr(doc, "expense_items", None) or []
+        if not items:
+            raise APValidationError(f"Event Expense Claim '{docname}' has no expense items.")
+
+        cat_totals = defaultdict(float)
+        for row in items:
+            cat = getattr(row, "expense_category", None) or "Event Expenses"
+            cat_totals[cat] += float(getattr(row, "amount", 0.0) or 0.0)
+
+        total_amount = round(sum(cat_totals.values()), 2)
+        if total_amount <= 0:
+            raise APValidationError("Total claim amount must be greater than zero for Tally export.")
+
+        _ensure_master(imprest_ledger, "Current Assets")
+        for cat, amt in cat_totals.items():
+            _ensure_master(cat, "Indirect Expenses")
+            entries_xml.append(_make_ledger_entry_xml(cat, amt, is_debit=True, is_party=False))
+        entries_xml.append(_make_ledger_entry_xml(imprest_ledger, total_amount, is_debit=False, is_party=True))
+
+        vch_type = "Journal"
+        vch_date_raw = getattr(doc, "posting_date", None) or frappe.utils.nowdate()
+        narration = f"Event Expense Claim {doc.name} - {event_title} ({doc.spoc_name or doc.spoc or ''})"
+        xml_payload = _build_tally_voucher_envelope(
+            vch_type=vch_type,
+            posting_date=_format_tally_date(vch_date_raw),
+            tally_guid=tally_guid,
+            narration=narration,
+            voucher_number=doc.name,
+            masters_xml=masters_xml,
+            entries_xml=entries_xml,
+        )
+
+    elif doctype == "Event Advance Request":
+        if doc.status not in ("Approved for Payment", "Disbursed"):
+            raise APValidationError(f"Event Advance Request '{docname}' must be 'Approved for Payment' or 'Disbursed' before Tally export.")
+        items = getattr(doc, "imprest_items", None) or []
+        if not items:
+            raise APValidationError(f"Event Advance Request '{docname}' has no imprest line items.")
+
+        debit_ledgers = defaultdict(lambda: ("Current Assets", 0.0))
+        total_amount = 0.0
+        for row in items:
+            amt = float(getattr(row, "amount", 0.0) or 0.0)
+            if amt <= 0:
+                continue
+            total_amount += amt
+            if getattr(row, "payment_mode", "") == "Direct Vendor Payment":
+                bene = (getattr(row, "beneficiary_name", None) or "Event Vendor").strip()
+                debit_ledgers[bene] = ("Sundry Creditors", debit_ledgers[bene][1] + amt)
+            else:
+                debit_ledgers[imprest_ledger] = ("Current Assets", debit_ledgers[imprest_ledger][1] + amt)
+
+        total_amount = round(total_amount, 2)
+        if total_amount <= 0:
+            raise APValidationError("Total advance amount must be greater than zero for Tally export.")
+
+        _ensure_master(bank_ledger, "Bank Accounts")
+        for ledger_name, (group, amt) in debit_ledgers.items():
+            _ensure_master(ledger_name, group)
+            entries_xml.append(_make_ledger_entry_xml(ledger_name, amt, is_debit=True, is_party=True))
+        entries_xml.append(_make_ledger_entry_xml(bank_ledger, total_amount, is_debit=False, is_party=False))
+
+        vch_type = "Payment"
+        vch_date_raw = getattr(doc, "event_date", None) or frappe.utils.nowdate()
+        utr_ref = getattr(doc, "disbursement_reference", None) or getattr(doc, "utr", None) or "PENDING"
+        narration = f"Event Advance Disbursal {doc.name} - {event_title}. UTR: {utr_ref}"
+        primary_party = next(iter(debit_ledgers.keys()), imprest_ledger)
+        xml_payload = _build_tally_voucher_envelope(
+            vch_type=vch_type,
+            posting_date=_format_tally_date(vch_date_raw),
+            tally_guid=tally_guid,
+            narration=narration,
+            voucher_number=doc.name,
+            masters_xml=masters_xml,
+            entries_xml=entries_xml,
+            party_ledger_name=primary_party,
+        )
+
+    else:  # Event Settlement
+        if doc.status not in ("Approved for Payment", "Settled"):
+            raise APValidationError(f"Event Settlement '{docname}' must be 'Approved for Payment' or 'Settled' before Tally export.")
+        s_type = getattr(doc, "settlement_type", "")
+        if s_type == "ZERO_BALANCE_BALANCED":
+            raise APValidationError("This Event Settlement is perfectly balanced (INR 0.00). No adjustment entry is needed in Tally.")
+
+        _ensure_master(imprest_ledger, "Current Assets")
+        _ensure_master(bank_ledger, "Bank Accounts")
+        utr_ref = getattr(doc, "refund_received_reference", None) or "PENDING"
+
+        if s_type == "REFUND_FROM_SPOC":
+            total_amount = round(float(getattr(doc, "refund_receivable_from_spoc", 0.0) or 0.0), 2)
+            if total_amount <= 0:
+                raise APValidationError("Refund receivable amount must be greater than zero for Tally export.")
+            entries_xml.append(_make_ledger_entry_xml(bank_ledger, total_amount, is_debit=True, is_party=False))
+            entries_xml.append(_make_ledger_entry_xml(imprest_ledger, total_amount, is_debit=False, is_party=True))
+            narration = f"Event Refund Received {doc.name} - {event_title}. UTR: {utr_ref}"
+        else:  # PAYABLE_TO_SPOC
+            total_amount = round(float(getattr(doc, "net_payable_to_spoc", 0.0) or 0.0), 2)
+            if total_amount <= 0:
+                raise APValidationError("Net payable amount must be greater than zero for Tally export.")
+            entries_xml.append(_make_ledger_entry_xml(imprest_ledger, total_amount, is_debit=True, is_party=True))
+            entries_xml.append(_make_ledger_entry_xml(bank_ledger, total_amount, is_debit=False, is_party=False))
+            narration = f"Event SPOC Settlement Reimbursement {doc.name} - {event_title}. UTR: {utr_ref}"
+
+        vch_type = "Journal"
+        vch_date_raw = getattr(doc, "refund_date", None) or getattr(doc, "settlement_date", None) or frappe.utils.nowdate()
+        xml_payload = _build_tally_voucher_envelope(
+            vch_type=vch_type,
+            posting_date=_format_tally_date(vch_date_raw),
+            tally_guid=tally_guid,
+            narration=narration,
+            voucher_number=doc.name,
+            masters_xml=masters_xml,
+            entries_xml=entries_xml,
+        )
+
+    _save_tally_voucher_log(
+        company=getattr(doc, "company", None),
+        docname=doc.name,
+        vch_type=vch_type,
+        vch_date=vch_date_raw,
+        total_debit=total_amount,
+        tally_guid=tally_guid,
+        xml_payload=xml_payload,
+    )
+    return xml_payload
