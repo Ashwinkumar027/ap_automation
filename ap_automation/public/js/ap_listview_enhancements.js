@@ -60,12 +60,55 @@
         };
     }
 
+    function applyAPFormLayoutClasses() {
+        const route = frappe.get_route ? frappe.get_route() : [];
+        const isForm = route && route[0] === 'Form';
+        const isAPModule = Boolean(
+            isForm &&
+            typeof cur_frm !== 'undefined' &&
+            cur_frm &&
+            cur_frm.meta &&
+            cur_frm.meta.module === 'AP Automation' &&
+            cur_frm.page &&
+            cur_frm.page.wrapper
+        );
+
+        $('.page-container.ap-no-form-sidebar').each(function () {
+            if (!isAPModule || this !== cur_frm.page.wrapper) {
+                $(this).removeClass('ap-no-form-sidebar');
+            }
+        });
+
+        if (isAPModule) {
+            $(cur_frm.page.wrapper).addClass('ap-no-form-sidebar');
+        }
+    }
+
+    function patchFormLayout() {
+        if (!frappe.ui || !frappe.ui.form || !frappe.ui.form.Form) return;
+        if (frappe.ui.form.Form.prototype._ap_layout_patched) return;
+        frappe.ui.form.Form.prototype._ap_layout_patched = true;
+
+        const orig_form_refresh = frappe.ui.form.Form.prototype.refresh;
+        frappe.ui.form.Form.prototype.refresh = function () {
+            const res = orig_form_refresh.apply(this, arguments);
+            if (this.meta && this.meta.module === 'AP Automation' && this.page && this.page.wrapper) {
+                $(this.page.wrapper).addClass('ap-no-form-sidebar');
+            }
+            return res;
+        };
+    }
+
     $(document).ready(function () {
         patchListView();
+        patchFormLayout();
+        applyAPFormLayoutClasses();
     });
 
     $(document).on('app_ready page-change', function () {
         patchListView();
+        patchFormLayout();
+        applyAPFormLayoutClasses();
         if (typeof cur_list !== 'undefined' && cur_list) {
             applyIDColumnSpacing(cur_list);
         }

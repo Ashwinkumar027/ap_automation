@@ -1,8 +1,11 @@
 # Copyright (c) 2026, Quanti and contributors
 # For license information, please see license.txt
 
+from typing import Any, Dict, Optional
 import frappe
 from frappe.model.document import Document
+from ap_automation.exceptions import APValidationError, APSecurityError
+from ap_automation.services.event_budget_service import enforce_event_status_tamper_lock
 
 
 class EventMaster(Document):
@@ -29,6 +32,42 @@ class EventMaster(Document):
         else:
             self.budget_overrun_status = "WITHIN_BUDGET"
 
+    def before_save(self):
+        """Blocks direct manual `status` tampering on Event Master."""
+        enforce_event_status_tamper_lock(self, default_draft_status="Budget Approved")
+
     def onload(self):
         """Auto-recalculates numbers upon viewing."""
         self.validate()
+
+
+@frappe.whitelist()
+def cancel_event_master(event_name: str, reason: Optional[str] = None) -> Dict[str, Any]:
+    """Authorized workflow action allowing Directors / Accounts Managers to cancel an open Event Master."""
+    if not event_name or not frappe.db.exists("Event Master", event_name):
+        raise APValidationError(f"Event Master '{event_name}' not found.")
+
+    user = frappe.session.user
+    roles = set(frappe.get_roles(user))
+    allowed = {"AP Director", "Director", "Accounts Director", "Accounts Manager", "System Manager", "Administrator"}
+    if user != "Administrator" and not roles.intersection(allowed):
+        raise APSecurityError("Unauthorized: Only Director or Accounts Director / Manager can cancel an Event.")
+
+    doc = frappe.get_doc("Event Master", event_name)
+    if doc.status == "Closed":
+        raise APValidationError("Cannot cancel an already Closed event.")
+    if doc.status == "Cancelled":
+        return {"status": "SUCCESS", "message": f"Event '{event_name}' is already Cancelled."}
+
+    clean_reason = (reason or "").strip() or "Event cancelled by authorized approver."
+    frappe.db.set_value("Event Master", event_name, "status", "Cancelled", update_modified=True)
+    doc.reload()
+    doc.add_comment("Comment", f"🚫 <b>Event Cancelled by {user}:</b> {clean_reason}")
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "event": event_name,
+        "new_status": "Cancelled",
+        "message": f"Event '{event_name}' marked Cancelled.",
+    }

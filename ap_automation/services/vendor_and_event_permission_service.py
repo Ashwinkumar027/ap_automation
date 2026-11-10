@@ -128,7 +128,7 @@ def has_admin_weekly_vendor_permission(doc, user: Optional[str] = None, ptype: s
 
 def get_event_master_permission_query_conditions(user: Optional[str] = None) -> str:
     """
-    Accounts/Finance/Business Heads see all Event Masters.
+    Accounts/Finance/Directors see all Event Masters.
     Regular employees/SPOCs see ONLY Event Masters they created or where they are designated Event SPOC.
     """
     if not user:
@@ -138,7 +138,7 @@ def get_event_master_permission_query_conditions(user: Optional[str] = None) -> 
         return ""
 
     user_roles = set(frappe.get_roles(user)) if user else set()
-    if user_roles.intersection({"Business Head", "Business Head Approver"}):
+    if user_roles.intersection({"Director", "AP Director", "Business Head", "Business Head Approver"}):
         return ""
 
     escaped_user = frappe.db.escape(user)
@@ -158,7 +158,7 @@ def has_event_master_permission(doc, user: Optional[str] = None, ptype: str = "r
         return True
 
     user_roles = set(frappe.get_roles(user)) if user else set()
-    if user_roles.intersection({"Business Head", "Business Head Approver"}):
+    if user_roles.intersection({"Director", "AP Director", "Business Head", "Business Head Approver"}):
         return True
 
     return bool(
@@ -167,27 +167,43 @@ def has_event_master_permission(doc, user: Optional[str] = None, ptype: str = "r
     )
 
 
+def _is_event_advance_matrix_approver(user: str) -> bool:
+    """Checks if user is designated in any active Event Advance Request AP Approval Matrix."""
+    if not user or not frappe.db.exists("DocType", "AP Approval Matrix"):
+        return False
+    rows = frappe.db.sql(
+        """
+        SELECT r.designated_approver
+        FROM `tabAP Approval Level Rule` r
+        JOIN `tabAP Approval Matrix` m ON m.name = r.parent
+        WHERE m.document_lane = 'Event Advance Request' AND m.is_active = 1
+        """,
+        as_dict=True,
+    )
+    return any(r.designated_approver == user for r in rows)
+
+
 def get_event_advance_permission_query_conditions(user: Optional[str] = None) -> str:
     """
     Accounts team sees ALL Event Advance Requests.
-    Business Heads & Directors see all requests in 'Pending Business Head Approval' or where they approved.
-    Receptionists, Admins, and Employees ONLY see requests created by themselves or where they are SPOC.
+    Directors see all requests pending Director approval or already approved by them.
+    SPOCs/Employees ONLY see requests created by themselves or where they are SPOC.
     """
     if not user:
         user = frappe.session.user
 
-    if is_accounts_user(user):
+    if is_accounts_user(user) or _is_event_advance_matrix_approver(user):
         return ""
 
     escaped_user = frappe.db.escape(user)
     user_roles = set(frappe.get_roles(user)) if user else set()
-    is_bh = bool(user_roles.intersection({"Business Head", "Business Head Approver", "AP Director", "Accounts Director"}))
+    is_director = bool(user_roles.intersection({"Director", "AP Director", "Accounts Director", "Business Head", "Business Head Approver"}))
 
-    if is_bh:
+    if is_director:
         return f"""(
             `tabEvent Advance Request`.`owner` = {escaped_user}
             OR `tabEvent Advance Request`.`spoc` = {escaped_user}
-            OR `tabEvent Advance Request`.`status` IN ('Pending Director Sanction', 'Pending Business Head Approval')
+            OR `tabEvent Advance Request`.`status` = 'Pending Director Approval'
             OR `tabEvent Advance Request`.`approved_by_business_head` = {escaped_user}
         )"""
 
@@ -204,12 +220,12 @@ def has_event_advance_permission(doc, user: Optional[str] = None, ptype: str = "
     if not doc or isinstance(doc, str):
         return None
 
-    if is_accounts_user(user):
+    if is_accounts_user(user) or _is_event_advance_matrix_approver(user):
         return True
 
     user_roles = set(frappe.get_roles(user)) if user else set()
-    is_bh = bool(user_roles.intersection({"Business Head", "Business Head Approver", "AP Director", "Accounts Director"}))
-    if is_bh and getattr(doc, "status", "") in ("Pending Director Sanction", "Pending Business Head Approval"):
+    is_director = bool(user_roles.intersection({"Director", "AP Director", "Accounts Director", "Business Head", "Business Head Approver"}))
+    if is_director and getattr(doc, "status", "") == "Pending Director Approval":
         return True
 
     return bool(

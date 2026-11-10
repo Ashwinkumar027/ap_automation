@@ -4,6 +4,18 @@
 
 frappe.ui.form.on("Event Master", {
     refresh: function(frm) {
+        frm.set_df_property('status', 'read_only', 1);
+        const ev_colors = {
+            'Planning': 'grey',
+            'Budget Approved': 'blue',
+            'Advance Disbursed': 'cyan',
+            'In Progress': 'orange',
+            'Settlement Pending': 'yellow',
+            'Closed': 'green',
+            'Cancelled': 'red'
+        };
+        const st = frm.doc.status || 'Budget Approved';
+        frm.page.set_indicator(__(st), ev_colors[st] || 'blue');
         render_event_master_dashboard(frm);
         setup_event_master_actions(frm);
     },
@@ -245,6 +257,37 @@ function setup_event_master_actions(frm) {
                     }
                 }
             });
+        }, __('Actions'));
+    }
+
+    // Cancel Event (Director / Accounts Director / Accounts Manager only)
+    const can_cancel_event = frappe.user.has_role(['AP Director', 'Director', 'Accounts Director', 'Accounts Manager', 'System Manager']) || frappe.session.user === 'Administrator';
+    if (!is_closed && can_cancel_event) {
+        frm.add_custom_button(__('🚫 Cancel Event'), function() {
+            frappe.prompt([
+                {
+                    fieldname: 'reason',
+                    fieldtype: 'Small Text',
+                    label: __('Cancellation Reason'),
+                    reqd: 1
+                }
+            ], function(values) {
+                frappe.call({
+                    method: 'ap_automation.ap_automation.doctype.event_master.event_master.cancel_event_master',
+                    args: {
+                        event_name: frm.doc.name,
+                        reason: values.reason
+                    },
+                    freeze: true,
+                    freeze_message: __('Cancelling Event...'),
+                    callback: function(r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({ message: r.message.message, indicator: 'orange' });
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }, __('Cancel Event Master'), __('Cancel Event'));
         }, __('Actions'));
     }
 

@@ -423,8 +423,11 @@ def reset_stale_ap_grid_user_settings():
 
 def after_migrate():
     """Hook executed after bench migrate runs on a site."""
+    from ap_automation.patches.normalize_event_advance_statuses import execute as normalize_event_statuses
+
     setup_roles()
     setup_custom_fields()
+    normalize_event_statuses()
     reload_doctype_permissions()
     sync_event_and_vendor_custom_docperms()
     reset_stale_ap_grid_user_settings()

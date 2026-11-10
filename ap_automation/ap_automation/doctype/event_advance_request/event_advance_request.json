@@ -36,12 +36,15 @@
   "approved_by_business_head",
   "business_head_approval_date",
   "business_head_comments",
-  "payment_releaser",
+  "accounts_l1_verifier",
+  "accounts_l1_verified_on",
+  "accounts_l1_comments",
+  "accounts_director",
+  "accounts_director_sign_date",
   "payment_release_maker",
   "payment_release_notified_on",
   "payment_release_notified",
-  "accounts_director_sign_date",
-  "accounts_director",
+  "payment_releaser",
   "batch_id",
   "disbursement_reference",
   "utr",
@@ -207,13 +210,14 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Director Sanction\nPending Business Head Approval\nApproved by Director\nApproved by Business Head\nApproved for Payment\nPending Accounts Disbursal\nQueued in Batch\nDisbursed\nRejected",
+   "options": "Draft\nPending Director Approval\nPending Accounts L1 Review\nPending Accounts Director Approval\nApproved for Payment\nDisbursed\nRejected",
+   "read_only": 1,
    "allow_on_submit": 1
   },
   {
    "fieldname": "approved_by_business_head",
    "fieldtype": "Link",
-   "label": "Sanctioned By (Director)",
+   "label": "Approved By (Director)",
    "options": "User",
    "read_only": 1,
    "allow_on_submit": 1
@@ -221,7 +225,7 @@
   {
    "fieldname": "business_head_approval_date",
    "fieldtype": "Datetime",
-   "label": "Director Sanction Timestamp",
+   "label": "Director Approval Timestamp",
    "read_only": 1,
    "allow_on_submit": 1
   },
@@ -229,6 +233,28 @@
    "fieldname": "business_head_comments",
    "fieldtype": "Small Text",
    "label": "Director Comments",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "accounts_l1_verifier",
+   "fieldtype": "Link",
+   "label": "Verified By (Accounts L1)",
+   "options": "User",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "accounts_l1_verified_on",
+   "fieldtype": "Datetime",
+   "label": "Accounts L1 Verification Timestamp",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "accounts_l1_comments",
+   "fieldtype": "Small Text",
+   "label": "Accounts L1 Audit Notes",
    "read_only": 1,
    "allow_on_submit": 1
   },

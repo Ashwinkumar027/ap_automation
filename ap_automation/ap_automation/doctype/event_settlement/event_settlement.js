@@ -24,6 +24,8 @@ frappe.ui.form.on("Event Settlement", {
     },
 
     refresh: function(frm) {
+        frm.set_df_property('status', 'read_only', 1);
+        set_settlement_status_indicator(frm);
         render_settlement_verdict_card(frm);
         setup_settlement_workflow_actions(frm);
     },
@@ -54,8 +56,76 @@ frappe.ui.form.on("Event Settlement", {
     }
 });
 
+function set_settlement_status_indicator(frm) {
+    const status = frm.doc.status || 'Draft';
+    const color_map = {
+        'Draft': 'grey',
+        'Under Accounts Review': 'orange',
+        'Approved for Payment': 'blue',
+        'Settled': 'green',
+        'Rejected': 'red'
+    };
+    frm.page.set_indicator(__(status), color_map[status] || 'grey');
+}
+
+function build_settlement_stepper_html(frm) {
+    const status = frm.doc.status || 'Draft';
+    const s_type = frm.doc.settlement_type || 'PAYABLE_TO_SPOC';
+    const is_rejected = status === 'Rejected';
+
+    let stages;
+    if (s_type === 'REFUND_FROM_SPOC') {
+        stages = [
+            { label: '1. Draft (SPOC + Refund UTR)' },
+            { label: '2. Accounts Refund Audit' },
+            { label: '3. Settled & Closed' }
+        ];
+    } else if (s_type === 'ZERO_BALANCE_BALANCED') {
+        stages = [
+            { label: '1. Draft (SPOC)' },
+            { label: '2. Balanced & Closed' }
+        ];
+    } else {
+        stages = [
+            { label: '1. Draft (SPOC)' },
+            { label: '2. Accounts Director Approval' },
+            { label: '3. IDFC & Payment Release' },
+            { label: '4. Settled & Closed' }
+        ];
+    }
+
+    let active_idx = 0;
+    if (status === 'Under Accounts Review') active_idx = 1;
+    else if (status === 'Approved for Payment') active_idx = 2;
+    else if (status === 'Settled') active_idx = stages.length;
+    else if (is_rejected) active_idx = -1;
+
+    const nodes = stages.map((st, idx) => {
+        let cls = '';
+        let badge = idx + 1;
+        if (is_rejected) {
+            cls = idx === 0 ? 'step-completed' : 'step-rejected';
+            badge = idx === 0 ? '✓' : '✕';
+        } else if (idx < active_idx) {
+            cls = 'step-completed';
+            badge = '✓';
+        } else if (idx === active_idx) {
+            cls = 'step-active';
+        }
+        return `<div class="ap-step-item ${cls}"><div class="ap-step-node">${badge}</div><div class="ap-step-label">${st.label}</div></div>`;
+    }).join('');
+
+    return `<div class="ap-stepper-wrapper" style="margin-bottom: 12px;"><div class="ap-stepper-trail">${nodes}</div></div>`;
+}
+
 function render_settlement_verdict_card(frm) {
-    if (!frm.dashboard || !frm.doc.settlement_type) return;
+    if (!frm.dashboard) return;
+    const stepper_html = build_settlement_stepper_html(frm);
+
+    if (!frm.doc.settlement_type) {
+        frm.dashboard.set_headline(stepper_html);
+        return;
+    }
 
     const s_type = frm.doc.settlement_type;
     const adv = parseFloat(frm.doc.disbursed_advance || 0.0);
@@ -167,10 +237,68 @@ function render_settlement_verdict_card(frm) {
         `;
     }
 
-    frm.dashboard.set_headline(card_html);
+    frm.dashboard.set_headline(stepper_html + card_html);
 }
 
 function setup_settlement_workflow_actions(frm) {
+    if (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft') {
+        if (frm.page.btn_primary && frm.page.btn_primary.text().trim() === __('Submit')) {
+            frm.page.set_primary_action(__('Save'), () => frm.save());
+        }
+
+        frm.add_custom_button(__('🚀 Submit Event Settlement'), function() {
+            if (!frm.doc.event) {
+                frappe.msgprint({
+                    title: __('Missing Event'),
+                    indicator: 'red',
+                    message: __('Please select a <b>Linked Event Master</b> before submitting.')
+                });
+                frm.scroll_to_field('event');
+                return;
+            }
+            if (frm.doc.settlement_type === 'REFUND_FROM_SPOC' && !(frm.doc.refund_received_reference || '').trim()) {
+                frappe.msgprint({
+                    title: __('Refund UTR Reference Mandatory'),
+                    indicator: 'red',
+                    message: __('Unspent cash advance must be returned to Quanti Corporate Account and the verified Bank Refund UTR entered before submitting.')
+                });
+                frm.scroll_to_field('refund_received_reference');
+                return;
+            }
+
+            frappe.confirm(
+                __('Submit Post-Event Settlement for <b>Accounts Review & Event Closure</b>?'),
+                function() {
+                    const do_submit = () => {
+                        frappe.call({
+                            method: 'ap_automation.ap_automation.doctype.event_settlement.event_settlement.submit_event_settlement',
+                            args: { settlement_name: frm.doc.name },
+                            freeze: true,
+                            freeze_message: __('Submitting Event Settlement...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    };
+                    if (frm.is_new() || frm.is_dirty()) {
+                        frm.save().then(() => do_submit());
+                    } else {
+                        do_submit();
+                    }
+                }
+            );
+        }).addClass('btn-primary').css({
+            'background-color': '#2563eb',
+            'border-color': '#1d4ed8',
+            'color': '#ffffff',
+            'font-weight': '700'
+        });
+        return;
+    }
+
     if (frm.doc.docstatus === 1) {
         const user_roles = frappe.user_roles || [];
         const is_sys_mgr = user_roles.includes('System Manager') || frappe.session.user === 'Administrator';

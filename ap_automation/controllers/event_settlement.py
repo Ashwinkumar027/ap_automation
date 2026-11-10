@@ -5,6 +5,7 @@ Single source of truth lives in:
 """
 from ap_automation.ap_automation.doctype.event_settlement.event_settlement import (
     EventSettlement,
+    submit_event_settlement,
     audit_and_settle_refund,
     authorize_event_settlement_by_accounts_director,
     trigger_event_settlement_payment_release_notification,
@@ -13,6 +14,7 @@ from ap_automation.ap_automation.doctype.event_settlement.event_settlement impor
 
 __all__ = [
     "EventSettlement",
+    "submit_event_settlement",
     "audit_and_settle_refund",
     "authorize_event_settlement_by_accounts_director",
     "trigger_event_settlement_payment_release_notification",
