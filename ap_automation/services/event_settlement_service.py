@@ -404,3 +404,103 @@ def disburse_event_settlement_spoc_payout(settlement_name: str, payment_referenc
         "payment_reference": clean_ref,
         "event_status": "Closed"
     }
+
+
+@frappe.whitelist()
+def initiate_or_open_event_settlement(event_name: str) -> Dict[str, Any]:
+    """
+    Smart 1-Click Settlement Bridge from Event Expense Claim / Event Master:
+    1. If an active Event Settlement already exists for `event_name`, opens it directly (avoids duplicate errors).
+    2. For PAYABLE_TO_SPOC or ZERO_BALANCE_BALANCED after Accounts L1 verification, creates & submits directly
+       into 'Under Accounts Review' (for immediate Accounts Director Sign-Off -> IDFC Excel -> Payment Release)
+       or 'Settled' (when 0 balance), skipping unnecessary Draft re-submission steps.
+    3. For REFUND_FROM_SPOC, creates a Draft settlement so the Refund Bank UTR can be entered before submitting.
+    """
+    if not event_name or not frappe.db.exists("Event Master", event_name):
+        raise APValidationError(f"Event Master '{event_name}' not found.")
+
+    user = frappe.session.user
+    user_roles = set(frappe.get_roles(user))
+    ev = frappe.get_doc("Event Master", event_name)
+    privileged_roles = {
+        "Accounts L1 Auditor",
+        "Accounts Director",
+        "Accounts Manager",
+        "AP Director",
+        "System Manager",
+        "Administrator",
+    }
+    is_privileged = user == "Administrator" or bool(user_roles.intersection(privileged_roles))
+    is_spoc_or_owner = user in (getattr(ev, "event_spoc", None), getattr(ev, "owner", None))
+    if not is_privileged and not is_spoc_or_owner:
+        raise APSecurityError("Unauthorized: Only the Event SPOC or Finance / Accounts Team can initiate Event Settlement.")
+
+    existing_name = frappe.db.get_value(
+        "Event Settlement",
+        {"event": event_name, "docstatus": ["!=", 2]},
+        "name",
+    )
+    if existing_name:
+        existing_status = frappe.db.get_value("Event Settlement", existing_name, "status") or "Draft"
+        return {
+            "status": "SUCCESS",
+            "settlement": existing_name,
+            "settlement_status": existing_status,
+            "created": False,
+            "message": f"Opening existing Event Settlement #{existing_name} ({existing_status}).",
+        }
+
+    # Ensure live budget & SPOC spends ledger is fresh before computing delta
+    try:
+        from ap_automation.services.event_budget_service import update_event_budget_ledger
+        update_event_budget_ledger(event_name)
+    except Exception:
+        pass
+
+    delta = calculate_event_settlement_delta(event_name)
+    s_type = delta.get("settlement_type")
+
+    est = frappe.get_doc({
+        "doctype": "Event Settlement",
+        "event": event_name,
+        "settlement_date": frappe.utils.nowdate(),
+    })
+    est.flags.ignore_permissions = True
+    est.insert(ignore_permissions=True)
+
+    # Auto-advance into Under Accounts Review / Settled when no Refund UTR is needed
+    if s_type in ("PAYABLE_TO_SPOC", "ZERO_BALANCE_BALANCED") and is_privileged:
+        est.flags.in_workflow_transition = True
+        est.flags.ignore_permissions = True
+        est.submit()
+        est.add_comment(
+            "Comment",
+            f"⚡ <b>1-Click Settlement Initiated:</b> Created and routed straight to Accounts review by {user} (Type: {s_type}).",
+        )
+        frappe.db.commit()
+        return {
+            "status": "SUCCESS",
+            "settlement": est.name,
+            "settlement_status": est.status,
+            "settlement_type": s_type,
+            "created": True,
+            "message": (
+                f"Event Settlement #{est.name} balanced and closed!"
+                if est.status == "Settled"
+                else f"Event Settlement #{est.name} ready for Accounts Director Sign-Off!"
+            ),
+        }
+
+    frappe.db.commit()
+    return {
+        "status": "SUCCESS",
+        "settlement": est.name,
+        "settlement_status": est.status,
+        "settlement_type": s_type,
+        "created": True,
+        "message": (
+            f"Draft Event Settlement #{est.name} created. Please enter the Refund Bank UTR before submitting."
+            if s_type == "REFUND_FROM_SPOC"
+            else f"Draft Event Settlement #{est.name} created."
+        ),
+    }

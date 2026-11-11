@@ -240,11 +240,18 @@ function setup_event_master_actions(frm) {
 
         // Quick Action 4: Settle Event
         frm.add_custom_button(__('⚖️ Reconcile & Settle Event'), function() {
-            frappe.route_options = {
-                "event": frm.doc.name,
-                "company": frm.doc.company
-            };
-            frappe.new_doc("Event Settlement");
+            frappe.call({
+                method: 'ap_automation.services.event_settlement_service.initiate_or_open_event_settlement',
+                args: { event_name: frm.doc.name },
+                freeze: true,
+                freeze_message: __('Opening Event Settlement...'),
+                callback: function(r) {
+                    if (r.message && r.message.settlement) {
+                        frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
+                        frappe.set_route('Form', 'Event Settlement', r.message.settlement);
+                    }
+                }
+            });
         }, __('Actions'));
     }
 

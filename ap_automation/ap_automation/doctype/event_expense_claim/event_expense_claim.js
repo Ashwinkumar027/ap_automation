@@ -206,11 +206,21 @@ frappe.ui.form.on("Event Expense Claim", {
             }).addClass('btn-danger');
         }
 
-        // 1-Click Settlement Bridge when submitted / verified
-        if (frm.doc.docstatus === 1 && ['Submitted', 'Accounts Verified'].includes(frm.doc.status) && frm.doc.event) {
-            frm.add_custom_button(__('⚖️ Settle Event Now'), function() {
-                frappe.route_options = { event: frm.doc.event };
-                frappe.new_doc('Event Settlement');
+        // 1-Click Settlement Bridge ONLY after Accounts L1 verifies ground bills ('Accounts Verified')
+        if (frm.doc.docstatus === 1 && frm.doc.status === 'Accounts Verified' && frm.doc.event) {
+            frm.add_custom_button(__('⚖️ Proceed to Event Settlement'), function() {
+                frappe.call({
+                    method: 'ap_automation.services.event_settlement_service.initiate_or_open_event_settlement',
+                    args: { event_name: frm.doc.event },
+                    freeze: true,
+                    freeze_message: __('Opening Event Settlement & Accounts Director Queue...'),
+                    callback: function(r) {
+                        if (r.message && r.message.settlement) {
+                            frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
+                            frappe.set_route('Form', 'Event Settlement', r.message.settlement);
+                        }
+                    }
+                });
             }).addClass('btn-primary');
         }
 
