@@ -3,8 +3,17 @@
 // 100% Mobile & Desktop Responsive
 
 frappe.ui.form.on("Event Expense Claim", {
+    onload: function(frm) {
+        if (frm.is_new() && !frm.doc.posting_date) {
+            frm.set_value('posting_date', frappe.datetime.get_today());
+        }
+    },
+
     refresh: function(frm) {
         frm.set_df_property('status', 'read_only', 1);
+        if (frm.is_new() && !frm.doc.posting_date) {
+            frm.set_value('posting_date', frappe.datetime.get_today());
+        }
         set_expense_claim_indicator(frm);
         render_stream_demarcation_banner(frm);
 
@@ -239,8 +248,25 @@ frappe.ui.form.on("Event Expense Claim", {
             });
         }
 
-        if (window.APExpenseTypeManager) {
-            window.APExpenseTypeManager.refreshGridOptions(frm, 'expense_items', 'expense_category', 'Events');
+        // Strictly pin Event Expense Item.expense_category options to the valid Event Select list
+        const event_categories = [
+            '',
+            'Venue & Stage',
+            'Travel & Flights',
+            'Local Conveyance',
+            'Food & Catering',
+            'Marketing & Collateral',
+            'Stationery & Props',
+            'Incidentals'
+        ];
+        if (frm.fields_dict && frm.fields_dict.expense_items && frm.fields_dict.expense_items.grid) {
+            const grid = frm.fields_dict.expense_items.grid;
+            const cat_df = grid.docfields ? grid.docfields.find(f => f.fieldname === 'expense_category') : null;
+            const joined = event_categories.join('\n');
+            if (cat_df && cat_df.options !== joined) {
+                cat_df.options = joined;
+                frm.refresh_field('expense_items');
+            }
         }
     },
 
@@ -371,11 +397,6 @@ function render_stream_demarcation_banner(frm) {
 }
 
 frappe.ui.form.on("Event Expense Item", {
-    expense_category: function(frm, cdt, cdn) {
-        if (window.APExpenseTypeManager) {
-            window.APExpenseTypeManager.handleGridAddPrompt(frm, cdt, cdn, 'expense_category', 'Events');
-        }
-    },
     amount: function(frm) {
         render_stream_demarcation_banner(frm);
     },

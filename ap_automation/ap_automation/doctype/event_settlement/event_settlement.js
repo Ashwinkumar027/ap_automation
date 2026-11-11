@@ -12,6 +12,9 @@ function format_inr(val) {
 
 frappe.ui.form.on("Event Settlement", {
     onload: function(frm) {
+        if (frm.is_new() && !frm.doc.settlement_date) {
+            frm.set_value('settlement_date', frappe.datetime.get_today());
+        }
         if (frm.is_new() && frm.doc.event) {
             frm.trigger('event');
         }

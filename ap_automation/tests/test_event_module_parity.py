@@ -8,6 +8,7 @@ Verifies across Event Master, Event Advance Request, Event Expense Claim, and Ev
 5. Role Permission Enforcement on Exports & Aggregated Proofs.
 """
 import io
+import json
 import os
 import unittest
 import xml.etree.ElementTree as ET
@@ -599,6 +600,35 @@ class TestEventModuleParity(unittest.TestCase):
             frappe.db.set_value("AP Approval Matrix", pol.name, "is_active", 0)
             for p in existing_pols:
                 frappe.db.set_value("AP Approval Matrix", p, "is_active", 1)
+
+    def test_08_event_expense_categories_and_date_defaults(self):
+        """Verifies Events expense categories stay isolated from Petty Cash and date defaults exist."""
+        from ap_automation.services.attachment_service import get_active_expense_types
+
+        ev_types = get_active_expense_types("Events")
+        meta = frappe.get_meta("Event Expense Item")
+        allowed_select = [o.strip() for o in (meta.get_field("expense_category").options or "").split("\n") if o.strip()]
+
+        self.assertEqual(ev_types, allowed_select)
+        self.assertNotIn("Tea & Refreshments", ev_types)
+        self.assertIn("Venue & Stage", ev_types)
+        self.assertIn("Local Conveyance", ev_types)
+
+        # Ensure non-Event Petty Cash fallback/scope stays completely intact
+        pc_types = get_active_expense_types("Petty Cash")
+        self.assertGreater(len(pc_types), 0)
+        self.assertNotEqual(pc_types, ev_types)
+
+        # Verify default="Today" metadata in DocType JSON for Claim Date & Settlement Date
+        for dt_folder, fieldname in (
+            ("event_expense_claim", "posting_date"),
+            ("event_settlement", "settlement_date"),
+        ):
+            json_path = frappe.get_app_path("ap_automation", "ap_automation", "doctype", dt_folder, f"{dt_folder}.json")
+            with open(json_path, "r", encoding="utf-8") as jf:
+                schema = json.load(jf)
+            fld = next((f for f in schema.get("fields", []) if f.get("fieldname") == fieldname), {})
+            self.assertEqual(fld.get("default"), "Today")
 
 
 if __name__ == "__main__":
