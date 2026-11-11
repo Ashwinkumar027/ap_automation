@@ -471,12 +471,14 @@ class TestEventModuleParity(unittest.TestCase):
             get_event_advance_ui_context,
             approve_event_advance_by_director,
             verify_event_advance_by_accounts_l1,
+            authorize_event_advance_by_accounts_director,
         )
+        from unittest.mock import patch
 
         u_dir = _ensure_user("parity.dir@quanticus.com", "Parity Director", ["Employee", "Desk User"])
-        u_l1 = _ensure_user("parity.l1@quanticus.com", "Parity L1 Auditor", ["Employee", "Desk User"])
-        u_ad = _ensure_user("parity.ad@quanticus.com", "Parity Accounts Dir", ["Employee", "Desk User"])
-        u_rel = _ensure_user("parity.rel@quanticus.com", "Parity Releaser", ["Employee", "Desk User"])
+        u_l1 = _ensure_user("parity.l1@quanticus.com", "Parity L1 Auditor", ["Employee", "Desk User", "Accounts L1 Auditor", "Accounts Manager"])
+        u_ad = _ensure_user("parity.ad@quanticus.com", "Parity Accounts Dir", ["Employee", "Desk User", "Accounts Director"])
+        u_rel = _ensure_user("parity.rel@quanticus.com", "Parity Releaser", ["Employee", "Desk User", "Payment Releaser"])
 
         # Deactivate pre-existing policies for this company/lane during test so our 4-tier matrix matches cleanly
         existing_pols = frappe.get_all(
@@ -552,6 +554,45 @@ class TestEventModuleParity(unittest.TestCase):
             # 3. Calling Accounts L1 action directly as unauthorized Director DOES raise APSecurityError
             with self.assertRaises(APSecurityError):
                 verify_event_advance_by_accounts_l1(adv.name)
+
+            # 4. Accounts L1 verifies -> Pending Accounts Director Approval
+            frappe.set_user(u_l1)
+            l1_res = verify_event_advance_by_accounts_l1(adv.name, remarks="L1 verified.")
+            self.assertEqual(l1_res["new_status"], "Pending Accounts Director Approval")
+
+            # 5. Accounts Director signs off -> Approved for Payment WITHOUT emailing L1/SPOC/Director to click Payment Release
+            frappe.set_user(u_ad)
+            with patch("ap_automation.services.employee_reimbursement_notification_service.notify_event_advance_accounts_director_approved") as spy_ad_mail:
+                ad_res = authorize_event_advance_by_accounts_director(adv.name, remarks="AD sanctioned.")
+            self.assertEqual(ad_res["new_status"], "Approved for Payment")
+            self.assertEqual(spy_ad_mail.call_count, 0)
+
+            # 6. Only Accounts Director gets Payment Release button/API; L1, Director & SPOC must NOT
+            for blocked_user in (u_l1, u_dir, self.spoc_user):
+                frappe.set_user(blocked_user)
+                frappe.clear_messages()
+                bctx = get_event_advance_ui_context(adv.name)
+                self.assertFalse(bctx["can_maker_release"])
+                self.assertFalse(bctx["can_act_current_stage"])
+
+            frappe.set_user(u_l1)
+            with self.assertRaises(APSecurityError):
+                trigger_event_advance_payment_release_notification(adv.name)
+
+            frappe.set_user(u_ad)
+            ad_ctx = get_event_advance_ui_context(adv.name)
+            self.assertTrue(ad_ctx["can_maker_release"])
+            self.assertTrue(ad_ctx["can_act_current_stage"])
+            expected_ad_name = frappe.db.get_value("User", u_ad, "full_name") or u_ad
+            self.assertEqual(ad_ctx["pending_with"], expected_ad_name)
+
+            with patch("ap_automation.services.notification_service.notify_payment_releaser_on_idfc_upload") as spy_rel_mail:
+                spy_rel_mail.return_value = {"status": "SUCCESS", "releaser": u_rel, "accounts_director": u_ad}
+                pr_res = trigger_event_advance_payment_release_notification(adv.name)
+            self.assertEqual(pr_res["status"], "SUCCESS")
+            self.assertEqual(spy_rel_mail.call_count, 1)
+            self.assertEqual(pr_res["releaser"], u_rel)
+            self.assertEqual(pr_res["accounts_director"], u_ad)
         finally:
             frappe.set_user(prev_user)
             frappe.clear_messages()

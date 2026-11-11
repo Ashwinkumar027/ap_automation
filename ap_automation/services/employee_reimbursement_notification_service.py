@@ -1144,54 +1144,12 @@ def notify_event_advance_accounts_l1_verified(advance_doc) -> None:
 
 def notify_event_advance_accounts_director_approved(advance_doc) -> None:
     """
-    Triggered when Accounts Director signs off ('Approved for Payment').
-    TO: Accounts Maker (Accounts L1 Auditor / Accounts Manager)
-    CC: Accounts Director & Event SPOC
+    Deprecated post-signoff helper retained only for backward compatibility.
+    In Stage 3->4 workflow, Accounts Director directly exports IDFC Excel and triggers
+    `Payment Release` (`notify_payment_releaser_on_idfc_upload`), so no reminder email
+    asking Accounts L1 or Employee SPOC to click Payment Release is sent here.
     """
-    if isinstance(advance_doc, str):
-        advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
-
-    company = advance_doc.company or ""
-    amount = float(getattr(advance_doc, "approved_advance_amount", advance_doc.requested_advance_amount) or 0.0)
-
-    maker_recipients = _resolve_event_matrix_approvers(
-        company=company,
-        amount=amount,
-        stage_keywords=["accounts l1", "l1 auditor"],
-        fallback_level=2,
-        fallback_roles=["Accounts L1 Auditor", "Accounts Manager"],
-    )
-    cc_list: List[str] = []
-    spoc_email = _resolve_email_address(advance_doc.spoc)
-    if spoc_email:
-        cc_list.append(spoc_email)
-    dir_email = _resolve_email_address(getattr(advance_doc, "approved_by_business_head", None))
-    if dir_email:
-        cc_list.append(dir_email)
-
-    doc_url = _get_form_url("Event Advance Request", advance_doc.name)
-    event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
-
-    subject = f"Ready for IDFC Export: Event Advance '{event_name}' Approved for Payment (₹ {_safe_fmt_money(amount)})"
-    body = _build_html_template(
-        title="Accounts Director Signed Off • Ready for Bank Release",
-        subtitle="Stage 4 • Maker IDFC Upload & Payment Release",
-        greeting_name="Accounts Team",
-        main_message=(
-            f"Accounts Director (<b>{getattr(advance_doc, 'accounts_director', None) or 'Accounts Director'}</b>) "
-            f"has authorized Event Advance <b>#{advance_doc.name}</b> for <b>'{event_name}'</b>.<br><br>"
-            f"Please download the <b>IDFC Bank Disbursal Excel (.xlsx)</b>, upload to IDFC Netbanking, and click <b>Payment Release</b>."
-        ),
-        metric_label_1="Authorized Payout",
-        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
-        metric_label_2="Signed Off By",
-        metric_val_2=f"{getattr(advance_doc, 'accounts_director', None) or 'Accounts Director'}",
-        doc_url=doc_url,
-        button_text="Download IDFC Excel & Notify Releaser",
-        badge_color="#16a34a"
-    )
-
-    _dispatch_reimbursement_email(maker_recipients, subject, body, "Event Advance Request", advance_doc.name, cc=cc_list, alert_color="green")
+    return None
 
 
 def notify_event_imprest_disbursed(advance_doc) -> None:

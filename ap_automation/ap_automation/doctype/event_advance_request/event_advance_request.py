@@ -313,8 +313,14 @@ def get_event_advance_ui_context(advance_name: str) -> Dict[str, Any]:
     can_rel, rel_user = _is_user_authorized_for_stage(
         user, doc, ["payment release", "releaser", "2fa", "bank disbursal"], 4, ["Payment Releaser", "AP Director", "Accounts Director", "Accounts Manager"]
     )
-    is_maker = is_sys or bool(user_roles.intersection({"Accounts L1 Auditor", "Accounts User", "Accounts Manager", "Accounts Director"})) or bool(l1_user and user == l1_user)
-    is_finance_viewer = is_maker or can_rel or bool(user_roles.intersection({"Payment Releaser", "AP Director", "Accounts Director"}))
+    from ap_automation.services.approval_service import is_user_authorized_approver
+
+    is_ad_maker = is_sys or ("Accounts Director" in user_roles) or (
+        bool(ad_user) and is_user_authorized_approver(ad_user, user, allow_delegation=True)
+    )
+    is_finance_viewer = is_ad_maker or can_l1 or can_rel or bool(
+        user_roles.intersection({"Payment Releaser", "AP Director", "Accounts Director", "Accounts L1 Auditor", "Accounts Manager"})
+    )
 
     can_reject = False
     if doc.status == "Pending Director Approval":
@@ -339,7 +345,7 @@ def get_event_advance_ui_context(advance_name: str) -> Dict[str, Any]:
         "Approved for Payment": (
             (frappe.db.get_value("User", rel_user, "full_name") or rel_user or "Payment Releaser")
             if frappe.utils.cint(getattr(doc, "payment_release_notified", 0))
-            else ((frappe.db.get_value("User", l1_user, "full_name") or l1_user) if l1_user else "Accounts Maker")
+            else ((frappe.db.get_value("User", ad_user, "full_name") or ad_user) if ad_user else "Accounts Director")
         ),
         "Disbursed": "Completed",
         "Rejected": "Closed (Rejected)",
@@ -349,7 +355,7 @@ def get_event_advance_ui_context(advance_name: str) -> Dict[str, Any]:
     can_accounts_l1_verify = can_l1 and doc.status == "Pending Accounts L1 Review"
     can_accounts_director_signoff = can_ad and doc.status == "Pending Accounts Director Approval"
     notified = bool(frappe.utils.cint(getattr(doc, "payment_release_notified", 0)))
-    can_maker_release = is_maker and doc.status == "Approved for Payment" and not notified
+    can_maker_release = is_ad_maker and doc.status == "Approved for Payment" and not notified
     not_same_maker = (getattr(doc, "payment_release_maker", None) != user) or user == "Administrator"
     can_checker_disburse = can_rel and doc.status == "Approved for Payment" and notified and not_same_maker
 
@@ -357,7 +363,7 @@ def get_event_advance_ui_context(advance_name: str) -> Dict[str, Any]:
         "can_director_approve": can_director_approve,
         "can_accounts_l1_verify": can_accounts_l1_verify,
         "can_accounts_director_signoff": can_accounts_director_signoff,
-        "can_maker_release": is_maker and doc.status == "Approved for Payment",
+        "can_maker_release": is_ad_maker and doc.status == "Approved for Payment",
         "can_checker_disburse": can_rel and doc.status == "Approved for Payment",
         "can_act_current_stage": any([
             can_director_approve,
@@ -374,7 +380,7 @@ def get_event_advance_ui_context(advance_name: str) -> Dict[str, Any]:
             "director": _user_label(dir_user, "Director"),
             "accounts_l1": _user_label(l1_user, "Accounts L1 Auditor"),
             "accounts_dir": _user_label(ad_user, "Accounts Director"),
-            "release": _user_label(rel_user, "Payment Releaser") if notified else _user_label(l1_user, "Accounts Maker"),
+            "release": _user_label(rel_user, "Payment Releaser") if notified else _user_label(ad_user, "Accounts Director"),
         },
     }
 
@@ -603,35 +609,24 @@ def authorize_event_advance_by_accounts_director(advance_name: str, remarks: Opt
     doc.reload()
     doc.add_comment(
         "Comment",
-        text=f"⭐ <b>Accounts Director Sign-Off:</b> Authorized by <b>{ad_name}</b> ({user}). {rem_text} Ready for IDFC Excel export.",
+        text=f"⭐ <b>Accounts Director Sign-Off:</b> Authorized by <b>{ad_name}</b> ({user}). {rem_text} Ready for IDFC Excel export & Payment Release.",
     )
     frappe.db.commit()
-
-    try:
-        from ap_automation.services.employee_reimbursement_notification_service import (
-            notify_event_advance_accounts_director_approved,
-        )
-        notify_event_advance_accounts_director_approved(doc)
-    except Exception:
-        frappe.log_error(
-            title="Event Advance Accounts Director Email Error",
-            message=f"Failed to notify Accounts Makers for {advance_name}: {frappe.get_traceback()}",
-        )
 
     return {
         "status": "SUCCESS",
         "advance_name": doc.name,
         "accounts_director": user,
         "new_status": doc.status,
-        "message": frappe._("Event Advance Request #{0} authorized by Accounts Director! IDFC Disbursal file is ready for download.").format(doc.name),
+        "message": frappe._("Event Advance Request #{0} authorized by Accounts Director! IDFC Disbursal file and Payment Release are ready.").format(doc.name),
     }
 
 
 @frappe.whitelist()
 def trigger_event_advance_payment_release_notification(advance_name: str) -> Dict[str, Any]:
     """
-    Stage 4a (Maker):
-    After IDFC bulk Excel is uploaded into Netbanking portal, Maker notifies Payment Releaser (Checker, TO)
+    Stage 4a (Accounts Director):
+    After IDFC bulk Excel is uploaded into Netbanking portal, Accounts Director notifies Payment Releaser (Checker, TO)
     and Accounts Director (CC). Resolves approvers dynamically from AP Approval Matrix.
     """
     if not advance_name or not frappe.db.exists("Event Advance Request", advance_name):
@@ -640,16 +635,23 @@ def trigger_event_advance_payment_release_notification(advance_name: str) -> Dic
     doc = frappe.get_doc("Event Advance Request", advance_name)
     user = frappe.session.user
     user_roles = set(frappe.get_roles(user))
-    maker_roles = {
-        "Accounts L1 Auditor",
-        "Accounts User",
-        "Accounts Manager",
-        "Accounts Director",
-        "System Manager",
-        "Administrator",
-    }
-    if user != "Administrator" and not (maker_roles & user_roles):
-        raise APSecurityError(frappe._("Unauthorized: Only Accounts Makers can trigger IDFC Payment Release notifications."))
+    is_sys = user == "Administrator" or "System Manager" in user_roles
+
+    ad_rule = _resolve_matrix_rule_for_stage(
+        doc,
+        stage_keywords=["accounts director", "accounts l2"],
+        fallback_level=3,
+    )
+    designated_ad = getattr(ad_rule, "designated_approver", None) if ad_rule else None
+    from ap_automation.services.approval_service import is_user_authorized_approver
+
+    can_trigger = is_sys or ("Accounts Director" in user_roles) or (
+        bool(designated_ad)
+        and is_user_authorized_approver(designated_ad, user, allow_delegation=bool(getattr(ad_rule, "allow_delegation", 1)))
+    )
+    if not can_trigger:
+        assignee_hint = f" Assigned to '{designated_ad}'." if designated_ad else ""
+        raise APSecurityError(frappe._("Unauthorized: Only Accounts Director can trigger IDFC Payment Release notifications.{0}").format(assignee_hint))
 
     if doc.status != "Approved for Payment":
         raise APValidationError(

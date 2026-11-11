@@ -213,7 +213,7 @@ function bind_submitted_stage_buttons(frm, ctx) {
 
     // STAGE 2: Accounts L1 Review
     if (status === 'Pending Accounts L1 Review' && ctx.can_accounts_l1_verify) {
-        frm.add_custom_button(__('✅ Verify & Forward (Accounts L1)'), function() {
+        frm.add_custom_button(__('✅ Verify & Forward to Accounts Director'), function() {
             run_advance_with_clarification_gate(frm, function() {
                 frappe.prompt([
                     {
@@ -419,7 +419,7 @@ function build_advance_stepper_html(frm, pending_with, ctx) {
         { key: 'director', label: '2. Director' },
         { key: 'accounts_l1', label: '3. Accounts L1' },
         { key: 'accounts_dir', label: '4. Accounts Director' },
-        { key: 'release', label: notified ? '5. Payment Releaser' : '5. IDFC & Maker' },
+        { key: 'release', label: notified ? '5. Payment Releaser' : '5. IDFC & AD Release' },
         { key: 'disbursed', label: '6. Disbursed' }
     ];
 
@@ -460,7 +460,7 @@ function build_advance_stepper_html(frm, pending_with, ctx) {
         'Pending Accounts Director Approval': `Accounts L1 verified. Awaiting <b>Accounts Director</b> sign-off${pending_with ? ` (${frappe.utils.escape_html(pending_with)})` : ''}.`,
         'Approved for Payment': notified
             ? `IDFC Excel uploaded & notified. Awaiting <b>Payment Releaser</b>${pending_with ? ` (${frappe.utils.escape_html(pending_with)})` : ''} to stamp UTR.`
-            : 'Accounts Director signed off! Accounts Maker can now export IDFC Excel and click <b>📤 Payment Release</b>.',
+            : `Accounts Director signed off! Awaiting <b>Accounts Director</b>${pending_with ? ` (${frappe.utils.escape_html(pending_with)})` : ''} to export IDFC Excel and click <b>📤 Payment Release</b>.`,
         'Disbursed': `Disbursed via corporate bank${frm.doc.disbursement_reference ? ` (UTR: <b>${frappe.utils.escape_html(frm.doc.disbursement_reference)}</b>)` : ''}. Proceed with Event Expense Claim after event execution.`,
         'Rejected': `Request rejected. ${frm.doc.business_head_comments ? frappe.utils.escape_html(frm.doc.business_head_comments) : 'Review comments below and amend if needed.'}`
     };
