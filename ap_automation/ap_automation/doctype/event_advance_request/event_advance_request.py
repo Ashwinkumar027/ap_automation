@@ -90,19 +90,14 @@ def _is_user_authorized_for_stage(
         return False, designated
 
     if designated:
-        if user == designated:
-            return True, designated
-        try:
-            from ap_automation.services.approval_service import validate_approver_identity
+        from ap_automation.services.approval_service import is_user_authorized_approver
 
-            if validate_approver_identity(
-                designated,
-                user,
-                allow_delegation=bool(getattr(rule, "allow_delegation", 1)),
-            ):
-                return True, designated
-        except APSecurityError:
-            pass
+        if is_user_authorized_approver(
+            designated,
+            user,
+            allow_delegation=bool(getattr(rule, "allow_delegation", 1)),
+        ):
+            return True, designated
 
     if user_roles.intersection(set(fallback_roles)):
         return True, designated
@@ -329,6 +324,13 @@ def get_event_advance_ui_context(advance_name: str) -> Dict[str, Any]:
     elif doc.status == "Pending Accounts Director Approval":
         can_reject = can_ad or is_sys
 
+    def _user_label(u: Optional[str], fallback: str) -> str:
+        if not u:
+            return fallback
+        full = frappe.db.get_value("User", u, "full_name")
+        return f"{full} ({u})" if full and full != u else u
+
+    spoc_label = _user_label(getattr(doc, "spoc", None) or getattr(doc, "owner", None), doc.spoc_name or "Event SPOC")
     pending_map = {
         "Draft": doc.spoc_name or doc.spoc or doc.owner,
         "Pending Director Approval": (frappe.db.get_value("User", dir_user, "full_name") or dir_user) if dir_user else "Director",
@@ -343,15 +345,37 @@ def get_event_advance_ui_context(advance_name: str) -> Dict[str, Any]:
         "Rejected": "Closed (Rejected)",
     }
 
+    can_director_approve = can_dir and doc.status == "Pending Director Approval"
+    can_accounts_l1_verify = can_l1 and doc.status == "Pending Accounts L1 Review"
+    can_accounts_director_signoff = can_ad and doc.status == "Pending Accounts Director Approval"
+    notified = bool(frappe.utils.cint(getattr(doc, "payment_release_notified", 0)))
+    can_maker_release = is_maker and doc.status == "Approved for Payment" and not notified
+    not_same_maker = (getattr(doc, "payment_release_maker", None) != user) or user == "Administrator"
+    can_checker_disburse = can_rel and doc.status == "Approved for Payment" and notified and not_same_maker
+
     return {
-        "can_director_approve": can_dir and doc.status == "Pending Director Approval",
-        "can_accounts_l1_verify": can_l1 and doc.status == "Pending Accounts L1 Review",
-        "can_accounts_director_signoff": can_ad and doc.status == "Pending Accounts Director Approval",
+        "can_director_approve": can_director_approve,
+        "can_accounts_l1_verify": can_accounts_l1_verify,
+        "can_accounts_director_signoff": can_accounts_director_signoff,
         "can_maker_release": is_maker and doc.status == "Approved for Payment",
         "can_checker_disburse": can_rel and doc.status == "Approved for Payment",
+        "can_act_current_stage": any([
+            can_director_approve,
+            can_accounts_l1_verify,
+            can_accounts_director_signoff,
+            can_maker_release,
+            can_checker_disburse,
+        ]),
         "is_finance_viewer": is_finance_viewer,
         "can_reject": can_reject,
         "pending_with": pending_map.get(doc.status, ""),
+        "stage_owners": {
+            "draft": spoc_label,
+            "director": _user_label(dir_user, "Director"),
+            "accounts_l1": _user_label(l1_user, "Accounts L1 Auditor"),
+            "accounts_dir": _user_label(ad_user, "Accounts Director"),
+            "release": _user_label(rel_user, "Payment Releaser") if notified else _user_label(l1_user, "Accounts Maker"),
+        },
     }
 
 
@@ -377,7 +401,8 @@ def approve_event_advance_by_director(advance_name: str, comments: Optional[str]
         block_self_approval=True,
     )
     if not authorized:
-        raise APSecurityError("Unauthorized: Only the designated Director can approve Event Advance Requests (self-approval is prohibited).")
+        assignee_hint = f" Assigned to '{designated}'." if designated else ""
+        raise APSecurityError(f"Unauthorized: Only the designated Director can approve Event Advance Requests (self-approval is prohibited).{assignee_hint}")
 
     if doc.status != "Pending Director Approval":
         raise APValidationError(
@@ -462,7 +487,8 @@ def verify_event_advance_by_accounts_l1(
         fallback_roles=["Accounts L1 Auditor", "Accounts User", "Accounts Manager"],
     )
     if not authorized:
-        raise APSecurityError("Unauthorized: Only Accounts L1 Auditor can perform L1 verification on event advances.")
+        assignee_hint = f" Assigned to '{designated}'." if designated else ""
+        raise APSecurityError(f"Unauthorized: Only Accounts L1 Auditor can perform L1 verification on event advances.{assignee_hint}")
 
     if doc.status != "Pending Accounts L1 Review":
         raise APValidationError(
@@ -541,7 +567,8 @@ def authorize_event_advance_by_accounts_director(advance_name: str, remarks: Opt
         fallback_roles=["Accounts Director", "Accounts Manager"],
     )
     if not authorized:
-        raise APSecurityError(frappe._("Unauthorized: Only Accounts Director can sign off on event advances."))
+        assignee_hint = f" Assigned to '{designated}'." if designated else ""
+        raise APSecurityError(frappe._("Unauthorized: Only Accounts Director can sign off on event advances.{0}").format(assignee_hint))
 
     if doc.status != "Pending Accounts Director Approval":
         raise APValidationError(
@@ -686,7 +713,8 @@ def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dic
         fallback_roles=["Payment Releaser", "AP Director", "Accounts Director", "Accounts Manager"],
     )
     if not authorized:
-        raise APSecurityError("Unauthorized: Only Payment Releaser or authorized Finance Authority can release event disbursals.")
+        assignee_hint = f" Assigned to '{designated}'." if designated else ""
+        raise APSecurityError(f"Unauthorized: Only Payment Releaser or authorized Finance Authority can release event disbursals.{assignee_hint}")
 
     if doc.status != "Approved for Payment":
         raise APValidationError(

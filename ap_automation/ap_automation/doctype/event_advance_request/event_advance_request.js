@@ -7,7 +7,11 @@ frappe.ui.form.on("Event Advance Request", {
         frm.set_df_property('status', 'read_only', 1);
         calculate_imprest_totals(frm);
         set_advance_status_indicator(frm);
-        render_advance_event_context(frm);
+        if (frm.doc.docstatus === 1 && !frm.is_new()) {
+            set_advance_headline(frm, build_advance_stepper_html(frm, '', null));
+        } else {
+            render_advance_event_context(frm);
+        }
 
         if (window.APReceiptGallery) {
             window.APReceiptGallery.refreshFormButtons(frm);
@@ -133,7 +137,7 @@ frappe.ui.form.on("Event Advance Request", {
                 callback: function(r) {
                     if (frm._ap_render_seq !== render_seq) return;
                     const ctx = (r && r.message) || {};
-                    render_advance_event_context(frm, ctx.pending_with || '');
+                    render_advance_event_context(frm, ctx.pending_with || '', ctx);
                     bind_submitted_stage_buttons(frm, ctx);
                 }
             });
@@ -404,10 +408,11 @@ function bind_submitted_stage_buttons(frm, ctx) {
     }
 }
 
-function build_advance_stepper_html(frm, pending_with) {
+function build_advance_stepper_html(frm, pending_with, ctx) {
     const status = frm.doc.status || 'Draft';
     const is_rejected = status === 'Rejected';
     const notified = !!cint(frm.doc.payment_release_notified);
+    const stage_owners = (ctx && ctx.stage_owners) || {};
 
     const stages = [
         { key: 'draft', label: '1. Draft (SPOC)' },
@@ -439,8 +444,9 @@ function build_advance_stepper_html(frm, pending_with) {
         } else if (idx === active_idx) {
             cls = 'step-active';
         }
+        const owner_hint = stage_owners[st.key] ? `Assigned: ${stage_owners[st.key]}` : st.label;
         return `
-            <div class="ap-step-item ${cls}">
+            <div class="ap-step-item ${cls}" title="${frappe.utils.escape_html(owner_hint)}">
                 <div class="ap-step-node">${badge}</div>
                 <div class="ap-step-label">${st.label}</div>
             </div>
@@ -465,11 +471,29 @@ function build_advance_stepper_html(frm, pending_with) {
             ? { bg: '#ecfdf5', border: '#a7f3d0', text: '#065f46' }
             : { bg: '#eff6ff', border: '#bfdbfe', text: '#1e40af' };
 
+    const is_pending_approval = [
+        'Pending Director Approval',
+        'Pending Accounts L1 Review',
+        'Pending Accounts Director Approval',
+        'Approved for Payment'
+    ].includes(status);
+
+    let role_chip = '';
+    if (frm.doc.docstatus === 1 && is_pending_approval && ctx && typeof ctx.can_act_current_stage === 'boolean') {
+        if (ctx.can_act_current_stage) {
+            role_chip = `<span style="background: #dcfce7; color: #166534; border: 1px solid #86efac; border-radius: 999px; padding: 2px 10px; font-size: 11px; font-weight: 700; white-space: nowrap;">🟢 Action Required From You</span>`;
+        } else {
+            const waiter = pending_with ? `Awaiting ${frappe.utils.escape_html(pending_with)}` : 'Awaiting Designated Approver';
+            role_chip = `<span style="background: #ffffff; color: #475569; border: 1px solid #cbd5e1; border-radius: 999px; padding: 2px 10px; font-size: 11px; font-weight: 600; white-space: nowrap;">🔒 View Only · ${waiter}</span>`;
+        }
+    }
+
     return `
         <div class="ap-stepper-wrapper" style="margin-bottom: 12px;">
             <div class="ap-stepper-trail">${nodes}</div>
-            <div style="margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: ${banner_tone.bg}; border: 1px solid ${banner_tone.border}; color: ${banner_tone.text}; font-size: 12px;">
-                <b>Current Stage (${frappe.utils.escape_html(status)}):</b> ${guidance_map[status] || ''}
+            <div style="margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: ${banner_tone.bg}; border: 1px solid ${banner_tone.border}; color: ${banner_tone.text}; font-size: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                <div><b>Current Stage (${frappe.utils.escape_html(status)}):</b> ${guidance_map[status] || ''}</div>
+                ${role_chip}
             </div>
         </div>
     `;
@@ -517,11 +541,11 @@ function sync_spoc_salary_bank_in_draft(frm, force_event_fields) {
     });
 }
 
-function render_advance_event_context(frm, pending_with) {
+function render_advance_event_context(frm, pending_with, ctx) {
     if (!frm.dashboard) return;
     const seq = (frm._ap_ctx_seq || 0) + 1;
     frm._ap_ctx_seq = seq;
-    const stepper_html = build_advance_stepper_html(frm, pending_with || '');
+    const stepper_html = build_advance_stepper_html(frm, pending_with || '', ctx || null);
 
     set_advance_headline(frm, stepper_html);
     if (!frm.doc.event) {
@@ -537,7 +561,7 @@ function render_advance_event_context(frm, pending_with) {
         const format_curr = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(val || 0);
 
         const banner_html = `
-            ${build_advance_stepper_html(frm, pending_with || '')}
+            ${build_advance_stepper_html(frm, pending_with || '', ctx || null)}
             <div class="ap-advance-context-banner" style="
                 background: #f0fdf4;
                 border: 1px solid #86efac;

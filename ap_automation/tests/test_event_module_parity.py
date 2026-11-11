@@ -465,6 +465,100 @@ class TestEventModuleParity(unittest.TestCase):
             if emp_meta and emp_meta.has_field("custom_ifsc_code"):
                 frappe.db.set_value("Employee", emp_name, "custom_ifsc_code", orig_emp_custom_ifsc)
 
+    def test_07_ui_context_no_spurious_popups_with_strict_matrix(self):
+        """Verifies get_event_advance_ui_context never queues message_log popups for other tiers."""
+        from ap_automation.ap_automation.doctype.event_advance_request.event_advance_request import (
+            get_event_advance_ui_context,
+            approve_event_advance_by_director,
+            verify_event_advance_by_accounts_l1,
+        )
+
+        u_dir = _ensure_user("parity.dir@quanticus.com", "Parity Director", ["Employee", "Desk User"])
+        u_l1 = _ensure_user("parity.l1@quanticus.com", "Parity L1 Auditor", ["Employee", "Desk User"])
+        u_ad = _ensure_user("parity.ad@quanticus.com", "Parity Accounts Dir", ["Employee", "Desk User"])
+        u_rel = _ensure_user("parity.rel@quanticus.com", "Parity Releaser", ["Employee", "Desk User"])
+
+        # Deactivate pre-existing policies for this company/lane during test so our 4-tier matrix matches cleanly
+        existing_pols = frappe.get_all(
+            "AP Approval Matrix",
+            filters={"company": self.company, "document_lane": "Event Advance Request", "is_active": 1},
+            pluck="name",
+        )
+        for p in existing_pols:
+            frappe.db.set_value("AP Approval Matrix", p, "is_active", 0)
+
+        pol = frappe.get_doc({
+            "doctype": "AP Approval Matrix",
+            "company": self.company,
+            "document_lane": "Event Advance Request",
+            "min_amount": 0.0,
+            "max_amount": 0.0,
+            "is_active": 1,
+            "approval_levels": [
+                {"level_number": 1, "level_name": "Executive Director / Business Head Sanction", "designated_approver": u_dir, "allow_delegation": 0},
+                {"level_number": 2, "level_name": "Accounts L1 Auditor", "designated_approver": u_l1, "allow_delegation": 0},
+                {"level_number": 3, "level_name": "Accounts Director", "designated_approver": u_ad, "allow_delegation": 0},
+                {"level_number": 4, "level_name": "Payment Releaser", "designated_approver": u_rel, "allow_delegation": 0},
+            ],
+        }).insert(ignore_permissions=True)
+
+        ev = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"Matrix Popup Check {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "event_spoc": self.spoc_user,
+            "spoc_name": "Parity SPOC",
+            "start_date": "2026-12-01",
+            "end_date": "2026-12-02",
+            "allocated_budget": 50000.00,
+        }).insert(ignore_permissions=True)
+
+        adv = frappe.get_doc({
+            "doctype": "Event Advance Request",
+            "event": ev.name,
+            "imprest_items": [{
+                "particulars": "Stage Lighting",
+                "amount": 5000.00,
+                "payment_mode": "Direct Vendor Payment",
+                "beneficiary_name": "Lighting Vendor",
+                "bank_name": "HDFC Bank",
+                "bank_account_number": "50200011223344",
+                "bank_ifsc_code": "HDFC0001234",
+            }],
+        }).insert(ignore_permissions=True)
+        submit_event_advance(adv.name)
+
+        prev_user = frappe.session.user
+        try:
+            # 1. Opening form as Director: ZERO validation popups in message_log!
+            frappe.set_user(u_dir)
+            frappe.clear_messages()
+            ctx_dir = get_event_advance_ui_context(adv.name)
+            self.assertEqual(frappe.local.message_log, [])
+            self.assertTrue(ctx_dir["can_director_approve"])
+            self.assertTrue(ctx_dir["can_act_current_stage"])
+            self.assertFalse(ctx_dir["can_accounts_l1_verify"])
+            self.assertIn(u_dir, ctx_dir["stage_owners"]["director"])
+
+            # 2. Approve as Director -> moves to Pending Accounts L1 Review
+            approve_event_advance_by_director(adv.name, comments="Approved in test.")
+            frappe.clear_messages()
+            ctx_after = get_event_advance_ui_context(adv.name)
+            self.assertEqual(frappe.local.message_log, [])
+            self.assertFalse(ctx_after["can_act_current_stage"])
+            expected_l1_name = frappe.db.get_value("User", u_l1, "full_name") or u_l1
+            self.assertEqual(ctx_after["pending_with"], expected_l1_name)
+
+            # 3. Calling Accounts L1 action directly as unauthorized Director DOES raise APSecurityError
+            with self.assertRaises(APSecurityError):
+                verify_event_advance_by_accounts_l1(adv.name)
+        finally:
+            frappe.set_user(prev_user)
+            frappe.clear_messages()
+            frappe.db.set_value("AP Approval Matrix", pol.name, "is_active", 0)
+            for p in existing_pols:
+                frappe.db.set_value("AP Approval Matrix", p, "is_active", 1)
+
 
 if __name__ == "__main__":
     unittest.main()
