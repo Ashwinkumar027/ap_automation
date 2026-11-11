@@ -370,6 +370,7 @@ window.APReceiptGallery = {
             { field: 'grn_attachment', label: 'Goods Receipt Note / Delivery Proof', cat: 'Warehouse Receipt', proof_type: 'grn' },
             { field: 'advance_receipt_attachment', label: 'Advance Payment Proof', cat: 'Bank Advance Proof', proof_type: 'payment' },
             { field: 'settlement_statement', label: 'Event Settlement Statement', cat: 'Event Settlement', proof_type: 'extra' },
+            { field: 'refund_proof', label: 'Bank Refund Transfer Proof', cat: 'Event Refund Proof', proof_type: 'payment' },
             { field: 'activity_photo', label: '📸 Team Activity Photo Proof', cat: 'Team Engagement & Recreation', proof_type: 'photo' },
             { field: 'pre_approval_attachment', label: '📋 Pre-Approval Authorization Screenshot', cat: 'Audit Proof Document', proof_type: 'approval' }
         ];
@@ -513,7 +514,7 @@ window.APReceiptGallery = {
         });
     },
 
-    addTallyXmlButton: function (frm, allowedStatuses) {
+    addTallyXmlButton: function (frm, allowedStatuses, opts) {
         if (!frm || !frm.doc || frm.is_new()) return;
         const status = frm.doc.status || 'Draft';
         if (Array.isArray(allowedStatuses) && !allowedStatuses.includes(status)) return;
@@ -523,14 +524,19 @@ window.APReceiptGallery = {
         ]) || frappe.session.user === 'Administrator';
         if (!is_accounts_or_dir) return;
 
-        const btnLabel = __('📑 Tally Journal XML');
+        const cfg = opts || {};
+        const btnLabel = cfg.label || __('📑 Tally Journal XML');
+        const args = { doctype: frm.doc.doctype, docname: frm.doc.name };
+        if (cfg.voucher_mode) {
+            args.voucher_mode = cfg.voucher_mode;
+        }
         if (typeof frm.remove_custom_button === 'function') {
             frm.remove_custom_button(btnLabel);
         }
         frm.add_custom_button(btnLabel, function () {
             frappe.call({
                 method: 'ap_automation.services.tally_service.export_tally_journal_xml_for_event',
-                args: { doctype: frm.doc.doctype, docname: frm.doc.name },
+                args: args,
                 freeze: true,
                 freeze_message: __('Generating Tally Journal XML...'),
                 callback: function (r) {
@@ -539,7 +545,7 @@ window.APReceiptGallery = {
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = url;
-                        a.download = `Tally_Journal_${frm.doc.name}.xml`;
+                        a.download = cfg.filename || `Tally_Journal_${frm.doc.name}.xml`;
                         document.body.appendChild(a);
                         a.click();
                         document.body.removeChild(a);
@@ -548,7 +554,7 @@ window.APReceiptGallery = {
                     }
                 }
             });
-        });
+        }, cfg.group);
     },
 
     setHeadlineExclusive: function (frm, html, color, permanent) {

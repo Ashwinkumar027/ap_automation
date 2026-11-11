@@ -696,7 +696,7 @@
                             <div class="ap-lane-top">
                                 <div>
                                     <div class="ap-lane-title">Lane 4: Event Spends</div>
-                                    <div style="font-size: 11px; color: #64748b;">Budgets & advance releases</div>
+                                    <div style="font-size: 11px; color: #64748b;">Events, advances &amp; settlements</div>
                                 </div>
                                 <div class="ap-lane-icon" style="background: rgba(245, 158, 11, 0.12); color: #f59e0b;">
                                     <i class="fa fa-calendar-alt"></i>

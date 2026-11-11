@@ -453,9 +453,10 @@ def _resolve_event_spoc_imprest_ledger(doc: Any) -> str:
 
 
 @frappe.whitelist()
-def export_tally_journal_xml_for_event(doctype: str, docname: str) -> str:
+def export_tally_journal_xml_for_event(doctype: str, docname: str, voucher_mode: str = "expense") -> str:
     """
     Generates Tally XML Voucher (Journal / Payment) for Event Advance Request, Event Expense Claim, or Event Settlement.
+    When `doctype == 'Event Expense Claim'` and `voucher_mode == 'settlement'`, exports the net SPOC payout or refund adjustment voucher.
     """
     supported = {"Event Advance Request", "Event Expense Claim", "Event Settlement"}
     if doctype not in supported:
@@ -484,13 +485,18 @@ def export_tally_journal_xml_for_event(doctype: str, docname: str) -> str:
             seen_masters.add(name)
             masters_xml.append(_make_ledger_master_xml(name, group))
 
-    if doctype == "Event Expense Claim":
-        if doc.status not in ("Submitted", "Accounts Verified", "Settled"):
+    mode = (voucher_mode or "expense").strip().lower()
+    if doctype == "Event Expense Claim" and mode == "expense":
+        if doc.status not in ("Submitted", "Accounts Verified", "Under Accounts Director Review", "Approved for Payment", "Settled"):
             raise APValidationError(f"Cannot export Tally XML while Event Expense Claim is '{doc.status}'.")
         items = getattr(doc, "expense_items", None) or []
         if not items:
-            raise APValidationError(f"Event Expense Claim '{docname}' has no expense items.")
+            if getattr(doc, "settlement_type", None) in ("PAYABLE_TO_SPOC", "REFUND_FROM_SPOC") and doc.status in ("Approved for Payment", "Settled"):
+                mode = "settlement"
+            else:
+                raise APValidationError(f"Event Expense Claim '{docname}' has no expense items.")
 
+    if doctype == "Event Expense Claim" and mode == "expense":
         cat_totals = defaultdict(float)
         for row in items:
             cat = getattr(row, "expense_category", None) or "Event Expenses"
@@ -565,18 +571,20 @@ def export_tally_journal_xml_for_event(doctype: str, docname: str) -> str:
             party_ledger_name=primary_party,
         )
 
-    else:  # Event Settlement
+    else:  # Event Settlement or unified Event Expense Claim (settlement adjustment voucher)
         if doc.status not in ("Approved for Payment", "Settled"):
-            raise APValidationError(f"Event Settlement '{docname}' must be 'Approved for Payment' or 'Settled' before Tally export.")
+            raise APValidationError(f"{doctype} '{docname}' must be 'Approved for Payment' or 'Settled' before settlement Tally export.")
         s_type = getattr(doc, "settlement_type", "")
         if s_type == "ZERO_BALANCE_BALANCED":
             raise APValidationError("This Event Settlement is perfectly balanced (INR 0.00). No adjustment entry is needed in Tally.")
+        if s_type == "INTERMEDIATE_CLAIM":
+            raise APValidationError("Intermediate Event Expense Claims have no settlement adjustment entry until the Final Event Settlement.")
 
         _ensure_master(imprest_ledger, "Current Assets")
         _ensure_master(bank_ledger, "Bank Accounts")
-        utr_ref = getattr(doc, "refund_received_reference", None) or "PENDING"
 
         if s_type == "REFUND_FROM_SPOC":
+            utr_ref = getattr(doc, "refund_received_reference", None) or "PENDING"
             total_amount = round(float(getattr(doc, "refund_receivable_from_spoc", 0.0) or 0.0), 2)
             if total_amount <= 0:
                 raise APValidationError("Refund receivable amount must be greater than zero for Tally export.")
@@ -584,6 +592,7 @@ def export_tally_journal_xml_for_event(doctype: str, docname: str) -> str:
             entries_xml.append(_make_ledger_entry_xml(imprest_ledger, total_amount, is_debit=False, is_party=True))
             narration = f"Event Refund Received {doc.name} - {event_title}. UTR: {utr_ref}"
         else:  # PAYABLE_TO_SPOC
+            utr_ref = getattr(doc, "payout_utr_reference", None) or getattr(doc, "refund_received_reference", None) or "PENDING"
             total_amount = round(float(getattr(doc, "net_payable_to_spoc", 0.0) or 0.0), 2)
             if total_amount <= 0:
                 raise APValidationError("Net payable amount must be greater than zero for Tally export.")
@@ -592,13 +601,13 @@ def export_tally_journal_xml_for_event(doctype: str, docname: str) -> str:
             narration = f"Event SPOC Settlement Reimbursement {doc.name} - {event_title}. UTR: {utr_ref}"
 
         vch_type = "Journal"
-        vch_date_raw = getattr(doc, "refund_date", None) or getattr(doc, "settlement_date", None) or frappe.utils.nowdate()
+        vch_date_raw = getattr(doc, "refund_date", None) or getattr(doc, "settlement_date", None) or getattr(doc, "posting_date", None) or frappe.utils.nowdate()
         xml_payload = _build_tally_voucher_envelope(
             vch_type=vch_type,
             posting_date=_format_tally_date(vch_date_raw),
             tally_guid=tally_guid,
             narration=narration,
-            voucher_number=doc.name,
+            voucher_number=f"{doc.name}-SET" if doctype == "Event Expense Claim" else doc.name,
             masters_xml=masters_xml,
             entries_xml=entries_xml,
         )

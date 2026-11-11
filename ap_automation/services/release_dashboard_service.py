@@ -111,19 +111,41 @@ def get_executive_hub_metrics() -> Dict[str, Any]:
         as_dict=True
     )[0]
 
-    # 4. Event Advance Request
+    # 4. Event Advance Request & Unified Event Expense & Settlement Claims (PAYABLE_TO_SPOC)
     ear = frappe.db.sql(
         """
         SELECT 
             COUNT(1) as total,
-            SUM(CASE WHEN status = 'Approved' OR docstatus = 1 THEN 1 ELSE 0 END) as approved_count,
-            SUM(CASE WHEN status = 'Approved' OR docstatus = 1 THEN IFNULL(approved_advance_amount, IFNULL(requested_advance_amount, IFNULL(total_amount, 0))) ELSE 0 END) as approved_amount,
-            SUM(CASE WHEN (status IS NULL OR status NOT IN ('Approved', 'Rejected', 'Paid', 'Disbursed')) AND docstatus = 0 THEN 1 ELSE 0 END) as pending_count,
-            SUM(CASE WHEN (status IS NULL OR status NOT IN ('Approved', 'Rejected', 'Paid', 'Disbursed')) AND docstatus = 0 THEN IFNULL(approved_advance_amount, IFNULL(requested_advance_amount, IFNULL(total_amount, 0))) ELSE 0 END) as pending_amount
+            SUM(CASE WHEN status IN ('Approved', 'Approved for Payment') OR docstatus = 1 THEN 1 ELSE 0 END) as approved_count,
+            SUM(CASE WHEN status IN ('Approved', 'Approved for Payment') OR docstatus = 1 THEN IFNULL(approved_advance_amount, IFNULL(requested_advance_amount, IFNULL(total_amount, 0))) ELSE 0 END) as approved_amount,
+            SUM(CASE WHEN (status IS NULL OR status NOT IN ('Approved', 'Approved for Payment', 'Rejected', 'Paid', 'Disbursed')) AND docstatus = 0 THEN 1 ELSE 0 END) as pending_count,
+            SUM(CASE WHEN (status IS NULL OR status NOT IN ('Approved', 'Approved for Payment', 'Rejected', 'Paid', 'Disbursed')) AND docstatus = 0 THEN IFNULL(approved_advance_amount, IFNULL(requested_advance_amount, IFNULL(total_amount, 0))) ELSE 0 END) as pending_amount
         FROM `tabEvent Advance Request`
         """,
         as_dict=True
     )[0]
+
+    eec_settlements = frappe.db.sql(
+        """
+        SELECT
+            COUNT(1) as total,
+            SUM(CASE WHEN status = 'Approved for Payment' THEN 1 ELSE 0 END) as approved_count,
+            SUM(CASE WHEN status = 'Approved for Payment' THEN IFNULL(net_payable_to_spoc, 0) ELSE 0 END) as approved_amount,
+            SUM(CASE WHEN status IN ('Submitted', 'Under Accounts Director Review') THEN 1 ELSE 0 END) as pending_count,
+            SUM(CASE WHEN status IN ('Submitted', 'Under Accounts Director Review') THEN (CASE WHEN IFNULL(net_payable_to_spoc, 0) > 0 THEN net_payable_to_spoc ELSE IFNULL(total_claim_amount, 0) END) ELSE 0 END) as pending_amount
+        FROM `tabEvent Expense Claim`
+        WHERE docstatus != 2
+        """,
+        as_dict=True
+    )[0]
+
+    ear = {
+        "total": int(ear.get("total") or 0) + int(eec_settlements.get("total") or 0),
+        "approved_count": int(ear.get("approved_count") or 0) + int(eec_settlements.get("approved_count") or 0),
+        "approved_amount": float(ear.get("approved_amount") or 0) + float(eec_settlements.get("approved_amount") or 0),
+        "pending_count": int(ear.get("pending_count") or 0) + int(eec_settlements.get("pending_count") or 0),
+        "pending_amount": float(ear.get("pending_amount") or 0) + float(eec_settlements.get("pending_amount") or 0),
+    }
 
     # 5. Payment Batches
     batches = frappe.db.sql(

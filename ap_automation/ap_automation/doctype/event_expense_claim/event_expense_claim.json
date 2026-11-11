@@ -12,6 +12,8 @@
   "company",
   "spoc",
   "spoc_name",
+  "is_final_settlement",
+  "is_zero_spend_refund",
   "cb_claim",
   "posting_date",
   "total_claim_amount",
@@ -19,6 +21,27 @@
   "status",
   "sb_items",
   "expense_items",
+  "sb_reconciliation",
+  "disbursed_advance",
+  "prior_verified_claims",
+  "cumulative_spoc_spends",
+  "cb_recon",
+  "settlement_delta",
+  "settlement_type",
+  "net_payable_to_spoc",
+  "refund_receivable_from_spoc",
+  "sb_settlement_execution",
+  "refund_received_reference",
+  "refund_date",
+  "refund_proof",
+  "payout_utr_reference",
+  "cb_settlement_exec",
+  "accounts_director",
+  "accounts_director_sign_date",
+  "payment_release_notified",
+  "payment_release_notified_on",
+  "payment_release_maker",
+  "payment_releaser",
   "sb_audit",
   "approval_trail",
   "amended_from"
@@ -60,6 +83,19 @@
    "read_only": 1
   },
   {
+   "default": "1",
+   "fieldname": "is_final_settlement",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Final Event Settlement? (Reconcile Advance & Close Event)"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_zero_spend_refund",
+   "fieldtype": "Check",
+   "label": "Zero-Spend Full Advance Refund (Event Cancelled / No Bills)"
+  },
+  {
    "fieldname": "cb_claim",
    "fieldtype": "Column Break"
   },
@@ -91,20 +127,170 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nSubmitted\nReturned to SPOC\nAccounts Verified\nSettled\nRejected",
+   "options": "Draft\nSubmitted\nReturned to SPOC\nAccounts Verified\nUnder Accounts Director Review\nApproved for Payment\nSettled\nRejected",
    "read_only": 1,
    "allow_on_submit": 1
   },
   {
+   "depends_on": "eval:!doc.is_zero_spend_refund",
    "fieldname": "sb_items",
    "fieldtype": "Section Break",
    "label": "Itemized On-Ground Bills (Stream B)"
   },
   {
+   "depends_on": "eval:!doc.is_zero_spend_refund",
    "fieldname": "expense_items",
    "fieldtype": "Table",
    "label": "Expense Items",
    "options": "Event Expense Item"
+  },
+  {
+   "fieldname": "sb_reconciliation",
+   "fieldtype": "Section Break",
+   "label": "Post-Event Advance Reconciliation & Settlement Verdict"
+  },
+  {
+   "fieldname": "disbursed_advance",
+   "fieldtype": "Currency",
+   "label": "Total Cash Advance Disbursed (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "prior_verified_claims",
+   "fieldtype": "Currency",
+   "label": "Prior Verified Claim Spends (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cumulative_spoc_spends",
+   "fieldtype": "Currency",
+   "label": "Cumulative SPOC Ground Spends (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_recon",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "settlement_delta",
+   "fieldtype": "Currency",
+   "label": "Net Settlement Delta (Cumulative Actuals - Advance)",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "settlement_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Settlement Classification",
+   "options": "\nINTERMEDIATE_CLAIM\nPAYABLE_TO_SPOC\nREFUND_FROM_SPOC\nZERO_BALANCE_BALANCED",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "net_payable_to_spoc",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Net Balance Payable to SPOC (INR)",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "refund_receivable_from_spoc",
+   "fieldtype": "Currency",
+   "label": "Refund Receivable from SPOC (INR)",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.is_final_settlement && ((doc.settlement_type && doc.settlement_type !== 'ZERO_BALANCE_BALANCED' && doc.settlement_type !== 'INTERMEDIATE_CLAIM') || doc.is_zero_spend_refund)",
+   "fieldname": "sb_settlement_execution",
+   "fieldtype": "Section Break",
+   "label": "Bank Settlement / Refund / Disbursal Execution"
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:doc.is_final_settlement && (doc.settlement_type === 'REFUND_FROM_SPOC' || doc.is_zero_spend_refund)",
+   "fieldname": "refund_received_reference",
+   "fieldtype": "Data",
+   "label": "Corporate Bank Refund UTR / Ref"
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:doc.is_final_settlement && (doc.settlement_type === 'REFUND_FROM_SPOC' || doc.is_zero_spend_refund)",
+   "fieldname": "refund_date",
+   "fieldtype": "Date",
+   "label": "Refund Received Date"
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:doc.is_final_settlement && (doc.settlement_type === 'REFUND_FROM_SPOC' || doc.is_zero_spend_refund)",
+   "fieldname": "refund_proof",
+   "fieldtype": "Attach",
+   "label": "Refund Bank Transfer Proof"
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:doc.settlement_type === 'PAYABLE_TO_SPOC'",
+   "fieldname": "payout_utr_reference",
+   "fieldtype": "Data",
+   "label": "SPOC Reimbursement Bank UTR",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_settlement_exec",
+   "fieldtype": "Column Break"
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:doc.settlement_type === 'PAYABLE_TO_SPOC' || doc.accounts_director",
+   "fieldname": "accounts_director",
+   "fieldtype": "Link",
+   "label": "Accounts Director Sign-off",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:doc.settlement_type === 'PAYABLE_TO_SPOC' || doc.accounts_director_sign_date",
+   "fieldname": "accounts_director_sign_date",
+   "fieldtype": "Datetime",
+   "label": "Accounts Director Sign Date",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "depends_on": "eval:doc.settlement_type === 'PAYABLE_TO_SPOC' || doc.payment_release_notified",
+   "fieldname": "payment_release_notified",
+   "fieldtype": "Check",
+   "label": "Payment Release Notified",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:doc.settlement_type === 'PAYABLE_TO_SPOC' || doc.payment_release_notified_on",
+   "fieldname": "payment_release_notified_on",
+   "fieldtype": "Datetime",
+   "label": "Payment Release Notified On",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:doc.settlement_type === 'PAYABLE_TO_SPOC' || doc.payment_release_maker",
+   "fieldname": "payment_release_maker",
+   "fieldtype": "Link",
+   "label": "Payment Release Maker",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:doc.settlement_type === 'PAYABLE_TO_SPOC' || doc.payment_releaser",
+   "fieldname": "payment_releaser",
+   "fieldtype": "Link",
+   "label": "Payment Releaser (Director)",
+   "options": "User",
+   "read_only": 1
   },
   {
    "fieldname": "sb_audit",
@@ -225,7 +411,7 @@
    "write": 1,
    "submit": 1,
    "cancel": 1,
-   "create": 0,
+   "create": 1,
    "delete": 0
   },
   {
@@ -235,7 +421,7 @@
    "write": 1,
    "submit": 1,
    "cancel": 1,
-   "create": 0,
+   "create": 1,
    "delete": 0
   },
   {
@@ -245,7 +431,7 @@
    "write": 1,
    "submit": 1,
    "cancel": 1,
-   "create": 0,
+   "create": 1,
    "delete": 0
   },
   {
@@ -255,7 +441,7 @@
    "write": 1,
    "submit": 1,
    "cancel": 1,
-   "create": 0,
+   "create": 1,
    "delete": 0
   }
  ],

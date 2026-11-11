@@ -118,8 +118,34 @@ def setup_workspaces():
                 if r not in ws_roles:
                     ws.append("roles", {"role": r})
                     changed = True
+
+            # Consolidate Lane 4 links into 3 clean modules (remove redundant Event Settlement & ad-hoc Vendor Invoice links)
+            if ws_name in ("Lane 4: Event Spends", "AP Automation"):
+                cleaned_links = []
+                for lnk in ws.links:
+                    if lnk.link_type == "DocType" and lnk.link_to == "Event Settlement":
+                        changed = True
+                        continue
+                    if ws_name == "Lane 4: Event Spends" and lnk.link_type == "DocType" and lnk.link_to == "Vendor Invoice Claim":
+                        changed = True
+                        continue
+                    if lnk.link_type == "DocType" and lnk.link_to == "Event Expense Claim" and lnk.label != "Event Expense & Settlement":
+                        lnk.label = "Event Expense & Settlement"
+                        changed = True
+                    cleaned_links.append(lnk)
+                if changed:
+                    ws.set("links", [l.as_dict() for l in cleaned_links])
+
             if changed:
-                ws.save(ignore_permissions=True)
+                prev_import = getattr(frappe.flags, "in_import", False)
+                prev_migrate = getattr(frappe.flags, "in_migrate", False)
+                frappe.flags.in_import = True
+                frappe.flags.in_migrate = True
+                try:
+                    ws.save(ignore_permissions=True)
+                finally:
+                    frappe.flags.in_import = prev_import
+                    frappe.flags.in_migrate = prev_migrate
 
 
 def setup_desktop_icons():

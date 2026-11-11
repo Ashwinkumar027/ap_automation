@@ -143,19 +143,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Event Expense Claim",
+   "label": "Event Expense & Settlement",
    "link_count": 0,
    "link_to": "Event Expense Claim",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Event Settlement",
-   "link_count": 0,
-   "link_to": "Event Settlement",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"

@@ -1262,24 +1262,50 @@ def notify_event_expense_submitted(claim_doc, is_resubmission: bool = False) -> 
     event_name = frappe.db.get_value("Event Master", claim_doc.event, "event_name") or claim_doc.event
     items_count = len(getattr(claim_doc, "expense_items", []) or [])
     spoc_label = getattr(claim_doc, "spoc_name", None) or getattr(claim_doc, "spoc", None) or claim_doc.owner
+    s_type = getattr(claim_doc, "settlement_type", "") or ""
+    payable = float(getattr(claim_doc, "net_payable_to_spoc", 0.0) or 0.0)
+    refund = float(getattr(claim_doc, "refund_receivable_from_spoc", 0.0) or 0.0)
+    adv = float(getattr(claim_doc, "disbursed_advance", 0.0) or 0.0)
+    is_zero_refund = bool(frappe.utils.cint(getattr(claim_doc, "is_zero_spend_refund", 0)))
+
+    verdict_note = ""
+    metric_label_2 = f"Line Items / SPOC"
+    metric_val_2 = f"{items_count} bills • {spoc_label}"
+    if s_type == "PAYABLE_TO_SPOC":
+        verdict_note = f"<br>• <b>Advance Disbursed:</b> ₹ {_safe_fmt_money(adv)} &nbsp;|&nbsp; <b>Net Extra Payable to SPOC:</b> ₹ {_safe_fmt_money(payable)}"
+        metric_label_2 = "Net Payable to SPOC"
+        metric_val_2 = f"₹ {_safe_fmt_money(payable)}"
+    elif s_type == "REFUND_FROM_SPOC":
+        utr = getattr(claim_doc, "refund_received_reference", None) or "Pending L1 Check"
+        verdict_note = f"<br>• <b>Advance Disbursed:</b> ₹ {_safe_fmt_money(adv)} &nbsp;|&nbsp; <b>Refund Due from SPOC:</b> ₹ {_safe_fmt_money(refund)} (UTR: {utr})"
+        metric_label_2 = "Refund Due from SPOC"
+        metric_val_2 = f"₹ {_safe_fmt_money(refund)}"
+    elif s_type == "ZERO_BALANCE_BALANCED":
+        verdict_note = f"<br>• <b>Advance Disbursed:</b> ₹ {_safe_fmt_money(adv)} &nbsp;|&nbsp; <b>Balanced ₹ 0.00 Variance</b>"
+        metric_label_2 = "Settlement Verdict"
+        metric_val_2 = "Balanced ₹ 0.00"
 
     action_label = "Resubmitted for Accounts L1 Review" if is_resubmission else "Accounts L1 Verification Needed"
+    lead_desc = (
+        f"submitted a <b>Zero-Spend Full Advance Refund</b> for Event <b>'{event_name}'</b> ({company})."
+        if is_zero_refund
+        else f"{'resubmitted' if is_resubmission else 'submitted'} Event Expense &amp; Settlement Claim <b>#{claim_doc.name}</b> for Event <b>'{event_name}'</b> ({company}) with <b>{items_count}</b> receipt(s)."
+    )
     subject = f"{action_label}: Event Expense Claim #{claim_doc.name} for '{event_name}' (₹ {_safe_fmt_money(amount)})"
     body = _build_html_template(
-        title="Event Expense Claim Resubmitted" if is_resubmission else "Event Expense Claim Submitted",
-        subtitle="Stage 2 • Ground Receipt & Bill Verification",
+        title="Event Expense & Settlement Resubmitted" if is_resubmission else "Event Expense & Settlement Submitted",
+        subtitle="Stage 2 • Ground Receipt Audit & Advance Reconciliation",
         greeting_name="Accounts L1 Auditor",
         main_message=(
-            f"<b>{spoc_label}</b> has {'resubmitted' if is_resubmission else 'submitted'} Event Expense Claim "
-            f"<b>#{claim_doc.name}</b> for Event <b>'{event_name}'</b> ({company}) with <b>{items_count}</b> itemized receipt(s).<br><br>"
-            f"Please review the uploaded bills and click <b>Verify Ground Bills (Accounts L1)</b> to notify Accounts Director."
+            f"<b>{spoc_label}</b> has {lead_desc}{verdict_note}<br><br>"
+            f"Please review in one screen and complete Accounts L1 verification."
         ),
-        metric_label_1="Total Claimed",
+        metric_label_1="Claimed Ground Spends",
         metric_val_1=f"₹ {_safe_fmt_money(amount)}",
-        metric_label_2="Line Items / SPOC",
-        metric_val_2=f"{items_count} bills • {spoc_label}",
+        metric_label_2=metric_label_2,
+        metric_val_2=metric_val_2,
         doc_url=doc_url,
-        button_text="Review & Verify Ground Bills →",
+        button_text="Review & Verify Claim →",
         badge_color="#2563eb",
     )
 
@@ -1334,27 +1360,36 @@ def notify_event_expense_accounts_l1_verified(
         if verified_by
         else "Accounts L1 Auditor"
     )
+    adv = float(getattr(claim_doc, "disbursed_advance", 0.0) or 0.0)
+    cum = float(getattr(claim_doc, "cumulative_spoc_spends", 0.0) or amount or 0.0)
+    payable = float(getattr(claim_doc, "net_payable_to_spoc", 0.0) or 0.0)
+    metric_2_label = "Net Payable to SPOC" if payable > 0 else "L1 Verified By"
+    metric_2_val = f"₹ {_safe_fmt_money(payable)}" if payable > 0 else f"{verifier_label}"
     remarks_block = f"<br><br><b>Accounts L1 Notes:</b> {remarks}" if remarks else ""
 
     subject = (
         f"Accounts L1 Verified: Event Expense Claim #{claim_doc.name} for '{event_name}' "
-        f"(₹ {_safe_fmt_money(amount)}) - Ready for Accounts Director"
+        f"(₹ {_safe_fmt_money(payable or amount)}) - Ready for Accounts Director"
     )
     body = _build_html_template(
-        title="Accounts L1 Verified • Ready for Accounts Director",
-        subtitle="Stage 3 • Ground Spend Cleared for Event Settlement",
+        title="Accounts L1 Verified • Ready for Accounts Director Sign-Off",
+        subtitle="Stage 3 • SPOC Extra Reimbursement Payout Approval",
         greeting_name="Accounts Director",
         main_message=(
-            f"Accounts L1 Auditor (<b>{verifier_label}</b>) has verified all ground receipts on Event Expense Claim "
-            f"<b>#{claim_doc.name}</b> for Event <b>'{event_name}'</b>.{remarks_block}<br><br>"
-            f"The claim is now <b>Accounts Verified</b> and ready for your review / <b>Event Settlement</b>."
+            f"Accounts L1 Auditor (<b>{verifier_label}</b>) has verified all ground receipts on Event Expense &amp; Settlement Claim "
+            f"<b>#{claim_doc.name}</b> for Event <b>'{event_name}'</b>.<br><br>"
+            f"• <b>Disbursed Cash Advance:</b> ₹ {_safe_fmt_money(adv)}<br>"
+            f"• <b>Cumulative Verified Spends:</b> ₹ {_safe_fmt_money(cum)}<br>"
+            f"• <b>Net Reimbursement Payable to SPOC:</b> ₹ {_safe_fmt_money(payable)}"
+            f"{remarks_block}<br><br>"
+            f"Please click below to sign off — IDFC Disbursal Excel and Payment Release are available directly on this same screen."
         ),
-        metric_label_1="Verified Claim Amount",
-        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
-        metric_label_2="L1 Verified By",
-        metric_val_2=f"{verifier_label}",
+        metric_label_1="Cumulative Verified Spends",
+        metric_val_1=f"₹ {_safe_fmt_money(cum)}",
+        metric_label_2=metric_2_label,
+        metric_val_2=metric_2_val,
         doc_url=doc_url,
-        button_text="Review Claim & Proceed to Settlement →",
+        button_text="⭐ Sign Off & Release Payout →",
         badge_color="#0891b2",
     )
 
@@ -1451,17 +1486,31 @@ def notify_event_settlement_submitted(settlement_doc) -> None:
 
 
 def notify_event_settlement_closed(settlement_doc) -> None:
-    """Triggered when an Event Settlement is formally finalized and Event Master is closed."""
+    """Triggered when an Event Settlement OR unified Final Event Expense Claim is settled and Event Master is closed."""
     if isinstance(settlement_doc, str):
-        settlement_doc = frappe.get_doc("Event Settlement", settlement_doc)
+        dt_guess = "Event Expense Claim" if str(settlement_doc).startswith("EEC-") else "Event Settlement"
+        settlement_doc = frappe.get_doc(dt_guess, settlement_doc)
 
     spoc_email = _resolve_email_address(settlement_doc.spoc)
     recipients = [spoc_email] if spoc_email else []
     accounts_users = _get_role_recipients(["Accounts L1 Auditor", "Accounts Director"])
     recipients.extend(accounts_users)
 
-    doc_url = _get_form_url("Event Settlement", settlement_doc.name)
+    doc_dt = settlement_doc.doctype or "Event Settlement"
+    doc_url = _get_form_url(doc_dt, settlement_doc.name)
     event_name = frappe.db.get_value("Event Master", settlement_doc.event, "event_name") or settlement_doc.event
+    actuals_val = (
+        getattr(settlement_doc, "cumulative_spoc_spends", None)
+        if doc_dt == "Event Expense Claim"
+        else getattr(settlement_doc, "spoc_actual_spends", 0.0)
+    )
+    if actuals_val is None:
+        actuals_val = getattr(settlement_doc, "total_claim_amount", 0.0) or 0.0
+    utr_val = (
+        getattr(settlement_doc, "payout_utr_reference", None)
+        or getattr(settlement_doc, "refund_received_reference", None)
+        or "VERIFIED"
+    )
 
     subject = f"Completed: Event '{event_name}' settlement is closed"
     body = _build_html_template(
@@ -1469,22 +1518,22 @@ def notify_event_settlement_closed(settlement_doc) -> None:
         subtitle="Accounts Balanced & Event Closed",
         greeting_name=settlement_doc.spoc_name or "Event SPOC",
         main_message=(
-            f"Financial settlement for <b>'{event_name}'</b> has been completed.<br><br>"
-            f"• <b>Total Advance:</b> ₹ {_safe_fmt_money(settlement_doc.disbursed_advance)}<br>"
-            f"• <b>Total Actual Spends:</b> ₹ {_safe_fmt_money(settlement_doc.spoc_actual_spends)}<br>"
+            f"Financial settlement for <b>'{event_name}'</b> ({doc_dt} #{settlement_doc.name}) has been completed.<br><br>"
+            f"• <b>Total Advance:</b> ₹ {_safe_fmt_money(getattr(settlement_doc, 'disbursed_advance', 0.0))}<br>"
+            f"• <b>Total Actual Spends:</b> ₹ {_safe_fmt_money(actuals_val)}<br>"
             f"• <b>Settlement Result:</b> {settlement_doc.settlement_type}<br>"
-            f"• <b>Bank / UTR Reference:</b> {settlement_doc.refund_received_reference or 'VERIFIED'}<br><br>"
+            f"• <b>Bank / UTR Reference:</b> {utr_val}<br><br>"
             f"The Event has been formally marked as <b>Closed</b> with zero pending balance."
         ),
         metric_label_1="Actual Spends",
-        metric_val_1=f"₹ {_safe_fmt_money(settlement_doc.spoc_actual_spends)}",
+        metric_val_1=f"₹ {_safe_fmt_money(actuals_val)}",
         metric_label_2="Settlement Result",
         metric_val_2=f"{settlement_doc.settlement_type}",
         doc_url=doc_url,
         button_text="View Closed Settlement",
         badge_color="#16a34a"
     )
-    _dispatch_reimbursement_email(list(set(recipients)), subject, body, "Event Settlement", settlement_doc.name, alert_color="green")
+    _dispatch_reimbursement_email(list(set(recipients)), subject, body, doc_dt, settlement_doc.name, alert_color="green")
 
 
 def notify_event_ageing_reminder(ev_dict, days_overdue: int, unsettled_advance: float, level: int = 7) -> None:

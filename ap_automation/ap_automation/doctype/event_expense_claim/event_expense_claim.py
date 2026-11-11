@@ -24,6 +24,14 @@ class EventExpenseClaim(APDocument):
     Controller for Stream B On-Ground Event Expense Claims.
     """
 
+    def _validate_financial_amounts(self):
+        """Allows INR 0.00 only when explicitly returning 100% of an advance via Zero-Spend Refund mode."""
+        if frappe.utils.cint(getattr(self, "is_zero_spend_refund", 0)):
+            self.total_amount = 0.0
+            self.total_claim_amount = 0.0
+            return
+        super()._validate_financial_amounts()
+
     def validate(self):
         """Lifecycle validation hook."""
         if not getattr(self, "event", None):
@@ -35,33 +43,82 @@ class EventExpenseClaim(APDocument):
 
         self.company = event_doc.company
         self.spoc = event_doc.event_spoc
+        self.payee_name = event_doc.spoc_name or self.spoc
 
-        if not getattr(self, "expense_items", None):
-            raise APValidationError("At least one expense line item is required.")
+        is_zero_refund = bool(frappe.utils.cint(getattr(self, "is_zero_spend_refund", 0)))
+        if is_zero_refund:
+            self.is_final_settlement = 1
 
-        # Validate mandatory attachments & expense categories per line item
-        for idx, row in enumerate(self.expense_items, start=1):
-            if not getattr(row, "receipt_attachment", None):
-                raise APValidationError(
-                    f"Row #{idx}: Proof of spend (receipt/invoice attachment) is mandatory."
-                )
-            if not getattr(row, "expense_category", None):
-                raise APValidationError(
-                    f"Row #{idx}: Expense Category is mandatory."
-                )
+        is_final = bool(frappe.utils.cint(getattr(self, "is_final_settlement", 1)))
+        is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved", "Returned to SPOC")
 
-        # High-Performance O(1) Batch Duplicate Screening
-        screen_event_expense_items_batch(
+        if is_zero_refund:
+            self.expense_items = []
+            self.total_claim_amount = 0.0
+            self.total_amount = 0.0
+        else:
+            if not getattr(self, "expense_items", None):
+                raise APValidationError("At least one expense line item is required (or check 'Zero-Spend Full Advance Refund' if no bills were incurred).")
+
+            # Validate mandatory attachments & expense categories per line item
+            for idx, row in enumerate(self.expense_items, start=1):
+                if not getattr(row, "receipt_attachment", None):
+                    raise APValidationError(
+                        f"Row #{idx}: Proof of spend (receipt/invoice attachment) is mandatory."
+                    )
+                if not getattr(row, "expense_category", None):
+                    raise APValidationError(
+                        f"Row #{idx}: Expense Category is mandatory."
+                    )
+
+            # High-Performance O(1) Batch Duplicate Screening
+            screen_event_expense_items_batch(
+                event_name=self.event,
+                items=self.expense_items,
+                current_claim_name=self.name
+            )
+
+            # Re-sum total claim amount
+            total = sum(float(row.amount or 0.0) for row in self.expense_items)
+            self.total_claim_amount = round(total, 2)
+            self.total_amount = round(total, 2)
+
+        # Synchronize unified Advance Reconciliation & Settlement Verdict
+        from ap_automation.services.event_settlement_service import calculate_event_claim_reconciliation
+        recon = calculate_event_claim_reconciliation(
             event_name=self.event,
-            items=self.expense_items,
-            current_claim_name=self.name
+            current_claim_name=self.name,
+            current_claim_amount=self.total_claim_amount,
+            is_final_settlement=1 if is_final else 0,
+            is_zero_spend_refund=1 if is_zero_refund else 0,
         )
 
-        # Re-sum total claim amount
-        total = sum(float(row.amount or 0.0) for row in self.expense_items)
-        self.total_claim_amount = round(total, 2)
-        self.total_amount = round(total, 2)
-        self.payee_name = event_doc.spoc_name or self.spoc
+        if is_zero_refund and float(recon.get("disbursed_advance") or 0.0) <= 0.0:
+            raise APValidationError(
+                f"Zero-Spend Advance Refund cannot be filed for Event '{self.event}' because ₹ 0.00 cash advance has been disbursed to the SPOC."
+            )
+
+        if is_final and recon.get("other_final_claims"):
+            existing_final = ", ".join(recon["other_final_claims"])
+            raise APValidationError(
+                f"Another Final Event Settlement claim ({existing_final}) is already active for Event '{self.event}'. "
+                "Please cancel/reject that claim or uncheck 'Final Event Settlement?' for an intermediate claim."
+            )
+
+        if is_zero_refund and is_submitting:
+            utr = (getattr(self, "refund_received_reference", "") or "").strip()
+            if len(utr) < 4:
+                raise APValidationError(
+                    "Corporate Bank Refund UTR / Reference is mandatory before submitting a Zero-Spend Full Advance Refund."
+                )
+
+        self.disbursed_advance = recon["disbursed_advance"]
+        self.prior_verified_claims = recon["prior_verified_claims"]
+        self.cumulative_spoc_spends = recon["cumulative_spoc_spends"]
+        self.settlement_delta = recon["settlement_delta"]
+        self.settlement_type = recon["settlement_type"]
+        self.net_payable_to_spoc = recon["net_payable_to_spoc"]
+        self.refund_receivable_from_spoc = recon["refund_receivable_from_spoc"]
 
         super().validate()
 
@@ -104,7 +161,7 @@ class EventExpenseClaim(APDocument):
                 """
                 SELECT SUM(total_claim_amount) as total
                 FROM `tabEvent Expense Claim`
-                WHERE event = %s AND docstatus = 1
+                WHERE event = %s AND docstatus = 1 AND status != 'Rejected'
                 """,
                 (self.event,),
                 as_dict=True
@@ -132,11 +189,21 @@ def reject_or_return_event_claim(claim_name: str, reason: str):
         frappe.throw("A specific reason or discrepancy description is required to return this claim.")
 
     doc = frappe.get_doc("Event Expense Claim", claim_name)
-    if doc.status not in ("Submitted", "Accounts Verified"):
-        frappe.throw(f"Only Submitted claims can be returned to SPOC. Current status is '{doc.status}'.")
+    if doc.status not in ("Submitted", "Accounts Verified", "Under Accounts Director Review"):
+        frappe.throw(f"Only Submitted / In-Review claims can be returned to SPOC. Current status is '{doc.status}'.")
 
     # Unlock header and child rows so SPOC can edit line items & attachments
-    frappe.db.set_value("Event Expense Claim", claim_name, {"docstatus": 0, "status": "Returned to SPOC"}, update_modified=True)
+    frappe.db.set_value(
+        "Event Expense Claim",
+        claim_name,
+        {
+            "docstatus": 0,
+            "status": "Returned to SPOC",
+            "accounts_director": None,
+            "accounts_director_sign_date": None,
+        },
+        update_modified=True,
+    )
     frappe.db.sql("UPDATE `tabEvent Expense Item` SET docstatus = 0 WHERE parent = %s", (claim_name,))
     doc.reload()
     doc._sync_event_spends()
@@ -235,10 +302,13 @@ def submit_event_expense_claim(claim_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def verify_event_expense_claim(claim_name: str, remarks: Optional[str] = None) -> Dict[str, Any]:
+def verify_event_expense_claim(claim_name: str, remarks: Optional[str] = None, verified_utr: Optional[str] = None) -> Dict[str, Any]:
     """
-    Accounts L1 / Accounts Director verification of Event Expense Claim receipts & categories.
-    Advances status from 'Submitted' to 'Accounts Verified'.
+    Unified Accounts L1 Audit & Settlement Routing on Event Expense Claim:
+    - Intermediate Claim (is_final_settlement = 0) -> 'Accounts Verified' (Event stays open).
+    - Final Claim PAYABLE_TO_SPOC -> 'Under Accounts Director Review' + notifies Accounts Director.
+    - Final Claim REFUND_FROM_SPOC -> requires verified Bank Credit UTR -> 'Settled' + closes Event Master.
+    - Final Claim ZERO_BALANCE_BALANCED -> 'Settled' + closes Event Master.
     """
     if not claim_name or not frappe.db.exists("Event Expense Claim", claim_name):
         raise APValidationError(f"Event Expense Claim '{claim_name}' not found.")
@@ -253,38 +323,115 @@ def verify_event_expense_claim(claim_name: str, remarks: Optional[str] = None) -
     if doc.status != "Submitted":
         raise APValidationError(f"Cannot verify claim '{claim_name}': current status is '{doc.status}', expected 'Submitted'.")
 
+    from ap_automation.services.event_settlement_service import (
+        calculate_event_claim_reconciliation,
+        _close_event_master_on_settlement,
+    )
+
+    is_zero_refund = bool(frappe.utils.cint(getattr(doc, "is_zero_spend_refund", 0)))
+    is_final = True if is_zero_refund else bool(frappe.utils.cint(getattr(doc, "is_final_settlement", 1)))
+    recon = calculate_event_claim_reconciliation(
+        event_name=doc.event,
+        current_claim_name=doc.name,
+        current_claim_amount=doc.total_claim_amount,
+        is_final_settlement=1 if is_final else 0,
+        is_zero_spend_refund=1 if is_zero_refund else 0,
+    )
+
+    if is_final and recon.get("blocking_open_claims"):
+        pending_list = ", ".join(recon["blocking_open_claims"])
+        raise APValidationError(
+            f"Other unverified Event Expense Claims ({pending_list}) exist for Event '{doc.event}'. "
+            "Please verify or return/cancel them before finalizing settlement on this claim."
+        )
+
+    s_type = recon["settlement_type"]
     clean_remarks = (remarks or "").strip() or "All ground receipts verified by Accounts."
-    frappe.db.set_value("Event Expense Claim", claim_name, "status", "Accounts Verified", update_modified=True)
+
+    updates: Dict[str, Any] = {
+        "disbursed_advance": recon["disbursed_advance"],
+        "prior_verified_claims": recon["prior_verified_claims"],
+        "cumulative_spoc_spends": recon["cumulative_spoc_spends"],
+        "settlement_delta": recon["settlement_delta"],
+        "settlement_type": s_type,
+        "net_payable_to_spoc": recon["net_payable_to_spoc"],
+        "refund_receivable_from_spoc": recon["refund_receivable_from_spoc"],
+    }
+
+    event_closed = False
+    if not is_final or s_type == "INTERMEDIATE_CLAIM":
+        target_status = "Accounts Verified"
+        level_label = "Accounts Ground Bill Verification (Intermediate Claim)"
+        comment_html = f"✅ <b>Accounts Verified (Intermediate Claim):</b> Verified by {user}. Remaining advance / variance will reconcile on Final Claim. {clean_remarks}"
+        resp_msg = f"Event Expense Claim #{claim_name} verified by Accounts! (Event stays open for remaining claims.)"
+    elif s_type == "PAYABLE_TO_SPOC":
+        target_status = "Under Accounts Director Review"
+        level_label = "Accounts L1 Ground Bill & Delta Verification"
+        comment_html = (
+            f"✅ <b>Accounts L1 Verified & Forwarded to Accounts Director:</b> Verified by {user}. "
+            f"Net Reimbursement Due to SPOC: <b>₹ {recon['net_payable_to_spoc']:,.2f}</b>. {clean_remarks}"
+        )
+        resp_msg = f"Verified by Accounts L1! Forwarded to Accounts Director for ₹ {recon['net_payable_to_spoc']:,.2f} SPOC payout sign-off."
+    elif s_type == "REFUND_FROM_SPOC":
+        utr = (verified_utr or getattr(doc, "refund_received_reference", "") or "").strip()
+        if len(utr) < 4:
+            raise APValidationError(
+                f"Refund Bank UTR Required: SPOC owes unspent cash refund of ₹ {recon['refund_receivable_from_spoc']:,.2f}. "
+                "Please enter the verified corporate bank credit UTR/reference (at least 4 characters) to settle and close."
+            )
+        target_status = "Settled"
+        updates["refund_received_reference"] = utr
+        updates["refund_date"] = getattr(doc, "refund_date", None) or frappe.utils.nowdate()
+        level_label = "Accounts L1 Refund Verification & Event Closure"
+        comment_html = f"✅ <b>Bills Verified & Refund Confirmed ({utr}):</b> Verified by {user}. Event settled & closed. {clean_remarks}"
+        resp_msg = f"Bills & Bank Refund UTR ({utr}) verified! Event #{doc.event} settled and closed."
+        event_closed = True
+    else:  # ZERO_BALANCE_BALANCED
+        target_status = "Settled"
+        level_label = "Accounts L1 Verification & Balanced Closure"
+        comment_html = f"✅ <b>Accounts Verified & Balanced (₹ 0.00 Variance):</b> Verified by {user}. Event settled & closed. {clean_remarks}"
+        resp_msg = f"All bills balanced ₹ 0.00 against disbursed advance! Event #{doc.event} settled and closed."
+        event_closed = True
+
+    updates["status"] = target_status
+    frappe.db.set_value("Event Expense Claim", claim_name, updates, update_modified=True)
     append_event_approval_trail(
         doctype="Event Expense Claim",
         docname=claim_name,
         level_number=1,
-        level_name="Accounts Ground Bill Verification",
+        level_name=level_label,
         action="VERIFIED",
         action_taken_by=user,
         designated_approver=user,
         remarks=clean_remarks,
     )
     doc.reload()
-    doc.add_comment("Comment", f"✅ <b>Accounts Verified:</b> Ground expense receipts verified by {user}. {clean_remarks}")
+    doc.add_comment("Comment", comment_html)
     frappe.db.commit()
 
-    try:
-        from ap_automation.services.employee_reimbursement_notification_service import (
-            notify_event_expense_accounts_l1_verified,
-        )
-        notify_event_expense_accounts_l1_verified(doc, verified_by=user, remarks=clean_remarks)
-    except Exception:
-        frappe.log_error(
-            title="Event Expense Claim L1 Verified Email Error",
-            message=f"Failed to notify Accounts Director for {claim_name}: {frappe.get_traceback()}",
-        )
+    if target_status == "Under Accounts Director Review":
+        try:
+            from ap_automation.services.employee_reimbursement_notification_service import (
+                notify_event_expense_accounts_l1_verified,
+            )
+            notify_event_expense_accounts_l1_verified(doc, verified_by=user, remarks=clean_remarks)
+        except Exception:
+            frappe.log_error(
+                title="Event Expense Claim L1 Verified Email Error",
+                message=f"Failed to notify Accounts Director for {claim_name}: {frappe.get_traceback()}",
+            )
+    elif event_closed:
+        _close_event_master_on_settlement(doc)
 
     return {
         "status": "SUCCESS",
         "claim": claim_name,
-        "new_status": "Accounts Verified",
-        "message": f"Event Expense Claim #{claim_name} verified by Accounts!",
+        "new_status": target_status,
+        "settlement_type": s_type,
+        "net_payable_to_spoc": recon["net_payable_to_spoc"],
+        "refund_receivable_from_spoc": recon["refund_receivable_from_spoc"],
+        "event_closed": event_closed,
+        "message": resp_msg,
     }
 
 

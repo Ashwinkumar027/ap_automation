@@ -960,32 +960,22 @@ def download_idfc_event_advance_excel(advance_name: str):
     frappe.response["type"] = "download"
 
 
-@frappe.whitelist()
-def download_idfc_event_settlement_excel(settlement_name: str):
-    """
-    Generates and downloads the official IDFC Bank Disbursal Excel (.xlsx)
-    for PAYABLE_TO_SPOC Event Settlement reimbursements after Accounts Director Sign-Off.
-    """
-    _assert_idfc_export_role()
-
-    if not settlement_name:
-        frappe.throw(_("Event Settlement name is required."))
-
-    doc = frappe.get_doc("Event Settlement", settlement_name)
-    if doc.settlement_type != "PAYABLE_TO_SPOC":
+def _stream_spoc_settlement_idfc_excel(doc, amount: float, prefix_tag: str, filename_prefix: str):
+    """Shared IDFC Netbanking Excel builder for PAYABLE_TO_SPOC Event reimbursements."""
+    if getattr(doc, "settlement_type", None) != "PAYABLE_TO_SPOC":
         frappe.throw(_("IDFC Disbursal Excel is only applicable for 'PAYABLE_TO_SPOC' settlements."))
     if doc.status not in ("Approved for Payment", "Settled"):
         frappe.throw(
-            _("Cannot generate IDFC Bank Excel for Event Settlement {0}: current status is '{1}'. Must be 'Approved for Payment' first.")
-            .format(doc.name, doc.status)
+            _("Cannot generate IDFC Bank Excel for {0} {1}: current status is '{2}'. Must be 'Approved for Payment' first.")
+            .format(doc.doctype, doc.name, doc.status)
         )
 
-    amount = flt(doc.net_payable_to_spoc)
-    if amount <= 0:
+    payable = flt(amount)
+    if payable <= 0:
         frappe.throw(_("Net payable amount to SPOC must be greater than zero."))
 
     from ap_automation.services.event_budget_service import fetch_spoc_salary_bank
-    bank_info = fetch_spoc_salary_bank(doc.spoc) if doc.spoc else {}
+    bank_info = fetch_spoc_salary_bank(doc.spoc) if getattr(doc, "spoc", None) else {}
     spoc_ac = str((bank_info or {}).get("bank_account_no") or "").strip()
     spoc_ifsc = str((bank_info or {}).get("ifsc_code") or "").strip().upper()
     if not spoc_ac or not spoc_ifsc:
@@ -1004,10 +994,10 @@ def download_idfc_event_settlement_excel(settlement_name: str):
         "ifsc": spoc_ifsc,
         "debit_account_number": debit_account,
         "transaction_date": tx_date_str,
-        "amount": amount,
+        "amount": payable,
         "currency": "INR",
         "beneficiary_email": spoc_email,
-        "remarks": f"EVT-SET {doc.name}"[:30],
+        "remarks": f"{prefix_tag} {doc.name}"[:30],
         "vouchers": [doc.name],
     }]
 
@@ -1015,9 +1005,49 @@ def download_idfc_event_settlement_excel(settlement_name: str):
         payment_rows=payment_rows,
         debit_account_no=debit_account,
         transaction_date_str=tx_date_str,
-        filename_prefix=f"IDFC_Event_Settlement_{doc.name}"
+        filename_prefix=filename_prefix,
     )
 
     frappe.response["filename"] = filename
     frappe.response["filecontent"] = filebytes
     frappe.response["type"] = "download"
+
+
+@frappe.whitelist()
+def download_idfc_event_settlement_excel(settlement_name: str):
+    """
+    Generates and downloads the official IDFC Bank Disbursal Excel (.xlsx)
+    for PAYABLE_TO_SPOC Event Settlement reimbursements after Accounts Director Sign-Off.
+    """
+    _assert_idfc_export_role()
+
+    if not settlement_name:
+        frappe.throw(_("Event Settlement name is required."))
+
+    doc = frappe.get_doc("Event Settlement", settlement_name)
+    _stream_spoc_settlement_idfc_excel(
+        doc,
+        amount=flt(doc.net_payable_to_spoc),
+        prefix_tag="EVT-SET",
+        filename_prefix=f"IDFC_Event_Settlement_{doc.name}",
+    )
+
+
+@frappe.whitelist()
+def download_idfc_event_expense_claim_excel(claim_name: str):
+    """
+    Generates and downloads the official IDFC Bank Disbursal Excel (.xlsx)
+    for unified Event Expense & Settlement Claims (PAYABLE_TO_SPOC) after Accounts Director Sign-Off.
+    """
+    _assert_idfc_export_role()
+
+    if not claim_name:
+        frappe.throw(_("Event Expense Claim name is required."))
+
+    doc = frappe.get_doc("Event Expense Claim", claim_name)
+    _stream_spoc_settlement_idfc_excel(
+        doc,
+        amount=flt(doc.net_payable_to_spoc),
+        prefix_tag="EVT-CLM",
+        filename_prefix=f"IDFC_Event_Claim_Settlement_{doc.name}",
+    )

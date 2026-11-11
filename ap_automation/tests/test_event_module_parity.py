@@ -712,7 +712,7 @@ class TestEventModuleParity(unittest.TestCase):
 
                 frappe.set_user(u_l1)
                 ver_res = verify_event_expense_claim(claim.name, remarks="Ground bills verified cleanly.")
-                self.assertEqual(ver_res["new_status"], "Accounts Verified")
+                self.assertEqual(ver_res["new_status"], "Under Accounts Director Review")
                 self.assertEqual(len(dispatched), 2)
                 self.assertIn(u_ad, dispatched[1]["recipients"])
                 self.assertIn("Accounts L1 Verified", dispatched[1]["subject"])
@@ -794,6 +794,244 @@ class TestEventModuleParity(unittest.TestCase):
             self.assertEqual(second_res["settlement"], bridge_res["settlement"])
         finally:
             frappe.set_user(prev_user)
+
+    def test_12_unified_claim_payable_to_spoc_full_flow(self):
+        """Verifies unified Claim+Settlement end-to-end: intermediate claim + final claim -> L1 -> AD -> IDFC Net Excel -> Maker-Checker Payout -> Event Closed."""
+        from ap_automation.services.event_settlement_service import (
+            authorize_event_claim_by_accounts_director,
+            trigger_event_claim_payment_release_notification,
+            disburse_event_claim_spoc_payout,
+            get_event_command_center_summary,
+        )
+        from ap_automation.services.idfc_bank_excel_generator import download_idfc_event_expense_claim_excel
+
+        u_l1 = _ensure_user("unified.l1@quanticus.com", "Unified L1", ["Employee", "Desk User", "Accounts L1 Auditor"])
+        u_ad = _ensure_user("unified.ad@quanticus.com", "Unified AD", ["Employee", "Desk User", "Accounts Director"])
+        u_chk = _ensure_user("unified.chk@quanticus.com", "Unified Checker", ["Employee", "Desk User", "Payment Releaser"])
+
+        ev = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"Unified Payable Event {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "event_spoc": self.spoc_user,
+            "spoc_name": "Parity SPOC",
+            "start_date": "2026-12-12",
+            "end_date": "2026-12-13",
+            "allocated_budget": 50000.00,
+            "disbursed_advance": 10000.00,
+            "status": "Advance Disbursed",
+        }).insert(ignore_permissions=True)
+
+        # Claim 1: Intermediate partial bills (INR 6,000)
+        c1 = frappe.get_doc({
+            "doctype": "Event Expense Claim",
+            "event": ev.name,
+            "posting_date": "2026-12-12",
+            "is_final_settlement": 0,
+            "expense_items": [{
+                "spend_stream": "SPOC On-Ground Cash Spend",
+                "expense_category": "Travel & Flights",
+                "vendor_name": "Partial Cab Vendor",
+                "bill_number": f"UNI-1-{frappe.generate_hash(length=5)}",
+                "bill_date": "2026-12-12",
+                "amount": 6000.00,
+                "receipt_attachment": self.receipt_url,
+            }],
+        }).insert(ignore_permissions=True)
+        submit_event_expense_claim(c1.name)
+        frappe.set_user(u_l1)
+        res1 = verify_event_expense_claim(c1.name, remarks="Intermediate bills OK")
+        self.assertEqual(res1["new_status"], "Accounts Verified")
+        self.assertEqual(res1["settlement_type"], "INTERMEDIATE_CLAIM")
+        self.assertFalse(res1["event_closed"])
+        self.assertNotEqual(frappe.db.get_value("Event Master", ev.name, "status"), "Closed")
+
+        # Claim 2: Final Settlement Claim (INR 8,500) -> Cumulative 14,500 vs Advance 10,000 => Net Payable 4,500
+        frappe.set_user(self.spoc_user)
+        c2 = frappe.get_doc({
+            "doctype": "Event Expense Claim",
+            "event": ev.name,
+            "posting_date": "2026-12-13",
+            "is_final_settlement": 1,
+            "expense_items": [{
+                "spend_stream": "SPOC On-Ground Cash Spend",
+                "expense_category": "Venue & Stage",
+                "vendor_name": "Final Stage Co",
+                "bill_number": f"UNI-2-{frappe.generate_hash(length=5)}",
+                "bill_date": "2026-12-13",
+                "amount": 8500.00,
+                "receipt_attachment": self.receipt_url,
+            }],
+        }).insert(ignore_permissions=True)
+        submit_event_expense_claim(c2.name)
+        c2.reload()
+        self.assertEqual(c2.settlement_type, "PAYABLE_TO_SPOC")
+        self.assertEqual(float(c2.net_payable_to_spoc), 4500.00)
+
+        frappe.set_user(u_l1)
+        res2 = verify_event_expense_claim(c2.name, remarks="Final bills & delta verified")
+        self.assertEqual(res2["new_status"], "Under Accounts Director Review")
+        self.assertEqual(float(res2["net_payable_to_spoc"]), 4500.00)
+
+        # Outsider cannot sign off as AD
+        frappe.set_user(self.outsider_user)
+        with self.assertRaises(APSecurityError):
+            authorize_event_claim_by_accounts_director(c2.name)
+
+        # Accounts Director signs off
+        frappe.set_user(u_ad)
+        ad_res = authorize_event_claim_by_accounts_director(c2.name, remarks="Approved net reimbursement")
+        self.assertEqual(ad_res["new_status"], "Approved for Payment")
+
+        # IDFC Net Reimbursement Excel exports INR 4,500 (not cumulative 14,500)
+        frappe.response.clear()
+        download_idfc_event_expense_claim_excel(c2.name)
+        wb = openpyxl.load_workbook(io.BytesIO(frappe.response["filecontent"]))
+        ws = wb.active
+        all_vals = [cell.value for row in ws.iter_rows() for cell in row]
+        self.assertIn(4500, [round(float(v), 2) for v in all_vals if isinstance(v, (int, float))])
+        self.assertNotIn(14500, [round(float(v), 2) for v in all_vals if isinstance(v, (int, float))])
+
+        # Maker triggers Payment Release notification
+        trigger_event_claim_payment_release_notification(c2.name)
+
+        # Maker != Checker segregation prevents AD from disbursing self-released payout
+        with self.assertRaises(APSecurityError):
+            disburse_event_claim_spoc_payout(c2.name, "UTR-SELF-BLOCK")
+
+        # Designated Checker executes SPOC reimbursement & closes Event Master
+        frappe.set_user(u_chk)
+        chk_res = disburse_event_claim_spoc_payout(c2.name, "UTR-UNI-SPOC-4500")
+        self.assertEqual(chk_res["event_status"], "Closed")
+        self.assertEqual(frappe.db.get_value("Event Expense Claim", c2.name, "status"), "Settled")
+        self.assertEqual(frappe.db.get_value("Event Master", ev.name, "status"), "Closed")
+
+        # Settlement Tally XML exports cleanly and balances to zero
+        frappe.set_user(u_ad)
+        xml_str = export_tally_journal_xml_for_event("Event Expense Claim", c2.name, voucher_mode="settlement")
+        root = ET.fromstring(xml_str)
+        entries = root.findall(".//ALLLEDGERENTRIES.LIST")
+        self.assertAlmostEqual(sum(float(e.findtext("AMOUNT") or 0.0) for e in entries), 0.0, places=2)
+        self.assertIn("UTR-UNI-SPOC-4500", xml_str)
+
+        # Event Master Command Hub returns unified data cleanly
+        hub = get_event_command_center_summary(ev.name)
+        self.assertEqual(len(hub["claims"]), 2)
+
+    def test_13_unified_claim_refund_zero_spend_and_workspace(self):
+        """Verifies Refund & Zero-Balance fast closure (without AD), Zero-Spend Full Advance Refund, and 3-item Workspace schema."""
+        u_l1 = _ensure_user("unified.l1@quanticus.com", "Unified L1", ["Employee", "Desk User", "Accounts L1 Auditor"])
+
+        # Subcase A: Underspent REFUND_FROM_SPOC closes cleanly after L1 confirms Bank UTR
+        ev_ref = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"Unified Refund Event {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "event_spoc": self.spoc_user,
+            "spoc_name": "Parity SPOC",
+            "start_date": "2026-12-14",
+            "end_date": "2026-12-15",
+            "allocated_budget": 30000.00,
+            "disbursed_advance": 10000.00,
+            "status": "Advance Disbursed",
+        }).insert(ignore_permissions=True)
+
+        c_ref = frappe.get_doc({
+            "doctype": "Event Expense Claim",
+            "event": ev_ref.name,
+            "posting_date": "2026-12-15",
+            "is_final_settlement": 1,
+            "expense_items": [{
+                "spend_stream": "SPOC On-Ground Cash Spend",
+                "expense_category": "Food & Catering",
+                "vendor_name": "Refund Co",
+                "bill_number": f"REF-{frappe.generate_hash(length=5)}",
+                "bill_date": "2026-12-15",
+                "amount": 7000.00,
+                "receipt_attachment": self.receipt_url,
+            }],
+        }).insert(ignore_permissions=True)
+        submit_event_expense_claim(c_ref.name)
+
+        frappe.set_user(u_l1)
+        with self.assertRaises(APValidationError):
+            verify_event_expense_claim(c_ref.name, remarks="No UTR")
+        ref_res = verify_event_expense_claim(c_ref.name, remarks="Bank credit matched", verified_utr="IDFC-REF-3000")
+        self.assertEqual(ref_res["new_status"], "Settled")
+        self.assertTrue(ref_res["event_closed"])
+        self.assertEqual(frappe.db.get_value("Event Master", ev_ref.name, "status"), "Closed")
+
+        # Subcase B: Zero-Spend Full Advance Refund (no bills incurred)
+        frappe.set_user("Administrator")
+        ev_zero_spend = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"Zero Spend Refund {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "event_spoc": self.spoc_user,
+            "spoc_name": "Parity SPOC",
+            "start_date": "2026-12-16",
+            "end_date": "2026-12-17",
+            "allocated_budget": 25000.00,
+            "disbursed_advance": 10000.00,
+            "status": "Advance Disbursed",
+        }).insert(ignore_permissions=True)
+
+        c_zr = frappe.get_doc({
+            "doctype": "Event Expense Claim",
+            "event": ev_zero_spend.name,
+            "posting_date": "2026-12-17",
+            "is_zero_spend_refund": 1,
+            "is_final_settlement": 1,
+            "refund_received_reference": "IDFC-FULL-REF-10000",
+        }).insert(ignore_permissions=True)
+        submit_event_expense_claim(c_zr.name)
+        frappe.set_user(u_l1)
+        zr_res = verify_event_expense_claim(c_zr.name, remarks="Full refund verified")
+        self.assertEqual(zr_res["new_status"], "Settled")
+        self.assertEqual(frappe.db.get_value("Event Master", ev_zero_spend.name, "status"), "Closed")
+
+        # Subcase C: Exact ZERO_BALANCE_BALANCED closes on L1 verification without AD
+        frappe.set_user("Administrator")
+        ev_bal = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"Balanced Event {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "event_spoc": self.spoc_user,
+            "spoc_name": "Parity SPOC",
+            "start_date": "2026-12-18",
+            "end_date": "2026-12-19",
+            "allocated_budget": 20000.00,
+            "disbursed_advance": 5000.00,
+            "status": "Advance Disbursed",
+        }).insert(ignore_permissions=True)
+        c_bal = frappe.get_doc({
+            "doctype": "Event Expense Claim",
+            "event": ev_bal.name,
+            "posting_date": "2026-12-19",
+            "is_final_settlement": 1,
+            "expense_items": [{
+                "spend_stream": "SPOC On-Ground Cash Spend",
+                "expense_category": "Incidentals",
+                "vendor_name": "Exact Match Vendor",
+                "bill_number": f"BAL-{frappe.generate_hash(length=5)}",
+                "bill_date": "2026-12-19",
+                "amount": 5000.00,
+                "receipt_attachment": self.receipt_url,
+            }],
+        }).insert(ignore_permissions=True)
+        submit_event_expense_claim(c_bal.name)
+        frappe.set_user(u_l1)
+        bal_res = verify_event_expense_claim(c_bal.name, remarks="Perfect ₹0 balance")
+        self.assertEqual(bal_res["new_status"], "Settled")
+        self.assertEqual(bal_res["settlement_type"], "ZERO_BALANCE_BALANCED")
+        self.assertEqual(frappe.db.get_value("Event Master", ev_bal.name, "status"), "Closed")
+
+        # Subcase D: Lane 4 Workspace cleaned to 3 modules (no duplicate Event Settlement link)
+        ws_path = frappe.get_app_path("ap_automation", "ap_automation", "workspace", "lane_4:_event_spends", "lane_4:_event_spends.json")
+        with open(ws_path, "r", encoding="utf-8") as wf:
+            ws = json.load(wf)
+        link_targets = [l.get("link_to") for l in ws.get("links", []) if l.get("type") == "Link"]
+        self.assertEqual(link_targets, ["Event Master", "Event Advance Request", "Event Expense Claim"])
 
 
 if __name__ == "__main__":

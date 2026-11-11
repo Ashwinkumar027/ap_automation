@@ -562,6 +562,32 @@ def _populate_event_expense_sheet(ws, doc: Any, styles: Dict[str, Any], event_ti
         r += 2
         r = _write_category_pivot(ws, r, "EXPENSE CATEGORY SUMMARY", cat_summary, styles)
 
+    # Advance & Settlement Delta Reconciliation Block
+    ws.cell(row=r, column=1, value="ADVANCE RECONCILIATION & SETTLEMENT VERDICT").font = styles["sec_font"]
+    r += 1
+    r = _write_table_headers(ws, r, ["RECONCILIATION METRIC", "VALUE / AMOUNT (₹)", "NOTES"], styles)
+    s_type = getattr(doc, "settlement_type", None) or "N/A"
+    recon_rows = [
+        ("Total Cash Advance Disbursed", float(getattr(doc, "disbursed_advance", 0.0) or 0.0), "Disbursed Event Advance Requests"),
+        ("Prior Verified Claim Spends", float(getattr(doc, "prior_verified_claims", 0.0) or 0.0), "Earlier submitted claims for this Event"),
+        ("Current Claimed Ground Spends", float(getattr(doc, "total_claim_amount", 0.0) or 0.0), "Zero-Spend Refund Mode" if getattr(doc, "is_zero_spend_refund", 0) else "Bills on this voucher"),
+        ("Cumulative SPOC Ground Spends", float(getattr(doc, "cumulative_spoc_spends", 0.0) or getattr(doc, "total_claim_amount", 0.0) or 0.0), "Cumulative Event actuals"),
+        ("Net Settlement Delta (Actuals - Advance)", float(getattr(doc, "settlement_delta", 0.0) or 0.0), s_type),
+        ("Net Payable to SPOC", float(getattr(doc, "net_payable_to_spoc", 0.0) or 0.0), "IDFC Payout Reference: " + (getattr(doc, "payout_utr_reference", None) or "Pending")),
+        ("Refund Receivable from SPOC", float(getattr(doc, "refund_receivable_from_spoc", 0.0) or 0.0), "Bank Refund UTR: " + (getattr(doc, "refund_received_reference", None) or "Pending")),
+    ]
+    for lbl, val, note in recon_rows:
+        ws.cell(row=r, column=1, value=lbl).font = styles["meta_label_font"]
+        c_v = ws.cell(row=r, column=2, value=val)
+        c_v.number_format = "₹ #,##0.00"
+        c_v.alignment = Alignment(horizontal="right")
+        c_v.font = total_font
+        ws.cell(row=r, column=3, value=note)
+        for c in range(1, 4):
+            ws.cell(row=r, column=c).border = thin_border
+        r += 1
+    r += 1
+
     _write_approval_trail(ws, doc, r, styles)
 
 
