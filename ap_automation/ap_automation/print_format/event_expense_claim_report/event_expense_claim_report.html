@@ -97,11 +97,51 @@
     </tbody>
 </table>
 
-<div class="summary-card">
-    <div class="summary-row total">
-        <span>Total Claimed Amount:</span>
-        <span>₹ {{ frappe.utils.fmt_money(doc.total_claim_amount or 0, precision=2) }}</span>
+<div class="summary-card" style="width: 460px;">
+    <div class="summary-row">
+        <span>This Claim Ground Spends:</span>
+        <span style="font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.total_claim_amount or 0, precision=2) }}</span>
     </div>
+    {% if (doc.prior_verified_claims or 0) > 0 %}
+    <div class="summary-row">
+        <span>Prior Verified Claims:</span>
+        <span style="font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.prior_verified_claims or 0, precision=2) }}</span>
+    </div>
+    {% endif %}
+    <div class="summary-row">
+        <span>Cumulative Event Ground Spends:</span>
+        <span style="font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.cumulative_spoc_spends or doc.total_claim_amount or 0, precision=2) }}</span>
+    </div>
+    <div class="summary-row">
+        <span>Less: Cash Advance Disbursed:</span>
+        <span style="font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.disbursed_advance or 0, precision=2) }}</span>
+    </div>
+    <div class="summary-row">
+        <span>Settlement Classification:</span>
+        <span style="font-weight: 700; color: #1d4ed8;">{{ doc.settlement_type or ("FINAL" if doc.is_final_settlement else "INTERMEDIATE_CLAIM") }}</span>
+    </div>
+    {% if (doc.net_payable_to_spoc or 0) > 0 %}
+    <div class="summary-row total" style="color: #1e40af;">
+        <span>Net Reimbursement Payable to SPOC:</span>
+        <span>₹ {{ frappe.utils.fmt_money(doc.net_payable_to_spoc or 0, precision=2) }}</span>
+    </div>
+    {% if doc.payout_utr_reference %}
+    <div class="summary-row"><span>SPOC Payout UTR:</span><span style="font-weight: 700;">{{ doc.payout_utr_reference }}</span></div>
+    {% endif %}
+    {% elif (doc.refund_receivable_from_spoc or 0) > 0 %}
+    <div class="summary-row total" style="color: #b91c1c;">
+        <span>Unspent Refund Receivable from SPOC:</span>
+        <span>₹ {{ frappe.utils.fmt_money(doc.refund_receivable_from_spoc or 0, precision=2) }}</span>
+    </div>
+    {% if doc.refund_received_reference %}
+    <div class="summary-row"><span>Corporate Bank Refund UTR:</span><span style="font-weight: 700;">{{ doc.refund_received_reference }}</span></div>
+    {% endif %}
+    {% else %}
+    <div class="summary-row total" style="color: #0f766e;">
+        <span>Net Settlement Balance:</span>
+        <span>₹ {{ frappe.utils.fmt_money(doc.settlement_delta or 0, precision=2) }}</span>
+    </div>
+    {% endif %}
 </div>
 
 {% if doc.approval_trail %}

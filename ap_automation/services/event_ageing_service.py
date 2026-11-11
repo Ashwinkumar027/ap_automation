@@ -41,13 +41,25 @@ def check_unsettled_event_advances(mock_today: Optional[str] = None) -> Dict[str
             "escalations_14_days": []
         }
 
-    # Batch pre-fetch all active Event Settlements for these open events in 1 query
+    # Batch pre-fetch active final settlements (unified Final Expense Claims + legacy Event Settlements)
     event_names = [ev.name for ev in open_events]
     active_settlements: Set[str] = set(
         frappe.get_all(
             "Event Settlement",
             filters={"event": ["in", event_names], "docstatus": ["!=", 2]},
             pluck="event"
+        )
+    )
+    active_settlements.update(
+        frappe.get_all(
+            "Event Expense Claim",
+            filters={
+                "event": ["in", event_names],
+                "docstatus": 1,
+                "is_final_settlement": 1,
+                "status": ["in", ["Under Accounts Director Review", "Approved for Payment", "Settled"]],
+            },
+            pluck="event",
         )
     )
 

@@ -182,8 +182,13 @@ function render_event_master_dashboard(frm) {
             </div>
 
             <!-- 4-Stage Stepper -->
-            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;">
                 ${stepper_html}
+            </div>
+
+            <!-- Unified 1-Stop Command Hub Container -->
+            <div id="ap-event-hub-links" style="border-top: 1px solid #e2e8f0; padding-top: 12px;">
+                <div style="font-size: 11px; color: #64748b;">Loading linked Advances, Claims &amp; Vendor Invoices...</div>
             </div>
         </div>
     `;
@@ -195,6 +200,59 @@ function render_event_master_dashboard(frm) {
         if (frm.layout && frm.layout.message) frm.layout.message.empty().addClass('hidden');
         frm.dashboard.set_headline(dashboard_html);
     }
+
+    load_event_command_hub_links(frm);
+}
+
+function load_event_command_hub_links(frm) {
+    if (!frm || frm.is_new()) return;
+    const seq = (frm._hub_seq || 0) + 1;
+    frm._hub_seq = seq;
+
+    frappe.call({
+        method: 'ap_automation.services.event_settlement_service.get_event_command_center_summary',
+        args: { event_name: frm.doc.name },
+        callback: function(r) {
+            if (frm._hub_seq !== seq || !r.message) return;
+            const d = r.message;
+            frm._active_event_claim = d.active_claim || null;
+            const $container = $(frm.wrapper).find('#ap-event-hub-links');
+            if (!$container.length) return;
+
+            const pill_row = (title, items, dt, fmt_fn) => {
+                if (!items || !items.length) {
+                    return `<div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px;"><b>${title}:</b> None filed yet</div>`;
+                }
+                const chips = items.map(it => {
+                    const label = fmt_fn(it);
+                    const safe_name = frappe.utils.escape_html(it.name);
+                    return `<a href="#" class="ap-hub-doc-link" data-dt="${dt}" data-dn="${safe_name}" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; background: #ffffff; border: 1px solid #cbd5e1; color: #0f172a; font-size: 11px; font-weight: 700; text-decoration: none; margin: 2px 6px 2px 0;">${label}</a>`;
+                }).join('');
+                return `<div style="margin-bottom: 8px;"><div style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: #475569; margin-bottom: 3px;">${title}</div><div>${chips}</div></div>`;
+            };
+
+            const html = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+                    ${pill_row('1. Event Advances (Pre-Event)', d.advances, 'Event Advance Request', a => `${frappe.utils.escape_html(a.name)} &bull; ${format_inr(a.approved_advance_amount || a.requested_advance_amount)} <span style="color:#475569;">(${frappe.utils.escape_html(a.status || 'Draft')})</span>`)}
+                    ${pill_row('2. Expense & Settlement Claims (Post-Event)', d.claims, 'Event Expense Claim', c => {
+                        let extra = '';
+                        if (parseFloat(c.net_payable_to_spoc || 0) > 0) extra = ` &bull; <span style="color:#1d4ed8;">Pay ${format_inr(c.net_payable_to_spoc)}</span>`;
+                        else if (parseFloat(c.refund_receivable_from_spoc || 0) > 0) extra = ` &bull; <span style="color:#c2410c;">Refund ${format_inr(c.refund_receivable_from_spoc)}</span>`;
+                        return `${frappe.utils.escape_html(c.name)} &bull; ${format_inr(c.total_claim_amount)}${extra} <span style="color:#475569;">(${frappe.utils.escape_html(c.status || 'Draft')})</span>`;
+                    })}
+                    ${pill_row('Direct Vendor Invoices (Stream A)', d.vendor_invoices, 'Vendor Invoice Claim', v => `${frappe.utils.escape_html(v.vendor_name || v.name)} &bull; ${format_inr(v.net_payable_amount || v.total_invoice_amount)} <span style="color:#475569;">(${frappe.utils.escape_html(v.status || 'Draft')})</span>`)}
+                    ${(d.legacy_settlements && d.legacy_settlements.length) ? pill_row('Legacy Settlements', d.legacy_settlements, 'Event Settlement', s => `${frappe.utils.escape_html(s.name)} <span style="color:#475569;">(${frappe.utils.escape_html(s.status || 'Draft')})</span>`) : ''}
+                </div>
+            `;
+            $container.html(html);
+            $container.off('click', '.ap-hub-doc-link').on('click', '.ap-hub-doc-link', function(e) {
+                e.preventDefault();
+                const dt = $(this).attr('data-dt');
+                const dn = $(this).attr('data-dn');
+                if (dt && dn) frappe.set_route('Form', dt, dn);
+            });
+        }
+    });
 }
 
 function setup_event_master_actions(frm) {
@@ -210,18 +268,21 @@ function setup_event_master_actions(frm) {
     const can_intake = is_spoc_or_owner || frappe.user.has_role(['Employee', 'Receptionist', 'Accounts L1 Auditor', 'Accounts Manager', 'AP Director']) || is_sys;
 
     if (!is_closed && can_intake) {
-        // Quick Action 1: File Commercial Vendor Invoice (Stream A with GST & TDS)
-        frm.add_custom_button(__('🧾 File Event Vendor Invoice (Stream A)'), function() {
+        // Quick Action 1: Open / File Unified Expense & Settlement Claim (Stream B)
+        frm.add_custom_button(__('📋 File Expense & Settlement'), function() {
+            if (frm._active_event_claim) {
+                frappe.set_route('Form', 'Event Expense Claim', frm._active_event_claim);
+                return;
+            }
             frappe.route_options = {
                 "event": frm.doc.name,
-                "company": frm.doc.company,
-                "invoice_type": "Without PO (Direct Tax Invoice)"
+                "company": frm.doc.company
             };
-            frappe.new_doc("Vendor Invoice Claim");
-        }, __('Actions'));
+            frappe.new_doc("Event Expense Claim");
+        }).addClass('btn-primary');
 
-        // Quick Action 2: Request Imprest Advance (Stream B)
-        frm.add_custom_button(__('➕ Request Imprest Advance'), function() {
+        // Quick Action 2: Request Advance (Pre-Event)
+        frm.add_custom_button(__('➕ Request Advance'), function() {
             frappe.route_options = {
                 "event": frm.doc.name,
                 "company": frm.doc.company
@@ -229,29 +290,27 @@ function setup_event_master_actions(frm) {
             frappe.new_doc("Event Advance Request");
         }, __('Actions'));
 
-        // Quick Action 3: File Expense Claim
-        frm.add_custom_button(__('📋 File Ground Expense Claim'), function() {
+        // Quick Action 3: Zero-Spend Full Advance Refund (if advance was disbursed)
+        if (parseFloat(frm.doc.disbursed_advance || 0) > 0) {
+            frm.add_custom_button(__('↩️ Full Advance Refund (₹0 Spend)'), function() {
+                frappe.route_options = {
+                    "event": frm.doc.name,
+                    "company": frm.doc.company,
+                    "is_zero_spend_refund": 1,
+                    "is_final_settlement": 1
+                };
+                frappe.new_doc("Event Expense Claim");
+            }, __('Actions'));
+        }
+
+        // Quick Action 4: File Commercial Vendor Invoice (Stream A with GST & TDS)
+        frm.add_custom_button(__('🧾 File Direct Vendor Invoice (Stream A)'), function() {
             frappe.route_options = {
                 "event": frm.doc.name,
-                "company": frm.doc.company
+                "company": frm.doc.company,
+                "invoice_type": "Without PO (Direct Tax Invoice)"
             };
-            frappe.new_doc("Event Expense Claim");
-        }, __('Actions'));
-
-        // Quick Action 4: Settle Event
-        frm.add_custom_button(__('⚖️ Reconcile & Settle Event'), function() {
-            frappe.call({
-                method: 'ap_automation.services.event_settlement_service.initiate_or_open_event_settlement',
-                args: { event_name: frm.doc.name },
-                freeze: true,
-                freeze_message: __('Opening Event Settlement...'),
-                callback: function(r) {
-                    if (r.message && r.message.settlement) {
-                        frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
-                        frappe.set_route('Form', 'Event Settlement', r.message.settlement);
-                    }
-                }
-            });
+            frappe.new_doc("Vendor Invoice Claim");
         }, __('Actions'));
     }
 

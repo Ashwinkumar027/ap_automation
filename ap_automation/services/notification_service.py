@@ -636,16 +636,17 @@ def notify_payment_releaser_on_idfc_upload(
             <tr><td style="padding: 6px 0; color: #64748b;">Beneficiary Employee:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{emp_name} ({getattr(doc, 'employee', '')})</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Claim Category:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{getattr(doc, 'claim_category', 'General Expense')}</td></tr>
         """
-    elif voucher_doctype == "Event Settlement":
+    elif voucher_doctype in ("Event Settlement", "Event Expense Claim"):
         amount = float(getattr(doc, "net_payable_to_spoc", 0.0) or getattr(doc, "total_amount", 0.0) or 0.0)
         event_name = frappe.db.get_value("Event Master", getattr(doc, "event", None), "event_name") or getattr(doc, "event", "Event")
         spoc_display = getattr(doc, "spoc_name", None) or getattr(doc, "spoc", "Event SPOC")
-        module_title = "Event Settlement"
-        card_title = "Event SPOC Settlement Payout Uploaded for Payment Release"
-        subject_tag = f"Event Settlement #{voucher_name} ({event_name})"
-        button_label = "🔍 Open Event Settlement &rarr;"
+        is_unified = voucher_doctype == "Event Expense Claim"
+        module_title = "Event Expense & Settlement" if is_unified else "Event Settlement"
+        card_title = "Event SPOC Reimbursement Payout Uploaded for Payment Release"
+        subject_tag = f"{'Event Claim' if is_unified else 'Event Settlement'} #{voucher_name} ({event_name})"
+        button_label = "🔍 Open Event Expense & Settlement &rarr;" if is_unified else "🔍 Open Event Settlement &rarr;"
         detail_rows = f"""
-            <tr><td style="padding: 6px 0; color: #64748b; width: 40%;">Settlement ID:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 700;">#{voucher_name}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b; width: 40%;">{'Claim & Settlement ID' if is_unified else 'Settlement ID'}:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 700;">#{voucher_name}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Linked Event:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{event_name}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Company / Entity:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{company}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;">Beneficiary SPOC:</td><td style="padding: 6px 0; color: #0f172a; font-weight: 600;">{spoc_display}</td></tr>
