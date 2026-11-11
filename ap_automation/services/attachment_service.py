@@ -925,6 +925,18 @@ def update_claim_row_expense_head(doctype, docname, row_idx, expense_head, custo
 @frappe.whitelist()
 def get_active_expense_types(module_scope="All"):
     """Returns sorted list of active expense types, optionally filtered by module scope."""
+    if module_scope == "Events":
+        # Event Expense Item.expense_category is a strict Select field validated against these exact options.
+        return [
+            "Venue & Stage",
+            "Travel & Flights",
+            "Local Conveyance",
+            "Food & Catering",
+            "Marketing & Collateral",
+            "Stationery & Props",
+            "Incidentals",
+        ]
+
     if module_scope and module_scope != "All":
         types = frappe.db.sql("""
             SELECT type_name, module_scope, sort_order, description

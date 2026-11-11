@@ -1912,3 +1912,108 @@ window.APReceiptGallery = {
         }
     }
 };
+
+// Prevent Frappe core's default auto-save on file upload / clear across ALL Event DocTypes
+(function() {
+    const EVENT_NO_AUTOSAVE_DOCTYPES = [
+        'Event Master',
+        'Event Advance Request',
+        'Event Imprest Item',
+        'Event Expense Claim',
+        'Event Expense Item',
+        'Event Settlement'
+    ];
+
+    function resolve_event_frm(ctrl) {
+        if (!ctrl) return null;
+        return ctrl.frm
+            || (ctrl.grid && ctrl.grid.frm)
+            || (ctrl.grid_row && ctrl.grid_row.frm)
+            || (ctrl.form && ctrl.form.frm)
+            || null;
+    }
+
+    function is_event_attach_context(ctrl) {
+        if (!ctrl) return false;
+        if (ctrl.doctype && EVENT_NO_AUTOSAVE_DOCTYPES.includes(ctrl.doctype)) return true;
+        if (ctrl.doc && ctrl.doc.doctype && EVENT_NO_AUTOSAVE_DOCTYPES.includes(ctrl.doc.doctype)) return true;
+        if (ctrl.doc && ctrl.doc.parenttype && EVENT_NO_AUTOSAVE_DOCTYPES.includes(ctrl.doc.parenttype)) return true;
+        const frm = resolve_event_frm(ctrl);
+        if (frm && frm.doctype && EVENT_NO_AUTOSAVE_DOCTYPES.includes(frm.doctype)) return true;
+        return false;
+    }
+
+    function patch_control_attach_proto(proto) {
+        if (!proto || proto._ap_event_attach_patched) return;
+        proto._ap_event_attach_patched = true;
+
+        const orig_on_upload_complete = proto.on_upload_complete;
+        proto.on_upload_complete = async function(attachment) {
+            if (is_event_attach_context(this)) {
+                const target_frm = resolve_event_frm(this);
+                const file_url = (attachment && (attachment.file_url || (attachment.message && attachment.message.file_url))) || '';
+                if (file_url && this.parse_validate_and_set_in_model) {
+                    await this.parse_validate_and_set_in_model(file_url);
+                }
+                if (target_frm && target_frm.attachments && typeof target_frm.attachments.update_attachment === 'function') {
+                    target_frm.attachments.update_attachment(attachment);
+                }
+                if (file_url && this.set_value) {
+                    this.set_value(file_url);
+                }
+                if (target_frm) {
+                    target_frm.dirty();
+                    if (window.APReceiptGallery && typeof window.APReceiptGallery.refreshFormButtons === 'function') {
+                        window.APReceiptGallery.refreshFormButtons(target_frm);
+                    }
+                }
+                // Strictly never auto-save Event drafts when attaching a file
+                return;
+            }
+            if (orig_on_upload_complete) {
+                return orig_on_upload_complete.call(this, attachment);
+            }
+        };
+
+        const orig_clear_attachment = proto.clear_attachment;
+        proto.clear_attachment = function() {
+            const me = this;
+            if (is_event_attach_context(me)) {
+                const target_frm = resolve_event_frm(me);
+                if (target_frm && target_frm.doc && target_frm.doc.docstatus === 0) {
+                    frappe.confirm(__('Are you sure you want to delete the attachment?'), function() {
+                        const current_val = me.value || (me.get_value ? me.get_value() : null);
+                        Promise.resolve(me.parse_validate_and_set_in_model ? me.parse_validate_and_set_in_model(null) : null).then(() => {
+                            if (me.set_input) me.set_input(null);
+                            if (me.refresh) me.refresh();
+                            const finish = () => {
+                                target_frm.dirty();
+                                if (window.APReceiptGallery && typeof window.APReceiptGallery.refreshFormButtons === 'function') {
+                                    window.APReceiptGallery.refreshFormButtons(target_frm);
+                                }
+                            };
+                            if (current_val && target_frm.attachments && typeof target_frm.attachments.remove_attachment_by_filename === 'function') {
+                                target_frm.attachments.remove_attachment_by_filename(current_val, finish);
+                            } else {
+                                finish();
+                            }
+                        });
+                    });
+                    return;
+                }
+            }
+            if (orig_clear_attachment) {
+                return orig_clear_attachment.call(this);
+            }
+        };
+    }
+
+    if (frappe.ui && frappe.ui.form) {
+        if (frappe.ui.form.ControlAttach) {
+            patch_control_attach_proto(frappe.ui.form.ControlAttach.prototype);
+        }
+        if (frappe.ui.form.ControlAttachImage) {
+            patch_control_attach_proto(frappe.ui.form.ControlAttachImage.prototype);
+        }
+    }
+})();
