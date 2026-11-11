@@ -12,12 +12,15 @@ import frappe
 from ap_automation.exceptions import APValidationError, APSecurityError
 
 
+@frappe.whitelist()
 def calculate_event_settlement_delta(event_name: str) -> Dict[str, Any]:
     """
     Computes post-event financial settlement delta figures.
     """
     if not frappe.db.exists("Event Master", event_name):
         raise APValidationError(f"Event Master '{event_name}' not found.")
+    if frappe.request and not frappe.has_permission("Event Master", "read", event_name):
+        frappe.throw("You are not permitted to view this Event Master.", exc=frappe.PermissionError)
 
     event = frappe.get_doc("Event Master", event_name)
     adv = float(event.disbursed_advance or 0.0)
@@ -277,9 +280,9 @@ def trigger_event_settlement_payment_release_notification(settlement_name: str) 
     doc = frappe.get_doc("Event Settlement", settlement_name)
     user = frappe.session.user
     user_roles = set(frappe.get_roles(user))
-    maker_roles = {"Accounts L1 Auditor", "Accounts User", "Accounts Manager", "Accounts Director", "System Manager", "Administrator"}
+    maker_roles = {"Accounts Director", "System Manager", "Administrator"}
     if user != "Administrator" and not user_roles.intersection(maker_roles):
-        raise APSecurityError("Unauthorized: Only Accounts Makers can trigger Payment Release notifications.")
+        raise APSecurityError("Unauthorized: Only Accounts Director can trigger Payment Release notifications.")
 
     if doc.settlement_type != "PAYABLE_TO_SPOC":
         raise APValidationError("Payment Release notification is only valid for 'PAYABLE_TO_SPOC' settlements.")
