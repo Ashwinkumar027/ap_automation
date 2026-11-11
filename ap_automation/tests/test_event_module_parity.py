@@ -630,6 +630,99 @@ class TestEventModuleParity(unittest.TestCase):
             fld = next((f for f in schema.get("fields", []) if f.get("fieldname") == fieldname), {})
             self.assertEqual(fld.get("default"), "Today")
 
+    def test_09_event_expense_claim_emails_l1_and_ad(self):
+        """Verifies submitting Event Expense Claim emails Accounts L1, and L1 verification emails Accounts Director."""
+        from unittest.mock import patch
+        from ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim import (
+            submit_event_expense_claim,
+            verify_event_expense_claim,
+        )
+
+        u_l1 = _ensure_user("parity.l1@quanticus.com", "Parity L1 Auditor", ["Employee", "Desk User", "Accounts L1 Auditor"])
+        u_ad = _ensure_user("parity.ad@quanticus.com", "Parity Accounts Dir", ["Employee", "Desk User", "Accounts Director"])
+        u_dir = _ensure_user("parity.dir@quanticus.com", "Parity Director", ["Employee", "Desk User"])
+
+        existing_pols = frappe.get_all(
+            "AP Approval Matrix",
+            filters={"company": self.company, "document_lane": "Event Advance Request", "is_active": 1},
+            pluck="name",
+        )
+        for p in existing_pols:
+            frappe.db.set_value("AP Approval Matrix", p, "is_active", 0)
+
+        pol = frappe.get_doc({
+            "doctype": "AP Approval Matrix",
+            "company": self.company,
+            "document_lane": "Event Advance Request",
+            "min_amount": 0.0,
+            "max_amount": 0.0,
+            "is_active": 1,
+            "approval_levels": [
+                {"level_number": 1, "level_name": "Executive Director / Business Head Sanction", "designated_approver": u_dir, "allow_delegation": 0},
+                {"level_number": 2, "level_name": "Accounts L1 Auditor", "designated_approver": u_l1, "allow_delegation": 0},
+                {"level_number": 3, "level_name": "Accounts Director", "designated_approver": u_ad, "allow_delegation": 0},
+            ],
+        }).insert(ignore_permissions=True)
+
+        ev = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"Claim Mail Check {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "event_spoc": self.spoc_user,
+            "spoc_name": "Parity SPOC",
+            "start_date": "2026-12-05",
+            "end_date": "2026-12-06",
+            "allocated_budget": 30000.00,
+        }).insert(ignore_permissions=True)
+
+        claim = frappe.get_doc({
+            "doctype": "Event Expense Claim",
+            "event": ev.name,
+            "posting_date": "2026-12-06",
+            "expense_items": [{
+                "spend_stream": "SPOC On-Ground Cash Spend",
+                "expense_category": "Venue & Stage",
+                "vendor_name": "Stage Sound Co",
+                "bill_number": f"BILL-{frappe.generate_hash(length=5)}",
+                "bill_date": "2026-12-06",
+                "amount": 2500.00,
+                "receipt_attachment": self.receipt_url,
+            }],
+        }).insert(ignore_permissions=True)
+
+        prev_user = frappe.session.user
+        dispatched = []
+        try:
+            with patch(
+                "ap_automation.services.employee_reimbursement_notification_service._dispatch_reimbursement_email",
+                side_effect=lambda recs, subj, body, dt, dn, cc=None, **kw: dispatched.append({
+                    "recipients": recs,
+                    "subject": subj,
+                    "cc": cc or [],
+                    "doctype": dt,
+                    "docname": dn,
+                }),
+            ):
+                frappe.set_user(self.spoc_user)
+                sub_res = submit_event_expense_claim(claim.name)
+                self.assertEqual(sub_res["new_status"], "Submitted")
+                self.assertEqual(len(dispatched), 1)
+                self.assertIn(u_l1, dispatched[0]["recipients"])
+                self.assertIn("Accounts L1 Verification Needed", dispatched[0]["subject"])
+
+                frappe.set_user(u_l1)
+                ver_res = verify_event_expense_claim(claim.name, remarks="Ground bills verified cleanly.")
+                self.assertEqual(ver_res["new_status"], "Accounts Verified")
+                self.assertEqual(len(dispatched), 2)
+                self.assertIn(u_ad, dispatched[1]["recipients"])
+                self.assertIn("Accounts L1 Verified", dispatched[1]["subject"])
+                self.assertIn(self.spoc_user, dispatched[1]["cc"])
+        finally:
+            frappe.set_user(prev_user)
+            frappe.db.set_value("AP Approval Matrix", pol.name, "is_active", 0)
+            for p in existing_pols:
+                frappe.db.set_value("AP Approval Matrix", p, "is_active", 1)
+
 
 if __name__ == "__main__":
     unittest.main()

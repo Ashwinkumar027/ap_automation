@@ -76,8 +76,21 @@ class EventExpenseClaim(APDocument):
         self.status = "Submitted"
 
     def on_submit(self):
-        """Submit hook: synchronizes Event Master SPOC actual spends."""
+        """Submit hook: synchronizes Event Master SPOC actual spends and notifies Accounts L1."""
         self._sync_event_spends()
+        try:
+            from ap_automation.services.employee_reimbursement_notification_service import (
+                notify_event_expense_submitted,
+            )
+            notify_event_expense_submitted(
+                self,
+                is_resubmission=bool(getattr(self.flags, "is_resubmission", False)),
+            )
+        except Exception:
+            frappe.log_error(
+                title="Event Expense Claim Submission Email Error",
+                message=f"Failed to notify Accounts L1 for {self.name}: {frappe.get_traceback()}",
+            )
 
     def on_cancel(self):
         """Cancel hook: synchronizes Event Master SPOC actual spends when claim is revoked."""
@@ -164,11 +177,22 @@ def resubmit_event_claim(claim_name: str):
     if doc.docstatus == 0:
         doc.flags.in_workflow_transition = True
         doc.flags.ignore_permissions = True
+        doc.flags.is_resubmission = True
         doc.save(ignore_permissions=True)
         doc.submit()
     else:
         doc.db_set("status", "Submitted")
         doc._sync_event_spends()
+        try:
+            from ap_automation.services.employee_reimbursement_notification_service import (
+                notify_event_expense_submitted,
+            )
+            notify_event_expense_submitted(doc, is_resubmission=True)
+        except Exception:
+            frappe.log_error(
+                title="Event Expense Claim Resubmission Email Error",
+                message=f"Failed to notify Accounts L1 on resubmit for {doc.name}: {frappe.get_traceback()}",
+            )
 
     doc.add_comment("Comment", f"🚀 Claim resubmitted by SPOC {user} for review.")
     return {"status": "SUCCESS", "message": f"Claim {claim_name} resubmitted successfully."}
@@ -245,6 +269,17 @@ def verify_event_expense_claim(claim_name: str, remarks: Optional[str] = None) -
     doc.add_comment("Comment", f"✅ <b>Accounts Verified:</b> Ground expense receipts verified by {user}. {clean_remarks}")
     frappe.db.commit()
 
+    try:
+        from ap_automation.services.employee_reimbursement_notification_service import (
+            notify_event_expense_accounts_l1_verified,
+        )
+        notify_event_expense_accounts_l1_verified(doc, verified_by=user, remarks=clean_remarks)
+    except Exception:
+        frappe.log_error(
+            title="Event Expense Claim L1 Verified Email Error",
+            message=f"Failed to notify Accounts Director for {claim_name}: {frappe.get_traceback()}",
+        )
+
     return {
         "status": "SUCCESS",
         "claim": claim_name,
@@ -287,7 +322,7 @@ def populate_from_imprest_proposal(event_name: str) -> Dict[str, Any]:
             "bill_date": frappe.utils.nowdate(),
             "amount": float(getattr(row, "amount", 0.0) or 0.0),
             "spend_stream": "SPOC On-Ground Cash Spend",
-            "expense_category": "Event Miscellaneous",
+            "expense_category": "Incidentals",
             "remarks": getattr(row, "remarks", "") or "",
         })
 

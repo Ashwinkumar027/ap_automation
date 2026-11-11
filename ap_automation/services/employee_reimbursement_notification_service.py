@@ -931,13 +931,16 @@ def _resolve_event_matrix_approvers(
     fallback_level: int,
     fallback_roles: List[str],
     exclude_keywords: Optional[List[str]] = None,
+    doctype: str = "Event Advance Request",
 ) -> List[str]:
-    """Resolves Event Advance approver emails cleanly from AP Approval Matrix with role fallback."""
+    """Resolves Event approver emails cleanly from AP Approval Matrix with role fallback."""
     recipients: List[str] = []
     excludes = [k.lower() for k in (exclude_keywords or [])]
     try:
         from ap_automation.services.approval_service import get_applicable_matrix
-        matrix = get_applicable_matrix("Event Advance Request", company, amount)
+        matrix = get_applicable_matrix(doctype, company, amount)
+        if not matrix and doctype != "Event Advance Request":
+            matrix = get_applicable_matrix("Event Advance Request", company, amount)
         if matrix and getattr(matrix, "approval_levels", None):
             matched_row = None
             for lvl in matrix.approval_levels:
@@ -1225,6 +1228,146 @@ def notify_event_advance_rejected(advance_doc, reason: str) -> None:
         badge_color="#dc2626"
     )
     _dispatch_reimbursement_email([spoc_email], subject, body, "Event Advance Request", advance_doc.name, alert_color="red")
+
+
+def notify_event_expense_submitted(claim_doc, is_resubmission: bool = False) -> None:
+    """
+    Triggered when SPOC / Employee submits (or resubmits) an Event Expense Claim.
+    TO: Accounts L1 Auditor (AP Approval Matrix Stage 2 / Role fallback)
+    CC: Event SPOC & Owner
+    """
+    if isinstance(claim_doc, str):
+        claim_doc = frappe.get_doc("Event Expense Claim", claim_doc)
+
+    company = claim_doc.company or ""
+    amount = float(getattr(claim_doc, "total_claim_amount", 0.0) or getattr(claim_doc, "total_amount", 0.0) or 0.0)
+
+    l1_recipients = _resolve_event_matrix_approvers(
+        company=company,
+        amount=amount,
+        stage_keywords=["accounts l1", "l1 auditor"],
+        fallback_level=2,
+        fallback_roles=["Accounts L1 Auditor", "Accounts Manager"],
+        doctype="Event Expense Claim",
+    )
+
+    cc_list: List[str] = []
+    for actor in (getattr(claim_doc, "spoc", None), getattr(claim_doc, "owner", None)):
+        if actor and actor != "Administrator":
+            email = _resolve_email_address(actor)
+            if email:
+                cc_list.append(email)
+
+    doc_url = _get_form_url("Event Expense Claim", claim_doc.name)
+    event_name = frappe.db.get_value("Event Master", claim_doc.event, "event_name") or claim_doc.event
+    items_count = len(getattr(claim_doc, "expense_items", []) or [])
+    spoc_label = getattr(claim_doc, "spoc_name", None) or getattr(claim_doc, "spoc", None) or claim_doc.owner
+
+    action_label = "Resubmitted for Accounts L1 Review" if is_resubmission else "Accounts L1 Verification Needed"
+    subject = f"{action_label}: Event Expense Claim #{claim_doc.name} for '{event_name}' (₹ {_safe_fmt_money(amount)})"
+    body = _build_html_template(
+        title="Event Expense Claim Resubmitted" if is_resubmission else "Event Expense Claim Submitted",
+        subtitle="Stage 2 • Ground Receipt & Bill Verification",
+        greeting_name="Accounts L1 Auditor",
+        main_message=(
+            f"<b>{spoc_label}</b> has {'resubmitted' if is_resubmission else 'submitted'} Event Expense Claim "
+            f"<b>#{claim_doc.name}</b> for Event <b>'{event_name}'</b> ({company}) with <b>{items_count}</b> itemized receipt(s).<br><br>"
+            f"Please review the uploaded bills and click <b>Verify Ground Bills (Accounts L1)</b> to notify Accounts Director."
+        ),
+        metric_label_1="Total Claimed",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="Line Items / SPOC",
+        metric_val_2=f"{items_count} bills • {spoc_label}",
+        doc_url=doc_url,
+        button_text="Review & Verify Ground Bills →",
+        badge_color="#2563eb",
+    )
+
+    _dispatch_reimbursement_email(
+        l1_recipients,
+        subject,
+        body,
+        "Event Expense Claim",
+        claim_doc.name,
+        cc=cc_list,
+        alert_color="blue",
+        is_thread_reply=is_resubmission,
+    )
+
+
+def notify_event_expense_accounts_l1_verified(
+    claim_doc,
+    verified_by: Optional[str] = None,
+    remarks: str = "",
+) -> None:
+    """
+    Triggered when Accounts L1 Auditor verifies an Event Expense Claim ('Accounts Verified').
+    TO: Accounts Director (AP Approval Matrix Stage 3 / Role fallback)
+    CC: Event SPOC, Claim Owner, and Accounts L1 Verifier
+    """
+    if isinstance(claim_doc, str):
+        claim_doc = frappe.get_doc("Event Expense Claim", claim_doc)
+
+    company = claim_doc.company or ""
+    amount = float(getattr(claim_doc, "total_claim_amount", 0.0) or getattr(claim_doc, "total_amount", 0.0) or 0.0)
+
+    ad_recipients = _resolve_event_matrix_approvers(
+        company=company,
+        amount=amount,
+        stage_keywords=["accounts director", "accounts l2"],
+        fallback_level=3,
+        fallback_roles=["Accounts Director", "AP Director", "Accounts Manager"],
+        doctype="Event Expense Claim",
+    )
+
+    cc_list: List[str] = []
+    for actor in (getattr(claim_doc, "spoc", None), getattr(claim_doc, "owner", None), verified_by):
+        if actor and actor != "Administrator":
+            email = _resolve_email_address(actor)
+            if email:
+                cc_list.append(email)
+
+    doc_url = _get_form_url("Event Expense Claim", claim_doc.name)
+    event_name = frappe.db.get_value("Event Master", claim_doc.event, "event_name") or claim_doc.event
+    verifier_label = (
+        (frappe.db.get_value("User", verified_by, "full_name") or verified_by)
+        if verified_by
+        else "Accounts L1 Auditor"
+    )
+    remarks_block = f"<br><br><b>Accounts L1 Notes:</b> {remarks}" if remarks else ""
+
+    subject = (
+        f"Accounts L1 Verified: Event Expense Claim #{claim_doc.name} for '{event_name}' "
+        f"(₹ {_safe_fmt_money(amount)}) - Ready for Accounts Director"
+    )
+    body = _build_html_template(
+        title="Accounts L1 Verified • Ready for Accounts Director",
+        subtitle="Stage 3 • Ground Spend Cleared for Event Settlement",
+        greeting_name="Accounts Director",
+        main_message=(
+            f"Accounts L1 Auditor (<b>{verifier_label}</b>) has verified all ground receipts on Event Expense Claim "
+            f"<b>#{claim_doc.name}</b> for Event <b>'{event_name}'</b>.{remarks_block}<br><br>"
+            f"The claim is now <b>Accounts Verified</b> and ready for your review / <b>Event Settlement</b>."
+        ),
+        metric_label_1="Verified Claim Amount",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="L1 Verified By",
+        metric_val_2=f"{verifier_label}",
+        doc_url=doc_url,
+        button_text="Review Claim & Proceed to Settlement →",
+        badge_color="#0891b2",
+    )
+
+    _dispatch_reimbursement_email(
+        ad_recipients,
+        subject,
+        body,
+        "Event Expense Claim",
+        claim_doc.name,
+        cc=cc_list,
+        alert_color="cyan",
+        is_thread_reply=True,
+    )
 
 
 
