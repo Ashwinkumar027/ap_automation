@@ -102,13 +102,13 @@ def get_current_level_rule(matrix_doc, level_number: int) -> Optional[Dict[str, 
     return None
 
 
-def validate_approver_identity(designated_user: str, acting_user: str, allow_delegation: bool = True) -> bool:
+def is_user_authorized_approver(designated_user: str, acting_user: str, allow_delegation: bool = True) -> bool:
     """
-    Strict identity check:
-    1. Returns True if acting_user is the exact designated_user.
-    2. If allow_delegation is enabled, checks if acting_user is the legitimate HRMS leave delegate.
-    3. Administrator is allowed emergency override with audit trail.
-    4. Otherwise, raises APSecurityError.
+    Silent strict identity check without queuing Frappe message_log popups:
+    1. Returns True if no designated_user is pinned.
+    2. Returns True if acting_user is the exact designated_user or Administrator.
+    3. If allow_delegation is enabled, returns True if acting_user is the active HRMS leave delegate.
+    4. Otherwise returns False.
     """
     if not designated_user:
         return True
@@ -120,6 +120,18 @@ def validate_approver_identity(designated_user: str, acting_user: str, allow_del
         acting_delegate = resolve_acting_approver(designated_user)
         if acting_delegate == acting_user:
             return True
+
+    return False
+
+
+def validate_approver_identity(designated_user: str, acting_user: str, allow_delegation: bool = True) -> bool:
+    """
+    Strict enforcing identity gate used by approval action handlers:
+    Raises APSecurityError when acting_user is neither designated_user, Administrator,
+    nor an active HRMS leave delegate.
+    """
+    if is_user_authorized_approver(designated_user, acting_user, allow_delegation=allow_delegation):
+        return True
 
     raise APSecurityError(
         f"Access Denied: You ('{acting_user}') are not authorized to approve this step. "
