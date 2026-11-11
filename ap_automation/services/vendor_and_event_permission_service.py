@@ -235,11 +235,38 @@ def has_event_advance_permission(doc, user: Optional[str] = None, ptype: str = "
     )
 
 
+def _is_event_expense_matrix_viewer(user: str) -> bool:
+    """Returns True if user (or their delegator) is configured on any active Event AP Approval Matrix."""
+    if not user:
+        return False
+    if _is_event_advance_matrix_approver(user):
+        return True
+    try:
+        from ap_automation.services.approval_service import is_user_authorized_approver
+        active_matrices = frappe.get_all(
+            "AP Approval Matrix",
+            filters={"is_active": 1, "document_lane": ["in", ["Event Expense Claim", "Event Advance Request", "Event Advance"]]},
+            pluck="name",
+        )
+        for m_name in active_matrices:
+            rows = frappe.get_all(
+                "AP Approval Level Rule",
+                filters={"parent": m_name, "parenttype": "AP Approval Matrix"},
+                pluck="designated_approver",
+            )
+            for approver in rows:
+                if approver and is_user_authorized_approver(approver, user, allow_delegation=True):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def get_event_expense_permission_query_conditions(user: Optional[str] = None) -> str:
     if not user:
         user = frappe.session.user
 
-    if is_accounts_user(user):
+    if is_accounts_user(user) or _is_event_expense_matrix_viewer(user):
         return ""
 
     escaped_user = frappe.db.escape(user)
@@ -255,7 +282,7 @@ def has_event_expense_permission(doc, user: Optional[str] = None, ptype: str = "
     if not doc or isinstance(doc, str):
         return None
 
-    if is_accounts_user(user):
+    if is_accounts_user(user) or _is_event_expense_matrix_viewer(user):
         return True
 
     return bool(

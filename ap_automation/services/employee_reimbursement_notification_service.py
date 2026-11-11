@@ -46,10 +46,10 @@ def _get_form_url(doctype: str, docname: str) -> str:
 # CORE EMAIL DISPATCHER & THREADING ENGINE
 # ==============================================================================
 
-@functools.lru_cache(maxsize=1024)
 def _resolve_email_address(user_or_emp_or_email: Optional[str]) -> Optional[str]:
     """
-    O(1) cached resolver that maps any User ID, Employee ID, or raw email to a valid sendable address.
+    Fresh O(1) DB resolver mapping any User ID, Employee ID, or raw email to a sendable address.
+    Avoids process-wide lru_cache so newly updated emails or Employee links take effect immediately.
     """
     if not user_or_emp_or_email:
         return None
@@ -86,6 +86,9 @@ def _resolve_email_address(user_or_emp_or_email: Optional[str]) -> Optional[str]
             return emp_email
 
     return None
+
+
+_resolve_email_address.cache_clear = lambda: None
 
 
 def _get_system_manager_emails() -> List[str]:
@@ -170,7 +173,8 @@ def _dispatch_reimbursement_email(
     if not clean_recipients:
         return
 
-    clean_cc = list(dict.fromkeys([_resolve_email_address(c) for c in (cc or []) if _resolve_email_address(c) and c not in clean_recipients]))
+    resolved_cc = [_resolve_email_address(c) for c in (cc or [])]
+    clean_cc = list(dict.fromkeys([e for e in resolved_cc if e and e not in clean_recipients]))
 
     # Deterministic Thread Message-ID Root for continuous Gmail/Outlook conversation grouping
     clean_dt = re.sub(r'[^a-zA-Z0-9]', '', reference_doctype)
@@ -1406,6 +1410,78 @@ def notify_event_expense_accounts_l1_verified(
 
 
 
+def notify_event_expense_returned(
+    claim_doc,
+    reason: str,
+    returned_by: Optional[str] = None,
+) -> None:
+    """
+    Triggered when Accounts L1 or Accounts Director returns an Event Expense Claim to SPOC for correction.
+    TO: Event SPOC & Claim Owner (Coordinator/Receptionist if different)
+    """
+    if isinstance(claim_doc, str):
+        claim_doc = frappe.get_doc("Event Expense Claim", claim_doc)
+
+    actor_email = _resolve_email_address(returned_by) if returned_by else None
+    recipients: List[str] = []
+    for target in (getattr(claim_doc, "spoc", None), getattr(claim_doc, "owner", None)):
+        if target and target != "Administrator":
+            email = _resolve_email_address(target)
+            if email and email != actor_email and email not in recipients:
+                recipients.append(email)
+
+    if not recipients:
+        for target in (getattr(claim_doc, "spoc", None), getattr(claim_doc, "owner", None)):
+            if target and target != "Administrator":
+                email = _resolve_email_address(target)
+                if email and email not in recipients:
+                    recipients.append(email)
+    if not recipients:
+        return
+
+    doc_url = _get_form_url("Event Expense Claim", claim_doc.name)
+    event_name = frappe.db.get_value("Event Master", claim_doc.event, "event_name") or claim_doc.event
+    amount = float(getattr(claim_doc, "total_claim_amount", 0.0) or getattr(claim_doc, "total_amount", 0.0) or 0.0)
+    reviewer_label = (
+        (frappe.db.get_value("User", returned_by, "full_name") or returned_by)
+        if returned_by
+        else "Accounts Team"
+    )
+    spoc_label = getattr(claim_doc, "payee_name", None) or getattr(claim_doc, "spoc_name", None) or getattr(claim_doc, "spoc", None) or "Event SPOC"
+    clean_reason = frappe.utils.escape_html((reason or "").strip())
+
+    subject = f"⚠️ Returned for Revision: Event Expense Claim #{claim_doc.name} for '{event_name}'"
+    body = _build_html_template(
+        title="Event Expense Claim Returned for Revision",
+        subtitle="Action Required • Edit Bills/Receipts & Resubmit",
+        greeting_name=spoc_label,
+        main_message=(
+            f"<b>{reviewer_label}</b> has returned Event Expense &amp; Settlement Claim <b>#{claim_doc.name}</b> "
+            f"for Event <b>'{event_name}'</b> back to draft/edit mode.<br><br>"
+            f"<b>Feedback / Reason:</b><br>"
+            f"<blockquote style='margin: 8px 0; padding: 10px 14px; background: #fff7ed; border-left: 4px solid #ea580c; color: #7c2d12;'>{clean_reason}</blockquote><br>"
+            f"Please click below to open the claim, update the flagged bills or receipts, and click <b>Resubmit Corrected Claim</b>."
+        ),
+        metric_label_1="Claim Amount",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="Status",
+        metric_val_2="Returned to SPOC",
+        doc_url=doc_url,
+        button_text="Review & Resubmit Claim →",
+        badge_color="#ea580c",
+    )
+
+    _dispatch_reimbursement_email(
+        recipients,
+        subject,
+        body,
+        "Event Expense Claim",
+        claim_doc.name,
+        alert_color="orange",
+        is_thread_reply=True,
+    )
+
+
 def notify_event_settlement_submitted(settlement_doc) -> None:
     """
     Triggered when Event SPOC submits an Event Settlement voucher.
@@ -1491,8 +1567,12 @@ def notify_event_settlement_closed(settlement_doc) -> None:
         dt_guess = "Event Expense Claim" if str(settlement_doc).startswith("EEC-") else "Event Settlement"
         settlement_doc = frappe.get_doc(dt_guess, settlement_doc)
 
-    spoc_email = _resolve_email_address(settlement_doc.spoc)
-    recipients = [spoc_email] if spoc_email else []
+    recipients: List[str] = []
+    for target in (getattr(settlement_doc, "spoc", None), getattr(settlement_doc, "owner", None)):
+        if target and target != "Administrator":
+            email = _resolve_email_address(target)
+            if email and email not in recipients:
+                recipients.append(email)
     accounts_users = _get_role_recipients(["Accounts L1 Auditor", "Accounts Director"])
     recipients.extend(accounts_users)
 

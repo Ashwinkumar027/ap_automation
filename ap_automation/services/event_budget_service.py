@@ -96,7 +96,11 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
         else:
             db_cash_disbursed += float(r.approved_advance_amount or r.requested_advance_amount or 0.0)
 
-    if adv_records:
+    has_revoked_adv = bool(
+        frappe.db.exists("Event Advance Request", {"event": event_name, "docstatus": 2})
+        or frappe.db.exists("Event Advance Request", {"event": event_name, "status": "Rejected"})
+    )
+    if adv_records or has_revoked_adv:
         total_disbursed_advance = round(db_cash_disbursed, 2)
     else:
         total_disbursed_advance = round(float(event.disbursed_advance or 0.0), 2)
@@ -106,14 +110,18 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
         """
         SELECT SUM(net_payable_amount) as total
         FROM `tabVendor Invoice Claim`
-        WHERE event = %s AND (docstatus = 1 OR status IN ('Approved for Payment', 'Paid', 'Queued in Batch')) AND docstatus != 2
+        WHERE event = %s AND (docstatus = 1 OR status IN ('Approved for Payment', 'Paid', 'Queued in Batch')) AND docstatus != 2 AND IFNULL(status, '') != 'Rejected'
         """,
         (event_name,),
         as_dict=True
     )
     db_direct_finance = float(direct_spends_query[0].total or 0.0)
     combined_direct = round(db_direct_finance + db_ear_direct_vendor, 2)
-    if combined_direct > 0 or db_ear_direct_vendor > 0:
+    has_revoked_vic = bool(
+        frappe.db.exists("Vendor Invoice Claim", {"event": event_name, "docstatus": 2})
+        or frappe.db.exists("Vendor Invoice Claim", {"event": event_name, "status": "Rejected"})
+    )
+    if combined_direct > 0 or db_ear_direct_vendor > 0 or has_revoked_vic or has_revoked_adv:
         direct_finance = combined_direct
     else:
         direct_finance = round(float(event.direct_finance_spends or 0.0), 2)
@@ -123,13 +131,20 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
         """
         SELECT SUM(total_claim_amount) as total
         FROM `tabEvent Expense Claim`
-        WHERE event = %s AND docstatus = 1
+        WHERE event = %s AND docstatus = 1 AND IFNULL(status, '') != 'Rejected'
         """,
         (event_name,),
         as_dict=True
     )
     db_spoc_actual = float(spoc_spends_query[0].total or 0.0)
-    spoc_actual = round(float(db_spoc_actual), 2) if db_spoc_actual > 0 else round(float(event.spoc_actual_spends or 0.0), 2)
+    has_revoked_claim = bool(
+        frappe.db.exists("Event Expense Claim", {"event": event_name, "docstatus": 2})
+        or frappe.db.exists("Event Expense Claim", {"event": event_name, "status": ["in", ["Returned to SPOC", "Rejected"]]})
+    )
+    if db_spoc_actual > 0 or has_revoked_claim:
+        spoc_actual = round(float(db_spoc_actual), 2)
+    else:
+        spoc_actual = round(float(event.spoc_actual_spends or 0.0), 2)
 
     # 4. Enterprise Committed Spend Formula
     committed_spend = round(direct_finance + max(total_disbursed_advance, spoc_actual), 2)

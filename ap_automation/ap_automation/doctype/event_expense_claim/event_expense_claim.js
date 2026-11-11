@@ -22,7 +22,12 @@ frappe.ui.form.on("Event Expense Claim", {
         frm.set_df_property('is_final_settlement', 'read_only', is_zero_refund ? 1 : 0);
 
         set_expense_claim_indicator(frm);
-        sync_live_claim_reconciliation(frm);
+        if (frm.doc.docstatus === 1 && !frm.is_new()) {
+            render_unified_claim_banner(frm, null);
+            sync_submitted_claim_context(frm);
+        } else {
+            sync_live_claim_reconciliation(frm);
+        }
 
         if (window.APReceiptGallery) {
             window.APReceiptGallery.refreshFormButtons(frm);
@@ -133,201 +138,8 @@ frappe.ui.form.on("Event Expense Claim", {
             });
         }
 
-        const user_roles = frappe.user_roles || [];
-        const is_sys_mgr = user_roles.includes('System Manager') || frappe.session.user === 'Administrator';
-        const is_accounts_l1_or_mgr = user_roles.some(r => [
-            'Accounts L1 Auditor', 'Accounts User', 'Accounts Manager', 'Accounts Director', 'AP Director', 'System Manager'
-        ].includes(r)) || is_sys_mgr;
-        const is_acct_dir = user_roles.some(r => ['Accounts Director', 'Accounts Manager', 'System Manager'].includes(r)) || is_sys_mgr;
-        const is_finance_viewer = is_accounts_l1_or_mgr || user_roles.includes('Payment Releaser');
-        const is_checker = user_roles.some(r => [
-            'Payment Releaser', 'AP Director', 'Accounts Director', 'Accounts Manager', 'System Manager'
-        ].includes(r)) || is_sys_mgr;
-
-        // STAGE 2: ACCOUNTS L1 AUDIT ON SUBMITTED CLAIM
-        if (frm.doc.docstatus === 1 && frm.doc.status === 'Submitted' && is_accounts_l1_or_mgr) {
-            const recon_type = frm._live_recon_type || frm.doc.settlement_type || 'PAYABLE_TO_SPOC';
-            const is_final = cint(frm.doc.is_final_settlement) === 1 || is_zero_refund;
-
-            let l1_btn_label = __('✅ Verify Ground Bills (Accounts L1)');
-            let l1_default_remark = 'All ground receipts and expense categories verified.';
-            if (!is_final || recon_type === 'INTERMEDIATE_CLAIM') {
-                l1_btn_label = __('✅ Verify Intermediate Bills (Accounts L1)');
-            } else if (recon_type === 'PAYABLE_TO_SPOC') {
-                l1_btn_label = __('✅ Verify & Forward to Accounts Director');
-                l1_default_remark = 'Ground bills & variance verified. Forwarded to Accounts Director for SPOC payout sign-off.';
-            } else if (recon_type === 'REFUND_FROM_SPOC') {
-                l1_btn_label = __('✅ Verify Bills & Confirm Bank Refund');
-                l1_default_remark = 'Ground bills and SPOC bank refund credit UTR verified.';
-            } else if (recon_type === 'ZERO_BALANCE_BALANCED') {
-                l1_btn_label = __('✅ Verify & Close Balanced Event');
-                l1_default_remark = 'All bills verified and matched advance (₹ 0.00 balance).';
-            }
-
-            frm.add_custom_button(l1_btn_label, function() {
-                const prompt_fields = [
-                    {
-                        fieldname: 'remarks',
-                        fieldtype: 'Small Text',
-                        label: __('Accounts L1 Verification Notes (Optional)'),
-                        default: l1_default_remark
-                    }
-                ];
-                if (is_final && recon_type === 'REFUND_FROM_SPOC') {
-                    prompt_fields.unshift({
-                        fieldname: 'verified_utr',
-                        fieldtype: 'Data',
-                        label: __('Verified Bank Credit UTR Reference (Refund)'),
-                        default: frm.doc.refund_received_reference || '',
-                        reqd: 1
-                    });
-                }
-
-                const open_l1_prompt = function() {
-                    frappe.prompt(prompt_fields, function(values) {
-                        frappe.call({
-                            method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.verify_event_expense_claim',
-                            args: {
-                                claim_name: frm.doc.name,
-                                remarks: values.remarks,
-                                verified_utr: values.verified_utr || ''
-                            },
-                            freeze: true,
-                            freeze_message: __('Verifying & Updating Event Settlement...'),
-                            callback: function(r) {
-                                if (r.message && r.message.status === 'SUCCESS') {
-                                    frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
-                                    frm.reload_doc();
-                                }
-                            }
-                        });
-                    }, __('Accounts L1 Audit & Reconciliation'), __('Confirm'));
-                };
-
-                const has_missing = (frm.doc.expense_items || []).some(row => !row.line_status || row.line_status === 'Pending' || row.is_disputed);
-                if (has_missing) {
-                    frappe.confirm(
-                        __('Some line items still have Pending/Disputed status. Mark claim verified anyway?'),
-                        open_l1_prompt
-                    );
-                } else {
-                    open_l1_prompt();
-                }
-            }).addClass('btn-primary');
-
-            add_return_to_spoc_button(frm);
-        }
-
-        // STAGE 3: ACCOUNTS DIRECTOR SIGN-OFF ON PAYABLE_TO_SPOC
-        if (frm.doc.docstatus === 1 && frm.doc.status === 'Under Accounts Director Review' && is_acct_dir) {
-            frm.add_custom_button(__('⭐ Accounts Director Sign-Off'), function() {
-                frappe.prompt([
-                    {
-                        fieldname: 'remarks',
-                        fieldtype: 'Small Text',
-                        label: __('Accounts Director Sign-Off Remarks (Optional)'),
-                        default: 'Verified bills & settlement variance. Approved for IDFC SPOC Reimbursement.'
-                    }
-                ], function(vals) {
-                    frappe.call({
-                        method: 'ap_automation.services.event_settlement_service.authorize_event_claim_by_accounts_director',
-                        args: {
-                            claim_name: frm.doc.name,
-                            remarks: vals.remarks
-                        },
-                        freeze: true,
-                        freeze_message: __('Signing Off & Moving to Payment Release...'),
-                        callback: function(r) {
-                            if (r.message && r.message.status === 'SUCCESS') {
-                                frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
-                                frm.reload_doc();
-                            }
-                        }
-                    });
-                }, __('Accounts Director Sign-Off'), __('Authorize Payout'));
-            }).addClass('btn-primary');
-
-            add_return_to_spoc_button(frm);
-        }
-
-        // STAGE 4: IDFC EXCEL EXPORT + MAKER PAYMENT RELEASE + CHECKER EXECUTE PAYOUT
-        if (frm.doc.docstatus === 1 && frm.doc.status === 'Approved for Payment' && frm.doc.settlement_type === 'PAYABLE_TO_SPOC' && is_finance_viewer) {
-            frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
-                const url = `/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_event_expense_claim_excel?claim_name=${encodeURIComponent(frm.doc.name)}`;
-                window.open(url, '_blank');
-                frappe.show_alert({ message: __('IDFC SPOC Net Reimbursement Excel (.xlsx) downloaded.'), indicator: 'blue' });
-            }).addClass('btn-info');
-
-            if (frm.doc.payment_release_notified) {
-                frm.add_custom_button(__('✓ Payment Release Sent (IDFC Uploaded)'), function() {
-                    const notif_date = frm.doc.payment_release_notified_on ? frappe.datetime.str_to_user(frm.doc.payment_release_notified_on) : 'Recently';
-                    frappe.msgprint({
-                        title: __('Payment Release Already Notified'),
-                        message: __('Uploaded on {0} by {1}. Awaiting Payment Releaser ({2}) to execute SPOC reimbursement.', [notif_date, frm.doc.payment_release_maker || 'Maker', frm.doc.payment_releaser || 'Checker']),
-                        indicator: 'green'
-                    });
-                }).addClass('btn-success disabled');
-            } else if (user_roles.includes('Accounts Director') || is_sys_mgr) {
-                frm.add_custom_button(__('📤 Payment Release'), function() {
-                    frappe.confirm(
-                        __('Confirm the IDFC Disbursal Excel (.xlsx) has been uploaded to IDFC Netbanking.<br><br>This notifies the designated <b>Payment Releaser (Checker)</b> to release the net SPOC reimbursement.'),
-                        function() {
-                            frappe.call({
-                                method: 'ap_automation.services.event_settlement_service.trigger_event_claim_payment_release_notification',
-                                args: { claim_name: frm.doc.name },
-                                freeze: true,
-                                freeze_message: __('Notifying Payment Releaser...'),
-                                callback: function(r) {
-                                    if (r.message && r.message.status === 'SUCCESS') {
-                                        frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
-                                        frm.reload_doc();
-                                    }
-                                }
-                            });
-                        }
-                    );
-                }).addClass('btn-warning');
-            }
-
-            const not_same_maker = (frm.doc.payment_release_maker !== frappe.session.user) || frappe.session.user === 'Administrator';
-            if (frm.doc.payment_release_notified && is_checker && not_same_maker) {
-                frm.add_custom_button(__('💳 Execute SPOC Reimbursement'), function() {
-                    frappe.prompt([
-                        {
-                            fieldname: 'payment_ref',
-                            fieldtype: 'Data',
-                            label: __('Bank Disbursal UTR / Transaction Reference'),
-                            default: 'UTR-SPOC-' + Math.floor(100000 + Math.random() * 900000),
-                            reqd: 1
-                        }
-                    ], function(vals) {
-                        frappe.call({
-                            method: 'ap_automation.services.event_settlement_service.disburse_event_claim_spoc_payout',
-                            args: {
-                                claim_name: frm.doc.name,
-                                payment_reference: vals.payment_ref
-                            },
-                            freeze: true,
-                            freeze_message: __('Recording SPOC Payout & Closing Event...'),
-                            callback: function(r) {
-                                if (r.message && r.message.status === 'SUCCESS') {
-                                    frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
-                                    frm.reload_doc();
-                                }
-                            }
-                        });
-                    }, __('Execute SPOC Reimbursement'), __('Confirm & Close Event'));
-                }).addClass('btn-primary');
-            }
-        }
-
-        // STAGE 5: SETTLED & CLOSED -> Keep IDFC Export accessible for audit
-        if (frm.doc.docstatus === 1 && frm.doc.status === 'Settled' && frm.doc.settlement_type === 'PAYABLE_TO_SPOC' && is_finance_viewer) {
-            frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
-                const url = `/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_event_expense_claim_excel?claim_name=${encodeURIComponent(frm.doc.name)}`;
-                window.open(url, '_blank');
-            }).addClass('btn-info');
-        }
+        // Submitted Stages (docstatus === 1) are rendered cleanly via sync_submitted_claim_context(frm)
+        // using live reconciliation math + AP Approval Matrix & HRMS Leave Delegate context.
 
         // RESUBMIT FOR SPOC WHEN RETURNED
         const is_spoc_or_owner = (frm.doc.spoc === frappe.session.user || frm.doc.owner === frappe.session.user || frappe.user.has_role(['Accounts Manager', 'System Manager']) || frappe.session.user === 'Administrator');
@@ -416,7 +228,7 @@ frappe.ui.form.on("Event Expense Claim", {
 });
 
 function add_return_to_spoc_button(frm) {
-    frm.add_custom_button(__('↩ Return to SPOC'), function() {
+    return frm.add_custom_button(__('↩ Return to SPOC'), function() {
         frappe.prompt([
             {
                 fieldname: 'reason',
@@ -441,6 +253,230 @@ function add_return_to_spoc_button(frm) {
             });
         }, __('Return Claim for Revision'), __('Submit Return'));
     }).addClass('btn-danger');
+}
+
+function sync_submitted_claim_context(frm) {
+    const seq = (frm._recon_seq || 0) + 1;
+    frm._recon_seq = seq;
+
+    frappe.call({
+        method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.get_event_expense_ui_context',
+        args: { claim_name: frm.doc.name },
+        callback: function(r) {
+            if (frm._recon_seq !== seq || !r.message) return;
+            const ctx = r.message;
+            const recon = ctx.reconciliation || null;
+            if (recon && recon.settlement_type) {
+                frm._live_recon_type = recon.settlement_type;
+            }
+            render_unified_claim_banner(frm, recon);
+            bind_submitted_claim_buttons(frm, ctx, recon);
+        }
+    });
+}
+
+function bind_submitted_claim_buttons(frm, ctx, recon) {
+    (frm._ap_eec_stage_btns || []).forEach($btn => {
+        if ($btn && typeof $btn.remove === 'function') $btn.remove();
+    });
+    frm._ap_eec_stage_btns = [];
+
+    if (frm.doc.docstatus !== 1) return;
+    const add_stage_btn = ($btn) => {
+        if ($btn) frm._ap_eec_stage_btns.push($btn);
+        return $btn;
+    };
+
+    const status = frm.doc.status;
+    const is_zero_refund = cint(frm.doc.is_zero_spend_refund) === 1;
+    const is_final = cint(frm.doc.is_final_settlement) === 1 || is_zero_refund;
+    const recon_type = (recon && recon.settlement_type) || frm._live_recon_type || frm.doc.settlement_type || 'PAYABLE_TO_SPOC';
+
+    // STAGE 2: ACCOUNTS L1 AUDIT ON SUBMITTED CLAIM
+    if (status === 'Submitted' && ctx.can_verify_l1) {
+        let l1_btn_label = __('✅ Verify Ground Bills (Accounts L1)');
+        let l1_default_remark = 'All ground receipts and expense categories verified.';
+        if (!is_final || recon_type === 'INTERMEDIATE_CLAIM') {
+            l1_btn_label = __('✅ Verify Intermediate Bills (Accounts L1)');
+        } else if (recon_type === 'PAYABLE_TO_SPOC') {
+            l1_btn_label = __('✅ Verify & Forward to Accounts Director');
+            l1_default_remark = 'Ground bills & variance verified. Forwarded to Accounts Director for SPOC payout sign-off.';
+        } else if (recon_type === 'REFUND_FROM_SPOC') {
+            l1_btn_label = __('✅ Verify Bills & Confirm Bank Refund');
+            l1_default_remark = 'Ground bills and SPOC bank refund credit UTR verified.';
+        } else if (recon_type === 'ZERO_BALANCE_BALANCED') {
+            l1_btn_label = __('✅ Verify & Close Balanced Event');
+            l1_default_remark = 'All bills verified and matched advance (₹ 0.00 balance).';
+        }
+
+        add_stage_btn(frm.add_custom_button(l1_btn_label, function() {
+            const prompt_fields = [
+                {
+                    fieldname: 'remarks',
+                    fieldtype: 'Small Text',
+                    label: __('Accounts L1 Verification Notes (Optional)'),
+                    default: l1_default_remark
+                }
+            ];
+            if (is_final && recon_type === 'REFUND_FROM_SPOC') {
+                prompt_fields.unshift({
+                    fieldname: 'verified_utr',
+                    fieldtype: 'Data',
+                    label: __('Verified Bank Credit UTR Reference (Refund)'),
+                    default: frm.doc.refund_received_reference || '',
+                    reqd: 1
+                });
+            }
+
+            const open_l1_prompt = function() {
+                frappe.prompt(prompt_fields, function(values) {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.verify_event_expense_claim',
+                        args: {
+                            claim_name: frm.doc.name,
+                            remarks: values.remarks,
+                            verified_utr: values.verified_utr || ''
+                        },
+                        freeze: true,
+                        freeze_message: __('Verifying & Updating Event Settlement...'),
+                        callback: function(r) {
+                            if (r.message && r.message.status === 'SUCCESS') {
+                                frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Accounts L1 Audit & Reconciliation'), __('Confirm'));
+            };
+
+            const has_missing = (frm.doc.expense_items || []).some(row => !row.line_status || row.line_status === 'Pending' || row.is_disputed);
+            if (has_missing) {
+                frappe.confirm(
+                    __('Some line items still have Pending/Disputed status. Mark claim verified anyway?'),
+                    open_l1_prompt
+                );
+            } else {
+                open_l1_prompt();
+            }
+        }).addClass('btn-primary'));
+
+        if (ctx.can_return_to_spoc) {
+            add_stage_btn(add_return_to_spoc_button(frm));
+        }
+    }
+
+    // STAGE 3: ACCOUNTS DIRECTOR SIGN-OFF ON PAYABLE_TO_SPOC
+    if (status === 'Under Accounts Director Review' && ctx.can_ad_sign_off) {
+        add_stage_btn(frm.add_custom_button(__('⭐ Accounts Director Sign-Off'), function() {
+            frappe.prompt([
+                {
+                    fieldname: 'remarks',
+                    fieldtype: 'Small Text',
+                    label: __('Accounts Director Sign-Off Remarks (Optional)'),
+                    default: 'Verified bills & settlement variance. Approved for IDFC SPOC Reimbursement.'
+                }
+            ], function(vals) {
+                frappe.call({
+                    method: 'ap_automation.services.event_settlement_service.authorize_event_claim_by_accounts_director',
+                    args: {
+                        claim_name: frm.doc.name,
+                        remarks: vals.remarks
+                    },
+                    freeze: true,
+                    freeze_message: __('Signing Off & Moving to Payment Release...'),
+                    callback: function(r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }, __('Accounts Director Sign-Off'), __('Authorize Payout'));
+        }).addClass('btn-primary'));
+
+        if (ctx.can_return_to_spoc) {
+            add_stage_btn(add_return_to_spoc_button(frm));
+        }
+    }
+
+    // STAGE 4: IDFC EXCEL EXPORT + MAKER PAYMENT RELEASE + CHECKER EXECUTE PAYOUT
+    if (status === 'Approved for Payment' && frm.doc.settlement_type === 'PAYABLE_TO_SPOC' && ctx.is_finance_viewer) {
+        add_stage_btn(frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
+            const url = `/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_event_expense_claim_excel?claim_name=${encodeURIComponent(frm.doc.name)}`;
+            window.open(url, '_blank');
+            frappe.show_alert({ message: __('IDFC SPOC Net Reimbursement Excel (.xlsx) downloaded.'), indicator: 'blue' });
+        }).addClass('btn-info'));
+
+        if (frm.doc.payment_release_notified) {
+            add_stage_btn(frm.add_custom_button(__('✓ Payment Release Sent (IDFC Uploaded)'), function() {
+                const notif_date = frm.doc.payment_release_notified_on ? frappe.datetime.str_to_user(frm.doc.payment_release_notified_on) : 'Recently';
+                frappe.msgprint({
+                    title: __('Payment Release Already Notified'),
+                    message: __('Uploaded on {0} by {1}. Awaiting Payment Releaser ({2}) to execute SPOC reimbursement.', [notif_date, frm.doc.payment_release_maker || 'Maker', frm.doc.payment_releaser || 'Checker']),
+                    indicator: 'green'
+                });
+            }).addClass('btn-success disabled'));
+        } else if (ctx.can_maker_release) {
+            add_stage_btn(frm.add_custom_button(__('📤 Payment Release'), function() {
+                frappe.confirm(
+                    __('Confirm the IDFC Disbursal Excel (.xlsx) has been uploaded to IDFC Netbanking.<br><br>This notifies the designated <b>Payment Releaser (Checker)</b> to release the net SPOC reimbursement.'),
+                    function() {
+                        frappe.call({
+                            method: 'ap_automation.services.event_settlement_service.trigger_event_claim_payment_release_notification',
+                            args: { claim_name: frm.doc.name },
+                            freeze: true,
+                            freeze_message: __('Notifying Payment Releaser...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }
+                );
+            }).addClass('btn-warning'));
+        }
+
+        const not_same_maker = (frm.doc.payment_release_maker !== frappe.session.user) || frappe.session.user === 'Administrator';
+        if (frm.doc.payment_release_notified && ctx.can_checker_disburse && not_same_maker) {
+            add_stage_btn(frm.add_custom_button(__('💳 Execute SPOC Reimbursement'), function() {
+                frappe.prompt([
+                    {
+                        fieldname: 'payment_ref',
+                        fieldtype: 'Data',
+                        label: __('Bank Disbursal UTR / Transaction Reference'),
+                        default: 'UTR-SPOC-' + Math.floor(100000 + Math.random() * 900000),
+                        reqd: 1
+                    }
+                ], function(vals) {
+                    frappe.call({
+                        method: 'ap_automation.services.event_settlement_service.disburse_event_claim_spoc_payout',
+                        args: {
+                            claim_name: frm.doc.name,
+                            payment_reference: vals.payment_ref
+                        },
+                        freeze: true,
+                        freeze_message: __('Recording SPOC Payout & Closing Event...'),
+                        callback: function(r) {
+                            if (r.message && r.message.status === 'SUCCESS') {
+                                frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Execute SPOC Reimbursement'), __('Confirm & Close Event'));
+            }).addClass('btn-primary'));
+        }
+    }
+
+    // STAGE 5: SETTLED & CLOSED -> Keep IDFC Export accessible for audit
+    if (status === 'Settled' && frm.doc.settlement_type === 'PAYABLE_TO_SPOC' && ctx.is_finance_viewer) {
+        add_stage_btn(frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
+            const url = `/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_event_expense_claim_excel?claim_name=${encodeURIComponent(frm.doc.name)}`;
+            window.open(url, '_blank');
+        }).addClass('btn-info'));
+    }
 }
 
 function validate_claim_before_submit(frm) {
