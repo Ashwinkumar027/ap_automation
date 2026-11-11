@@ -24,6 +24,9 @@ frappe.ui.form.on("Event Settlement", {
         frm.set_df_property('status', 'read_only', 1);
         set_settlement_status_indicator(frm);
         render_settlement_verdict_card(frm);
+        if (frm.is_new() && frm.doc.event && !frm.doc.company && !frm._ap_delta_fetching) {
+            frm.trigger('event');
+        }
 
         if (!frm.is_new() && window.APReceiptGallery) {
             window.APReceiptGallery.addPrintDownloadButtons(
@@ -46,10 +49,12 @@ frappe.ui.form.on("Event Settlement", {
 
     event: function(frm) {
         if (frm.doc.event) {
+            frm._ap_delta_fetching = true;
             frappe.call({
                 method: "ap_automation.services.event_settlement_service.calculate_event_settlement_delta",
                 args: { event_name: frm.doc.event },
                 callback: function(r) {
+                    frm._ap_delta_fetching = false;
                     if (r.message) {
                         const d = r.message;
                         frm.set_value('company', d.company);
@@ -64,6 +69,9 @@ frappe.ui.form.on("Event Settlement", {
                         frm.set_value('refund_receivable_from_spoc', d.refund_receivable_from_spoc);
                         render_settlement_verdict_card(frm);
                     }
+                },
+                error: function() {
+                    frm._ap_delta_fetching = false;
                 }
             });
         }
@@ -420,7 +428,7 @@ function setup_settlement_workflow_actions(frm) {
                         indicator: 'green'
                     });
                 }).addClass('btn-success disabled');
-            } else if (is_maker) {
+            } else if (user_roles.includes('Accounts Director') || is_sys_mgr) {
                 frm.add_custom_button(__('📤 Payment Release'), function() {
                     frappe.confirm(
                         __('Confirm that the IDFC Disbursal Excel has been uploaded to the IDFC Netbanking portal.<br><br>This will notify the Payment Releaser (Checker) to release SPOC reimbursement.'),

@@ -61,6 +61,7 @@ def append_event_approval_trail(
     trail_row.insert(ignore_permissions=True)
 
 
+@frappe.whitelist()
 def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
     """
     Recalculates the live budget ledger for an Event Master and updates database fields.
@@ -69,6 +70,8 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
     """
     if not frappe.db.exists("Event Master", event_name):
         raise APValidationError(f"Event Master '{event_name}' not found.")
+    if frappe.request and not frappe.has_permission("Event Master", "read", event_name):
+        frappe.throw("You are not permitted to view this Event Master.", exc=frappe.PermissionError)
 
     event = frappe.get_doc("Event Master", event_name)
 

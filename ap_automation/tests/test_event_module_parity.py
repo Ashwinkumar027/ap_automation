@@ -723,6 +723,19 @@ class TestEventModuleParity(unittest.TestCase):
             for p in existing_pols:
                 frappe.db.set_value("AP Approval Matrix", p, "is_active", 1)
 
+    def test_10_event_whitelisted_rpc_methods(self):
+        """Verifies JS-called Event service endpoints are whitelisted and return live delta math."""
+        from ap_automation.services.event_settlement_service import calculate_event_settlement_delta
+        from ap_automation.services.event_budget_service import update_event_budget_ledger
+
+        self.assertIn(calculate_event_settlement_delta, frappe.whitelisted)
+        self.assertIn(update_event_budget_ledger, frappe.whitelisted)
+
+        res = calculate_event_settlement_delta(self.event.name)
+        self.assertEqual(res["event"], self.event.name)
+        self.assertEqual(res["settlement_type"], "PAYABLE_TO_SPOC")
+        self.assertGreater(res["net_payable_to_spoc"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
