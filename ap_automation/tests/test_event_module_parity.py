@@ -1033,6 +1033,149 @@ class TestEventModuleParity(unittest.TestCase):
         link_targets = [l.get("link_to") for l in ws.get("links", []) if l.get("type") == "Link"]
         self.assertEqual(link_targets, ["Event Master", "Event Advance Request", "Event Expense Claim"])
 
+    def test_14_ledger_reset_matrix_release_and_return_email(self):
+        """Verifies ledger reset on return/cancel/reject, branded Return email to SPOC+owner, Matrix AD Maker release, and AP Director create perm."""
+        from unittest.mock import patch
+        from ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim import (
+            get_event_expense_ui_context,
+            reject_or_return_event_claim,
+            submit_event_expense_claim,
+            verify_event_expense_claim,
+        )
+        from ap_automation.services.employee_reimbursement_notification_service import _dispatch_reimbursement_email
+        from ap_automation.services.event_budget_service import update_event_budget_ledger
+        from ap_automation.services.event_settlement_service import (
+            authorize_event_claim_by_accounts_director,
+            trigger_event_claim_payment_release_notification,
+        )
+
+        # 1. AP Director has create permission on Event Advance Request schema
+        ap_dir_user = f"ap.dir.{frappe.generate_hash(length=4)}@quanticus.com"
+        if not frappe.db.exists("User", ap_dir_user):
+            frappe.get_doc({
+                "doctype": "User",
+                "email": ap_dir_user,
+                "first_name": "APDir",
+                "enabled": 1,
+                "send_welcome_email": 0,
+                "roles": [{"role": "AP Director"}],
+            }).insert(ignore_permissions=True)
+        prev_u = frappe.session.user
+        try:
+            frappe.set_user(ap_dir_user)
+            self.assertTrue(frappe.has_permission("Event Advance Request", "create"))
+        finally:
+            frappe.set_user(prev_u)
+
+        # 2. Coordinator/owner + Matrix AD without blanket Accounts Director role
+        coord_user = f"coord.p14.{frappe.generate_hash(length=4)}@quanticus.com"
+        mat_ad_user = f"mat.ad.p14.{frappe.generate_hash(length=4)}@quanticus.com"
+        mat_l1_user = f"mat.l1.p14.{frappe.generate_hash(length=4)}@quanticus.com"
+        mat_rel_user = f"mat.rel.p14.{frappe.generate_hash(length=4)}@quanticus.com"
+        for email, role_name in (
+            (coord_user, "Receptionist"),
+            (mat_l1_user, "Accounts L1 Auditor"),
+            (mat_ad_user, "Receptionist"),
+            (mat_rel_user, "Payment Releaser"),
+        ):
+            if not frappe.db.exists("User", email):
+                frappe.get_doc({
+                    "doctype": "User",
+                    "email": email,
+                    "first_name": role_name.split()[0],
+                    "enabled": 1,
+                    "send_welcome_email": 0,
+                    "roles": [{"role": role_name}, {"role": "Desk User"}],
+                }).insert(ignore_permissions=True)
+
+        mat = frappe.get_doc({
+            "doctype": "AP Approval Matrix",
+            "policy_name": f"Parity14 Matrix {frappe.generate_hash(length=5)}",
+            "company": self.company,
+            "document_lane": "Event Advance Request",
+            "min_amount": 0,
+            "max_amount": 99999999,
+            "is_active": 1,
+            "approval_levels": [
+                {"level_number": 2, "level_name": "Accounts L1 Auditor", "designated_approver": mat_l1_user, "allow_delegation": 0},
+                {"level_number": 3, "level_name": "Accounts Director", "designated_approver": mat_ad_user, "allow_delegation": 0},
+                {"level_number": 4, "level_name": "Payment Releaser", "designated_approver": mat_rel_user, "allow_delegation": 0},
+            ],
+        }).insert(ignore_permissions=True)
+
+        ev = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"Parity14 Ledger {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "event_spoc": self.spoc_user,
+            "spoc_name": "Parity SPOC",
+            "start_date": "2026-12-20",
+            "end_date": "2026-12-21",
+            "allocated_budget": 50000.00,
+        }).insert(ignore_permissions=True)
+
+        try:
+            frappe.set_user(coord_user)
+            c = frappe.get_doc({
+                "doctype": "Event Expense Claim",
+                "event": ev.name,
+                "posting_date": "2026-12-21",
+                "is_final_settlement": 1,
+                "expense_items": [{
+                    "spend_stream": "SPOC On-Ground Cash Spend",
+                    "expense_category": "Venue & Stage",
+                    "vendor_name": "Stage Audio",
+                    "bill_number": f"P14-{frappe.generate_hash(length=5)}",
+                    "bill_date": "2026-12-21",
+                    "amount": 9000.00,
+                    "receipt_attachment": self.receipt_url,
+                }],
+            }).insert(ignore_permissions=True)
+            with patch("frappe.sendmail"):
+                submit_event_expense_claim(c.name)
+
+            # Verify Return sends branded email to BOTH spoc & owner and resets ledger cleanly even after update_event_budget_ledger
+            frappe.set_user(mat_l1_user)
+            captured = []
+            with patch("frappe.sendmail", side_effect=lambda **kw: captured.append(kw)):
+                reject_or_return_event_claim(c.name, reason="Attach itemized bill")
+            self.assertTrue(captured, "Expected Return email to be dispatched")
+            self.assertIn(self.spoc_user, captured[0]["recipients"])
+            self.assertIn(coord_user, captured[0]["recipients"])
+            self.assertIn(f"/desk/event-expense-claim/{c.name}", captured[0]["message"])
+
+            update_event_budget_ledger(ev.name)
+            self.assertEqual(float(frappe.db.get_value("Event Master", ev.name, "spoc_actual_spends") or 0.0), 0.0)
+
+            # Verify CC dedup strips duplicate email matching TO
+            captured.clear()
+            with patch("frappe.sendmail", side_effect=lambda **kw: captured.append(kw)):
+                _dispatch_reimbursement_email([self.spoc_user], "CC Dedup", "<p>Hi</p>", "Event Expense Claim", c.name, cc=[self.spoc_user])
+            self.assertEqual(captured[0]["cc"], [])
+
+            # Resubmit & complete with Matrix AD user (NO Accounts Director role!)
+            frappe.set_user(coord_user)
+            with patch("frappe.sendmail"):
+                from ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim import resubmit_event_claim
+                resubmit_event_claim(c.name)
+
+            frappe.set_user(mat_l1_user)
+            with patch("frappe.sendmail"):
+                verify_event_expense_claim(c.name, remarks="Matrix L1 verified")
+
+            frappe.set_user(mat_ad_user)
+            ui_ctx = get_event_expense_ui_context(c.name)
+            self.assertTrue(ui_ctx["can_ad_sign_off"])
+            self.assertTrue(ui_ctx["can_maker_release"])
+            authorize_event_claim_by_accounts_director(c.name, remarks="Matrix AD authorized")
+            with patch("ap_automation.services.notification_service.notify_payment_releaser_on_idfc_upload") as spy_pr:
+                spy_pr.return_value = {"status": "SUCCESS", "releaser": mat_rel_user, "accounts_director": mat_ad_user}
+                pr_res = trigger_event_claim_payment_release_notification(c.name)
+            self.assertEqual(pr_res["status"], "SUCCESS")
+        finally:
+            frappe.set_user(prev_u)
+            frappe.db.set_value("AP Approval Matrix", mat.name, "is_active", 0)
+
 
 if __name__ == "__main__":
     unittest.main()

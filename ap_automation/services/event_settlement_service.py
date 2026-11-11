@@ -141,26 +141,100 @@ def _close_event_master_on_settlement(voucher_doc) -> None:
         )
 
 
+def _resolve_event_claim_actor_context(
+    company: str,
+    amount: float,
+    user: Optional[str] = None,
+    approval_doctype_for_matrix: str = "Event Advance Request",
+) -> Dict[str, Any]:
+    """
+    Resolves designated L1 Auditor, Accounts Director, and Payment Releaser from active
+    AP Approval Matrices (plus HRMS Leave Delegates) and merges with role permissions.
+    """
+    acting_user = user or frappe.session.user
+    user_roles = set(frappe.get_roles(acting_user))
+    is_admin = acting_user == "Administrator" or "System Manager" in user_roles
+
+    matrix_l1 = None
+    matrix_ad = None
+    matrix_releaser = None
+
+    try:
+        from ap_automation.services.approval_service import (
+            get_applicable_matrix,
+            get_matrix_designated_payment_releaser_and_accounts_director,
+            is_user_authorized_approver,
+        )
+
+        matrix_releaser, matrix_ad = get_matrix_designated_payment_releaser_and_accounts_director(
+            company=company,
+            doctype=approval_doctype_for_matrix,
+            amount=float(amount or 0.0),
+        )
+
+        # Resolve Accounts L1 Auditor from Event Expense Claim or fallback Event Advance Request matrix
+        matrices = []
+        for dt_candidate in ("Event Expense Claim", approval_doctype_for_matrix):
+            m = get_applicable_matrix(dt_candidate, company, float(amount or 0.0)) if company else None
+            if m and m.name not in [x.name for x in matrices]:
+                matrices.append(m)
+        if company:
+            for row_m in frappe.get_all("AP Approval Matrix", filters={"company": company, "is_active": 1}, pluck="name"):
+                if row_m not in [x.name for x in matrices]:
+                    try:
+                        matrices.append(frappe.get_doc("AP Approval Matrix", row_m))
+                    except Exception:
+                        pass
+
+        for m in matrices:
+            for lvl in getattr(m, "approval_levels", []) or []:
+                lvl_name = (getattr(lvl, "level_name", None) or "").lower()
+                if any(k in lvl_name for k in ("accounts l1", "l1 auditor")) and getattr(lvl, "designated_approver", None):
+                    matrix_l1 = lvl.designated_approver
+                    break
+            if matrix_l1:
+                break
+
+        def _matches_matrix(designated: Optional[str]) -> bool:
+            return bool(designated and is_user_authorized_approver(designated, acting_user, allow_delegation=True))
+
+        is_matrix_l1 = _matches_matrix(matrix_l1)
+        is_matrix_ad = _matches_matrix(matrix_ad)
+        is_matrix_releaser = _matches_matrix(matrix_releaser)
+    except Exception:
+        is_matrix_l1 = False
+        is_matrix_ad = False
+        is_matrix_releaser = False
+
+    l1_roles = {"Accounts L1 Auditor", "Accounts User", "Accounts Manager", "Accounts Director", "AP Director"}
+    ad_roles = {"Accounts Director", "Accounts Manager"}
+    releaser_roles = {"Payment Releaser", "AP Director", "Accounts Director", "Accounts Manager"}
+    return_roles = l1_roles | ad_roles | {"Admin L1 Approver", "Admin L2 Approver"}
+
+    return {
+        "acting_user": acting_user,
+        "matrix_l1": matrix_l1,
+        "matrix_ad": matrix_ad,
+        "matrix_releaser": matrix_releaser,
+        "can_verify_l1": bool(is_admin or is_matrix_l1 or user_roles.intersection(l1_roles)),
+        "can_ad_sign_off": bool(is_admin or is_matrix_ad or user_roles.intersection(ad_roles)),
+        "can_maker_release": bool(is_admin or is_matrix_ad or ("Accounts Director" in user_roles)),
+        "can_checker_disburse": bool(is_admin or is_matrix_releaser or user_roles.intersection(releaser_roles)),
+        "can_return_to_spoc": bool(is_admin or is_matrix_l1 or is_matrix_ad or user_roles.intersection(return_roles)),
+        "is_finance_viewer": bool(is_admin or is_matrix_l1 or is_matrix_ad or is_matrix_releaser or user_roles.intersection(l1_roles | releaser_roles)),
+    }
+
+
 def _authorize_ad_payout(doc, payable_amount: float, remarks: Optional[str] = None, approval_doctype_for_matrix: str = "Event Advance Request") -> Dict[str, Any]:
     """Shared Accounts Director sign-off logic for PAYABLE_TO_SPOC Event payouts."""
     user = frappe.session.user
-    user_roles = set(frappe.get_roles(user))
-    allowed_roles = {"Accounts Director", "Accounts Manager", "System Manager", "Administrator"}
-
-    is_matrix_ad = False
-    try:
-        from ap_automation.services.approval_service import get_matrix_designated_payment_releaser_and_accounts_director
-        _, matrix_ad = get_matrix_designated_payment_releaser_and_accounts_director(
-            company=doc.company,
-            doctype=approval_doctype_for_matrix,
-            amount=float(payable_amount or 0.0),
-        )
-        if matrix_ad and user == matrix_ad:
-            is_matrix_ad = True
-    except Exception:
-        pass
-
-    if user != "Administrator" and not is_matrix_ad and not user_roles.intersection(allowed_roles):
+    perm_ctx = _resolve_event_claim_actor_context(
+        company=doc.company,
+        amount=float(payable_amount or 0.0),
+        user=user,
+        approval_doctype_for_matrix=approval_doctype_for_matrix,
+    )
+    if not perm_ctx["can_ad_sign_off"]:
         raise APSecurityError("Unauthorized: Only Accounts Director can approve SPOC settlement payouts.")
 
     if getattr(doc, "settlement_type", None) != "PAYABLE_TO_SPOC":
@@ -196,12 +270,16 @@ def _authorize_ad_payout(doc, payable_amount: float, remarks: Optional[str] = No
     }
 
 
-def _trigger_maker_payment_release(doc) -> Dict[str, Any]:
+def _trigger_maker_payment_release(doc, approval_doctype_for_matrix: str = "Event Advance Request") -> Dict[str, Any]:
     """Shared Maker handoff on Approved-for-Payment SPOC reimbursements."""
     user = frappe.session.user
-    user_roles = set(frappe.get_roles(user))
-    maker_roles = {"Accounts Director", "System Manager", "Administrator"}
-    if user != "Administrator" and not user_roles.intersection(maker_roles):
+    perm_ctx = _resolve_event_claim_actor_context(
+        company=getattr(doc, "company", ""),
+        amount=float(getattr(doc, "net_payable_to_spoc", 0.0) or 0.0),
+        user=user,
+        approval_doctype_for_matrix=approval_doctype_for_matrix,
+    )
+    if not perm_ctx["can_maker_release"]:
         raise APSecurityError("Unauthorized: Only Accounts Director can trigger Payment Release notifications.")
 
     if getattr(doc, "settlement_type", None) != "PAYABLE_TO_SPOC":
@@ -248,23 +326,13 @@ def _trigger_maker_payment_release(doc) -> Dict[str, Any]:
 def _execute_checker_payout(doc, payable_amount: float, utr_fieldname: str, payment_reference: str, approval_doctype_for_matrix: str = "Event Advance Request") -> Dict[str, Any]:
     """Shared Checker payout release enforcing AD approval, Maker notification, Maker != Checker & Event closure."""
     user = frappe.session.user
-    user_roles = set(frappe.get_roles(user))
-    authorized = {"Payment Releaser", "AP Director", "Accounts Director", "Accounts Manager", "System Manager", "Administrator"}
-
-    is_designated_releaser = False
-    try:
-        from ap_automation.services.approval_service import get_matrix_designated_payment_releaser_and_accounts_director
-        designated_releaser, _ = get_matrix_designated_payment_releaser_and_accounts_director(
-            company=doc.company,
-            doctype=approval_doctype_for_matrix,
-            amount=float(payable_amount or 0.0),
-        )
-        if designated_releaser and user == designated_releaser:
-            is_designated_releaser = True
-    except Exception:
-        pass
-
-    if user != "Administrator" and not is_designated_releaser and not user_roles.intersection(authorized):
+    perm_ctx = _resolve_event_claim_actor_context(
+        company=doc.company,
+        amount=float(payable_amount or 0.0),
+        user=user,
+        approval_doctype_for_matrix=approval_doctype_for_matrix,
+    )
+    if not perm_ctx["can_checker_disburse"]:
         raise APSecurityError("Unauthorized: Only Payment Releasers or authorized Finance Directors can disburse settlement payouts.")
 
     if getattr(doc, "settlement_type", None) != "PAYABLE_TO_SPOC":

@@ -176,19 +176,24 @@ class EventExpenseClaim(APDocument):
 @frappe.whitelist()
 def reject_or_return_event_claim(claim_name: str, reason: str):
     """
-    Allows Accounts Auditor, Admin, or AP Director to return an Event Expense Claim back to the SPOC.
+    Allows Accounts L1, Accounts Director, Matrix Approvers/Delegates, or Admin to return an Event Expense Claim to the SPOC.
     Unlocks docstatus back to 0 so the SPOC can edit bills/receipts before resubmitting, and re-syncs Event Master spends.
     """
-    user = frappe.session.user
-    roles = frappe.get_roles(user)
-    allowed = ["Accounts L1 Auditor", "Admin L1 Approver", "Admin L2 Approver", "Accounts Director", "AP Director", "System Manager", "Administrator"]
-    if not any(r in roles for r in allowed) and user != "Administrator":
-        frappe.throw("You do not have permission to reject or return this Event Expense Claim.", exc=frappe.PermissionError)
-
     if not reason or not reason.strip():
         frappe.throw("A specific reason or discrepancy description is required to return this claim.")
 
     doc = frappe.get_doc("Event Expense Claim", claim_name)
+    user = frappe.session.user
+
+    from ap_automation.services.event_settlement_service import _resolve_event_claim_actor_context
+    perm_ctx = _resolve_event_claim_actor_context(
+        company=doc.company,
+        amount=float(getattr(doc, "total_claim_amount", 0.0) or getattr(doc, "net_payable_to_spoc", 0.0) or 0.0),
+        user=user,
+    )
+    if not perm_ctx["can_return_to_spoc"]:
+        frappe.throw("You do not have permission to reject or return this Event Expense Claim.", exc=frappe.PermissionError)
+
     if doc.status not in ("Submitted", "Accounts Verified", "Under Accounts Director Review"):
         frappe.throw(f"Only Submitted / In-Review claims can be returned to SPOC. Current status is '{doc.status}'.")
 
@@ -209,16 +214,16 @@ def reject_or_return_event_claim(claim_name: str, reason: str):
     doc._sync_event_spends()
     doc.add_comment("Comment", f"⚠️ Claim returned to SPOC by {user}. Reason: {reason.strip()}")
 
-    # Notify SPOC
-    if doc.spoc:
-        spoc_user = frappe.db.get_value("Employee", doc.spoc, "user_id") or doc.spoc
-        if spoc_user and spoc_user != user:
-            payee_label = getattr(doc, "payee_name", None) or getattr(doc, "spoc", "")
-            frappe.sendmail(
-                recipients=[spoc_user],
-                subject=f"⚠️ Event Expense Claim {claim_name} Returned for Clarification",
-                message=f"<p>Hello {payee_label},</p><p>Your Event Expense Claim <b>{claim_name}</b> for Event <b>{doc.event}</b> has been returned with the following note:</p><blockquote>{reason.strip()}</blockquote><p>Please review and resubmit with updated documents.</p>"
-            )
+    try:
+        from ap_automation.services.employee_reimbursement_notification_service import (
+            notify_event_expense_returned,
+        )
+        notify_event_expense_returned(doc, reason=reason.strip(), returned_by=user)
+    except Exception:
+        frappe.log_error(
+            title="Event Expense Claim Return Email Error",
+            message=f"Failed to notify SPOC on return of {claim_name}: {frappe.get_traceback()}",
+        )
 
     return {"status": "SUCCESS", "message": f"Claim {claim_name} has been returned to SPOC."}
 
@@ -313,20 +318,25 @@ def verify_event_expense_claim(claim_name: str, remarks: Optional[str] = None, v
     if not claim_name or not frappe.db.exists("Event Expense Claim", claim_name):
         raise APValidationError(f"Event Expense Claim '{claim_name}' not found.")
 
-    user = frappe.session.user
-    user_roles = set(frappe.get_roles(user))
-    allowed = {"Accounts L1 Auditor", "Accounts User", "Accounts Manager", "Accounts Director", "AP Director", "System Manager", "Administrator"}
-    if user != "Administrator" and not user_roles.intersection(allowed):
-        raise APSecurityError("Unauthorized: Only Accounts Team can verify Event Expense Claims.")
-
     doc = frappe.get_doc("Event Expense Claim", claim_name)
-    if doc.status != "Submitted":
-        raise APValidationError(f"Cannot verify claim '{claim_name}': current status is '{doc.status}', expected 'Submitted'.")
+    user = frappe.session.user
 
     from ap_automation.services.event_settlement_service import (
-        calculate_event_claim_reconciliation,
         _close_event_master_on_settlement,
+        _resolve_event_claim_actor_context,
+        calculate_event_claim_reconciliation,
     )
+
+    perm_ctx = _resolve_event_claim_actor_context(
+        company=doc.company,
+        amount=float(getattr(doc, "total_claim_amount", 0.0) or 0.0),
+        user=user,
+    )
+    if not perm_ctx["can_verify_l1"]:
+        raise APSecurityError("Unauthorized: Only Accounts Team can verify Event Expense Claims.")
+
+    if doc.status != "Submitted":
+        raise APValidationError(f"Cannot verify claim '{claim_name}': current status is '{doc.status}', expected 'Submitted'.")
 
     is_zero_refund = bool(frappe.utils.cint(getattr(doc, "is_zero_spend_refund", 0)))
     is_final = True if is_zero_refund else bool(frappe.utils.cint(getattr(doc, "is_final_settlement", 1)))
@@ -432,6 +442,47 @@ def verify_event_expense_claim(claim_name: str, remarks: Optional[str] = None, v
         "refund_receivable_from_spoc": recon["refund_receivable_from_spoc"],
         "event_closed": event_closed,
         "message": resp_msg,
+    }
+
+
+@frappe.whitelist()
+def get_event_expense_ui_context(claim_name: str) -> Dict[str, Any]:
+    """
+    Returns live reconciliation math plus exact role/matrix/delegate stage flags
+    for rendering Event Expense & Settlement action buttons without stale client guesses.
+    """
+    if not claim_name or not frappe.db.exists("Event Expense Claim", claim_name):
+        raise APValidationError(f"Event Expense Claim '{claim_name}' not found.")
+    if not frappe.has_permission("Event Expense Claim", "read", claim_name):
+        frappe.throw("You are not permitted to view this Event Expense Claim.", exc=frappe.PermissionError)
+
+    doc = frappe.get_doc("Event Expense Claim", claim_name)
+    is_zero_refund = bool(frappe.utils.cint(getattr(doc, "is_zero_spend_refund", 0)))
+    is_final = True if is_zero_refund else bool(frappe.utils.cint(getattr(doc, "is_final_settlement", 1)))
+
+    from ap_automation.services.event_settlement_service import (
+        _resolve_event_claim_actor_context,
+        calculate_event_claim_reconciliation,
+    )
+
+    recon = calculate_event_claim_reconciliation(
+        event_name=doc.event,
+        current_claim_name=doc.name,
+        current_claim_amount=float(getattr(doc, "total_claim_amount", 0.0) or 0.0),
+        is_final_settlement=1 if is_final else 0,
+        is_zero_spend_refund=1 if is_zero_refund else 0,
+    )
+    actor_ctx = _resolve_event_claim_actor_context(
+        company=doc.company,
+        amount=float(recon.get("net_payable_to_spoc") or doc.total_claim_amount or 0.0),
+        user=frappe.session.user,
+    )
+    return {
+        "claim": doc.name,
+        "status": doc.status,
+        "docstatus": doc.docstatus,
+        "reconciliation": recon,
+        **actor_ctx,
     }
 
 
