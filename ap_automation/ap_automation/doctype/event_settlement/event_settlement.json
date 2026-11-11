@@ -330,7 +330,7 @@
    "write": 1,
    "submit": 1,
    "cancel": 1,
-   "create": 0,
+   "create": 1,
    "delete": 0
   },
   {
@@ -340,7 +340,7 @@
    "write": 1,
    "submit": 1,
    "cancel": 1,
-   "create": 0,
+   "create": 1,
    "delete": 0
   },
   {
@@ -350,7 +350,7 @@
    "write": 1,
    "submit": 1,
    "cancel": 1,
-   "create": 0,
+   "create": 1,
    "delete": 0
   },
   {
@@ -360,7 +360,7 @@
    "write": 1,
    "submit": 1,
    "cancel": 1,
-   "create": 0,
+   "create": 1,
    "delete": 0
   }
  ],

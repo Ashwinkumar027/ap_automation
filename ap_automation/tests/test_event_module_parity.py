@@ -736,6 +736,65 @@ class TestEventModuleParity(unittest.TestCase):
         self.assertEqual(res["settlement_type"], "PAYABLE_TO_SPOC")
         self.assertGreater(res["net_payable_to_spoc"], 0.0)
 
+    def test_11_event_settlement_role_perms_and_smart_bridge(self):
+        """Verifies Accounts Director/L1 have create perm on Event Settlement and 1-click bridge works cleanly."""
+        import json
+        from ap_automation.services.event_settlement_service import initiate_or_open_event_settlement
+
+        es_json_path = frappe.get_app_path("ap_automation", "ap_automation", "doctype", "event_settlement", "event_settlement.json")
+        with open(es_json_path, "r", encoding="utf-8") as jf:
+            schema = json.load(jf)
+        perms_by_role = {p.get("role"): p for p in schema.get("permissions", [])}
+        for role_name in ("Accounts Director", "Accounts L1 Auditor", "AP Director", "Payment Releaser"):
+            self.assertEqual(perms_by_role[role_name].get("create"), 1, f"{role_name} must have create=1")
+
+        self.assertIn(initiate_or_open_event_settlement, frappe.whitelisted)
+
+        u_ad = _ensure_user("parity.ad@quanticus.com", "Parity Accounts Dir", ["Employee", "Desk User", "Accounts Director"])
+        ev = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"Bridge Settlement Event {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "event_spoc": self.spoc_user,
+            "spoc_name": "Parity SPOC",
+            "start_date": "2026-12-10",
+            "end_date": "2026-12-11",
+            "allocated_budget": 20000.00,
+            "status": "Settlement Pending",
+        }).insert(ignore_permissions=True)
+
+        # Create & submit an expense claim with no cash advance -> PAYABLE_TO_SPOC
+        claim = frappe.get_doc({
+            "doctype": "Event Expense Claim",
+            "event": ev.name,
+            "posting_date": "2026-12-11",
+            "expense_items": [{
+                "spend_stream": "SPOC On-Ground Cash Spend",
+                "expense_category": "Venue & Stage",
+                "vendor_name": "Bridge Vendor",
+                "bill_number": f"BRG-{frappe.generate_hash(length=5)}",
+                "bill_date": "2026-12-11",
+                "amount": 4534.00,
+                "receipt_attachment": self.receipt_url,
+            }],
+        }).insert(ignore_permissions=True)
+        claim.flags.ignore_permissions = True
+        claim.submit()
+
+        prev_user = frappe.session.user
+        try:
+            frappe.set_user(u_ad)
+            bridge_res = initiate_or_open_event_settlement(ev.name)
+            self.assertTrue(bridge_res["created"])
+            self.assertEqual(bridge_res["settlement_status"], "Under Accounts Review")
+
+            # Calling again returns the existing settlement without creating a duplicate
+            second_res = initiate_or_open_event_settlement(ev.name)
+            self.assertFalse(second_res["created"])
+            self.assertEqual(second_res["settlement"], bridge_res["settlement"])
+        finally:
+            frappe.set_user(prev_user)
+
 
 if __name__ == "__main__":
     unittest.main()
