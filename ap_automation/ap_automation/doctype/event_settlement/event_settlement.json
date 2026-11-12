@@ -235,7 +235,8 @@
   }
  ],
  "grid_page_length": 50,
- "index_web_pages_for_search": 1,
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
  "is_submittable": 1,
  "links": [],
  "modified": "2026-09-03 14:05:37.694758",

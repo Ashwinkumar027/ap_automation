@@ -83,7 +83,8 @@ class TestEventMasterAndAdvance(unittest.TestCase):
         frappe.db.commit()
 
     def test_01_event_master_creation_and_budget_ledger(self):
-        """Verifies initial budget ledger calculation on Event Master."""
+        """Verifies initial budget ledger calculation and default Event Created status on Event Master."""
+        self.assertEqual(self.event.status, "Event Created")
         ledger = update_event_budget_ledger(self.event.name)
 
         self.assertEqual(ledger["allocated_budget"], 500000.00)
@@ -92,19 +93,19 @@ class TestEventMasterAndAdvance(unittest.TestCase):
         self.assertEqual(ledger["utilization_pct"], 0.0)
         self.assertEqual(ledger["overrun_status"], "WITHIN_BUDGET")
 
-    def test_02_advance_exceeding_budget_hard_blocked(self):
-        """Verifies requesting advance > remaining budget raises APValidationError."""
-        # Remaining budget is INR 5,00,000. Requesting INR 6,00,000 should hard-block.
+    def test_02_advance_exceeding_budget_soft_reminder_allowed(self):
+        """Verifies requesting advance > remaining budget does NOT block and populates a soft budget reminder."""
+        # Remaining budget is INR 5,00,000. Requesting INR 6,00,000 should succeed with a soft reminder.
         adv = EventAdvanceRequest({
             "doctype": "Event Advance Request",
             "event": self.event.name,
             "requested_advance_amount": 600000.00,
             "purpose": "Hotel bookings and venue deposits."
         })
-        with self.assertRaises(APValidationError) as ctx:
-            adv.validate()
+        adv.validate()
 
-        self.assertIn("Budget Exceeded", str(ctx.exception))
+        self.assertIn("Budget Reminder", adv.budget_warning_note or "")
+        self.assertIn("100,000.00", adv.budget_warning_note or "")
 
     def test_03_spoc_salary_bank_auto_fetch(self):
         """Verifies SPOC advance pulls verified HRMS bank account without free-text typing."""
@@ -170,8 +171,8 @@ class TestEventMasterAndAdvance(unittest.TestCase):
         self.assertEqual(ev.status, "Advance Disbursed")
 
 
-    def test_06_advance_concurrency_pipeline_budget_shield(self):
-        """Verifies pipeline advances in flight are deducted to block concurrent budget overrun."""
+    def test_06_advance_pipeline_budget_reminder_snapshot(self):
+        """Verifies pipeline advances in flight are reflected in live budget snapshot as a soft reminder without blocking."""
         # Remaining budget on self.event is INR 350,000
         # Create Advance 1 for INR 250,000 (status: Pending Director Approval)
         adv1 = EventAdvanceRequest({
@@ -185,20 +186,21 @@ class TestEventMasterAndAdvance(unittest.TestCase):
         adv1.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        # Advance 2 requests INR 150,000.
-        # Although 150k <= 350k remaining, 250k is in flight. 350k - 250k = 100k effective uncommitted.
-        # Therefore, requesting 150k must be hard blocked!
+        from ap_automation.services.event_budget_service import get_event_budget_snapshot
+        snap = get_event_budget_snapshot(self.event.name)
+        self.assertEqual(snap["pending_advance_pipeline"], 250000.00)
+        self.assertEqual(snap["remaining_after_pipeline"], 100000.00)
+
+        # Advance 2 requests INR 150,000 -> exceeds 100k remaining by 50k, allowed with reminder note.
         adv2 = EventAdvanceRequest({
             "doctype": "Event Advance Request",
             "event": self.event.name,
             "requested_advance_amount": 150000.00,
             "purpose": "VIP hospitality."
         })
-        with self.assertRaises(APValidationError) as ctx:
-            adv2.validate()
-
-        self.assertIn("Budget Exceeded", str(ctx.exception))
-        self.assertIn("advance proposals in flight", str(ctx.exception))
+        adv2.validate()
+        self.assertIn("Budget Reminder", adv2.budget_warning_note or "")
+        self.assertIn("50,000.00", adv2.budget_warning_note or "")
 
     def test_07_direct_status_tamper_hard_blocked(self):
         """Verifies direct manual status changes are blocked on Event DocTypes."""
@@ -259,15 +261,16 @@ class TestEventMasterAndAdvance(unittest.TestCase):
         ad_res = authorize_event_advance_by_accounts_director(draft.name, remarks="Cleared for IDFC")
         self.assertEqual(ad_res["new_status"], "Approved for Payment")
 
-        # Pipeline check: 60k in 'Approved for Payment' leaves only 40k available (50k must fail!)
+        # Pipeline check: 60k in 'Approved for Payment' leaves 40k; requesting 50k shows reminder of 10k over without blocking
         overrun_adv = EventAdvanceRequest({
             "doctype": "Event Advance Request",
             "event": fresh_ev.name,
             "requested_advance_amount": 50000.00,
             "purpose": "Extra booth",
         })
-        with self.assertRaises(APValidationError):
-            overrun_adv.validate()
+        overrun_adv.validate()
+        self.assertIn("Budget Reminder", overrun_adv.budget_warning_note or "")
+        self.assertIn("10,000.00", overrun_adv.budget_warning_note or "")
 
         # 5. Maker notifies & Checker disburses -> Disbursed
         trigger_event_advance_payment_release_notification(draft.name)
@@ -277,6 +280,7 @@ class TestEventMasterAndAdvance(unittest.TestCase):
         final_doc = frappe.get_doc("Event Advance Request", draft.name)
         self.assertEqual(final_doc.status, "Disbursed")
         self.assertTrue(bool(final_doc.accounts_l1_verifier))
+        self.assertEqual(frappe.db.get_value("Event Master", fresh_ev.name, "status"), "Advance Disbursed")
 
     def test_09_legacy_status_migration_and_readonly_metadata(self):
         """Verifies migration normalizes old Business Head statuses and enforces read_only status."""
@@ -298,6 +302,116 @@ class TestEventMasterAndAdvance(unittest.TestCase):
             meta = frappe.get_meta(dt)
             sf = meta.get_field("status")
             self.assertEqual(int(sf.read_only or 0), 1, f"{dt}.status must be read_only")
+
+    def test_10_event_expense_gst_tds_and_l1_reclassification(self):
+        """Verifies Intra-State GST, Inter-State IGST, TDS on Base, backward compat, and Accounts L1 reclassification."""
+        from ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim import (
+            update_event_claim_tax_classification,
+        )
+        from ap_automation.services.tally_service import export_tally_journal_xml_for_event
+        import xml.etree.ElementTree as ET
+
+        ev = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"Tax Compliance Event {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "event_spoc": self.spoc_user,
+            "spoc_name": "Naveen Kumar",
+            "start_date": "2026-11-20",
+            "end_date": "2026-11-21",
+            "allocated_budget": 20000.00,
+        }).insert(ignore_permissions=True)
+
+        # Row 1: 10,000 Base + 18% CGST/SGST (900+900=1800) - 2% 194C TDS (200) => Net 11,600
+        # Row 2: 5,000 Base + 12% IGST (600) - 10% 194J TDS (500) => Net 5,100
+        # Row 3: Legacy row passing amount=4,000 without base_amount, No GST / Exempt => Net 4,000
+        # Total Net Claim = 20,700 > Budget 20,000 -> Must NOT block!
+        claim = frappe.get_doc({
+            "doctype": "Event Expense Claim",
+            "event": ev.name,
+            "posting_date": "2026-11-20",
+            "is_final_settlement": 1,
+            "expense_items": [
+                {
+                    "expense_category": "Venue & Stage",
+                    "vendor_name": "StageCraft Audio",
+                    "bill_number": f"GST-{frappe.generate_hash(length=5)}",
+                    "bill_date": "2026-11-20",
+                    "base_amount": 10000.00,
+                    "tax_type": "Intra-State (CGST + SGST)",
+                    "gst_rate": "18%",
+                    "tds_section": "194C - Contractor (2%)",
+                    "receipt_attachment": "/files/stage_inv.pdf",
+                },
+                {
+                    "expense_category": "Marketing & Collateral",
+                    "vendor_name": "DesignStudio IGST",
+                    "bill_number": f"IGST-{frappe.generate_hash(length=5)}",
+                    "bill_date": "2026-11-20",
+                    "base_amount": 5000.00,
+                    "tax_type": "Inter-State (IGST)",
+                    "gst_rate": "12%",
+                    "tds_section": "194J - Professional Fees (10%)",
+                    "receipt_attachment": "/files/design_inv.pdf",
+                },
+                {
+                    "expense_category": "Local Conveyance",
+                    "vendor_name": "Auto Union",
+                    "bill_number": f"AUTO-{frappe.generate_hash(length=5)}",
+                    "bill_date": "2026-11-20",
+                    "amount": 4000.00,
+                    "receipt_attachment": "/files/auto_rcpt.pdf",
+                },
+            ],
+        })
+        claim.insert(ignore_permissions=True)
+        self.assertEqual(claim.total_base_amount, 19000.00)
+        self.assertEqual(claim.total_cgst_amount, 900.00)
+        self.assertEqual(claim.total_sgst_amount, 900.00)
+        self.assertEqual(claim.total_igst_amount, 600.00)
+        self.assertEqual(claim.total_gst_amount, 2400.00)
+        self.assertEqual(claim.total_tds_amount, 700.00)
+        self.assertEqual(claim.total_claim_amount, 20700.00)
+        self.assertEqual(claim.expense_items[2].base_amount, 4000.00)
+
+        claim.flags.in_workflow_transition = True
+        claim.submit()
+
+        frappe.set_user("Administrator")
+        # Verify Tally XML balances exactly (Sum(AMOUNT) == 0.00) with Input CGST/SGST/IGST & TDS Payable
+        xml_str = export_tally_journal_xml_for_event("Event Expense Claim", claim.name, voucher_mode="expense")
+        root = ET.fromstring(xml_str)
+        ledger_amounts = {}
+        total_balance = 0.0
+        for node in root.findall(".//ALLLEDGERENTRIES.LIST"):
+            lname = node.findtext("LEDGERNAME")
+            lamt = float(node.findtext("AMOUNT") or 0.0)
+            ledger_amounts[lname] = ledger_amounts.get(lname, 0.0) + lamt
+            total_balance += lamt
+        self.assertAlmostEqual(total_balance, 0.0, places=2)
+        self.assertAlmostEqual(ledger_amounts.get("Input CGST", 0.0), -900.0, places=2)
+        self.assertAlmostEqual(ledger_amounts.get("Input SGST", 0.0), -900.0, places=2)
+        self.assertAlmostEqual(ledger_amounts.get("Input IGST", 0.0), -600.0, places=2)
+        self.assertAlmostEqual(ledger_amounts.get("TDS Payable", 0.0), 700.0, places=2)
+
+        # Accounts L1 tax reclassification on Submitted claim (Row 3 reclassified to 5% GST)
+        row3_name = claim.expense_items[2].name
+        upd = update_event_claim_tax_classification(
+            claim.name,
+            items_json=[{
+                "name": row3_name,
+                "tax_type": "Intra-State (CGST + SGST)",
+                "gst_rate": "5%",
+                "tds_section": "None / Exempt",
+            }],
+        )
+        self.assertEqual(upd["status"], "SUCCESS")
+        self.assertEqual(upd["total_gst_amount"], 2600.00)
+        self.assertEqual(upd["total_claim_amount"], 20900.00)
+
+        # Check Event Settlement DocType is hidden from standard creation menu
+        es_meta = frappe.get_meta("Event Settlement")
+        self.assertEqual(int(es_meta.in_create or 0), 1)
 
 
 if __name__ == "__main__":

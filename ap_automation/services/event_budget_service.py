@@ -169,7 +169,7 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
     event.budget_utilization_pct = utilization_pct
     event.budget_overrun_status = overrun_status
 
-    if total_disbursed_advance > 0 and event.status == "Budget Approved":
+    if total_disbursed_advance > 0 and event.status in ("Event Created", "Budget Approved", "Planning"):
         event.status = "Advance Disbursed"
 
     event.flags.in_workflow_transition = True
@@ -189,10 +189,69 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
     }
 
 
+@frappe.whitelist()
+def get_event_budget_snapshot(
+    event_name: str,
+    exclude_advance_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Returns live Event budget metrics including active in-flight advance proposals.
+    Purely informational — never blocks submission on budget overrun.
+    """
+    if not event_name or not frappe.db.exists("Event Master", event_name):
+        raise APValidationError(f"Event Master '{event_name}' not found.")
+    if frappe.request and not frappe.has_permission("Event Master", "read", event_name):
+        frappe.throw("You are not permitted to view this Event Master.", exc=frappe.PermissionError)
+
+    event = frappe.get_doc("Event Master", event_name)
+    allocated = round(float(event.allocated_budget or 0.0), 2)
+    disbursed_adv = round(float(event.disbursed_advance or 0.0), 2)
+    direct_fin = round(float(event.direct_finance_spends or 0.0), 2)
+    spoc_act = round(float(event.spoc_actual_spends or 0.0), 2)
+    committed = round(direct_fin + max(disbursed_adv, spoc_act), 2)
+
+    pending_filters: Dict[str, Any] = {
+        "event": event_name,
+        "status": ["in", ["Pending Director Approval", "Pending Accounts L1 Review", "Pending Accounts Director Approval", "Approved for Payment"]],
+        "docstatus": ["!=", 2],
+    }
+    if exclude_advance_name and not str(exclude_advance_name).startswith("new-event-advance-request"):
+        pending_filters["name"] = ["!=", exclude_advance_name]
+
+    pending_adv_records = frappe.get_all(
+        "Event Advance Request",
+        filters=pending_filters,
+        fields=["requested_advance_amount", "approved_advance_amount"],
+    )
+    pending_pipeline = round(
+        sum(float(r.approved_advance_amount or r.requested_advance_amount or 0.0) for r in pending_adv_records),
+        2,
+    )
+
+    remaining_ledger = round(allocated - committed, 2)
+    committed_with_pipeline = round(committed + pending_pipeline, 2)
+    remaining_after_pipeline = round(allocated - committed_with_pipeline, 2)
+
+    return {
+        "event": event_name,
+        "event_name": event.event_name or event.name,
+        "allocated_budget": allocated,
+        "disbursed_advance": disbursed_adv,
+        "direct_finance_spends": direct_fin,
+        "spoc_actual_spends": spoc_act,
+        "total_committed_spend": committed,
+        "pending_advance_pipeline": pending_pipeline,
+        "committed_with_pipeline": committed_with_pipeline,
+        "remaining_budget": remaining_ledger,
+        "remaining_after_pipeline": remaining_after_pipeline,
+        "is_over_budget": remaining_after_pipeline < 0,
+    }
+
+
 def validate_advance_request(advance_doc) -> None:
     """
-    Validates Event Advance Request with concurrency-safe uncommitted pipeline budget checks.
-    Accounts for both already-disbursed advances AND active pending advances in flight.
+    Validates Event Advance Request and computes a non-blocking soft budget reminder.
+    Budget overrun is surfaced clearly to the SPOC and approvers without blocking submission.
     """
     event_name = getattr(advance_doc, "event", None)
     if not event_name:
@@ -210,38 +269,26 @@ def validate_advance_request(advance_doc) -> None:
     if is_submitting and requested_amt <= 0:
         raise APValidationError("Requested Advance Amount must be strictly greater than zero upon submission.")
 
-    remaining = float(event.remaining_budget or 0.0)
-    if float(event.total_committed_spend or 0.0) == 0.0 and remaining == 0.0:
-        remaining = float(event.allocated_budget or 0.0)
+    snapshot = get_event_budget_snapshot(event_name, exclude_advance_name=getattr(advance_doc, "name", None))
+    effective_uncommitted = float(snapshot["remaining_after_pipeline"])
+    projected_remaining = round(effective_uncommitted - requested_amt, 2)
 
-    # Concurrency Protection: Calculate pending advances currently in pipeline (including Approved awaiting bank UTR release)
-    pending_filters: Dict[str, Any] = {
-        "event": event_name,
-        "status": ["in", ["Pending Director Approval", "Pending Accounts L1 Review", "Pending Accounts Director Approval", "Approved for Payment"]],
-        "docstatus": ["!=", 2]
-    }
-    doc_name = getattr(advance_doc, "name", None)
-    if doc_name and not doc_name.startswith("new-event-advance-request"):
-        pending_filters["name"] = ["!=", doc_name]
-
-    pending_adv_records = frappe.get_all(
-        "Event Advance Request",
-        filters=pending_filters,
-        fields=["requested_advance_amount", "approved_advance_amount"]
-    )
-    pending_pipeline_amount = sum(
-        float(r.approved_advance_amount or r.requested_advance_amount or 0.0)
-        for r in pending_adv_records
-    )
-    effective_uncommitted = round(remaining - pending_pipeline_amount, 2)
-
-    if requested_amt > effective_uncommitted:
-        raise APValidationError(
-            f"Budget Exceeded: Requested advance (INR {requested_amt:,.2f}) exceeds available "
-            f"uncommitted budget (INR {effective_uncommitted:,.2f}, after accounting for "
-            f"INR {pending_pipeline_amount:,.2f} in active advance proposals in flight) for Event '{event.event_name}'. "
-            "Please request a budget increase or reduce the advance amount."
+    if projected_remaining < 0:
+        over_by = abs(projected_remaining)
+        warning_text = (
+            f"Budget Reminder: Requested INR {requested_amt:,.2f} exceeds remaining budget "
+            f"(INR {effective_uncommitted:,.2f}) by INR {over_by:,.2f}. "
+            "Submitted for approver review."
         )
+    else:
+        warning_text = (
+            f"Within Budget: INR {projected_remaining:,.2f} remaining after this request "
+            f"(Board Budget: INR {snapshot['allocated_budget']:,.2f})."
+        )
+
+    advance_doc.flags.budget_overrun_warning = warning_text if projected_remaining < 0 else None
+    if hasattr(advance_doc, "budget_warning_note"):
+        advance_doc.budget_warning_note = warning_text
 
     bank_info = fetch_spoc_salary_bank(advance_doc.spoc)
     if not bank_info or not bank_info.get("bank_account_no"):

@@ -8,7 +8,10 @@ Enforces:
 4. Autonomous synchronization with Event Master budget ledger upon submission and cancellation.
 """
 from typing import Dict, Any, Optional
+import json
+import re
 import frappe
+from frappe.utils import flt
 from ap_automation.controllers.ap_document import APDocument
 from ap_automation.services.event_duplicate_service import screen_event_expense_items_batch
 from ap_automation.services.event_budget_service import (
@@ -19,6 +22,86 @@ from ap_automation.services.event_budget_service import (
 from ap_automation.exceptions import APValidationError, APSecurityError
 
 
+def _resolve_tds_for_event_row(base_amount: float, tds_section: Optional[str]) -> Dict[str, float]:
+    """Compute statutory TDS rate and amount on Base Taxable Amount via central tds_service."""
+    section = (tds_section or "None / Exempt").strip()
+    if not section or section == "None / Exempt" or base_amount <= 0:
+        return {"rate": 0.0, "tds_amount": 0.0}
+    try:
+        from ap_automation.services.tds_service import calculate_tds
+        info = calculate_tds(base_amount, section)
+        return {
+            "rate": float(info.get("rate") or 0.0),
+            "tds_amount": float(info.get("tds_amount") or 0.0),
+        }
+    except Exception:
+        m = re.search(r"\((\d+(?:\.\d+)?)\s*%\)", section)
+        rate = float(m.group(1)) if m else 0.0
+        return {"rate": rate, "tds_amount": round(base_amount * (rate / 100.0), 2)}
+
+
+def _compute_event_row_statutory(row) -> None:
+    """Normalizes vendor/tax defaults and computes Base, CGST/SGST/IGST, TDS, and Net Amount in place."""
+    if getattr(row, "vendor", None):
+        sup_fields = ["supplier_name"]
+        if frappe.db.has_column("Supplier", "gstin"):
+            sup_fields.append("gstin")
+        if frappe.db.has_column("Supplier", "tax_id"):
+            sup_fields.append("tax_id")
+        sup = frappe.db.get_value("Supplier", row.vendor, sup_fields, as_dict=True) or {}
+        if sup.get("supplier_name") and not getattr(row, "vendor_name", None):
+            row.vendor_name = sup["supplier_name"]
+        if not getattr(row, "tax_id", None):
+            row.tax_id = sup.get("gstin") or sup.get("tax_id") or ""
+
+    if getattr(row, "service_type", None) and (not getattr(row, "tds_section", None) or row.tds_section == "None / Exempt"):
+        default_tds = frappe.db.get_value("AP Service Type Master", row.service_type, "default_tds_section")
+        if default_tds:
+            row.tds_section = default_tds
+
+    base = flt(getattr(row, "base_amount", 0.0))
+    if base <= 0 and flt(getattr(row, "amount", 0.0)) > 0:
+        # Backward compatibility for legacy records or callers passing gross `amount` only
+        base = flt(row.amount)
+    base = round(base, 2)
+    row.base_amount = base
+
+    tax_type = (getattr(row, "tax_type", None) or "No GST / Exempt").strip()
+    if tax_type == "No GST / Exempt":
+        row.tax_type = "No GST / Exempt"
+        row.gst_rate = "0%"
+        gst_amt = 0.0
+        row.cgst_amount = 0.0
+        row.sgst_amount = 0.0
+        row.igst_amount = 0.0
+    else:
+        rate_str = getattr(row, "gst_rate", None) or "0%"
+        gst_pct = flt(str(rate_str).replace("%", "").strip() or 0.0)
+        gst_amt = round(base * (gst_pct / 100.0), 2)
+        if "Inter-State" in tax_type or "IGST" in tax_type:
+            row.tax_type = "Inter-State (IGST)"
+            row.cgst_amount = 0.0
+            row.sgst_amount = 0.0
+            row.igst_amount = gst_amt
+        else:
+            row.tax_type = "Intra-State (CGST + SGST)"
+            half_gst = round(gst_amt / 2.0, 2)
+            row.cgst_amount = half_gst
+            row.sgst_amount = round(gst_amt - half_gst, 2)
+            row.igst_amount = 0.0
+
+    row.gst_amount = gst_amt
+    total_bill = round(base + gst_amt, 2)
+    row.total_invoice_amount = total_bill
+
+    if not getattr(row, "tds_section", None):
+        row.tds_section = "None / Exempt"
+    tds_info = _resolve_tds_for_event_row(base, row.tds_section)
+    row.tds_rate = tds_info["rate"]
+    row.tds_amount = tds_info["tds_amount"]
+    row.amount = round(total_bill - tds_info["tds_amount"], 2)
+
+
 class EventExpenseClaim(APDocument):
     """
     Controller for Stream B On-Ground Event Expense Claims.
@@ -27,10 +110,49 @@ class EventExpenseClaim(APDocument):
     def _validate_financial_amounts(self):
         """Allows INR 0.00 only when explicitly returning 100% of an advance via Zero-Spend Refund mode."""
         if frappe.utils.cint(getattr(self, "is_zero_spend_refund", 0)):
+            self.total_base_amount = 0.0
+            self.total_cgst_amount = 0.0
+            self.total_sgst_amount = 0.0
+            self.total_igst_amount = 0.0
+            self.total_gst_amount = 0.0
+            self.total_tds_amount = 0.0
             self.total_amount = 0.0
             self.total_claim_amount = 0.0
             return
         super()._validate_financial_amounts()
+
+    def _calculate_and_normalize_expense_items(self):
+        """Computes per-row GST/TDS/Net Amount and parent statutory totals."""
+        tot_base = 0.0
+        tot_cgst = 0.0
+        tot_sgst = 0.0
+        tot_igst = 0.0
+        tot_gst = 0.0
+        tot_tds = 0.0
+        tot_net = 0.0
+
+        for idx, row in enumerate(self.expense_items or [], start=1):
+            _compute_event_row_statutory(row)
+            if flt(row.base_amount) <= 0 and flt(row.amount) <= 0:
+                raise APValidationError(
+                    f"Row #{idx}: Base Amount / Expense Amount must be greater than zero."
+                )
+            tot_base += flt(row.base_amount)
+            tot_cgst += flt(row.cgst_amount)
+            tot_sgst += flt(row.sgst_amount)
+            tot_igst += flt(row.igst_amount)
+            tot_gst += flt(row.gst_amount)
+            tot_tds += flt(row.tds_amount)
+            tot_net += flt(row.amount)
+
+        self.total_base_amount = round(tot_base, 2)
+        self.total_cgst_amount = round(tot_cgst, 2)
+        self.total_sgst_amount = round(tot_sgst, 2)
+        self.total_igst_amount = round(tot_igst, 2)
+        self.total_gst_amount = round(tot_gst, 2)
+        self.total_tds_amount = round(tot_tds, 2)
+        self.total_claim_amount = round(tot_net, 2)
+        self.total_amount = round(tot_net, 2)
 
     def validate(self):
         """Lifecycle validation hook."""
@@ -54,11 +176,20 @@ class EventExpenseClaim(APDocument):
 
         if is_zero_refund:
             self.expense_items = []
+            self.total_base_amount = 0.0
+            self.total_cgst_amount = 0.0
+            self.total_sgst_amount = 0.0
+            self.total_igst_amount = 0.0
+            self.total_gst_amount = 0.0
+            self.total_tds_amount = 0.0
             self.total_claim_amount = 0.0
             self.total_amount = 0.0
         else:
             if not getattr(self, "expense_items", None):
                 raise APValidationError("At least one expense line item is required (or check 'Zero-Spend Full Advance Refund' if no bills were incurred).")
+
+            # Compute statutory GST, TDS, and Net Amount per row + parent totals before duplicate screening
+            self._calculate_and_normalize_expense_items()
 
             # Validate mandatory attachments & expense categories per line item
             for idx, row in enumerate(self.expense_items, start=1):
@@ -77,11 +208,6 @@ class EventExpenseClaim(APDocument):
                 items=self.expense_items,
                 current_claim_name=self.name
             )
-
-            # Re-sum total claim amount
-            total = sum(float(row.amount or 0.0) for row in self.expense_items)
-            self.total_claim_amount = round(total, 2)
-            self.total_amount = round(total, 2)
 
         # Synchronize unified Advance Reconciliation & Settlement Verdict
         from ap_automation.services.event_settlement_service import calculate_event_claim_reconciliation
@@ -487,12 +613,138 @@ def get_event_expense_ui_context(claim_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+def update_event_claim_tax_classification(claim_name: str, items_json: Any) -> Dict[str, Any]:
+    """
+    Allows Accounts L1 Auditor / Accounts Director / Accounts Manager to review and update
+    GST (tax_type, gst_rate), TDS (tds_section), Service Type, Expense Category, or Vendor GSTIN
+    on a Submitted Event Expense Claim prior to final verification/settlement, and re-syncs
+    all tax totals, reconciliation verdict, and Event Master ledger.
+    """
+    if not claim_name or not frappe.db.exists("Event Expense Claim", claim_name):
+        raise APValidationError(f"Event Expense Claim '{claim_name}' not found.")
+
+    doc = frappe.get_doc("Event Expense Claim", claim_name)
+    user = frappe.session.user
+
+    from ap_automation.services.event_settlement_service import (
+        _resolve_event_claim_actor_context,
+        calculate_event_claim_reconciliation,
+    )
+    perm_ctx = _resolve_event_claim_actor_context(
+        company=doc.company,
+        amount=float(getattr(doc, "total_claim_amount", 0.0) or 0.0),
+        user=user,
+    )
+    user_roles = set(frappe.get_roles(user))
+    is_accounts = (
+        perm_ctx.get("can_verify_l1")
+        or perm_ctx.get("can_director_approve")
+        or user == "Administrator"
+        or bool(user_roles.intersection({"System Manager", "Accounts Manager", "Accounts L1 Auditor", "Accounts Director"}))
+    )
+    if not is_accounts:
+        raise APSecurityError("Unauthorized: Only Accounts Team can review or adjust GST & TDS classification.")
+
+    if doc.status not in ("Draft", "Submitted", "Returned to SPOC"):
+        raise APValidationError(f"Tax classification cannot be modified once claim is in '{doc.status}' status.")
+
+    updates = json.loads(items_json) if isinstance(items_json, str) else (items_json or [])
+    update_map = {str(u.get("name")): u for u in updates if u.get("name")}
+    if not update_map:
+        raise APValidationError("No row updates supplied.")
+
+    for row in doc.expense_items or []:
+        if row.name not in update_map:
+            continue
+        upd = update_map[row.name]
+        for fld in ("expense_category", "service_type", "tax_id", "tax_type", "gst_rate", "tds_section"):
+            if fld in upd:
+                setattr(row, fld, upd[fld])
+        if "base_amount" in upd and flt(upd["base_amount"]) > 0:
+            row.base_amount = flt(upd["base_amount"])
+        _compute_event_row_statutory(row)
+        frappe.db.set_value(
+            "Event Expense Item",
+            row.name,
+            {
+                "expense_category": row.expense_category,
+                "service_type": getattr(row, "service_type", None),
+                "tax_id": getattr(row, "tax_id", None),
+                "base_amount": row.base_amount,
+                "tax_type": row.tax_type,
+                "gst_rate": row.gst_rate,
+                "cgst_amount": row.cgst_amount,
+                "sgst_amount": row.sgst_amount,
+                "igst_amount": row.igst_amount,
+                "gst_amount": row.gst_amount,
+                "total_invoice_amount": row.total_invoice_amount,
+                "tds_section": row.tds_section,
+                "tds_rate": row.tds_rate,
+                "tds_amount": row.tds_amount,
+                "amount": row.amount,
+            },
+            update_modified=False,
+        )
+
+    doc._calculate_and_normalize_expense_items()
+    is_zero_refund = bool(frappe.utils.cint(getattr(doc, "is_zero_spend_refund", 0)))
+    is_final = True if is_zero_refund else bool(frappe.utils.cint(getattr(doc, "is_final_settlement", 1)))
+    recon = calculate_event_claim_reconciliation(
+        event_name=doc.event,
+        current_claim_name=doc.name,
+        current_claim_amount=doc.total_claim_amount,
+        is_final_settlement=1 if is_final else 0,
+        is_zero_spend_refund=1 if is_zero_refund else 0,
+    )
+
+    frappe.db.set_value(
+        "Event Expense Claim",
+        doc.name,
+        {
+            "total_base_amount": doc.total_base_amount,
+            "total_cgst_amount": doc.total_cgst_amount,
+            "total_sgst_amount": doc.total_sgst_amount,
+            "total_igst_amount": doc.total_igst_amount,
+            "total_gst_amount": doc.total_gst_amount,
+            "total_tds_amount": doc.total_tds_amount,
+            "total_claim_amount": doc.total_claim_amount,
+            "total_amount": doc.total_amount,
+            "disbursed_advance": recon["disbursed_advance"],
+            "prior_verified_claims": recon["prior_verified_claims"],
+            "cumulative_spoc_spends": recon["cumulative_spoc_spends"],
+            "settlement_delta": recon["settlement_delta"],
+            "settlement_type": recon["settlement_type"],
+            "net_payable_to_spoc": recon["net_payable_to_spoc"],
+            "refund_receivable_from_spoc": recon["refund_receivable_from_spoc"],
+        },
+        update_modified=True,
+    )
+    doc.reload()
+    doc._sync_event_spends()
+    doc.add_comment(
+        "Comment",
+        f"🏷️ <b>GST & TDS Tax Review Updated by {user}:</b> "
+        f"Base ₹ {doc.total_base_amount:,.2f} | GST ₹ {doc.total_gst_amount:,.2f} | "
+        f"TDS ₹ {doc.total_tds_amount:,.2f} | Net Claim ₹ {doc.total_claim_amount:,.2f}.",
+    )
+    return {
+        "status": "SUCCESS",
+        "total_base_amount": doc.total_base_amount,
+        "total_gst_amount": doc.total_gst_amount,
+        "total_tds_amount": doc.total_tds_amount,
+        "total_claim_amount": doc.total_claim_amount,
+    }
+
+
+@frappe.whitelist()
 def populate_from_imprest_proposal(event_name: str) -> Dict[str, Any]:
     """
     Populates SPOC Cash/Ground expense rows cleanly from the latest Disbursed or Approved Event Advance Request.
     """
     if not event_name or not frappe.db.exists("Event Master", event_name):
         raise APValidationError("Please select a valid Linked Event Master first.")
+    if not frappe.has_permission("Event Master", "read", event_name):
+        frappe.throw("You are not permitted to view this Event Master.", exc=frappe.PermissionError)
 
     advances = frappe.get_all(
         "Event Advance Request",
@@ -513,12 +765,17 @@ def populate_from_imprest_proposal(event_name: str) -> Dict[str, Any]:
     for row in getattr(adv, "imprest_items", []) or []:
         if getattr(row, "payment_mode", "") == "Direct Vendor Payment":
             continue
+        amt = float(getattr(row, "amount", 0.0) or 0.0)
         items.append({
             "particulars": getattr(row, "particulars", "") or "Event Ground Spend",
             "vendor_name": getattr(row, "beneficiary_name", "") or getattr(adv, "spoc_name", "") or "Vendor",
             "bill_number": "",
             "bill_date": frappe.utils.nowdate(),
-            "amount": float(getattr(row, "amount", 0.0) or 0.0),
+            "base_amount": amt,
+            "tax_type": "No GST / Exempt",
+            "gst_rate": "0%",
+            "tds_section": "None / Exempt",
+            "amount": amt,
             "spend_stream": "SPOC On-Ground Cash Spend",
             "expense_category": "Incidentals",
             "remarks": getattr(row, "remarks", "") or "",

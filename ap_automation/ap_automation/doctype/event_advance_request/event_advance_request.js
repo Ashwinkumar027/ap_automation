@@ -552,54 +552,80 @@ function render_advance_event_context(frm, pending_with, ctx) {
         return;
     }
 
-    frappe.db.get_value('Event Master', frm.doc.event, ['event_name', 'allocated_budget', 'remaining_budget', 'total_committed_spend']).then(r => {
-        if (frm._ap_ctx_seq !== seq || !r || !r.message) return;
-        const ev = r.message;
-        const budget = parseFloat(ev.allocated_budget || 0.0);
-        const committed = parseFloat(ev.total_committed_spend || 0.0);
-        const remaining = parseFloat(ev.remaining_budget || (budget - committed));
-        const format_curr = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(val || 0);
+    frappe.call({
+        method: 'ap_automation.services.event_budget_service.get_event_budget_snapshot',
+        args: {
+            event_name: frm.doc.event,
+            exclude_advance_name: frm.is_new() ? '' : frm.doc.name
+        },
+        callback: function(r) {
+            if (frm._ap_ctx_seq !== seq || !r || !r.message) return;
+            const ev = r.message;
+            const budget = parseFloat(ev.allocated_budget || 0.0);
+            const committed_other = parseFloat(ev.committed_with_pipeline || 0.0);
+            const req_amt = parseFloat(frm.doc.approved_advance_amount || frm.doc.requested_advance_amount || 0.0);
+            const counts_as_new_commit = !['Disbursed', 'Rejected'].includes(frm.doc.status || 'Draft');
+            const projected_used = committed_other + (counts_as_new_commit ? req_amt : 0.0);
+            const remaining = Math.round((budget - projected_used) * 100) / 100;
+            const is_over = remaining < 0;
+            const format_curr = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(val || 0);
 
-        const banner_html = `
-            ${build_advance_stepper_html(frm, pending_with || '', ctx || null)}
-            <div class="ap-advance-context-banner" style="
-                background: #f0fdf4;
-                border: 1px solid #86efac;
-                border-radius: 8px;
-                padding: 12px 16px;
-                margin-bottom: 16px;
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                flex-wrap: wrap;
-                gap: 10px;
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            ">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 20px;">💡</span>
-                    <div>
-                        <div style="font-size: 13px; font-weight: 700; color: #166534;">Linked Event: ${frappe.utils.escape_html(ev.event_name || frm.doc.event)}</div>
-                        <div style="font-size: 11px; color: #15803d; margin-top: 2px;">
-                            Board Budget: <b>${format_curr(budget)}</b> &nbsp;|&nbsp; Committed: <b>${format_curr(committed)}</b>
-                        </div>
-                        <div style="display: flex; gap: 12px; margin-top: 4px; font-size: 11px; flex-wrap: wrap;">
-                            <span style="background: #ffffff; padding: 2px 8px; border-radius: 4px; border: 1px solid #bbf7d0; color: #166534; font-weight: 600;">
-                                🏛️ Direct Vendor Payouts: <b>${format_curr(parseFloat(frm.doc.total_direct_vendor_amount || 0))}</b>
-                            </span>
-                            <span style="background: #ffffff; padding: 2px 8px; border-radius: 4px; border: 1px solid #bbf7d0; color: #166534; font-weight: 600;">
-                                💵 SPOC Cash Imprest: <b>${format_curr(parseFloat(frm.doc.total_cash_imprest_amount || 0))}</b>
-                            </span>
+            const bg = is_over ? '#fef2f2' : '#f0fdf4';
+            const border = is_over ? '#fca5a5' : '#86efac';
+            const title_col = is_over ? '#991b1b' : '#166534';
+            const sub_col = is_over ? '#b91c1c' : '#15803d';
+            const chip_border = is_over ? '#fecaca' : '#bbf7d0';
+            const rem_label = is_over ? 'Over Budget By (Reminder)' : 'Remaining Budget';
+            const rem_val = is_over ? format_curr(Math.abs(remaining)) : format_curr(remaining);
+            const icon = is_over ? '⚠️' : '💡';
+            const reminder_note = is_over
+                ? `<div style="font-size: 11px; color: #b91c1c; font-weight: 700; margin-top: 3px;">Reminder only — submission is allowed for approver review.</div>`
+                : '';
+
+            const banner_html = `
+                ${build_advance_stepper_html(frm, pending_with || '', ctx || null)}
+                <div class="ap-advance-context-banner" style="
+                    background: ${bg};
+                    border: 1px solid ${border};
+                    border-radius: 8px;
+                    padding: 12px 16px;
+                    margin-bottom: 16px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    flex-wrap: wrap;
+                    gap: 10px;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                ">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 20px;">${icon}</span>
+                        <div>
+                            <div style="font-size: 13px; font-weight: 700; color: ${title_col};">Linked Event: ${frappe.utils.escape_html(ev.event_name || frm.doc.event)}</div>
+                            <div style="font-size: 11px; color: ${sub_col}; margin-top: 2px;">
+                                Event Budget: <b>${format_curr(budget)}</b> &nbsp;|&nbsp;
+                                Earlier Advances / Spends: <b>${format_curr(committed_other)}</b> &nbsp;|&nbsp;
+                                This Request: <b>${format_curr(req_amt)}</b>
+                            </div>
+                            ${reminder_note}
+                            <div style="display: flex; gap: 12px; margin-top: 4px; font-size: 11px; flex-wrap: wrap;">
+                                <span style="background: #ffffff; padding: 2px 8px; border-radius: 4px; border: 1px solid ${chip_border}; color: ${title_col}; font-weight: 600;">
+                                    🏛️ Direct Vendor Payouts: <b>${format_curr(parseFloat(frm.doc.total_direct_vendor_amount || 0))}</b>
+                                </span>
+                                <span style="background: #ffffff; padding: 2px 8px; border-radius: 4px; border: 1px solid ${chip_border}; color: ${title_col}; font-weight: 600;">
+                                    💵 SPOC Cash Imprest: <b>${format_curr(parseFloat(frm.doc.total_cash_imprest_amount || 0))}</b>
+                                </span>
+                            </div>
                         </div>
                     </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 11px; text-transform: uppercase; color: ${sub_col}; font-weight: 700;">${rem_label}</div>
+                        <div style="font-size: 18px; font-weight: 800; color: ${title_col};">${rem_val}</div>
+                    </div>
                 </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 11px; text-transform: uppercase; color: #15803d; font-weight: 700;">Available For Advance</div>
-                    <div style="font-size: 18px; font-weight: 800; color: #166534;">${format_curr(remaining)}</div>
-                </div>
-            </div>
-        `;
+            `;
 
-        set_advance_headline(frm, banner_html);
+            set_advance_headline(frm, banner_html);
+        }
     });
 }
 

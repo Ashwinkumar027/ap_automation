@@ -159,12 +159,12 @@
    "label": "Lifecycle State"
   },
   {
-   "default": "Budget Approved",
+   "default": "Event Created",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Planning\nBudget Approved\nAdvance Disbursed\nIn Progress\nSettlement Pending\nClosed\nCancelled",
+   "options": "Event Created\nPlanning\nBudget Approved\nAdvance Disbursed\nIn Progress\nSettlement Pending\nClosed\nCancelled",
    "read_only": 1
   }
  ],

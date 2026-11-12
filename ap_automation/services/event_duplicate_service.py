@@ -87,6 +87,7 @@ def screen_event_expense_items_batch(
         bill_no = (getattr(item, "bill_number", "") or "").strip()
         vendor = (getattr(item, "vendor_name", "") or "").strip()
         amount = round(float(getattr(item, "amount", 0.0) or 0.0), 2)
+        total_bill_amt = round(float(getattr(item, "total_invoice_amount", 0.0) or 0.0), 2)
 
         if not bill_no:
             raise APValidationError(f"Row #{idx}: Bill / Receipt Number is mandatory on each expense item.")
@@ -114,13 +115,15 @@ def screen_event_expense_items_batch(
                 f"(Vendor Invoice Claim #{match.name}, Status: '{match.status}')! Dual payment is strictly prohibited."
             )
 
-        # O(1) Check against Stream A by (vendor, amount)
-        if (vendor_lower, amount) in stream_a_by_vendor_and_amount:
-            match = stream_a_by_vendor_and_amount[(vendor_lower, amount)]
+        # O(1) Check against Stream A by (vendor, amount or total_invoice_amount)
+        stream_a_match = stream_a_by_vendor_and_amount.get((vendor_lower, amount))
+        if not stream_a_match and total_bill_amt > 0 and total_bill_amt != amount:
+            stream_a_match = stream_a_by_vendor_and_amount.get((vendor_lower, total_bill_amt))
+        if stream_a_match:
             raise APValidationError(
                 f"🚨 CROSS-STREAM DUPLICATE DETECTED: Bill #{bill_no} for INR {amount:,.2f} "
                 f"from '{vendor}' has already been processed by Finance under Stream A "
-                f"(Vendor Invoice Claim #{match.name}, Status: '{match.status}')! Dual payment is strictly prohibited."
+                f"(Vendor Invoice Claim #{stream_a_match.name}, Status: '{stream_a_match.status}')! Dual payment is strictly prohibited."
             )
 
         # O(1) Check against Stream B sibling claims

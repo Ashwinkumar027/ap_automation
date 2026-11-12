@@ -34,7 +34,7 @@ class EventMaster(Document):
 
     def before_save(self):
         """Blocks direct manual `status` tampering on Event Master."""
-        enforce_event_status_tamper_lock(self, default_draft_status="Budget Approved")
+        enforce_event_status_tamper_lock(self, default_draft_status="Event Created")
 
     def onload(self):
         """Auto-recalculates numbers upon viewing."""
