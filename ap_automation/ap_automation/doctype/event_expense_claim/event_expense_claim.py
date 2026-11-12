@@ -743,6 +743,8 @@ def populate_from_imprest_proposal(event_name: str) -> Dict[str, Any]:
     """
     if not event_name or not frappe.db.exists("Event Master", event_name):
         raise APValidationError("Please select a valid Linked Event Master first.")
+    if not frappe.has_permission("Event Master", "read", event_name):
+        frappe.throw("You are not permitted to view this Event Master.", exc=frappe.PermissionError)
 
     advances = frappe.get_all(
         "Event Advance Request",
