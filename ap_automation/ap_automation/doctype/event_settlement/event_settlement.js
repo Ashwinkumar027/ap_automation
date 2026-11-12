@@ -24,6 +24,12 @@ frappe.ui.form.on("Event Settlement", {
         frm.set_df_property('status', 'read_only', 1);
         set_settlement_status_indicator(frm);
         render_settlement_verdict_card(frm);
+        if (frm.is_new()) {
+            frm.dashboard.set_headline_alert(
+                __('Settlement is now handled directly inside <b>Event Expense Claim</b>. No separate Event Settlement document is needed.'),
+                'blue'
+            );
+        }
         if (frm.is_new() && frm.doc.event && !frm.doc.company && !frm._ap_delta_fetching) {
             frm.trigger('event');
         }

@@ -22,10 +22,34 @@ frappe.ui.form.on("Event Expense Claim", {
         frm.set_df_property('is_final_settlement', 'read_only', is_zero_refund ? 1 : 0);
 
         set_expense_claim_indicator(frm);
+        frm.set_query('service_type', 'expense_items', function() {
+            return { filters: { is_active: 1 } };
+        });
+
+        frappe.call({
+            method: 'ap_automation.services.tds_service.get_all_active_tds_sections',
+            callback: function(r) {
+                if (r.message && r.message.length) {
+                    const opts = r.message.map(m => m.display_label || m.name);
+                    if (!opts.includes('None / Exempt')) opts.unshift('None / Exempt');
+                    const opt_str = opts.join('\n');
+                    const grid = frm.get_field('expense_items') && frm.get_field('expense_items').grid;
+                    if (grid) {
+                        const df = frappe.meta.get_docfield('Event Expense Item', 'tds_section', frm.doc.name);
+                        if (df) df.options = opt_str;
+                        frm.refresh_field('expense_items');
+                    }
+                }
+            }
+        });
+
+        fetch_event_budget_snapshot(frm);
+
         if (frm.doc.docstatus === 1 && !frm.is_new()) {
             render_unified_claim_banner(frm, null);
             sync_submitted_claim_context(frm);
         } else {
+            calculate_all_event_rows(frm, false);
             sync_live_claim_reconciliation(frm);
         }
 
@@ -81,11 +105,16 @@ frappe.ui.form.on("Event Expense Claim", {
                                     row.vendor_name = item.vendor_name;
                                     row.bill_number = item.bill_number;
                                     row.bill_date = item.bill_date;
+                                    row.base_amount = item.base_amount || item.amount;
+                                    row.tax_type = item.tax_type || 'No GST / Exempt';
+                                    row.gst_rate = item.gst_rate || '0%';
+                                    row.tds_section = item.tds_section || 'None / Exempt';
                                     row.amount = item.amount;
                                     row.spend_stream = item.spend_stream;
                                     row.expense_category = item.expense_category;
                                     row.remarks = item.remarks;
                                 });
+                                calculate_all_event_rows(frm, false);
                                 frm.refresh_field('expense_items');
                                 frappe.show_alert({
                                     message: __(`✅ Loaded ${r.message.items_count} items from Advance #${r.message.advance_name}! Please attach receipt proofs.`),
@@ -204,9 +233,11 @@ frappe.ui.form.on("Event Expense Claim", {
                 frm.set_value('company', ev.company);
                 frm.set_value('spoc', ev.event_spoc);
                 frm.set_value('spoc_name', ev.spoc_name);
+                fetch_event_budget_snapshot(frm);
                 sync_live_claim_reconciliation(frm);
             });
         } else {
+            frm._event_budget_snap = null;
             render_unified_claim_banner(frm, null);
         }
     },
@@ -359,6 +390,12 @@ function bind_submitted_claim_buttons(frm, ctx, recon) {
                 open_l1_prompt();
             }
         }).addClass('btn-primary'));
+
+        if (!is_zero_refund && (frm.doc.expense_items || []).length > 0) {
+            add_stage_btn(frm.add_custom_button(__('🏷️ Review / Edit GST & TDS'), function() {
+                open_event_claim_tax_review_dialog(frm);
+            }).addClass('btn-default'));
+        }
 
         if (ctx.can_return_to_spoc) {
             add_stage_btn(add_return_to_spoc_button(frm));
@@ -675,29 +712,55 @@ function render_unified_claim_banner(frm, recon) {
 
     const format_curr = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(val || 0);
 
+    let tot_base = 0.0, tot_gst = 0.0, tot_tds = 0.0;
+    if (!is_zero_refund) {
+        (frm.doc.expense_items || []).forEach(row => {
+            const b = parseFloat(row.base_amount || 0) > 0 ? parseFloat(row.base_amount || 0) : parseFloat(row.amount || 0);
+            tot_base += b;
+            tot_gst += parseFloat(row.gst_amount || 0);
+            tot_tds += parseFloat(row.tds_amount || 0);
+        });
+    }
+
+    const b_snap = frm._event_budget_snap || null;
+    let budget_pill_html = '';
+    if (b_snap && parseFloat(b_snap.allocated_budget || 0) > 0) {
+        const alloc = parseFloat(b_snap.allocated_budget || 0);
+        const committed = Math.max(parseFloat(b_snap.committed_with_pipeline || b_snap.total_committed_spend || 0), cum_spends);
+        const rem = Math.round((alloc - committed) * 100) / 100;
+        const is_over = rem < 0;
+        budget_pill_html = `
+            <div style="margin-top: 8px; padding: 6px 10px; border-radius: 6px; background: ${is_over ? '#fef2f2' : '#f0fdf4'}; border: 1px solid ${is_over ? '#fecaca' : '#bbf7d0'}; color: ${is_over ? '#991b1b' : '#166534'}; font-size: 11px; font-weight: 700;">
+                ${is_over
+                    ? `⚠️ Budget Reminder (Not Blocked): Event Budget ${format_curr(alloc)} &bull; Total Committed ${format_curr(committed)} &bull; Over Budget by ${format_curr(Math.abs(rem))}`
+                    : `📊 Budget Snapshot: Event Budget ${format_curr(alloc)} &bull; Total Committed ${format_curr(committed)} &bull; Remaining ${format_curr(rem)}`}
+            </div>
+        `;
+    }
+
     let bg = '#eff6ff', border = '#bfdbfe', text = '#1e40af', badge_bg = '#dbeafe';
-    let verdict_title = 'PAYOUT VERDICT: NET REIMBURSEMENT TO SPOC';
-    let verdict_desc = `Cumulative Spends (${format_curr(cum_spends)}) exceeded Cash Advance (${format_curr(adv)}). Accounts Director sign-off & IDFC release happen right here.`;
+    let verdict_title = 'SETTLEMENT SUMMARY: PAYABLE TO SPOC';
+    let verdict_desc = `Total Bills (${format_curr(cum_spends)}) exceeded Cash Advance (${format_curr(adv)}). Accounts Director sign-off & payout happen right here.`;
     let metric_label = 'NET PAYABLE';
     let metric_val = format_curr(payable);
 
     if (!is_final || s_type === 'INTERMEDIATE_CLAIM') {
         bg = '#f8fafc'; border = '#cbd5e1'; text = '#334155'; badge_bg = '#e2e8f0';
-        verdict_title = 'INTERMEDIATE EXPENSE BATCH (MORE BILLS COMING)';
-        verdict_desc = `Bills verified against Advance (${format_curr(adv)}). Remaining advance after this batch: ${format_curr(rem_adv)}. Event stays open until Final Settlement.`;
+        verdict_title = 'PARTIAL EXPENSE BATCH (MORE BILLS COMING)';
+        verdict_desc = `Bills verified against Advance (${format_curr(adv)}). Remaining advance after this batch: ${format_curr(rem_adv)}. Event stays open until final claim.`;
         metric_label = 'THIS CLAIM';
         metric_val = format_curr(local_total);
     } else if (s_type === 'REFUND_FROM_SPOC') {
         bg = '#fff7ed'; border = '#fed7aa'; text = '#c2410c'; badge_bg = '#ffedd5';
-        verdict_title = is_zero_refund ? 'ZERO-SPEND FULL ADVANCE REFUND DUE FROM SPOC' : 'UNSPENT ADVANCE REFUND DUE FROM SPOC';
-        verdict_desc = `Cash Advance (${format_curr(adv)}) exceeded Cumulative Spends (${format_curr(cum_spends)}). Enter Corporate Bank Refund UTR; closes immediately once Accounts L1 confirms credit.`;
-        metric_label = 'REFUND TO QUANTI';
+        verdict_title = is_zero_refund ? 'FULL ADVANCE REFUND DUE FROM SPOC' : 'UNSPENT ADVANCE REFUND DUE FROM SPOC';
+        verdict_desc = `Cash Advance (${format_curr(adv)}) exceeded Total Bills (${format_curr(cum_spends)}). Enter Corporate Bank Refund UTR; closes once Accounts L1 confirms credit.`;
+        metric_label = 'REFUND TO COMPANY';
         metric_val = format_curr(refund);
     } else if (s_type === 'ZERO_BALANCE_BALANCED') {
         bg = '#ecfdf5'; border = '#a7f3d0'; text = '#047857'; badge_bg = '#d1fae5';
-        verdict_title = 'PERFECT BALANCE MATCH (₹ 0.00 VARIANCE)';
-        verdict_desc = `Cumulative Spends (${format_curr(cum_spends)}) exactly match Disbursed Cash Advance (${format_curr(adv)}). Closes immediately after Accounts L1 verification.`;
-        metric_label = 'NET VARIANCE';
+        verdict_title = 'BALANCED SETTLEMENT (₹ 0.00 DIFFERENCE)';
+        verdict_desc = `Total Bills (${format_curr(cum_spends)}) match Disbursed Cash Advance (${format_curr(adv)}). Closes immediately after Accounts L1 verification.`;
+        metric_label = 'NET DIFFERENCE';
         metric_val = format_curr(0);
     }
 
@@ -728,11 +791,13 @@ function render_unified_claim_banner(frm, recon) {
                     <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 11px; font-weight: 700; color: #475569;">
                         <span>💵 Cash Advance: ${format_curr(adv)}</span>
                         <span>|</span>
-                        <span>🧾 Prior Claims: ${format_curr(prior)}</span>
+                        <span>🧾 Prior Bills: ${format_curr(prior)}</span>
                         <span>|</span>
-                        <span>📝 This Claim: ${format_curr(local_total)}</span>
+                        <span>📝 This Claim Net: ${format_curr(local_total)}</span>
+                        ${(!is_zero_refund && items_count > 0) ? `<span>|</span><span>🏷️ Base ${format_curr(tot_base)} + GST ${format_curr(tot_gst)} - TDS ${format_curr(tot_tds)}</span>` : ''}
                         ${(!is_zero_refund && items_count > 0) ? `<span>|</span><span style="color: ${missing_receipts > 0 ? '#b91c1c' : '#047857'};">${missing_receipts > 0 ? `⚠️ ${missing_receipts}/${items_count} missing receipts` : `✅ ${items_count} receipts attached`}</span>` : ''}
                     </div>
+                    ${budget_pill_html}
                     ${blocking_html}
                 </div>
 
@@ -753,9 +818,224 @@ function render_unified_claim_banner(frm, recon) {
     }
 }
 
-frappe.ui.form.on("Event Expense Item", {
-    amount: function(frm) {
+function fetch_event_budget_snapshot(frm) {
+    if (!frm.doc.event) {
+        frm._event_budget_snap = null;
+        return;
+    }
+    frappe.call({
+        method: 'ap_automation.services.event_budget_service.get_event_budget_snapshot',
+        args: { event_name: frm.doc.event },
+        callback: function(r) {
+            if (r.message) {
+                frm._event_budget_snap = r.message;
+                render_unified_claim_banner(frm, null);
+            }
+        }
+    });
+}
+
+function get_tds_rate_from_section(section) {
+    if (!section || section === 'None / Exempt') return 0.0;
+    const m = String(section).match(/\((\d+(?:\.\d+)?)\s*%\)/);
+    return m ? parseFloat(m[1]) : 0.0;
+}
+
+function calculate_event_row_statutory(frm, cdt, cdn, sync_recon = true) {
+    const row = locals[cdt] && locals[cdt][cdn];
+    if (!row) return;
+
+    let base = flt(row.base_amount);
+    if (base <= 0 && flt(row.amount) > 0) {
+        base = flt(row.amount);
+        row.base_amount = base;
+    }
+
+    const tax_type = (row.tax_type || 'No GST / Exempt').trim();
+    let gst_amt = 0.0, cgst = 0.0, sgst = 0.0, igst = 0.0;
+    if (tax_type === 'No GST / Exempt') {
+        row.gst_rate = '0%';
+    } else {
+        const gst_pct = flt(String(row.gst_rate || '0%').replace('%', '').trim());
+        gst_amt = Math.round(base * (gst_pct / 100.0) * 100) / 100;
+        if (tax_type.indexOf('Inter-State') !== -1 || tax_type.indexOf('IGST') !== -1) {
+            igst = gst_amt;
+        } else {
+            cgst = Math.round((gst_amt / 2.0) * 100) / 100;
+            sgst = Math.round((gst_amt - cgst) * 100) / 100;
+        }
+    }
+
+    const total_bill = Math.round((base + gst_amt) * 100) / 100;
+    const tds_rate = get_tds_rate_from_section(row.tds_section);
+    const tds_amt = Math.round(base * (tds_rate / 100.0) * 100) / 100;
+    const net_amt = Math.round((total_bill - tds_amt) * 100) / 100;
+
+    row.cgst_amount = cgst;
+    row.sgst_amount = sgst;
+    row.igst_amount = igst;
+    row.gst_amount = gst_amt;
+    row.total_invoice_amount = total_bill;
+    row.tds_rate = tds_rate;
+    row.tds_amount = tds_amt;
+    row.amount = net_amt;
+
+    frm.refresh_field('expense_items');
+    calculate_all_event_rows(frm, sync_recon);
+}
+
+function calculate_all_event_rows(frm, sync_recon = true) {
+    if (cint(frm.doc.is_zero_spend_refund) === 1) return;
+    let tot_base = 0, tot_cgst = 0, tot_sgst = 0, tot_igst = 0, tot_gst = 0, tot_tds = 0, tot_net = 0;
+    (frm.doc.expense_items || []).forEach(row => {
+        let base = flt(row.base_amount);
+        if (base <= 0 && flt(row.amount) > 0) {
+            base = flt(row.amount);
+            row.base_amount = base;
+        }
+        tot_base += base;
+        tot_cgst += flt(row.cgst_amount);
+        tot_sgst += flt(row.sgst_amount);
+        tot_igst += flt(row.igst_amount);
+        tot_gst += flt(row.gst_amount);
+        tot_tds += flt(row.tds_amount);
+        tot_net += flt(row.amount);
+    });
+    if (frm.doc.docstatus === 0) {
+        frm.doc.total_base_amount = Math.round(tot_base * 100) / 100;
+        frm.doc.total_cgst_amount = Math.round(tot_cgst * 100) / 100;
+        frm.doc.total_sgst_amount = Math.round(tot_sgst * 100) / 100;
+        frm.doc.total_igst_amount = Math.round(tot_igst * 100) / 100;
+        frm.doc.total_gst_amount = Math.round(tot_gst * 100) / 100;
+        frm.doc.total_tds_amount = Math.round(tot_tds * 100) / 100;
+        frm.doc.total_claim_amount = Math.round(tot_net * 100) / 100;
+        frm.doc.total_amount = Math.round(tot_net * 100) / 100;
+        ['total_base_amount', 'total_cgst_amount', 'total_sgst_amount', 'total_igst_amount', 'total_gst_amount', 'total_tds_amount', 'total_claim_amount'].forEach(fn => frm.refresh_field(fn));
+    }
+    if (sync_recon) {
         sync_live_claim_reconciliation(frm);
+    } else {
+        render_unified_claim_banner(frm, null);
+    }
+}
+
+function open_event_claim_tax_review_dialog(frm) {
+    const items = frm.doc.expense_items || [];
+    if (!items.length) return;
+
+    const tds_df = frappe.meta.get_docfield('Event Expense Item', 'tds_section', frm.doc.name);
+    const tds_opts = (tds_df && tds_df.options) || 'None / Exempt';
+
+    const d = new frappe.ui.Dialog({
+        title: __('Accounts GST & TDS Review — {0}', [frm.doc.name]),
+        size: 'extra-large',
+        fields: [
+            {
+                fieldname: 'info_html',
+                fieldtype: 'HTML',
+                options: '<div style="font-size:12px;color:#475569;margin-bottom:8px;">Review or reclassify GST Type, GST %, and TDS Section per bill. Net Claim, Advance Settlement Balance, and Event Master ledger update automatically on save.</div>'
+            },
+            {
+                fieldname: 'rows',
+                fieldtype: 'Table',
+                label: __('Expense Bills'),
+                cannot_add_rows: true,
+                cannot_delete_rows: true,
+                in_place_edit: true,
+                data: items.map(r => ({
+                    row_name: r.name,
+                    vendor_name: r.vendor_name,
+                    bill_number: r.bill_number,
+                    expense_category: r.expense_category,
+                    base_amount: flt(r.base_amount) || flt(r.amount),
+                    tax_type: r.tax_type || 'No GST / Exempt',
+                    gst_rate: r.gst_rate || '0%',
+                    tds_section: r.tds_section || 'None / Exempt',
+                    tax_id: r.tax_id || ''
+                })),
+                fields: [
+                    { fieldname: 'row_name', fieldtype: 'Data', label: 'Row ID', hidden: 1 },
+                    { fieldname: 'vendor_name', fieldtype: 'Data', label: 'Vendor', read_only: 1, in_list_view: 1, columns: 2 },
+                    { fieldname: 'bill_number', fieldtype: 'Data', label: 'Bill #', read_only: 1, in_list_view: 1, columns: 1 },
+                    { fieldname: 'base_amount', fieldtype: 'Currency', label: 'Base (₹)', in_list_view: 1, columns: 1 },
+                    { fieldname: 'tax_type', fieldtype: 'Select', label: 'GST Type', options: 'No GST / Exempt\nIntra-State (CGST + SGST)\nInter-State (IGST)', in_list_view: 1, columns: 2 },
+                    { fieldname: 'gst_rate', fieldtype: 'Select', label: 'GST %', options: '0%\n5%\n12%\n18%\n28%', in_list_view: 1, columns: 1 },
+                    { fieldname: 'tds_section', fieldtype: 'Select', label: 'TDS Section', options: tds_opts, in_list_view: 1, columns: 2 },
+                    { fieldname: 'tax_id', fieldtype: 'Data', label: 'GSTIN', in_list_view: 1, columns: 1 }
+                ]
+            }
+        ],
+        primary_action_label: __('Apply GST & TDS Updates'),
+        primary_action(vals) {
+            const payload = (vals.rows || []).map(r => ({
+                name: r.row_name,
+                base_amount: flt(r.base_amount),
+                tax_type: r.tax_type,
+                gst_rate: r.gst_rate,
+                tds_section: r.tds_section,
+                tax_id: r.tax_id
+            }));
+            frappe.call({
+                method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.update_event_claim_tax_classification',
+                args: {
+                    claim_name: frm.doc.name,
+                    items_json: JSON.stringify(payload)
+                },
+                freeze: true,
+                freeze_message: __('Recalculating GST, TDS & Settlement Ledger...'),
+                callback: function(r) {
+                    if (r.message && r.message.status === 'SUCCESS') {
+                        d.hide();
+                        frappe.show_alert({ message: __('✅ GST & TDS updated and synced.'), indicator: 'green' }, 5);
+                        frm.reload_doc();
+                    }
+                }
+            });
+        }
+    });
+    d.show();
+}
+
+frappe.ui.form.on("Event Expense Item", {
+    vendor: function(frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (row.vendor) {
+            frappe.db.get_value('Supplier', row.vendor, ['supplier_name', 'gstin', 'tax_id'], r => {
+                if (r) {
+                    if (r.supplier_name) frappe.model.set_value(cdt, cdn, 'vendor_name', r.supplier_name);
+                    if (r.gstin || r.tax_id) frappe.model.set_value(cdt, cdn, 'tax_id', r.gstin || r.tax_id);
+                }
+            });
+        }
+    },
+    service_type: function(frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (row.service_type) {
+            frappe.db.get_value('AP Service Type Master', row.service_type, 'default_tds_section', r => {
+                if (r && r.default_tds_section) {
+                    frappe.model.set_value(cdt, cdn, 'tds_section', r.default_tds_section);
+                }
+            });
+        }
+    },
+    base_amount: function(frm, cdt, cdn) {
+        calculate_event_row_statutory(frm, cdt, cdn);
+    },
+    tax_type: function(frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (row.tax_type !== 'No GST / Exempt' && (!row.gst_rate || row.gst_rate === '0%')) {
+            row.gst_rate = '18%';
+        }
+        calculate_event_row_statutory(frm, cdt, cdn);
+    },
+    gst_rate: function(frm, cdt, cdn) {
+        calculate_event_row_statutory(frm, cdt, cdn);
+    },
+    tds_section: function(frm, cdt, cdn) {
+        calculate_event_row_statutory(frm, cdt, cdn);
+    },
+    amount: function(frm) {
+        calculate_all_event_rows(frm, true);
     },
     receipt_attachment: function(frm) {
         render_unified_claim_banner(frm, null);
@@ -764,7 +1044,7 @@ frappe.ui.form.on("Event Expense Item", {
         }
     },
     expense_items_remove: function(frm) {
-        sync_live_claim_reconciliation(frm);
+        calculate_all_event_rows(frm, true);
         if (window.APReceiptGallery) {
             window.APReceiptGallery.refreshFormButtons(frm);
         }

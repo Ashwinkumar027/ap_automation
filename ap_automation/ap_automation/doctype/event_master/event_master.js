@@ -6,6 +6,7 @@ frappe.ui.form.on("Event Master", {
     refresh: function(frm) {
         frm.set_df_property('status', 'read_only', 1);
         const ev_colors = {
+            'Event Created': 'blue',
             'Planning': 'grey',
             'Budget Approved': 'blue',
             'Advance Disbursed': 'cyan',
@@ -14,7 +15,7 @@ frappe.ui.form.on("Event Master", {
             'Closed': 'green',
             'Cancelled': 'red'
         };
-        const st = frm.doc.status || 'Budget Approved';
+        const st = frm.doc.status || 'Event Created';
         frm.page.set_indicator(__(st), ev_colors[st] || 'blue');
         render_event_master_dashboard(frm);
         setup_event_master_actions(frm);
@@ -74,9 +75,9 @@ function render_event_master_dashboard(frm) {
     }
 
     // Lifecycle Stepper calculation
-    const current_status = frm.doc.status || "Planning";
+    const current_status = frm.doc.status || "Event Created";
     const steps = [
-        { key: "Budget Approved", label: "1. Budget Sanctioned" },
+        { key: "Event Created", label: "1. Event Created" },
         { key: "Advance Disbursed", label: "2. Advance Disbursed" },
         { key: "In Progress", label: "3. Ground Spends Active" },
         { key: "Closed", label: "4. Audited & Settled" }
@@ -89,7 +90,7 @@ function render_event_master_dashboard(frm) {
         active_step_idx = 2;
     } else if (current_status === "Advance Disbursed" || parseFloat(frm.doc.disbursed_advance || 0) > 0) {
         active_step_idx = 1;
-    } else if (current_status === "Budget Approved") {
+    } else if (current_status === "Event Created" || current_status === "Budget Approved" || current_status === "Planning") {
         active_step_idx = 0;
     }
 
@@ -136,9 +137,9 @@ function render_event_master_dashboard(frm) {
                 </div>
 
                 <div style="text-align: right; min-width: 140px;">
-                    <div style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; letter-spacing: 0.05em;">Remaining Uncommitted</div>
+                    <div style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; letter-spacing: 0.05em;">${remaining >= 0 ? 'Remaining Budget' : 'Over Budget (Reminder)'}</div>
                     <div style="font-size: 24px; font-weight: 800; color: ${remaining >= 0 ? '#10b981' : '#ef4444'}; letter-spacing: -0.02em;">
-                        ${format_inr(remaining)}
+                        ${format_inr(Math.abs(remaining))}
                     </div>
                 </div>
             </div>
@@ -146,27 +147,27 @@ function render_event_master_dashboard(frm) {
             <!-- 4 Responsive Executive KPI Cards -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px;">
                 <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px;">
-                    <div style="font-size: 11px; font-weight: 700; color: #1e40af; text-transform: uppercase; letter-spacing: 0.05em;">Approved Budget</div>
+                    <div style="font-size: 11px; font-weight: 700; color: #1e40af; text-transform: uppercase; letter-spacing: 0.05em;">Event Budget</div>
                     <div style="font-size: 18px; font-weight: 700; color: #1e3a8a; margin-top: 4px;">${format_inr(budget)}</div>
-                    <div style="font-size: 11px; color: #3b82f6; margin-top: 2px;">Total Board Allocation</div>
+                    <div style="font-size: 11px; color: #3b82f6; margin-top: 2px;">Budget Reminder Only</div>
                 </div>
 
                 <div style="background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 12px;">
-                    <div style="font-size: 11px; font-weight: 700; color: #6d28d9; text-transform: uppercase; letter-spacing: 0.05em;">Stream A: Finance Pay</div>
-                    <div style="font-size: 18px; font-weight: 700; color: #5b21b6; margin-top: 4px;">${format_inr(direct_finance)}</div>
-                    <div style="font-size: 11px; color: #8b5cf6; margin-top: 2px;">Direct Vendor Invoices</div>
+                    <div style="font-size: 11px; font-weight: 700; color: #6d28d9; text-transform: uppercase; letter-spacing: 0.05em;">Advance Disbursed</div>
+                    <div style="font-size: 18px; font-weight: 700; color: #5b21b6; margin-top: 4px;">${format_inr(disbursed_adv)}</div>
+                    <div style="font-size: 11px; color: #8b5cf6; margin-top: 2px;">Paid to Event SPOC</div>
                 </div>
 
                 <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px;">
-                    <div style="font-size: 11px; font-weight: 700; color: #b45309; text-transform: uppercase; letter-spacing: 0.05em;">Stream B: SPOC Spends</div>
+                    <div style="font-size: 11px; font-weight: 700; color: #b45309; text-transform: uppercase; letter-spacing: 0.05em;">Bills Submitted</div>
                     <div style="font-size: 18px; font-weight: 700; color: #92400e; margin-top: 4px;">${format_inr(spoc_actuals)}</div>
-                    <div style="font-size: 11px; color: #f59e0b; margin-top: 2px;">Ground Spends & Claims</div>
+                    <div style="font-size: 11px; color: #f59e0b; margin-top: 2px;">SPOC Expense Claims</div>
                 </div>
 
                 <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px;">
-                    <div style="font-size: 11px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.05em;">Committed Total</div>
+                    <div style="font-size: 11px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.05em;">Total Committed</div>
                     <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 4px;">${format_inr(committed)}</div>
-                    <div style="font-size: 11px; color: #64748b; margin-top: 2px;">Stream A + max(Adv, Ground)</div>
+                    <div style="font-size: 11px; color: #64748b; margin-top: 2px;">${direct_finance > 0 ? `Includes Direct Bills ${format_inr(direct_finance)}` : 'max(Advance, Bills)'}</div>
                 </div>
             </div>
 
@@ -240,7 +241,7 @@ function load_event_command_hub_links(frm) {
                         else if (parseFloat(c.refund_receivable_from_spoc || 0) > 0) extra = ` &bull; <span style="color:#c2410c;">Refund ${format_inr(c.refund_receivable_from_spoc)}</span>`;
                         return `${frappe.utils.escape_html(c.name)} &bull; ${format_inr(c.total_claim_amount)}${extra} <span style="color:#475569;">(${frappe.utils.escape_html(c.status || 'Draft')})</span>`;
                     })}
-                    ${pill_row('Direct Vendor Invoices (Stream A)', d.vendor_invoices, 'Vendor Invoice Claim', v => `${frappe.utils.escape_html(v.vendor_name || v.name)} &bull; ${format_inr(v.net_payable_amount || v.total_invoice_amount)} <span style="color:#475569;">(${frappe.utils.escape_html(v.status || 'Draft')})</span>`)}
+                    ${(d.vendor_invoices && d.vendor_invoices.length) ? pill_row('Linked Vendor Invoices', d.vendor_invoices, 'Vendor Invoice Claim', v => `${frappe.utils.escape_html(v.vendor_name || v.name)} &bull; ${format_inr(v.net_payable_amount || v.total_invoice_amount)} <span style="color:#475569;">(${frappe.utils.escape_html(v.status || 'Draft')})</span>`) : ''}
                     ${(d.legacy_settlements && d.legacy_settlements.length) ? pill_row('Legacy Settlements', d.legacy_settlements, 'Event Settlement', s => `${frappe.utils.escape_html(s.name)} <span style="color:#475569;">(${frappe.utils.escape_html(s.status || 'Draft')})</span>`) : ''}
                 </div>
             `;
@@ -303,15 +304,6 @@ function setup_event_master_actions(frm) {
             }, __('Actions'));
         }
 
-        // Quick Action 4: File Commercial Vendor Invoice (Stream A with GST & TDS)
-        frm.add_custom_button(__('🧾 File Direct Vendor Invoice (Stream A)'), function() {
-            frappe.route_options = {
-                "event": frm.doc.name,
-                "company": frm.doc.company,
-                "invoice_type": "Without PO (Direct Tax Invoice)"
-            };
-            frappe.new_doc("Vendor Invoice Claim");
-        }, __('Actions'));
     }
 
     // Quick Action 5: Refresh Live Ledger (SPOC / Accounts / Director)

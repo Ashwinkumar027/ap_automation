@@ -489,24 +489,31 @@ def _populate_event_expense_sheet(ws, doc: Any, styles: Dict[str, Any], event_ti
         ("Expense Claim ID:", doc.name, "Status:", doc.status or "Draft"),
         ("Linked Event:", f"{doc.event} ({event_title})" if event_title else (doc.event or "N/A"), "Claim Date:", str(getattr(doc, "posting_date", "") or "")),
         ("Company:", doc.company or "N/A", "Event SPOC:", doc.spoc_name or doc.spoc or "N/A"),
-        ("Total Claim Amount (₹):", f"₹ {float(getattr(doc, 'total_claim_amount', 0) or 0):,.2f}", "Generated On:", str(frappe.utils.today())),
+        ("Total Base / GST / TDS:", f"Base ₹ {float(getattr(doc, 'total_base_amount', 0) or 0):,.2f} | GST ₹ {float(getattr(doc, 'total_gst_amount', 0) or 0):,.2f} | TDS ₹ {float(getattr(doc, 'total_tds_amount', 0) or 0):,.2f}", "Net Claim Amount (₹):", f"₹ {float(getattr(doc, 'total_claim_amount', 0) or 0):,.2f}"),
     ]
     r = _write_meta_grid(ws, meta, start_row=3, styles=styles) + 1
 
-    ws.cell(row=r, column=1, value="ITEMIZED GROUND EXPENSE BILLS (STREAM B)").font = styles["sec_font"]
+    ws.cell(row=r, column=1, value="ITEMIZED EVENT EXPENSE BILLS (WITH GST & TDS)").font = styles["sec_font"]
     r += 1
     headers = [
         "S.NO",
         "BILL DATE",
-        "SPEND STREAM",
         "EXPENSE CATEGORY",
         "VENDOR / PAYEE NAME",
         "VENDOR GSTIN",
         "BILL # / RECEIPT #",
-        "AMOUNT (₹)",
+        "BASE TAXABLE (₹)",
+        "GST TYPE",
+        "GST %",
+        "CGST (₹)",
+        "SGST (₹)",
+        "IGST (₹)",
+        "TOTAL BILL (₹)",
+        "TDS SECTION",
+        "TDS (₹)",
+        "NET AMOUNT (₹)",
         "RECEIPT PROOF",
         "LINE STATUS",
-        "DISPUTE REASON",
     ]
     r = _write_table_headers(ws, r, headers, styles)
 
@@ -516,49 +523,62 @@ def _populate_event_expense_sheet(ws, doc: Any, styles: Dict[str, Any], event_ti
     for idx, row in enumerate(items, 1):
         cat = getattr(row, "expense_category", "") or "Incidentals"
         amt = float(getattr(row, "amount", 0.0) or 0.0)
+        base = float(getattr(row, "base_amount", 0.0) or 0.0) or amt
+        cgst = float(getattr(row, "cgst_amount", 0.0) or 0.0)
+        sgst = float(getattr(row, "sgst_amount", 0.0) or 0.0)
+        igst = float(getattr(row, "igst_amount", 0.0) or 0.0)
+        total_bill = float(getattr(row, "total_invoice_amount", 0.0) or 0.0) or round(base + cgst + sgst + igst, 2)
+        tds_amt = float(getattr(row, "tds_amount", 0.0) or 0.0)
         cat_summary[cat] = cat_summary.get(cat, 0.0) + amt
 
         ws.cell(row=r, column=1, value=idx).alignment = Alignment(horizontal="center")
         ws.cell(row=r, column=2, value=str(getattr(row, "bill_date", "") or doc.posting_date or "")).alignment = Alignment(horizontal="center")
-        ws.cell(row=r, column=3, value=getattr(row, "spend_stream", "") or "SPOC On-Ground Cash Spend")
-        ws.cell(row=r, column=4, value=cat)
-        ws.cell(row=r, column=5, value=getattr(row, "vendor_name", "") or "")
-        ws.cell(row=r, column=6, value=getattr(row, "tax_id", "") or "N/A").alignment = Alignment(horizontal="center")
-        ws.cell(row=r, column=7, value=getattr(row, "bill_number", "") or "N/A").alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=3, value=cat)
+        ws.cell(row=r, column=4, value=getattr(row, "vendor_name", "") or "")
+        ws.cell(row=r, column=5, value=getattr(row, "tax_id", "") or "N/A").alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=6, value=getattr(row, "bill_number", "") or "N/A").alignment = Alignment(horizontal="center")
 
-        amt_cell = ws.cell(row=r, column=8, value=amt)
-        amt_cell.number_format = "₹ #,##0.00"
-        amt_cell.alignment = Alignment(horizontal="right")
+        for col_idx, num_val in (
+            (7, base),
+            (10, cgst),
+            (11, sgst),
+            (12, igst),
+            (13, total_bill),
+            (15, tds_amt),
+            (16, amt),
+        ):
+            c_num = ws.cell(row=r, column=col_idx, value=num_val)
+            c_num.number_format = "₹ #,##0.00"
+            c_num.alignment = Alignment(horizontal="right")
+
+        ws.cell(row=r, column=8, value=getattr(row, "tax_type", None) or "No GST / Exempt")
+        ws.cell(row=r, column=9, value=getattr(row, "gst_rate", None) or "0%").alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=14, value=getattr(row, "tds_section", None) or "None / Exempt")
 
         rec_url = getattr(row, "receipt_attachment", None) or ""
-        rec_cell = ws.cell(row=r, column=9, value="View Receipt" if rec_url else "No Receipt")
+        rec_cell = ws.cell(row=r, column=17, value="View Receipt" if rec_url else "No Receipt")
         if rec_url:
             rec_cell.hyperlink = rec_url
             rec_cell.font = styles["link_font"]
         rec_cell.alignment = Alignment(horizontal="center")
 
         line_st = getattr(row, "line_status", "") or ("Disputed" if getattr(row, "is_disputed", 0) else "Verified")
-        ws.cell(row=r, column=10, value=line_st).alignment = Alignment(horizontal="center")
-        ws.cell(row=r, column=11, value=getattr(row, "dispute_reason", "") or "")
-        for c in range(1, 12):
+        ws.cell(row=r, column=18, value=line_st).alignment = Alignment(horizontal="center")
+        for c in range(1, 19):
             ws.cell(row=r, column=c).border = thin_border
         r += 1
 
     if items:
         ws.cell(row=r, column=1, value="TOTAL").font = total_font
         ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
-        ws.cell(row=r, column=1).fill = total_fill
-        for c in range(2, 8):
+        for c in range(1, 19):
             ws.cell(row=r, column=c).fill = total_fill
-        tot_cell = ws.cell(row=r, column=8, value=f"=SUM(H{start_r}:H{r-1})")
-        tot_cell.font = total_font
-        tot_cell.fill = total_fill
-        tot_cell.number_format = "₹ #,##0.00"
-        tot_cell.alignment = Alignment(horizontal="right")
-        for c in range(9, 12):
-            ws.cell(row=r, column=c).fill = total_fill
-        for c in range(1, 12):
             ws.cell(row=r, column=c).border = thin_border
+        for col_idx, col_let in ((7, "G"), (10, "J"), (11, "K"), (12, "L"), (13, "M"), (15, "O"), (16, "P")):
+            tot_cell = ws.cell(row=r, column=col_idx, value=f"=SUM({col_let}{start_r}:{col_let}{r-1})")
+            tot_cell.font = total_font
+            tot_cell.number_format = "₹ #,##0.00"
+            tot_cell.alignment = Alignment(horizontal="right")
         r += 2
         r = _write_category_pivot(ws, r, "EXPENSE CATEGORY SUMMARY", cat_summary, styles)
 
@@ -600,7 +620,7 @@ def export_event_expense_excel(claim_name: str = None, docname: str = None):
     wb, ws = _init_workbook(
         sheet_title=f"Claim {doc.name}",
         banner_text=f"EVENT EXPENSE CLAIM STATEMENT — {doc.name}",
-        merge_range="A1:K1",
+        merge_range="A1:R1",
         styles=styles,
     )
     event_title = frappe.db.get_value("Event Master", doc.event, "event_name") if doc.event else ""

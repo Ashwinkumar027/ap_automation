@@ -6,12 +6,14 @@ frappe.listview_settings['Event Master'] = {
     add_fields: ['status', 'company', 'spoc_name', 'allocated_budget', 'disbursed_advance', 'direct_finance_spends', 'total_committed_spend', 'overrun_status'],
 
     get_indicator: function (doc) {
-        const s = doc.status || 'Planning';
-        if (s === 'Closed & Settled') return [__('Closed & Settled'), 'green', 'status,=,Closed & Settled'];
-        if (s === 'In Progress') return [__('In Progress'), 'blue', 'status,=,In Progress'];
-        if (s === 'Under Settlement Review') return [__('Under Settlement Review'), 'orange', 'status,=,Under Settlement Review'];
-        if (s === 'Planning') return [__('Planning'), 'cyan', 'status,=,Planning'];
+        const s = doc.status || 'Event Created';
+        if (s === 'Closed' || s === 'Closed & Settled') return [__(s), 'green', `status,=,${s}`];
+        if (s === 'In Progress') return [__('In Progress'), 'orange', 'status,=,In Progress'];
+        if (s === 'Advance Disbursed') return [__('Advance Disbursed'), 'cyan', 'status,=,Advance Disbursed'];
+        if (s === 'Settlement Pending' || s === 'Under Settlement Review') return [__(s), 'yellow', `status,=,${s}`];
+        if (s === 'Event Created' || s === 'Budget Approved') return [__(s), 'blue', `status,=,${s}`];
+        if (s === 'Planning') return [__('Planning'), 'grey', 'status,=,Planning'];
         if (s === 'Cancelled') return [__('Cancelled'), 'red', 'status,=,Cancelled'];
-        return [__(s), 'gray', 'status,=,' + s];
+        return [__(s), 'grey', 'status,=,' + s];
     }
 };

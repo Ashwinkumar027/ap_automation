@@ -498,19 +498,51 @@ def export_tally_journal_xml_for_event(doctype: str, docname: str, voucher_mode:
 
     if doctype == "Event Expense Claim" and mode == "expense":
         cat_totals = defaultdict(float)
+        tot_cgst = 0.0
+        tot_sgst = 0.0
+        tot_igst = 0.0
+        tot_tds = 0.0
         for row in items:
             cat = getattr(row, "expense_category", None) or "Event Expenses"
-            cat_totals[cat] += float(getattr(row, "amount", 0.0) or 0.0)
+            base = float(getattr(row, "base_amount", 0.0) or 0.0)
+            if base <= 0:
+                base = float(getattr(row, "amount", 0.0) or 0.0)
+            cat_totals[cat] += base
+            tot_cgst += float(getattr(row, "cgst_amount", 0.0) or 0.0)
+            tot_sgst += float(getattr(row, "sgst_amount", 0.0) or 0.0)
+            tot_igst += float(getattr(row, "igst_amount", 0.0) or 0.0)
+            tot_tds += float(getattr(row, "tds_amount", 0.0) or 0.0)
 
-        total_amount = round(sum(cat_totals.values()), 2)
-        if total_amount <= 0:
+        tot_cgst = round(tot_cgst, 2)
+        tot_sgst = round(tot_sgst, 2)
+        tot_igst = round(tot_igst, 2)
+        tot_tds = round(tot_tds, 2)
+        cat_sum = round(sum(round(v, 2) for v in cat_totals.values()), 2)
+        total_debited = round(cat_sum + tot_cgst + tot_sgst + tot_igst, 2)
+        total_amount = total_debited
+        net_imprest_credit = round(total_debited - tot_tds, 2)
+        if total_debited <= 0 or net_imprest_credit <= 0:
             raise APValidationError("Total claim amount must be greater than zero for Tally export.")
 
         _ensure_master(imprest_ledger, "Current Assets")
-        for cat, amt in cat_totals.items():
-            _ensure_master(cat, "Indirect Expenses")
-            entries_xml.append(_make_ledger_entry_xml(cat, amt, is_debit=True, is_party=False))
-        entries_xml.append(_make_ledger_entry_xml(imprest_ledger, total_amount, is_debit=False, is_party=True))
+        for cat, raw_amt in cat_totals.items():
+            amt = round(raw_amt, 2)
+            if amt > 0:
+                _ensure_master(cat, "Indirect Expenses")
+                entries_xml.append(_make_ledger_entry_xml(cat, amt, is_debit=True, is_party=False))
+        if tot_cgst > 0:
+            _ensure_master("Input CGST", "Duties & Taxes")
+            entries_xml.append(_make_ledger_entry_xml("Input CGST", tot_cgst, is_debit=True, is_party=False))
+        if tot_sgst > 0:
+            _ensure_master("Input SGST", "Duties & Taxes")
+            entries_xml.append(_make_ledger_entry_xml("Input SGST", tot_sgst, is_debit=True, is_party=False))
+        if tot_igst > 0:
+            _ensure_master("Input IGST", "Duties & Taxes")
+            entries_xml.append(_make_ledger_entry_xml("Input IGST", tot_igst, is_debit=True, is_party=False))
+        if tot_tds > 0:
+            _ensure_master("TDS Payable", "Duties & Taxes")
+            entries_xml.append(_make_ledger_entry_xml("TDS Payable", tot_tds, is_debit=False, is_party=False))
+        entries_xml.append(_make_ledger_entry_xml(imprest_ledger, net_imprest_credit, is_debit=False, is_party=True))
 
         vch_type = "Journal"
         vch_date_raw = getattr(doc, "posting_date", None) or frappe.utils.nowdate()

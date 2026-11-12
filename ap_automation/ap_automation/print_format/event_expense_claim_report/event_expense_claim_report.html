@@ -36,9 +36,9 @@
 <table class="header-table">
     <tr>
         <td style="vertical-align: top;">
-            <div class="tag-title">STREAM B: EVENT ON-GROUND EXPENSE CLAIM</div>
+            <div class="tag-title">EVENT EXPENSE &amp; SETTLEMENT STATEMENT</div>
             <h1 class="brand-name">{{ doc.company or "Corporate Event Spends" }}</h1>
-            <div class="brand-sub">Itemized SPOC ground receipts, GSTIN verification &amp; accounts audit statement.</div>
+            <div class="brand-sub">Itemized bills, GST/TDS tax breakdown, GSTIN verification &amp; accounts audit statement.</div>
         </td>
         <td style="text-align: right; vertical-align: top;">
             <div style="font-size: 11px; color: #64748b;">Generated On</div>
@@ -67,18 +67,19 @@
     </table>
 </div>
 
-<div class="section-title">Itemized On-Ground Bills</div>
+<div class="section-title">Itemized Event Bills &amp; Tax Breakdown</div>
 <table class="items-table">
     <thead>
         <tr>
-            <th style="width: 5%;">S.NO</th>
-            <th style="width: 11%;">BILL DATE</th>
-            <th style="width: 18%;">EXPENSE CATEGORY</th>
-            <th style="width: 22%;">VENDOR / PAYEE</th>
-            <th style="width: 14%;">BILL #</th>
-            <th style="width: 13%;">GSTIN</th>
-            <th style="width: 11%; text-align: right;">AMOUNT</th>
-            <th style="width: 10%;">STATUS</th>
+            <th style="width: 4%;">S.NO</th>
+            <th style="width: 9%;">BILL DATE</th>
+            <th style="width: 14%;">CATEGORY</th>
+            <th style="width: 18%;">VENDOR / PAYEE</th>
+            <th style="width: 11%;">BILL # / GSTIN</th>
+            <th style="width: 10%; text-align: right;">BASE</th>
+            <th style="width: 11%; text-align: right;">GST</th>
+            <th style="width: 10%; text-align: right;">TDS</th>
+            <th style="width: 13%; text-align: right;">NET AMOUNT</th>
         </tr>
     </thead>
     <tbody>
@@ -86,20 +87,45 @@
         <tr>
             <td style="font-weight: 700; color: #64748b;">{{ loop.index }}</td>
             <td>{{ frappe.utils.formatdate(row.bill_date) if row.bill_date else "-" }}</td>
-            <td style="font-weight: 600;">{{ row.expense_category }}</td>
+            <td style="font-weight: 600;">{{ row.expense_category }}<br><span style="font-size: 10px; color: #64748b;">{{ row.line_status or "Verified" }}</span></td>
             <td style="font-weight: 700; color: #0f172a;">{{ row.vendor_name }}</td>
-            <td>{{ row.bill_number or "-" }}</td>
-            <td style="font-size: 11px; color: #475569;">{{ row.tax_id or "-" }}</td>
+            <td>{{ row.bill_number or "-" }}{% if row.tax_id %}<br><span style="font-size: 10px; color: #475569;">{{ row.tax_id }}</span>{% endif %}</td>
+            <td style="text-align: right;">₹ {{ frappe.utils.fmt_money(row.base_amount or row.amount or 0, precision=2) }}</td>
+            <td style="text-align: right;">₹ {{ frappe.utils.fmt_money(row.gst_amount or 0, precision=2) }}{% if (row.gst_amount or 0) > 0 %}<br><span style="font-size: 10px; color: #64748b;">{{ row.gst_rate or "" }}</span>{% endif %}</td>
+            <td style="text-align: right; color: #b91c1c;">₹ {{ frappe.utils.fmt_money(row.tds_amount or 0, precision=2) }}</td>
             <td style="text-align: right; font-weight: 800; color: #0f172a;">₹ {{ frappe.utils.fmt_money(row.amount or 0, precision=2) }}</td>
-            <td style="font-size: 11px;">{{ row.line_status or "Verified" }}</td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
 
-<div class="summary-card" style="width: 460px;">
+<div class="summary-card" style="width: 480px;">
+    {% if (doc.total_base_amount or 0) > 0 %}
     <div class="summary-row">
-        <span>This Claim Ground Spends:</span>
+        <span>Total Base Taxable Value:</span>
+        <span>₹ {{ frappe.utils.fmt_money(doc.total_base_amount or 0, precision=2) }}</span>
+    </div>
+    {% endif %}
+    {% if (doc.total_cgst_amount or 0) > 0 or (doc.total_sgst_amount or 0) > 0 %}
+    <div class="summary-row">
+        <span>Input CGST + SGST:</span>
+        <span>₹ {{ frappe.utils.fmt_money((doc.total_cgst_amount or 0) + (doc.total_sgst_amount or 0), precision=2) }}</span>
+    </div>
+    {% endif %}
+    {% if (doc.total_igst_amount or 0) > 0 %}
+    <div class="summary-row">
+        <span>Input IGST:</span>
+        <span>₹ {{ frappe.utils.fmt_money(doc.total_igst_amount or 0, precision=2) }}</span>
+    </div>
+    {% endif %}
+    {% if (doc.total_tds_amount or 0) > 0 %}
+    <div class="summary-row" style="color: #b91c1c;">
+        <span>Less: Statutory TDS Deducted:</span>
+        <span>- ₹ {{ frappe.utils.fmt_money(doc.total_tds_amount or 0, precision=2) }}</span>
+    </div>
+    {% endif %}
+    <div class="summary-row">
+        <span>This Claim Net Spends:</span>
         <span style="font-weight: 700;">₹ {{ frappe.utils.fmt_money(doc.total_claim_amount or 0, precision=2) }}</span>
     </div>
     {% if (doc.prior_verified_claims or 0) > 0 %}
