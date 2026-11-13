@@ -204,9 +204,13 @@ frappe.ui.form.on("Vendor Invoice Claim", {
         // Render dynamic approval action buttons based on current lifecycle stage & RBAC
         render_vendor_claim_approval_buttons(frm);
 
-        // Ensure Save button is always restored on Draft / Disputed states
-        if (status === "Draft" || status === "Disputed") {
+        // Ensure Save button is always available whenever document is unsubmitted (docstatus === 0)
+        if (frm.doc.docstatus === 0) {
             frm.page.set_primary_action(__('Save'), () => frm.save());
+            frm.enable_save();
+        }
+
+        if (status === "Draft" || status === "Disputed") {
             if (!frm.is_new()) {
                 frm.add_custom_button(__('🚀 Submit for Approval'), function() {
                     frappe.confirm(
@@ -419,14 +423,13 @@ function render_vendor_claim_approval_buttons(frm) {
     let is_owner = frm.doc.owner === frappe.session.user;
     let is_admin = frappe.session.user === "Administrator" || frappe.user.has_role("System Manager");
 
-    // Hide premature Frappe Submit button if claim has not completed all approval stages
-    if (status !== "Approved for Payment") {
-        if (frm.page.btn_primary && frm.page.btn_primary.text().trim() === __("Submit")) {
-            if (status === "Draft" || status === "Disputed") {
+    // Ensure Save button is always available and prevent premature Frappe Submit before final approval
+    if (frm.doc.docstatus === 0) {
+        if (status !== "Approved for Payment") {
+            if (frm.page.btn_primary && frm.page.btn_primary.text().trim() === __("Submit")) {
                 frm.page.set_primary_action(__('Save'), () => frm.save());
-            } else {
-                frm.page.btn_primary.hide();
             }
+            frm.enable_save();
         }
     }
 
