@@ -3,6 +3,18 @@
 
 frappe.ui.form.on('AP Purchase Order', {
     refresh: function(frm) {
+        if (frm.doc.docstatus === 0) {
+            frm.enable_save();
+            if (frm.page.btn_primary) {
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        }
+        $(frm.wrapper).off('dirty.ap_po_save_guard').on('dirty.ap_po_save_guard', function() {
+            if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+                frm.enable_save();
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        });
         frm.set_df_property('status', 'read_only', 1);
         let is_draft = (!frm.doc.status || frm.doc.status === 'Draft');
         frm.set_df_property('items', 'read_only', !is_draft);

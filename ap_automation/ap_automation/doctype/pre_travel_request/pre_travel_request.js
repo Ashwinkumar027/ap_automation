@@ -26,6 +26,18 @@ frappe.ui.form.on('Pre Travel Request', {
     },
 
     refresh: function(frm) {
+        if (frm.doc.docstatus === 0) {
+            frm.enable_save();
+            if (frm.page.btn_primary) {
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        }
+        $(frm.wrapper).off('dirty.ap_ptr_save_guard').on('dirty.ap_ptr_save_guard', function() {
+            if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+                frm.enable_save();
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        });
         frm.set_df_property('status', 'read_only', 1);
         frm.set_df_property('advance_requested', 'hidden', 1);
         frm.set_df_property('disbursed_advance_amount', 'hidden', 1);

@@ -27,11 +27,24 @@ frappe.ui.form.on("Event Advance Request", {
             }
         }
 
-        // DRAFT STAGE (docstatus === 0): Replace generic Frappe Submit with 1-Click Save + Submit to Director
-        if (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft') {
-            if (frm.page.btn_primary && frm.page.btn_primary.text().trim() === __('Submit')) {
-                frm.page.set_primary_action(__('Save'), () => frm.save());
+        // DRAFT & IN-FLIGHT ACTIONS (docstatus === 0): Always keep Save active & visible
+        if (frm.doc.docstatus === 0) {
+            frm.page.set_primary_action(__('Save'), () => frm.save());
+            frm.enable_save();
+            if (frm.page.btn_primary) {
+                frm.page.btn_primary.show().removeClass('hide');
             }
+        }
+
+        $(frm.wrapper).off('dirty.ap_ear_save_guard').on('dirty.ap_ear_save_guard', function() {
+            if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+                frm.enable_save();
+                frm.page.set_primary_action(__('Save'), () => frm.save());
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        });
+
+        if (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft') {
 
             if (frm.doc.event) {
                 sync_spoc_salary_bank_in_draft(frm, !frm.doc.spoc || frm.is_new());

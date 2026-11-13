@@ -4,6 +4,18 @@
 
 frappe.ui.form.on("Event Master", {
     refresh: function(frm) {
+        if (frm.doc.docstatus === 0) {
+            frm.enable_save();
+            if (frm.page.btn_primary) {
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        }
+        $(frm.wrapper).off('dirty.ap_em_save_guard').on('dirty.ap_em_save_guard', function() {
+            if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+                frm.enable_save();
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        });
         frm.set_df_property('status', 'read_only', 1);
         const ev_colors = {
             'Event Created': 'blue',

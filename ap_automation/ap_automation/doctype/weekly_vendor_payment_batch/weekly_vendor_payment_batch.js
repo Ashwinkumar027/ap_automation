@@ -11,6 +11,18 @@ frappe.ui.form.on('Weekly Vendor Payment Batch', {
     },
 
     refresh: function(frm) {
+        if (frm.doc.docstatus === 0) {
+            frm.enable_save();
+            if (frm.page.btn_primary) {
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        }
+        $(frm.wrapper).off('dirty.ap_wvpb_save_guard').on('dirty.ap_wvpb_save_guard', function() {
+            if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+                frm.enable_save();
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        });
         setup_vendor_batch_buttons(frm);
         render_vendor_batch_dashboard(frm);
     },

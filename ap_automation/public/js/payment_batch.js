@@ -3,6 +3,20 @@
 
 frappe.ui.form.on("Payment Batch", {
     refresh(frm) {
+        if (frm.doc.docstatus === 0) {
+            frm.page.set_primary_action(__('Save'), () => frm.save());
+            frm.enable_save();
+            if (frm.page.btn_primary) {
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        }
+        $(frm.wrapper).off('dirty.ap_pb_save_guard').on('dirty.ap_pb_save_guard', function() {
+            if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+                frm.enable_save();
+                frm.page.set_primary_action(__('Save'), () => frm.save());
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        });
         setup_fetch_claims_button(frm);
         render_executive_dashboard(frm);
         setup_2fa_release_buttons(frm);

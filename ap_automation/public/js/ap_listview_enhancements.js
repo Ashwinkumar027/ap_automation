@@ -92,8 +92,28 @@
         const orig_form_refresh = frappe.ui.form.Form.prototype.refresh;
         frappe.ui.form.Form.prototype.refresh = function () {
             const res = orig_form_refresh.apply(this, arguments);
-            if (this.meta && this.meta.module === 'AP Automation' && this.page && this.page.wrapper) {
-                $(this.page.wrapper).addClass('ap-no-form-sidebar');
+            const frm = this;
+            if (frm && frm.meta && frm.meta.module === 'AP Automation' && frm.page && frm.doc) {
+                if (frm.page.wrapper) {
+                    $(frm.page.wrapper).addClass('ap-no-form-sidebar');
+                }
+                // Universal AP Automation Save Guard: Ensure Save button is always active and visible when unsubmitted
+                if (frm.doc.docstatus === 0) {
+                    frm.enable_save();
+                    if (frm.page.btn_primary) {
+                        frm.page.set_primary_action(__('Save'), () => frm.save());
+                        frm.page.btn_primary.show().removeClass('hide');
+                    }
+                }
+
+                // Bind dirty event so editing any field instantly restores the Save button for all users
+                $(frm.wrapper).off('dirty.ap_global_save_guard').on('dirty.ap_global_save_guard', function () {
+                    if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+                        frm.enable_save();
+                        frm.page.set_primary_action(__('Save'), () => frm.save());
+                        frm.page.btn_primary.show().removeClass('hide');
+                    }
+                });
             }
             return res;
         };
