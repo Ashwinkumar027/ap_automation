@@ -7,6 +7,18 @@ frappe.ui.form.on('Petty Cash Entry', {
     },
 
     refresh: function (frm) {
+        if (frm.doc.docstatus === 0) {
+            frm.enable_save();
+            if (frm.page.btn_primary) {
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        }
+        $(frm.wrapper).off('dirty.ap_pce_save_guard').on('dirty.ap_pce_save_guard', function() {
+            if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+                frm.enable_save();
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        });
         // Enforce max posting date as Today
         frm.set_df_property('posting_date', 'max_date', frappe.datetime.get_today());
 

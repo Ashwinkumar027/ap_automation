@@ -30,6 +30,18 @@ frappe.ui.form.on('Weekly Accounts Audit Batch', {
     },
 
     refresh: function (frm) {
+        if (frm.doc.docstatus === 0) {
+            frm.enable_save();
+            if (frm.page.btn_primary) {
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        }
+        $(frm.wrapper).off('dirty.ap_waab_save_guard').on('dirty.ap_waab_save_guard', function() {
+            if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+                frm.enable_save();
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        });
         apply_batch_styles();
         render_batch_stepper(frm);
         render_status_guidance_banner(frm);

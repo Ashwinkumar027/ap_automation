@@ -425,13 +425,20 @@ function render_vendor_claim_approval_buttons(frm) {
 
     // Ensure Save button is always available and prevent premature Frappe Submit before final approval
     if (frm.doc.docstatus === 0) {
-        if (status !== "Approved for Payment") {
-            if (frm.page.btn_primary && frm.page.btn_primary.text().trim() === __("Submit")) {
-                frm.page.set_primary_action(__('Save'), () => frm.save());
-            }
-            frm.enable_save();
+        frm.page.set_primary_action(__('Save'), () => frm.save());
+        frm.enable_save();
+        if (frm.page.btn_primary) {
+            frm.page.btn_primary.show().removeClass('hide');
         }
     }
+
+    $(frm.wrapper).off('dirty.ap_vic_save_guard').on('dirty.ap_vic_save_guard', function() {
+        if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+            frm.enable_save();
+            frm.page.set_primary_action(__('Save'), () => frm.save());
+            frm.page.btn_primary.show().removeClass('hide');
+        }
+    });
 
     // Stage 1: Pending Manager Approval
     if (status === "Pending Manager Approval") {

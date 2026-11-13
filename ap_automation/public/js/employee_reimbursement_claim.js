@@ -172,6 +172,19 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
     },
 
     refresh: function(frm) {
+        if (frm.doc.docstatus === 0) {
+            frm.enable_save();
+            if (frm.page.btn_primary) {
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        }
+        $(frm.wrapper).off('dirty.ap_erc_save_guard').on('dirty.ap_erc_save_guard', function() {
+            if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+                frm.enable_save();
+                frm.page.set_primary_action(__('Save'), () => frm.save());
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        });
         if (!frm.doc.claim_category) {
             frm.doc.claim_category = 'General Expense';
         }

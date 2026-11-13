@@ -287,10 +287,23 @@ function run_settlement_with_clarification_gate(frm, callback) {
 }
 
 function setup_settlement_workflow_actions(frm) {
-    if (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft') {
-        if (frm.page.btn_primary && frm.page.btn_primary.text().trim() === __('Submit')) {
-            frm.page.set_primary_action(__('Save'), () => frm.save());
+    if (frm.doc.docstatus === 0) {
+        frm.page.set_primary_action(__('Save'), () => frm.save());
+        frm.enable_save();
+        if (frm.page.btn_primary) {
+            frm.page.btn_primary.show().removeClass('hide');
         }
+    }
+
+    $(frm.wrapper).off('dirty.ap_es_save_guard').on('dirty.ap_es_save_guard', function() {
+        if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+            frm.enable_save();
+            frm.page.set_primary_action(__('Save'), () => frm.save());
+            frm.page.btn_primary.show().removeClass('hide');
+        }
+    });
+
+    if (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft') {
 
         frm.add_custom_button(__('🚀 Submit Event Settlement'), function() {
             if (!frm.doc.event) {

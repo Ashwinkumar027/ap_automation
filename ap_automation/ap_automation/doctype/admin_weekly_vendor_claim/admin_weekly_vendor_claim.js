@@ -21,6 +21,18 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
     },
 
     refresh: function (frm) {
+        if (frm.doc.docstatus === 0) {
+            frm.enable_save();
+            if (frm.page.btn_primary) {
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        }
+        $(frm.wrapper).off('dirty.ap_awvc_save_guard').on('dirty.ap_awvc_save_guard', function() {
+            if (frm.doc.docstatus === 0 && frm.page && frm.page.btn_primary) {
+                frm.enable_save();
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        });
         apply_admin_vendor_styles();
         enforce_default_grid_columns(frm);
         frm.set_query('vendor', 'vendor_lines', function () {
