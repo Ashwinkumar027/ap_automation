@@ -44,6 +44,63 @@ frappe.ui.form.on("Event Advance Request", {
             }
         });
 
+        if (frm.doc.status === 'Returned to SPOC') {
+            const ret_reason = frappe.utils.escape_html(frm.doc.rejection_reason || 'Discrepancy flagged by Accounts.');
+            const origin = frappe.utils.escape_html(frm.doc.return_origin_stage || 'Accounts Review');
+            const base_amt = flt(frm.doc.rejection_baseline_amount || 0);
+
+            const banner_html = `
+                <div class="ap-advance-return-banner" style="background: #fff7ed; border: 1px solid #fed7aa; border-left: 4px solid #ea580c; border-radius: 6px; padding: 12px 16px; margin: 12px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-weight: 700; color: #9a3412; font-size: 13px;">⚠️ Request Returned to SPOC for Revision</span>
+                        <span style="font-size: 11px; font-weight: 700; background: #ea580c; color: #fff; padding: 2px 8px; border-radius: 4px;">Stage: ${origin}</span>
+                    </div>
+                    <div style="font-size: 12px; color: #7c2d12; margin-bottom: 6px;"><b>Reviewer Feedback:</b> ${ret_reason}</div>
+                    <div style="font-size: 11px; color: #9a3412;">
+                        ⚡ <b>Fast-Tracker Active:</b> If revised advance is &le; <b>₹ ${frappe.format(base_amt, { fieldtype: 'Currency' })}</b>, 
+                        your resubmission bypasses Stage 1 Director approval and fast-tracks directly back to <b>${origin}</b>.
+                    </div>
+                </div>
+            `;
+            $(frm.wrapper).find('.ap-advance-return-banner').remove();
+            $(frm.wrapper).find('.form-page').first().prepend(banner_html);
+
+            const is_spoc = frappe.session.user === frm.doc.owner || frappe.session.user === frm.doc.spoc || frappe.session.user === 'Administrator' || frappe.user.has_role(['System Manager', 'Accounts Manager']);
+            if (is_spoc) {
+                frm.add_custom_button(__('🚀 Fast-Track Resubmit Advance'), function() {
+                    frappe.confirm(
+                        __('Resubmit this revised Event Advance Request?<br><br><b>Fast-Track:</b> If amount &le; baseline, it routes directly back to Accounts without Director re-approval.'),
+                        function() {
+                            const do_resubmit = () => {
+                                frappe.call({
+                                    method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.resubmit_event_advance',
+                                    args: { advance_name: frm.doc.name },
+                                    freeze: true,
+                                    freeze_message: __('Resubmitting Advance...'),
+                                    callback: function(r) {
+                                        if (r.message && r.message.status === 'SUCCESS') {
+                                            frappe.show_alert({ message: r.message.message, indicator: 'green' }, 5);
+                                            frm.reload_doc();
+                                        }
+                                    }
+                                });
+                            };
+                            if (frm.is_dirty()) {
+                                frm.save().then(() => do_resubmit());
+                            } else {
+                                do_resubmit();
+                            }
+                        }
+                    );
+                }).addClass('btn-primary').css({
+                    'background-color': '#059669',
+                    'border-color': '#047857',
+                    'color': '#ffffff',
+                    'font-weight': '700'
+                });
+            }
+        }
+
         if (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft') {
 
             if (frm.doc.event) {
@@ -299,6 +356,41 @@ function bind_submitted_stage_buttons(frm, ctx) {
         }).addClass('btn-primary').css({
             'background-color': '#7c3aed',
             'border-color': '#6d28d9',
+            'color': '#ffffff'
+        });
+    }
+
+    // Return to SPOC with discrepancy notes (Accounts L1 & Accounts Director)
+    if (ctx.can_return_to_spoc && ['Pending Accounts L1 Review', 'Pending Accounts Director Approval'].includes(status)) {
+        frm.add_custom_button(__('↩️ Return to SPOC'), function() {
+            frappe.prompt([
+                {
+                    fieldname: 'reason',
+                    fieldtype: 'Small Text',
+                    label: __('Discrepancy / Return Reason (Min 5 characters)'),
+                    description: __('Explain what needs correction. Resubmissions within the current amount will fast-track back directly to your stage.'),
+                    reqd: 1
+                }
+            ], function(values) {
+                frappe.call({
+                    method: 'ap_automation.ap_automation.doctype.event_advance_request.event_advance_request.return_event_advance_to_spoc',
+                    args: {
+                        advance_name: frm.doc.name,
+                        reason: values.reason
+                    },
+                    freeze: true,
+                    freeze_message: __('Returning Advance to SPOC...'),
+                    callback: function(r) {
+                        if (r.message && r.message.status === 'SUCCESS') {
+                            frappe.show_alert({ message: r.message.message, indicator: 'orange' }, 5);
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }, __('Return Advance Request to SPOC'), __('Return to SPOC'));
+        }).addClass('btn-warning').css({
+            'background-color': '#d97706',
+            'border-color': '#b45309',
             'color': '#ffffff'
         });
     }

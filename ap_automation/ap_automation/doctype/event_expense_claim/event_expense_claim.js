@@ -185,11 +185,36 @@ frappe.ui.form.on("Event Expense Claim", {
 
         // RESUBMIT FOR SPOC WHEN RETURNED
         const is_spoc_or_owner = (frm.doc.spoc === frappe.session.user || frm.doc.owner === frappe.session.user || frappe.user.has_role(['Accounts Manager', 'System Manager']) || frappe.session.user === 'Administrator');
+        if (frm.doc.status === 'Returned to SPOC') {
+            const ret_reason = frappe.utils.escape_html(frm.doc.rejection_reason || 'Discrepancy flagged by Accounts.');
+            const origin = frappe.utils.escape_html(frm.doc.return_origin_stage || 'Accounts Review');
+            const base_amt = flt(frm.doc.rejection_baseline_amount || 0);
+            const is_ad_stage = origin === 'Under Accounts Director Review';
+
+            const banner_html = `
+                <div class="ap-claim-return-banner" style="background: #fff7ed; border: 1px solid #fed7aa; border-left: 4px solid #ea580c; border-radius: 6px; padding: 12px 16px; margin: 12px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-weight: 700; color: #9a3412; font-size: 13px;">⚠️ Claim Returned to SPOC for Revision</span>
+                        <span style="font-size: 11px; font-weight: 700; background: #ea580c; color: #fff; padding: 2px 8px; border-radius: 4px;">Stage: ${origin}</span>
+                    </div>
+                    <div style="font-size: 12px; color: #7c2d12; margin-bottom: 6px;"><b>Reviewer Feedback:</b> ${ret_reason}</div>
+                    <div style="font-size: 11px; color: #9a3412;">
+                        ⚡ <b>Fast-Tracker Active:</b> If revised claim total is &le; <b>₹ ${frappe.format(base_amt, { fieldtype: 'Currency' })}</b>, 
+                        resubmission fast-tracks directly back to <b>${is_ad_stage ? 'Accounts Director (Bypasses Accounts L1 Audit)' : origin}</b>.
+                    </div>
+                </div>
+            `;
+            $(frm.wrapper).find('.ap-claim-return-banner').remove();
+            $(frm.wrapper).find('.form-page').first().prepend(banner_html);
+        }
+
         if (frm.doc.status === 'Returned to SPOC' && is_spoc_or_owner) {
             if (frm.page.btn_primary && frm.page.btn_primary.text().trim() === __('Submit')) {
                 frm.page.set_primary_action(__('Save'), () => frm.save());
             }
-            frm.add_custom_button(__('🚀 Resubmit Corrected Claim'), function() {
+            const is_ad_origin = frm.doc.return_origin_stage === 'Under Accounts Director Review';
+            const btn_label = is_ad_origin ? __('🚀 Fast-Track Resubmit to Accounts Director') : __('🚀 Resubmit Corrected Claim');
+            frm.add_custom_button(btn_label, function() {
                 if (!validate_claim_before_submit(frm)) return;
                 const do_resubmit = () => {
                     frappe.call({

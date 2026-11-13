@@ -254,13 +254,16 @@ class EventExpenseClaim(APDocument):
         super().before_save()
 
     def before_submit(self):
-        """Set status to Submitted."""
+        """Set status to Submitted (or keeps fast-track target status)."""
         self.flags.in_workflow_transition = True
-        self.status = "Submitted"
+        if not getattr(self.flags, "is_resubmission", False) or not self.status:
+            self.status = "Submitted"
 
     def on_submit(self):
         """Submit hook: synchronizes Event Master SPOC actual spends and notifies Accounts L1."""
         self._sync_event_spends()
+        if getattr(self.flags, "is_resubmission", False):
+            return
         try:
             from ap_automation.services.employee_reimbursement_notification_service import (
                 notify_event_expense_submitted,
@@ -303,7 +306,8 @@ class EventExpenseClaim(APDocument):
 def reject_or_return_event_claim(claim_name: str, reason: str):
     """
     Allows Accounts L1, Accounts Director, Matrix Approvers/Delegates, or Admin to return an Event Expense Claim to the SPOC.
-    Unlocks docstatus back to 0 so the SPOC can edit bills/receipts before resubmitting, and re-syncs Event Master spends.
+    Unlocks docstatus back to 0 so the SPOC can edit bills/receipts before resubmitting, records baseline amount,
+    and enables fast-tracking directly back to Accounts Director without requiring Accounts L1 re-audit.
     """
     if not reason or not reason.strip():
         frappe.throw("A specific reason or discrepancy description is required to return this claim.")
@@ -323,6 +327,10 @@ def reject_or_return_event_claim(claim_name: str, reason: str):
     if doc.status not in ("Submitted", "Accounts Verified", "Under Accounts Director Review"):
         frappe.throw(f"Only Submitted / In-Review claims can be returned to SPOC. Current status is '{doc.status}'.")
 
+    origin_stage = doc.status
+    rejected_role = "Accounts Director" if origin_stage == "Under Accounts Director Review" else "Accounts L1 Auditor"
+    baseline_amt = float(doc.total_claim_amount or doc.total_amount or 0.0)
+
     # Unlock header and child rows so SPOC can edit line items & attachments
     frappe.db.set_value(
         "Event Expense Claim",
@@ -330,6 +338,11 @@ def reject_or_return_event_claim(claim_name: str, reason: str):
         {
             "docstatus": 0,
             "status": "Returned to SPOC",
+            "return_origin_stage": origin_stage,
+            "rejection_baseline_amount": baseline_amt,
+            "rejected_by_role": rejected_role,
+            "rejecting_user": user,
+            "rejection_reason": reason.strip(),
             "accounts_director": None,
             "accounts_director_sign_date": None,
         },
@@ -338,7 +351,12 @@ def reject_or_return_event_claim(claim_name: str, reason: str):
     frappe.db.sql("UPDATE `tabEvent Expense Item` SET docstatus = 0 WHERE parent = %s", (claim_name,))
     doc.reload()
     doc._sync_event_spends()
-    doc.add_comment("Comment", f"⚠️ Claim returned to SPOC by {user}. Reason: {reason.strip()}")
+    doc.add_comment(
+        "Comment",
+        f"⚠️ <b>Claim Returned to SPOC:</b> Returned by {user} ({rejected_role}) from <b>{origin_stage}</b>.<br>"
+        f"<b>Reason:</b> {reason.strip()}<br>"
+        f"<b>Baseline Amount:</b> ₹ {baseline_amt:,.2f} (Resubmissions within this amount will fast-track back directly).",
+    )
 
     try:
         from ap_automation.services.employee_reimbursement_notification_service import (
@@ -355,9 +373,14 @@ def reject_or_return_event_claim(claim_name: str, reason: str):
 
 
 @frappe.whitelist()
-def resubmit_event_claim(claim_name: str):
+def resubmit_event_claim(claim_name: str) -> Dict[str, Any]:
     """
     Allows the owning SPOC (or System/Accounts Manager) to resubmit a returned claim back into review.
+    ⚡ FAST-TRACK LOGIC:
+    - If origin_stage == "Under Accounts Director Review" and total_claim_amount <= rejection_baseline_amount:
+      FAST-TRACKS directly back to "Under Accounts Director Review", BYPASSING Accounts L1 audit.
+    - If total_claim_amount > rejection_baseline_amount:
+      Cost escalation! Routes back to "Submitted" for Accounts L1 re-audit.
     """
     user = frappe.session.user
     user_roles = set(frappe.get_roles(user))
@@ -372,28 +395,74 @@ def resubmit_event_claim(claim_name: str):
     if doc.status != "Returned to SPOC":
         frappe.throw(f"Only claims in 'Returned to SPOC' status can be resubmitted. Current status: '{doc.status}'.")
 
-    if doc.docstatus == 0:
-        doc.flags.in_workflow_transition = True
-        doc.flags.ignore_permissions = True
-        doc.flags.is_resubmission = True
-        doc.save(ignore_permissions=True)
-        doc.submit()
-    else:
-        doc.db_set("status", "Submitted")
-        doc._sync_event_spends()
-        try:
-            from ap_automation.services.employee_reimbursement_notification_service import (
-                notify_event_expense_submitted,
-            )
-            notify_event_expense_submitted(doc, is_resubmission=True)
-        except Exception:
-            frappe.log_error(
-                title="Event Expense Claim Resubmission Email Error",
-                message=f"Failed to notify Accounts L1 on resubmit for {doc.name}: {frappe.get_traceback()}",
-            )
+    # Re-normalize line items and calculate taxes and settlement reconciliation
+    doc._calculate_and_normalize_expense_items()
+    current_amt = float(doc.total_claim_amount or doc.total_amount or 0.0)
+    baseline_amt = float(getattr(doc, "rejection_baseline_amount", 0.0) or 0.0)
+    origin_stage = getattr(doc, "return_origin_stage", None)
+    rejecting_reviewer = getattr(doc, "rejecting_user", None)
 
-    doc.add_comment("Comment", f"🚀 Claim resubmitted by SPOC {user} for review.")
-    return {"status": "SUCCESS", "message": f"Claim {claim_name} resubmitted successfully."}
+    is_fast_track_ad = (origin_stage == "Under Accounts Director Review") and (current_amt <= baseline_amt)
+
+    if is_fast_track_ad:
+        target_status = "Under Accounts Director Review"
+        comment_msg = (
+            f"🚀 <b>Fast-Track Resubmission to Accounts Director:</b> Claim resubmitted by SPOC ({user}) "
+            f"without cost escalation (₹ {current_amt:,.2f} <= Baseline ₹ {baseline_amt:,.2f}). "
+            f"Bypassed Accounts L1 audit directly to <b>Accounts Director Review</b>."
+        )
+        resp_msg = f"Fast-Track Resubmitted! Returned directly to Accounts Director (bypassed Accounts L1)."
+    else:
+        target_status = "Submitted"
+        if origin_stage == "Under Accounts Director Review" and current_amt > baseline_amt:
+            comment_msg = (
+                f"⚠️ <b>Cost Escalation Re-Audit:</b> Total claim increased from ₹ {baseline_amt:,.2f} "
+                f"to ₹ {current_amt:,.2f}. Routed back to <b>Accounts L1 Audit</b> for re-verification."
+            )
+            resp_msg = f"Claim resubmitted with cost escalation (₹ {current_amt:,.2f}). Routed to Accounts L1 Audit."
+        else:
+            comment_msg = f"🚀 <b>Claim Resubmitted:</b> Resubmitted by SPOC ({user}) for Accounts L1 verification."
+            resp_msg = f"Claim resubmitted successfully for Accounts verification."
+
+    doc.flags.in_workflow_transition = True
+    doc.flags.ignore_permissions = True
+    doc.flags.is_resubmission = True
+    doc.status = target_status
+    doc.docstatus = 1
+    doc.save(ignore_permissions=True)
+    frappe.db.sql("UPDATE `tabEvent Expense Item` SET docstatus = 1 WHERE parent = %s", (claim_name,))
+
+    doc._sync_event_spends()
+    doc.add_comment("Comment", comment_msg)
+    frappe.db.commit()
+
+    try:
+        from ap_automation.services.employee_reimbursement_notification_service import (
+            notify_event_fast_track_resubmitted,
+            notify_event_expense_submitted,
+        )
+        if is_fast_track_ad:
+            notify_event_fast_track_resubmitted(
+                voucher_doctype="Event Expense Claim",
+                voucher_name=doc.name,
+                reviewer_user=rejecting_reviewer,
+                target_stage=target_status,
+            )
+        else:
+            notify_event_expense_submitted(doc, is_resubmission=True)
+    except Exception:
+        frappe.log_error(
+            title="Event Expense Claim Resubmission Email Error",
+            message=f"Failed to send email notification on resubmit for {doc.name}: {frappe.get_traceback()}",
+        )
+
+    return {
+        "status": "SUCCESS",
+        "claim": doc.name,
+        "new_status": target_status,
+        "is_fast_track": is_fast_track_ad,
+        "message": resp_msg,
+    }
 
 
 @frappe.whitelist()

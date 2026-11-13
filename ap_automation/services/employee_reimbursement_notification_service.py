@@ -1671,3 +1671,129 @@ def notify_event_ageing_reminder(ev_dict, days_overdue: int, unsettled_advance: 
         badge_color=badge_color
     )
     _dispatch_reimbursement_email(list(set(recipients)), subject, body, "Event Master", ev_dict.get("name"), alert_color=alert_color)
+
+
+def notify_event_advance_returned(
+    advance_doc,
+    reason: str,
+    returned_by: Optional[str] = None,
+) -> None:
+    """
+    Triggered when Accounts L1 or Accounts Director returns an Event Advance Request to the SPOC for correction.
+    TO: Event SPOC & Request Owner
+    """
+    if isinstance(advance_doc, str):
+        advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
+
+    actor_email = _resolve_email_address(returned_by) if returned_by else None
+    recipients: List[str] = []
+    for target in (getattr(advance_doc, "spoc", None), getattr(advance_doc, "owner", None)):
+        if target and target != "Administrator":
+            email = _resolve_email_address(target)
+            if email and email != actor_email and email not in recipients:
+                recipients.append(email)
+
+    if not recipients:
+        for target in (getattr(advance_doc, "spoc", None), getattr(advance_doc, "owner", None)):
+            if target and target != "Administrator":
+                email = _resolve_email_address(target)
+                if email and email not in recipients:
+                    recipients.append(email)
+    if not recipients:
+        return
+
+    doc_url = _get_form_url("Event Advance Request", advance_doc.name)
+    event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
+    amount = float(getattr(advance_doc, "requested_advance_amount", 0.0) or 0.0)
+    reviewer_label = (
+        (frappe.db.get_value("User", returned_by, "full_name") or returned_by)
+        if returned_by
+        else "Accounts Team"
+    )
+    spoc_label = getattr(advance_doc, "spoc_name", None) or getattr(advance_doc, "spoc", None) or "Event SPOC"
+    clean_reason = frappe.utils.escape_html((reason or "").strip())
+
+    subject = f"⚠️ Returned for Revision: Event Advance Request #{advance_doc.name} for '{event_name}'"
+    body = _build_html_template(
+        title="Event Advance Request Returned for Revision",
+        subtitle="Action Required • Update Itemized Breakdown & Resubmit",
+        greeting_name=spoc_label,
+        main_message=(
+            f"<b>{reviewer_label}</b> has returned Event Advance Request <b>#{advance_doc.name}</b> "
+            f"for Event <b>'{event_name}'</b> back to draft/edit mode for revision.<br><br>"
+            f"<b>Feedback / Reason:</b><br>"
+            f"<blockquote style='margin: 8px 0; padding: 10px 14px; background: #fff7ed; border-left: 4px solid #ea580c; color: #7c2d12;'>{clean_reason}</blockquote><br>"
+            f"Please click below to update the quotes, amounts, or line items. "
+            f"<b>Fast-Track Notice:</b> Resubmissions without a budget increase will route directly back to Accounts without requiring Stage 1 Director re-approval."
+        ),
+        metric_label_1="Advance Amount",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="Status",
+        metric_val_2="Returned to SPOC",
+        doc_url=doc_url,
+        button_text="Edit & Resubmit Advance →",
+        badge_color="#ea580c",
+    )
+    _dispatch_reimbursement_email(list(set(recipients)), subject, body, "Event Advance Request", advance_doc.name, alert_color="yellow")
+
+
+def notify_event_fast_track_resubmitted(
+    voucher_doctype: str,
+    voucher_name: str,
+    reviewer_user: Optional[str],
+    target_stage: str,
+) -> None:
+    """
+    Triggered when an Event Advance Request or Event Expense Claim is fast-tracked back to the reviewer
+    who returned it (or target review stage), bypassing earlier approval tiers because amount <= baseline.
+    """
+    doc = frappe.get_doc(voucher_doctype, voucher_name)
+    recipients: List[str] = []
+    if reviewer_user:
+        email = _resolve_email_address(reviewer_user)
+        if email:
+            recipients.append(email)
+
+    # Fallback to stage-appropriate role recipients if reviewer user missing
+    if not recipients:
+        if "Director" in target_stage:
+            recipients.extend(_get_role_recipients(["Accounts Director", "AP Director"]))
+        else:
+            recipients.extend(_get_role_recipients(["Accounts L1 Auditor", "Accounts User", "Accounts Manager"]))
+
+    if not recipients:
+        return
+
+    doc_url = _get_form_url(voucher_doctype, voucher_name)
+    event_id = getattr(doc, "event", None)
+    event_name = (frappe.db.get_value("Event Master", event_id, "event_name") if event_id else None) or event_id or "Event"
+    spoc_label = getattr(doc, "spoc_name", None) or getattr(doc, "spoc", None) or getattr(doc, "owner", None) or "Event SPOC"
+    amount = float(
+        getattr(doc, "requested_advance_amount", 0.0)
+        or getattr(doc, "total_claim_amount", 0.0)
+        or getattr(doc, "total_amount", 0.0)
+        or 0.0
+    )
+    baseline = float(getattr(doc, "rejection_baseline_amount", 0.0) or amount)
+
+    subject = f"🚀 Fast-Track Resubmitted: {voucher_doctype} #{voucher_name} for '{event_name}'"
+    body = _build_html_template(
+        title="Fast-Track Resubmission Awaiting Review",
+        subtitle=f"Direct Route • {target_stage}",
+        greeting_name="Finance Reviewer",
+        main_message=(
+            f"Event SPOC <b>{spoc_label}</b> has resubmitted <b>{voucher_doctype} #{voucher_name}</b> "
+            f"for Event <b>'{event_name}'</b> after updating the requested items.<br><br>"
+            f"<b>⚡ Fast-Tracker Notice:</b> The revised total (<b>₹ {_safe_fmt_money(amount)}</b>) is within "
+            f"the approved baseline amount (<b>₹ {_safe_fmt_money(baseline)}</b>). Earlier approval tiers have been "
+            f"automatically bypassed, routing the document directly to your desk for accelerated review."
+        ),
+        metric_label_1="Revised Amount",
+        metric_val_1=f"₹ {_safe_fmt_money(amount)}",
+        metric_label_2="Queue Stage",
+        metric_val_2=target_stage,
+        doc_url=doc_url,
+        button_text="Open & Review Document →",
+        badge_color="#2563eb",
+    )
+    _dispatch_reimbursement_email(list(set(recipients)), subject, body, voucher_doctype, voucher_name, alert_color="blue")
