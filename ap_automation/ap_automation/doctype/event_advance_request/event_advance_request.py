@@ -220,12 +220,15 @@ class EventAdvanceRequest(APDocument):
         super().before_save()
 
     def before_submit(self):
-        """Transitions newly submitted proposal directly to Pending Director Approval."""
+        """Transitions newly submitted proposal directly to Pending Director Approval (or keeps fast-track status)."""
         self.flags.in_workflow_transition = True
-        self.status = "Pending Director Approval"
+        if not getattr(self.flags, "is_resubmission", False) or not self.status:
+            self.status = "Pending Director Approval"
 
     def on_submit(self):
-        """Dispatches submission alert to Level 1 Executive Director & CCs Accounts."""
+        """Dispatches submission alert to Level 1 Executive Director & CCs Accounts (unless resubmission)."""
+        if getattr(self.flags, "is_resubmission", False):
+            return
         try:
             from ap_automation.services.employee_reimbursement_notification_service import (
                 notify_event_imprest_submitted,
@@ -336,6 +339,14 @@ def get_event_advance_ui_context(advance_name: str) -> Dict[str, Any]:
     elif doc.status == "Pending Accounts Director Approval":
         can_reject = can_ad or is_sys
 
+    can_return_to_spoc = False
+    if doc.status in ("Pending Accounts L1 Review", "Pending Accounts Director Approval"):
+        can_return_to_spoc = (can_l1 if doc.status == "Pending Accounts L1 Review" else can_ad) or is_ad_maker or is_sys
+
+    spoc_user = frappe.db.get_value("Employee", doc.spoc, "user_id") or doc.spoc if doc.spoc else None
+    is_spoc_or_owner = user in (doc.owner, doc.spoc, spoc_user) or is_sys
+    can_resubmit_fast_track = (doc.status == "Returned to SPOC") and is_spoc_or_owner
+
     def _user_label(u: Optional[str], fallback: str) -> str:
         if not u:
             return fallback
@@ -380,6 +391,8 @@ def get_event_advance_ui_context(advance_name: str) -> Dict[str, Any]:
         ]),
         "is_finance_viewer": is_finance_viewer,
         "can_reject": can_reject,
+        "can_return_to_spoc": can_return_to_spoc,
+        "can_resubmit_fast_track": can_resubmit_fast_track,
         "pending_with": pending_map.get(doc.status, ""),
         "stage_owners": {
             "draft": spoc_label,
@@ -862,4 +875,208 @@ def reject_event_advance(advance_name: str, reason: str) -> Dict[str, Any]:
         "status": "SUCCESS",
         "message": f"Event Advance Request #{advance_name} rejected.",
         "advance": advance_name,
+    }
+
+
+@frappe.whitelist()
+def return_event_advance_to_spoc(advance_name: str, reason: str) -> Dict[str, Any]:
+    """
+    Returns an in-flight Event Advance Request from Accounts L1 Audit or Accounts Director back to the SPOC.
+    Unlocks docstatus back to 0 so the SPOC can edit line items/amounts, records baseline amount,
+    and enables fast-tracking directly back to this reviewer stage without re-approval from Director.
+    """
+    if not frappe.db.exists("Event Advance Request", advance_name):
+        raise APValidationError(f"Event Advance Request '{advance_name}' not found.")
+
+    if not reason or len(str(reason).strip()) < 5:
+        raise APValidationError("A descriptive discrepancy reason (minimum 5 characters) is required to return this advance request.")
+
+    user = frappe.session.user
+    user_roles = set(frappe.get_roles(user))
+    doc = frappe.get_doc("Event Advance Request", advance_name)
+
+    if doc.status not in ("Pending Accounts L1 Review", "Pending Accounts Director Approval"):
+        raise APValidationError(
+            f"Cannot return Event Advance Request #{advance_name} to SPOC from '{doc.status}' status. "
+            "Only advances in Accounts review can be returned."
+        )
+
+    ctx = get_event_advance_ui_context(advance_name)
+    authorized_roles = {"Accounts L1 Auditor", "Accounts Director", "Accounts Manager", "AP Director", "System Manager"}
+    is_authorized = (
+        user == "Administrator"
+        or ctx.get("can_accounts_l1_verify")
+        or ctx.get("can_accounts_director_signoff")
+        or ctx.get("can_maker_release")
+        or bool(user_roles.intersection(authorized_roles))
+    )
+    if not is_authorized:
+        raise APSecurityError("Unauthorized: You do not have permission to return this Event Advance Request.")
+
+    clean_reason = str(reason).strip()
+    origin_stage = doc.status
+    rejected_role = "Accounts Director" if origin_stage == "Pending Accounts Director Approval" else "Accounts L1 Auditor"
+    stage_level = 3 if origin_stage == "Pending Accounts Director Approval" else 2
+    baseline_amt = float(doc.requested_advance_amount or 0.0)
+
+    frappe.db.set_value(
+        "Event Advance Request",
+        advance_name,
+        {
+            "docstatus": 0,
+            "status": "Returned to SPOC",
+            "return_origin_stage": origin_stage,
+            "rejection_baseline_amount": baseline_amt,
+            "rejected_by_role": rejected_role,
+            "rejecting_user": user,
+            "rejection_reason": clean_reason,
+        },
+        update_modified=True,
+    )
+    frappe.db.sql("UPDATE `tabEvent Imprest Item` SET docstatus = 0 WHERE parent = %s", (advance_name,))
+
+    append_event_approval_trail(
+        doctype="Event Advance Request",
+        docname=advance_name,
+        level_number=stage_level,
+        level_name=f"Returned at Stage {stage_level} ({rejected_role})",
+        action="DISPUTED",
+        action_taken_by=user,
+        designated_approver=user,
+        remarks=clean_reason,
+    )
+
+    doc.reload()
+    doc.add_comment(
+        "Comment",
+        text=f"⚠️ <b>Advance Request Returned to SPOC:</b> Returned by {user} ({rejected_role}) from <b>{origin_stage}</b>.<br>"
+             f"<b>Reason:</b> {clean_reason}<br>"
+             f"<b>Baseline Amount:</b> ₹ {baseline_amt:,.2f} (Resubmissions within this amount will fast-track back directly).",
+    )
+    frappe.db.commit()
+
+    try:
+        from ap_automation.services.employee_reimbursement_notification_service import (
+            notify_event_advance_returned,
+        )
+        notify_event_advance_returned(doc, clean_reason, returned_by=user)
+    except Exception:
+        frappe.log_error(
+            title="Event Advance Return Email Error",
+            message=f"Failed to notify SPOC on return of {advance_name}: {frappe.get_traceback()}",
+        )
+
+    return {
+        "status": "SUCCESS",
+        "message": f"Event Advance Request #{advance_name} has been returned to SPOC for correction.",
+        "advance": advance_name,
+        "new_status": "Returned to SPOC",
+    }
+
+
+@frappe.whitelist()
+def resubmit_event_advance(advance_name: str) -> Dict[str, Any]:
+    """
+    Resubmits an Event Advance Request that was previously 'Returned to SPOC'.
+    ⚡ FAST-TRACK LOGIC:
+    - If requested_advance_amount <= rejection_baseline_amount:
+      FAST-TRACKS directly back to `return_origin_stage` (e.g. Accounts L1 or Accounts Director),
+      bypassing Stage 1 Director Approval (since Director already approved up to the baseline amount).
+    - If requested_advance_amount > rejection_baseline_amount:
+      Budget escalation! Routes back to Stage 1 (Pending Director Approval) for full re-approval.
+    """
+    if not advance_name or not frappe.db.exists("Event Advance Request", advance_name):
+        raise APValidationError(f"Event Advance Request '{advance_name}' not found.")
+
+    doc = frappe.get_doc("Event Advance Request", advance_name)
+    user = frappe.session.user
+    user_roles = set(frappe.get_roles(user))
+
+    spoc_user = frappe.db.get_value("Employee", doc.spoc, "user_id") or doc.spoc if doc.spoc else None
+    is_owner_or_spoc = user in (doc.owner, doc.spoc, spoc_user)
+    is_privileged = user == "Administrator" or bool(user_roles.intersection({"System Manager", "Accounts Manager"}))
+    if not is_owner_or_spoc and not is_privileged:
+        raise APSecurityError("Unauthorized: Only the Event SPOC or creator can resubmit this returned Event Advance Request.")
+
+    if doc.status != "Returned to SPOC":
+        raise APValidationError(
+            f"Only advances in 'Returned to SPOC' status can be resubmitted. Current status is '{doc.status}'."
+        )
+
+    cash_tot = 0.0
+    vend_tot = 0.0
+    for row in getattr(doc, "imprest_items", []) or []:
+        amt = float(getattr(row, "amount", 0.0) or 0.0)
+        if getattr(row, "payment_mode", "") == "Direct Vendor Payment":
+            vend_tot += amt
+        else:
+            cash_tot += amt
+
+    current_total = cash_tot + vend_tot
+    if current_total <= 0:
+        raise APValidationError("Total requested advance amount must be greater than zero.")
+
+    doc.total_cash_imprest_amount = cash_tot
+    doc.total_direct_vendor_amount = vend_tot
+    doc.requested_advance_amount = current_total
+
+    baseline_amt = float(getattr(doc, "rejection_baseline_amount", 0.0) or 0.0)
+    origin_stage = getattr(doc, "return_origin_stage", None) or "Pending Accounts L1 Review"
+    rejecting_reviewer = getattr(doc, "rejecting_user", None)
+
+    is_fast_track = (current_total <= baseline_amt) and bool(origin_stage)
+
+    if is_fast_track:
+        target_status = origin_stage
+        comment_msg = (
+            f"🚀 <b>Fast-Track Resubmission:</b> Advance resubmitted by SPOC ({user}) without budget increase "
+            f"(₹ {current_total:,.2f} <= Baseline ₹ {baseline_amt:,.2f}). "
+            f"Bypassed Stage 1 Director approval directly to <b>{target_status}</b>."
+        )
+        resp_msg = f"Fast-Track Resubmitted! Returned directly to {target_status} without requiring Director re-approval."
+    else:
+        target_status = "Pending Director Approval"
+        comment_msg = (
+            f"⚠️ <b>Budget Escalation Re-Approval:</b> Requested advance increased from ₹ {baseline_amt:,.2f} "
+            f"to ₹ {current_total:,.2f}. Routed back to <b>Stage 1 (Director Approval)</b>."
+        )
+        resp_msg = f"Advance resubmitted with budget increase (₹ {current_total:,.2f}). Routed to Director for approval."
+
+    doc.flags.in_workflow_transition = True
+    doc.flags.ignore_permissions = True
+    doc.flags.is_resubmission = True
+    doc.status = target_status
+    doc.docstatus = 1
+    doc.save(ignore_permissions=True)
+    frappe.db.sql("UPDATE `tabEvent Imprest Item` SET docstatus = 1 WHERE parent = %s", (advance_name,))
+
+    doc.add_comment("Comment", text=comment_msg)
+    frappe.db.commit()
+
+    try:
+        from ap_automation.services.employee_reimbursement_notification_service import (
+            notify_event_fast_track_resubmitted,
+            notify_event_imprest_submitted,
+        )
+        if is_fast_track:
+            notify_event_fast_track_resubmitted(
+                voucher_doctype="Event Advance Request",
+                voucher_name=doc.name,
+                reviewer_user=rejecting_reviewer,
+                target_stage=target_status,
+            )
+        else:
+            notify_event_imprest_submitted(doc)
+    except Exception:
+        frappe.log_error(
+            title="Event Advance Resubmission Email Error",
+            message=f"Failed to send email notification for resubmitted advance {advance_name}: {frappe.get_traceback()}",
+        )
+
+    return {
+        "status": "SUCCESS",
+        "message": resp_msg,
+        "advance": doc.name,
+        "new_status": target_status,
+        "is_fast_track": is_fast_track,
     }

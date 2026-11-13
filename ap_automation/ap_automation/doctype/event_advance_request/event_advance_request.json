@@ -218,7 +218,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Director Approval\nPending Accounts L1 Review\nPending Accounts Director Approval\nApproved for Payment\nDisbursed\nRejected",
+   "options": "Draft\nPending Director Approval\nPending Accounts L1 Review\nPending Accounts Director Approval\nApproved for Payment\nDisbursed\nRejected\nReturned to SPOC",
    "read_only": 1,
    "allow_on_submit": 1
   },
@@ -349,6 +349,48 @@
    "options": "User",
    "read_only": 1,
    "allow_on_submit": 1
+  },
+  {
+   "fieldname": "sb_fast_track",
+   "fieldtype": "Section Break",
+   "label": "Return & Fast-Track Governance",
+   "hidden": 1
+  },
+  {
+   "fieldname": "return_origin_stage",
+   "fieldtype": "Data",
+   "label": "Return Origin Stage",
+   "read_only": 1,
+   "allow_on_submit": 0
+  },
+  {
+   "fieldname": "rejection_reason",
+   "fieldtype": "Small Text",
+   "label": "Rejection / Discrepancy Reason",
+   "read_only": 1,
+   "allow_on_submit": 0
+  },
+  {
+   "fieldname": "rejected_by_role",
+   "fieldtype": "Data",
+   "label": "Rejected By Role",
+   "read_only": 1,
+   "allow_on_submit": 0
+  },
+  {
+   "fieldname": "rejecting_user",
+   "fieldtype": "Link",
+   "label": "Rejecting Reviewer",
+   "options": "User",
+   "read_only": 1,
+   "allow_on_submit": 0
+  },
+  {
+   "fieldname": "rejection_baseline_amount",
+   "fieldtype": "Currency",
+   "label": "Rejection Baseline Amount",
+   "read_only": 1,
+   "allow_on_submit": 0
   }
  ],
  "grid_page_length": 50,
