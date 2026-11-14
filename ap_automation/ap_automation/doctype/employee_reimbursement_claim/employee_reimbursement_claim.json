@@ -201,7 +201,8 @@
    "default": "0",
    "fieldname": "is_proxy_claim",
    "fieldtype": "Check",
-   "label": "Filing on Behalf of Office Assistant / Staff"
+   "in_list_view": 1,
+   "label": "Is Proxy"
   },
   {
    "fieldname": "proxy_claimant",
