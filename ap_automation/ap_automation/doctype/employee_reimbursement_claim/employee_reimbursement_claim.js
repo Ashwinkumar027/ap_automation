@@ -220,6 +220,16 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
                 }
             };
         });
+        if (frm.doc.pre_travel_request || frm.doc.pre_approval_attachment) {
+            frm.add_custom_button(__('📋 View Pre-Approval'), function() {
+                show_pre_travel_approval_dialog(frm);
+            });
+        }
+        if (frm.doc.is_per_diem_claimed) {
+            frm.add_custom_button(__('📅 Generate Meal Schedule'), function() {
+                generate_per_diem_breakdown_dialog(frm);
+            }, __('Per Diem'));
+        }
         frm.trigger('calculate_totals');
         disable_auto_save_on_attach(frm); setTimeout(() => bind_custom_grid_uploaders(frm), 250);
     },
@@ -245,14 +255,24 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
         ]) || frappe.session.user === 'Administrator';
 
         const can_edit_lines = is_draft_or_returned || (has_write_perm && is_reviewer_role);
+        const is_receptionist_proxy = (frappe.user.has_role(['Receptionist', 'System Manager']) || frappe.session.user === 'Administrator') && frm.doc.claim_category === 'Dinner Allowance';
 
         frm.set_df_property('claim_category', 'read_only', !is_draft_or_returned);
-        frm.set_df_property('employee', 'read_only', !is_draft_or_returned);
+        if (is_receptionist_proxy && is_draft_or_returned) {
+            frm.set_df_property('employee', 'read_only', 0);
+            frm.set_df_property('is_proxy_claim', 'read_only', 0);
+            frm.set_df_property('employee', 'description', __('Receptionist Proxy: Select Office Assistant or staff member to file dinner allowance on their behalf.'));
+        } else {
+            frm.set_df_property('employee', 'read_only', !is_draft_or_returned);
+            frm.set_df_property('is_proxy_claim', 'read_only', 1);
+            frm.set_df_property('employee', 'description', '');
+        }
         frm.set_df_property('pre_travel_request', 'read_only', !is_draft_or_returned);
         frm.set_df_property('pre_approval_attachment', 'read_only', !is_draft_or_returned);
         frm.set_df_property('expense_lines', 'read_only', !can_edit_lines);
         frm.set_df_property('client_visit_legs', 'read_only', !can_edit_lines);
         frm.set_df_property('participants', 'read_only', !can_edit_lines);
+        frm.set_df_property('per_diem_breakdown', 'read_only', !is_draft_or_returned);
         frm.set_df_property('status', 'read_only', 1);
     },
 
@@ -332,12 +352,70 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
         frm.trigger('calculate_totals');
     },
 
+    pre_travel_request: function(frm) {
+        if (!frm.doc.pre_travel_request) return;
+        frappe.call({
+            method: "ap_automation.ap_automation.doctype.employee_reimbursement_claim.employee_reimbursement_claim.get_pre_travel_details",
+            args: { pre_travel_name: frm.doc.pre_travel_request },
+            callback: function(r) {
+                if (r && r.message && r.message.name) {
+                    let ptr = r.message;
+                    if (!frm.doc.purpose_of_visit && ptr.trip_purpose) {
+                        frm.set_value('purpose_of_visit', ptr.trip_purpose);
+                    }
+                    if (ptr.disbursed_advance_amount && (!frm.doc.advance_amount || parseFloat(frm.doc.advance_amount) <= 0)) {
+                        frm.set_value('advance_amount', ptr.disbursed_advance_amount);
+                    }
+
+                    // Auto-populate planned client visits into client_visit_legs
+                    let visits = ptr.planned_client_visits || [];
+                    if (visits.length > 0) {
+                        let legs = frm.doc.client_visit_legs || [];
+                        let has_meaningful_legs = legs.some(l => l.client_name || l.from_location || l.to_location || (l.distance_km && l.distance_km > 0));
+                        if (!has_meaningful_legs) {
+                            frm.clear_table('client_visit_legs');
+                            visits.forEach(function(v) {
+                                let row = frm.add_child('client_visit_legs');
+                                row.visit_date = v.visit_date || ptr.departure_date || frappe.datetime.nowdate();
+                                row.client_name = v.client_name || '';
+                                row.client_code = v.client_code || '';
+                                row.client_phone = v.client_phone || '';
+                                row.from_location = v.from_location || '';
+                                row.to_location = v.to_location || '';
+                                row.purpose = v.purpose || ptr.trip_purpose || '';
+                                row.mode_of_travel = 'Auto / Taxi (Bill / Meter)';
+                            });
+                            frm.refresh_field('client_visit_legs');
+                            frappe.show_alert({
+                                message: __('✅ Auto-populated ' + visits.length + ' client visit leg(s) from Pre-Travel Request.'),
+                                indicator: 'green'
+                            });
+                        }
+                    }
+
+                    // Auto-populate per diem dates if dates are present
+                    if (ptr.departure_date && ptr.return_date && frm.doc.is_per_diem_claimed) {
+                        generate_per_diem_breakdown_from_dates(frm, ptr.departure_date, ptr.return_date);
+                    }
+                }
+            }
+        });
+    },
+
     is_per_diem_claimed: function(frm) {
         toggle_per_diem_fields(frm);
+        let days = parseInt(frm.doc.per_diem_days || 1, 10);
+        if (frm.doc.is_per_diem_claimed && days > 1 && (!frm.doc.per_diem_breakdown || frm.doc.per_diem_breakdown.length === 0)) {
+            generate_per_diem_breakdown(frm, days);
+        }
         update_multi_leg_travel_calculations(frm);
     },
 
     per_diem_days: function(frm) {
+        let days = parseInt(frm.doc.per_diem_days || 1, 10);
+        if (frm.doc.is_per_diem_claimed && days > 1 && (!frm.doc.per_diem_breakdown || frm.doc.per_diem_breakdown.length === 0)) {
+            generate_per_diem_breakdown(frm, days);
+        }
         update_multi_leg_travel_calculations(frm);
     },
 
@@ -505,8 +583,19 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
                         frm.scroll_to_field('pre_travel_request');
                         return;
                     }
+                } else if (cat === 'Dinner Allowance') {
+                    // Dinner Allowance does NOT require expense lines or bills (fixed overtime allowance with swipe-out time)
+                    if (!frm.doc.swipe_out_time) {
+                        frappe.msgprint({
+                            title: __('Swipe-Out Time Required'),
+                            message: __('⏰ <b>Late Night Dinner Allowance</b>:<br>Please enter your <b>Swipe-Out / Shift End Time</b> before submitting.'),
+                            indicator: 'red'
+                        });
+                        frm.scroll_to_field('swipe_out_time');
+                        return;
+                    }
                 } else {
-                    // General Expense, Dinner Allowance, Branch Expense
+                    // General Expense, Branch Expense
                     if (!frm.doc.expense_lines || frm.doc.expense_lines.length === 0) {
                         frappe.msgprint({
                             title: __('Missing Expense Lines'),
@@ -1002,9 +1091,7 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
             const tolls = parseFloat(frm.doc.total_toll_parking_amount || 0.0);
             let per_diem = 0.0;
             if (frm.doc.is_per_diem_claimed) {
-                const days = parseInt(frm.doc.per_diem_days || 1, 10);
-                const rate = parseFloat(frm.doc.per_diem_amount || 500.0);
-                per_diem = days * rate;
+                per_diem = parseFloat(frm.doc.per_diem_amount || 0.0);
             }
             total = mileage + tolls + per_diem;
         } else if (cat === 'Dinner Allowance') {
@@ -1029,6 +1116,9 @@ frappe.ui.form.on('Employee Reimbursement Claim', {
             (frm.doc.expense_lines || []).forEach(row => {
                 total += parseFloat(row.amount || 0.0);
             });
+            if (frm.doc.is_per_diem_claimed) {
+                total += parseFloat(frm.doc.per_diem_amount || 0.0);
+            }
         }
 
         const rounded_total = Math.round(total * 100) / 100;
@@ -1096,6 +1186,26 @@ frappe.ui.form.on('Employee Client Visit Leg', {
     },
     form_render: function(frm) {
         setTimeout(() => bind_custom_grid_uploaders(frm), 200);
+    }
+});
+
+// Child Table Event Handlers for Flexible Per Diem Days
+frappe.ui.form.on('Employee Per Diem Day', {
+    claim_breakfast: function(frm, cdt, cdn) {
+        recalculate_single_per_diem_row(frm, cdt, cdn);
+    },
+    claim_lunch: function(frm, cdt, cdn) {
+        recalculate_single_per_diem_row(frm, cdt, cdn);
+    },
+    claim_dinner: function(frm, cdt, cdn) {
+        recalculate_single_per_diem_row(frm, cdt, cdn);
+    },
+    travel_date: function(frm, cdt, cdn) {
+        recalculate_single_per_diem_row(frm, cdt, cdn);
+    },
+    per_diem_breakdown_remove: function(frm) {
+        update_multi_leg_travel_calculations(frm);
+        frm.trigger('calculate_totals');
     }
 });
 
@@ -1597,10 +1707,8 @@ function render_unified_claim_header(frm) {
 
 function toggle_per_diem_fields(frm) {
     const is_claimed = Boolean(frm.doc.is_per_diem_claimed);
-    // Keep them always visible so employees clearly see the meal allocation structure
-    frm.toggle_display(['per_diem_days', 'claim_breakfast', 'claim_lunch', 'claim_dinner', 'per_diem_meals_note', 'per_diem_amount'], true);
-    // Enable or disable fields based on is_per_diem_claimed
-    frm.toggle_enable(['per_diem_days', 'claim_breakfast', 'claim_lunch', 'claim_dinner', 'per_diem_meals_note'], is_claimed);
+    frm.toggle_display(['per_diem_days', 'claim_breakfast', 'claim_lunch', 'claim_dinner', 'per_diem_meals_note', 'per_diem_amount', 'per_diem_breakdown'], is_claimed);
+    frm.toggle_enable(['per_diem_days', 'claim_breakfast', 'claim_lunch', 'claim_dinner', 'per_diem_meals_note', 'per_diem_breakdown'], is_claimed);
 }
 
 function toggle_category_sections(frm, should_scroll) {
@@ -1614,7 +1722,13 @@ function toggle_category_sections(frm, should_scroll) {
     // 1. Client Visit Travel: Show Pre-Travel Authorization + Client Itinerary Table + Travel Summary
     frm.toggle_display('sb_pre_travel', is_client_travel);
     frm.toggle_display('sb_client_travel', is_client_travel);
-    frm.toggle_display('sb_client_travel_summary', is_client_travel);
+    frm.toggle_display('sb_client_travel_summary', (is_client_travel || is_general));
+    if (is_general) {
+        // In General Expense, hide mileage-only fields
+        frm.toggle_display(['cb_travel_summary_1', 'total_trip_distance_km', 'total_leg_mileage_amount', 'total_toll_parking_amount', 'travel_calculated_amount'], false);
+    } else if (is_client_travel) {
+        frm.toggle_display(['cb_travel_summary_1', 'total_trip_distance_km', 'total_leg_mileage_amount', 'total_toll_parking_amount', 'travel_calculated_amount'], true);
+    }
 
     // 2. Team Lunch / Outing: Show Participants Table & Team Details
     frm.toggle_display('sb_team_lunch', is_team_lunch);
@@ -1626,8 +1740,8 @@ function toggle_category_sections(frm, should_scroll) {
     // 4. Branch Expense: Show Branch Section
     frm.toggle_display('sb_branch_expense', is_branch);
 
-    // 5. Expense Lines Table: Show for General Expense, Team Lunch, Branch, and Dinner
-    frm.toggle_display('sb_lines', (is_general || is_team_lunch || is_branch || is_dinner || (frm.doc.expense_lines && frm.doc.expense_lines.length > 0)));
+    // 5. Expense Lines Table: Show for General Expense, Team Lunch, Branch, and Dinner (if lines present)
+    frm.toggle_display('sb_lines', (is_general || is_team_lunch || is_branch || (is_dinner && frm.doc.expense_lines && frm.doc.expense_lines.length > 0)));
 
     // 6. Clean UI: Hide audit trail & voucher relationships on new/draft claims
     const show_audit = !frm.is_new() && !['Draft'].includes(frm.doc.status);
@@ -1660,27 +1774,262 @@ function calculate_single_leg_mileage(frm, cdt, cdn) {
     update_multi_leg_travel_calculations(frm);
 }
 
+function recalculate_single_per_diem_row(frm, cdt, cdn) {
+    let row = locals[cdt][cdn];
+    let amt = 0.0;
+    if (row.claim_breakfast) amt += 100.0;
+    if (row.claim_lunch) amt += 200.0;
+    if (row.claim_dinner) amt += 200.0;
+    frappe.model.set_value(cdt, cdn, 'day_amount', amt);
+    update_multi_leg_travel_calculations(frm);
+}
+
+function generate_per_diem_breakdown(frm, num_days) {
+    if (!num_days || num_days <= 0) num_days = parseInt(frm.doc.per_diem_days || 1, 10);
+    let start_date = frm.doc.posting_date || frappe.datetime.nowdate();
+    if (frm.doc.client_visit_legs && frm.doc.client_visit_legs.length > 0) {
+        let first_date = frm.doc.client_visit_legs[0].visit_date;
+        if (first_date) start_date = first_date;
+    }
+    frm.clear_table('per_diem_breakdown');
+    let cur = frappe.datetime.str_to_obj(start_date);
+    for (let i = 0; i < num_days; i++) {
+        let d_str = frappe.datetime.obj_to_str(cur);
+        let row = frm.add_child('per_diem_breakdown');
+        row.travel_date = d_str;
+        if (num_days > 1 && i === 0) {
+            row.claim_breakfast = 0; row.claim_lunch = 1; row.claim_dinner = 1; row.remarks = 'Departure Day';
+        } else if (num_days > 1 && i === num_days - 1) {
+            row.claim_breakfast = 1; row.claim_lunch = 1; row.claim_dinner = 0; row.remarks = 'Return Day (Reach home before 7 PM)';
+        } else {
+            row.claim_breakfast = 1; row.claim_lunch = 1; row.claim_dinner = 1; row.remarks = 'Full Day Travel';
+        }
+        row.day_amount = (row.claim_breakfast ? 100 : 0) + (row.claim_lunch ? 200 : 0) + (row.claim_dinner ? 200 : 0);
+        cur.setDate(cur.getDate() + 1);
+    }
+    frm.refresh_field('per_diem_breakdown');
+    update_multi_leg_travel_calculations(frm);
+}
+
+function generate_per_diem_breakdown_from_dates(frm, start_date, end_date) {
+    if (!start_date) return;
+    let num_days = 1;
+    if (start_date && end_date) {
+        let diff = frappe.datetime.get_diff(end_date, start_date) + 1;
+        if (diff > 0) num_days = diff;
+    }
+    frm.set_value('per_diem_days', num_days);
+    frm.clear_table('per_diem_breakdown');
+    let cur = frappe.datetime.str_to_obj(start_date);
+    for (let i = 0; i < num_days; i++) {
+        let d_str = frappe.datetime.obj_to_str(cur);
+        let row = frm.add_child('per_diem_breakdown');
+        row.travel_date = d_str;
+        if (num_days > 1 && i === 0) {
+            row.claim_breakfast = 0; row.claim_lunch = 1; row.claim_dinner = 1; row.remarks = 'Departure Day';
+        } else if (num_days > 1 && i === num_days - 1) {
+            row.claim_breakfast = 1; row.claim_lunch = 1; row.claim_dinner = 0; row.remarks = 'Return Day (Reach home before 7 PM)';
+        } else {
+            row.claim_breakfast = 1; row.claim_lunch = 1; row.claim_dinner = 1; row.remarks = 'Full Day Travel';
+        }
+        row.day_amount = (row.claim_breakfast ? 100 : 0) + (row.claim_lunch ? 200 : 0) + (row.claim_dinner ? 200 : 0);
+        cur.setDate(cur.getDate() + 1);
+    }
+    frm.refresh_field('per_diem_breakdown');
+    update_multi_leg_travel_calculations(frm);
+}
+
+function generate_per_diem_breakdown_dialog(frm) {
+    frappe.prompt([
+        { fieldname: 'start_date', fieldtype: 'Date', label: __('Trip Departure Date'), reqd: 1, default: frappe.datetime.nowdate() },
+        { fieldname: 'end_date', fieldtype: 'Date', label: __('Trip Return Date'), reqd: 1, default: frappe.datetime.nowdate() }
+    ], function(values) {
+        generate_per_diem_breakdown_from_dates(frm, values.start_date, values.end_date);
+        frappe.show_alert({
+            message: __('Generated day-wise meal schedule for trip.'),
+            indicator: 'green'
+        });
+    }, __('📅 Build Daily Meal Schedule'), __('Generate Schedule'));
+}
+
+function show_pre_travel_approval_dialog(frm) {
+    if (!frm.doc.pre_travel_request && !frm.doc.pre_approval_attachment) {
+        frappe.msgprint(__('No Pre-Travel Authorization or Attachment is linked to this claim.'));
+        return;
+    }
+
+    if (!frm.doc.pre_travel_request && frm.doc.pre_approval_attachment) {
+        let file_url = frm.doc.pre_approval_attachment;
+        let is_img = file_url.match(/\.(jpeg|jpg|gif|png|webp)$/i);
+        let preview_html = is_img
+            ? `<div style="text-align: center; padding: 15px;"><img src="${file_url}" style="max-width: 100%; max-height: 450px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);" /></div>`
+            : `<div style="padding: 25px; text-align: center;"><p style="font-size: 14px; margin-bottom: 15px;">Uploaded Approval Document (${file_url.split('.').pop().toUpperCase()})</p><a href="${file_url}" target="_blank" class="btn btn-primary btn-sm"><i class="fa fa-download"></i> View / Download Pre-Approval Document</a></div>`;
+
+        let d = new frappe.ui.Dialog({
+            title: __('Pre-Travel Approval Document'),
+            size: 'large',
+            fields: [{ fieldtype: 'HTML', fieldname: 'preview_html', options: preview_html }]
+        });
+        d.show();
+        return;
+    }
+
+    frappe.call({
+        method: "ap_automation.ap_automation.doctype.employee_reimbursement_claim.employee_reimbursement_claim.get_pre_travel_details",
+        args: { pre_travel_name: frm.doc.pre_travel_request },
+        callback: function(r) {
+            if (!r || !r.message) {
+                frappe.msgprint(__('Unable to load Pre-Travel Request details.'));
+                return;
+            }
+            let ptr = r.message;
+            let visits = ptr.planned_client_visits || [];
+            let visits_html = '';
+            if (visits.length > 0) {
+                visits_html = `
+                    <div style="margin-top: 15px;">
+                        <h6 style="font-weight: 700; color: #1e293b; margin-bottom: 8px;">📍 Planned Client Visits & Stops</h6>
+                        <table class="table table-bordered table-sm" style="font-size: 12px; background: #fff;">
+                            <thead style="background: #f1f5f9;">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Date</th>
+                                    <th>Client / Company</th>
+                                    <th>Route</th>
+                                    <th>Purpose</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${visits.map((v, i) => `
+                                    <tr>
+                                        <td>${i + 1}</td>
+                                        <td>${v.visit_date || '-'}</td>
+                                        <td><strong>${v.client_name || '-'}</strong> ${v.client_code ? `(${v.client_code})` : ''}</td>
+                                        <td>${v.from_location || '-'} &rarr; ${v.to_location || '-'}</td>
+                                        <td>${v.purpose || '-'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+
+            let attachment_html = '';
+            if (frm.doc.pre_approval_attachment) {
+                let att = frm.doc.pre_approval_attachment;
+                attachment_html = `
+                    <div style="margin-top: 12px; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+                        <strong>📎 Approval Attachment / Email:</strong>
+                        <a href="${att}" target="_blank" style="margin-left: 8px; font-weight: 600; text-decoration: underline;">
+                            Open Document <i class="fa fa-external-link"></i>
+                        </a>
+                    </div>
+                `;
+            }
+
+            let budget_str = (ptr.estimated_budget || 0).toLocaleString('en-IN');
+            let adv_str = (ptr.disbursed_advance_amount || 0).toLocaleString('en-IN');
+
+            let content_html = `
+                <div style="padding: 10px;">
+                    <div class="row" style="margin-bottom: 12px;">
+                        <div class="col-sm-6">
+                            <span class="text-muted" style="font-size: 11px;">PRE-TRAVEL AUTHORIZATION ID</span><br>
+                            <a href="/app/pre-travel-request/${ptr.name}" target="_blank" style="font-size: 15px; font-weight: 700; color: #2563eb;">
+                                ${ptr.name} <i class="fa fa-external-link" style="font-size: 11px;"></i>
+                            </a>
+                        </div>
+                        <div class="col-sm-6 text-right" style="text-align: right;">
+                            <span class="badge badge-success" style="font-size: 12px; padding: 5px 10px; background-color: #10b981; color: white;">
+                                ✓ ${ptr.status || 'Approved'}
+                            </span>
+                        </div>
+                    </div>
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                        <div class="row">
+                            <div class="col-sm-4">
+                                <span class="text-muted" style="font-size: 11px;">EMPLOYEE</span><br>
+                                <strong>${ptr.employee_name || ptr.employee}</strong>
+                            </div>
+                            <div class="col-sm-4">
+                                <span class="text-muted" style="font-size: 11px;">DESTINATION</span><br>
+                                <strong>${ptr.destination_city || 'Not specified'}</strong>
+                            </div>
+                            <div class="col-sm-4">
+                                <span class="text-muted" style="font-size: 11px;">TRAVEL DATES</span><br>
+                                <strong>${ptr.departure_date || '-'} &rarr; ${ptr.return_date || '-'}</strong>
+                            </div>
+                        </div>
+                        <div class="row" style="margin-top: 10px;">
+                            <div class="col-sm-4">
+                                <span class="text-muted" style="font-size: 11px;">ESTIMATED BUDGET</span><br>
+                                <strong>₹${budget_str}</strong>
+                            </div>
+                            <div class="col-sm-4">
+                                <span class="text-muted" style="font-size: 11px;">DISBURSED ADVANCE</span><br>
+                                <strong>₹${adv_str}</strong>
+                            </div>
+                            <div class="col-sm-4">
+                                <span class="text-muted" style="font-size: 11px;">REPORTING MANAGER</span><br>
+                                <strong>${ptr.reporting_manager_name || '-'}</strong>
+                            </div>
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <span class="text-muted" style="font-size: 11px;">BUSINESS PURPOSE</span><br>
+                            <p style="margin-bottom: 0; font-size: 12px;">${ptr.trip_purpose || '-'}</p>
+                        </div>
+                    </div>
+                    ${visits_html}
+                    ${attachment_html}
+                </div>
+            `;
+
+            let d = new frappe.ui.Dialog({
+                title: __('📋 Pre-Travel Authorization Quick-View'),
+                size: 'large',
+                fields: [{ fieldtype: 'HTML', fieldname: 'details_html', options: content_html }]
+            });
+            d.show();
+        }
+    });
+}
+
 function update_multi_leg_travel_calculations(frm) {
-    if (frm.doc.claim_category !== 'Client Visit Travel') return;
+    const cat = frm.doc.claim_category;
+    if (cat !== 'Client Visit Travel' && cat !== 'General Expense') return;
 
     let total_km = 0.0;
     let total_mileage = 0.0;
     let total_tolls = 0.0;
 
-    (frm.doc.client_visit_legs || []).forEach(row => {
-        total_km += parseFloat(row.distance_km || 0.0);
-        total_mileage += parseFloat(row.leg_amount || 0.0);
-        total_tolls += parseFloat(row.toll_parking_amount || 0.0);
-    });
+    if (cat === 'Client Visit Travel') {
+        (frm.doc.client_visit_legs || []).forEach(row => {
+            total_km += parseFloat(row.distance_km || 0.0);
+            total_mileage += parseFloat(row.leg_amount || 0.0);
+            total_tolls += parseFloat(row.toll_parking_amount || 0.0);
+        });
+    }
 
     let per_diem = 0.0;
     if (frm.doc.is_per_diem_claimed) {
-        let daily_rate = 0.0;
-        if (frm.doc.claim_breakfast !== 0) daily_rate += 100.0;
-        if (frm.doc.claim_lunch !== 0) daily_rate += 200.0;
-        if (frm.doc.claim_dinner !== 0) daily_rate += 200.0;
-        const days = parseInt(frm.doc.per_diem_days || 1, 10);
-        per_diem = days * daily_rate;
+        let breakdown = frm.doc.per_diem_breakdown || [];
+        if (breakdown.length > 0) {
+            breakdown.forEach(row => {
+                let amt = (row.claim_breakfast ? 100 : 0) + (row.claim_lunch ? 200 : 0) + (row.claim_dinner ? 200 : 0);
+                per_diem += amt;
+            });
+            if (frm.doc.per_diem_days !== breakdown.length) {
+                frm.set_value('per_diem_days', breakdown.length);
+            }
+        } else {
+            let daily_rate = 0.0;
+            if (frm.doc.claim_breakfast !== 0) daily_rate += 100.0;
+            if (frm.doc.claim_lunch !== 0) daily_rate += 200.0;
+            if (frm.doc.claim_dinner !== 0) daily_rate += 200.0;
+            const days = parseInt(frm.doc.per_diem_days || 1, 10);
+            per_diem = days * daily_rate;
+        }
         if (Math.abs(parseFloat(frm.doc.per_diem_amount || 0.0) - per_diem) > 0.001) {
             frm.set_value('per_diem_amount', per_diem);
         }
@@ -1690,22 +2039,24 @@ function update_multi_leg_travel_calculations(frm) {
         }
     }
 
-    const total_entitlement = Math.round((total_mileage + total_tolls + per_diem) * 100) / 100;
-    const r_km = Math.round(total_km * 100) / 100;
-    const r_mileage = Math.round(total_mileage * 100) / 100;
-    const r_tolls = Math.round(total_tolls * 100) / 100;
+    if (cat === 'Client Visit Travel') {
+        const total_entitlement = Math.round((total_mileage + total_tolls + per_diem) * 100) / 100;
+        const r_km = Math.round(total_km * 100) / 100;
+        const r_mileage = Math.round(total_mileage * 100) / 100;
+        const r_tolls = Math.round(total_tolls * 100) / 100;
 
-    if (Math.abs(parseFloat(frm.doc.total_trip_distance_km || 0.0) - r_km) > 0.001) {
-        frm.set_value('total_trip_distance_km', r_km);
-    }
-    if (Math.abs(parseFloat(frm.doc.total_leg_mileage_amount || 0.0) - r_mileage) > 0.001) {
-        frm.set_value('total_leg_mileage_amount', r_mileage);
-    }
-    if (Math.abs(parseFloat(frm.doc.total_toll_parking_amount || 0.0) - r_tolls) > 0.001) {
-        frm.set_value('total_toll_parking_amount', r_tolls);
-    }
-    if (Math.abs(parseFloat(frm.doc.travel_calculated_amount || 0.0) - total_entitlement) > 0.001) {
-        frm.set_value('travel_calculated_amount', total_entitlement);
+        if (Math.abs(parseFloat(frm.doc.total_trip_distance_km || 0.0) - r_km) > 0.001) {
+            frm.set_value('total_trip_distance_km', r_km);
+        }
+        if (Math.abs(parseFloat(frm.doc.total_leg_mileage_amount || 0.0) - r_mileage) > 0.001) {
+            frm.set_value('total_leg_mileage_amount', r_mileage);
+        }
+        if (Math.abs(parseFloat(frm.doc.total_toll_parking_amount || 0.0) - r_tolls) > 0.001) {
+            frm.set_value('total_toll_parking_amount', r_tolls);
+        }
+        if (Math.abs(parseFloat(frm.doc.travel_calculated_amount || 0.0) - total_entitlement) > 0.001) {
+            frm.set_value('travel_calculated_amount', total_entitlement);
+        }
     }
 
     frm.trigger('calculate_totals');
