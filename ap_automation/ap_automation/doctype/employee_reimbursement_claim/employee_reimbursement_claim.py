@@ -232,9 +232,18 @@ class EmployeeReimbursementClaim(APDocument):
 
         emp_profile = hrms_hierarchy_service.get_employee_hrms_profile(emp_id)
 
-        # Enforce employee filing authorization (Self or Subordinate only for non-global users)
+        # Enforce employee filing authorization (Self or Subordinate only for non-global users, or Receptionist proxy filing for Dinner Allowance)
         user = frappe.session.user
-        if not employee_reimbursement_permission_service.is_global_view_user(user):
+        user_roles = set(frappe.get_roles(user)) if user else set()
+        is_receptionist_proxy = (
+            ("Receptionist" in user_roles or "System Manager" in user_roles or user in ("Administrator", "administrator@example.com"))
+            and getattr(self, "claim_category", "") == "Dinner Allowance"
+        )
+        if is_receptionist_proxy:
+            self.is_proxy_claim = 1
+            if not getattr(self, "proxy_claimant", None):
+                self.proxy_claimant = user
+        elif not employee_reimbursement_permission_service.is_global_view_user(user):
             allowed_emps = employee_reimbursement_permission_service.get_subordinate_employees_for_user(user)
             if not allowed_emps:
                 own_emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
@@ -245,7 +254,7 @@ class EmployeeReimbursementClaim(APDocument):
                     f"Security Violation: You are not authorized to create or edit reimbursement claims for Employee '{emp_id}'."
                 )
 
-        if getattr(self, "company", None) and self.company != emp_profile["company"] and frappe.session.user != "Administrator":
+        if getattr(self, "company", None) and self.company != emp_profile["company"] and frappe.session.user != "Administrator" and not is_receptionist_proxy:
             raise APSecurityError(
                 f"Security Violation: You cannot file a claim under '{self.company}'. "
                 f"Your profile is locked to HRMS entity '{emp_profile['company']}'."
@@ -494,23 +503,37 @@ class EmployeeReimbursementClaim(APDocument):
             total_tolls = sum(flt(getattr(r, "toll_parking_amount", 0.0) or 0.0) for r in legs)
             per_diem = 0.0
             if getattr(self, "is_per_diem_claimed", 0):
-                daily_rate = 0.0
-                if getattr(self, "claim_breakfast", 1):
-                    daily_rate += 100.0
-                if getattr(self, "claim_lunch", 1):
-                    daily_rate += 200.0
-                if getattr(self, "claim_dinner", 1):
-                    daily_rate += 200.0
-                days = max(int(getattr(self, "per_diem_days", 1) or 1), 1)
-                per_diem = round(days * daily_rate, 2)
-                self.per_diem_amount = per_diem
+                breakdown = getattr(self, "per_diem_breakdown", []) or []
+                if breakdown:
+                    for row in breakdown:
+                        r_amt = 0.0
+                        if getattr(row, "claim_breakfast", 0):
+                            r_amt += 100.0
+                        if getattr(row, "claim_lunch", 0):
+                            r_amt += 200.0
+                        if getattr(row, "claim_dinner", 0):
+                            r_amt += 200.0
+                        row.day_amount = r_amt
+                        per_diem += r_amt
+                    self.per_diem_days = len(breakdown)
+                else:
+                    daily_rate = 0.0
+                    if getattr(self, "claim_breakfast", 1):
+                        daily_rate += 100.0
+                    if getattr(self, "claim_lunch", 1):
+                        daily_rate += 200.0
+                    if getattr(self, "claim_dinner", 1):
+                        daily_rate += 200.0
+                    days = max(int(getattr(self, "per_diem_days", 1) or 1), 1)
+                    per_diem = round(days * daily_rate, 2)
+                self.per_diem_amount = round(per_diem, 2)
             else:
                 self.per_diem_amount = 0.0
 
             self.total_trip_distance_km = round(total_km, 2)
             self.total_leg_mileage_amount = round(total_mileage, 2)
             self.total_toll_parking_amount = round(total_tolls, 2)
-            total_spend = total_mileage + total_tolls + per_diem
+            total_spend = total_mileage + total_tolls + self.per_diem_amount
             self.travel_calculated_amount = round(total_spend, 2)
         elif getattr(self, "claim_category", "") == "Team Lunch / Outing":
             lines = getattr(self, "expense_lines", []) or []
@@ -530,7 +553,37 @@ class EmployeeReimbursementClaim(APDocument):
             total_spend = line_spend if line_spend > 0 else dinner_amt
         else:
             lines = getattr(self, "expense_lines", []) or []
-            total_spend = sum(flt(getattr(r, "amount", 0.0) or 0.0) for r in lines)
+            line_spend = sum(flt(getattr(r, "amount", 0.0) or 0.0) for r in lines)
+            per_diem = 0.0
+            if getattr(self, "is_per_diem_claimed", 0):
+                breakdown = getattr(self, "per_diem_breakdown", []) or []
+                if breakdown:
+                    for row in breakdown:
+                        r_amt = 0.0
+                        if getattr(row, "claim_breakfast", 0):
+                            r_amt += 100.0
+                        if getattr(row, "claim_lunch", 0):
+                            r_amt += 200.0
+                        if getattr(row, "claim_dinner", 0):
+                            r_amt += 200.0
+                        row.day_amount = r_amt
+                        per_diem += r_amt
+                    self.per_diem_days = len(breakdown)
+                else:
+                    daily_rate = 0.0
+                    if getattr(self, "claim_breakfast", 1):
+                        daily_rate += 100.0
+                    if getattr(self, "claim_lunch", 1):
+                        daily_rate += 200.0
+                    if getattr(self, "claim_dinner", 1):
+                        daily_rate += 200.0
+                    days = max(int(getattr(self, "per_diem_days", 1) or 1), 1)
+                    per_diem = round(days * daily_rate, 2)
+                self.per_diem_amount = round(per_diem, 2)
+            else:
+                self.per_diem_amount = 0.0
+
+            total_spend = line_spend + self.per_diem_amount
 
         self.total_claim_amount = round(total_spend, 2)
         is_pre_audit = getattr(self, "status", "Draft") in ("Draft", "Not Saved", "Returned to Employee", "Pending Employee Resubmission", "Pending Manager Approval", "Pending Receptionist Verification", "Pending Admin L1 Review", "Pending Admin L2 Sign-Off", None)
@@ -753,17 +806,40 @@ def get_employee_claim_profile(employee: Optional[str] = None, user_id: Optional
         "bank_ifsc_code": ifsc_val
     }
 
-    emp = frappe.get_doc("Employee", emp_name)
-    ifsc_val = getattr(emp, "custom_ifsc_code", None) or getattr(emp, "ifsc_code", None) or ""
 
+@frappe.whitelist()
+def get_pre_travel_details(pre_travel_name: str) -> Dict[str, Any]:
+    """Returns details and planned client visit stops of a Pre-Travel Request for the approver pop-up dialog."""
+    if not pre_travel_name:
+        return {}
+    if not frappe.db.exists("Pre Travel Request", pre_travel_name):
+        return {}
+    ptr = frappe.get_doc("Pre Travel Request", pre_travel_name)
     return {
-        "name": emp.name,
-        "employee_name": emp.employee_name or "",
-        "company": emp.company or "",
-        "department": emp.department or "",
-        "reports_to": emp.reports_to or "",
-        "user_id": emp.user_id or "",
-        "bank_name": getattr(emp, "bank_name", None) or "",
-        "bank_account_number": getattr(emp, "bank_ac_no", None) or "",
-        "bank_ifsc_code": ifsc_val
+        "name": ptr.name,
+        "employee": ptr.employee,
+        "employee_name": ptr.employee_name,
+        "company": ptr.company,
+        "department": getattr(ptr, "department", ""),
+        "destination_city": ptr.destination_city,
+        "departure_date": str(ptr.departure_date or ""),
+        "return_date": str(ptr.return_date or ""),
+        "trip_purpose": ptr.trip_purpose,
+        "estimated_budget": flt(ptr.estimated_budget),
+        "advance_requested": flt(ptr.advance_requested),
+        "disbursed_advance_amount": flt(ptr.disbursed_advance_amount),
+        "status": ptr.status,
+        "reporting_manager_name": getattr(ptr, "reporting_manager_name", ""),
+        "planned_client_visits": [
+            {
+                "visit_date": str(v.visit_date or ""),
+                "client_name": v.client_name or "",
+                "client_code": v.client_code or "",
+                "client_phone": v.client_phone or "",
+                "from_location": v.from_location or "",
+                "to_location": v.to_location or "",
+                "purpose": v.purpose or "",
+            }
+            for v in (ptr.planned_client_visits or [])
+        ]
     }

@@ -1,0 +1,81 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-11-14 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "travel_date",
+  "claim_breakfast",
+  "claim_lunch",
+  "claim_dinner",
+  "day_amount",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "travel_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Travel Date",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "claim_breakfast",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Breakfast (₹100)"
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "claim_lunch",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Lunch (₹200)"
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "claim_dinner",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Dinner (₹200)"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "day_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Day Total (₹)",
+   "read_only": 1
+  },
+  {
+   "columns": 3,
+   "fieldname": "remarks",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Remarks / Timings (e.g. Flight, Hotel Breakfast)"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-14 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Employee Per Diem Day",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "travel_date",
+ "sort_order": "ASC",
+ "states": []
+}

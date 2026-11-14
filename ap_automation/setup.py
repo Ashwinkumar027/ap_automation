@@ -375,6 +375,9 @@ def after_install():
 def setup_custom_fields():
     """Ensures required AP custom fields on core DocTypes exist."""
     from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+    if frappe.db.exists("Custom Field", "Employee Reimbursement Claim-pre_approval_attachment"):
+        frappe.db.delete("Custom Field", {"name": "Employee Reimbursement Claim-pre_approval_attachment"})
+        frappe.clear_cache(doctype="Employee Reimbursement Claim")
     create_custom_fields({
         "Bank Account": [
             {

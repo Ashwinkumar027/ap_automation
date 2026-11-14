@@ -17,6 +17,8 @@
   "cb_claim",
   "posting_date",
   "status",
+  "is_proxy_claim",
+  "proxy_claimant",
   "sb_bank",
   "bank_name",
   "bank_account_number",
@@ -24,6 +26,7 @@
   "sb_pre_travel",
   "pre_travel_request",
   "cb_pre_travel",
+  "pre_approval_attachment",
   "sb_client_travel",
   "client_visit_legs",
   "sb_client_travel_summary",
@@ -38,6 +41,7 @@
   "claim_lunch",
   "claim_dinner",
   "per_diem_meals_note",
+  "per_diem_breakdown",
   "per_diem_amount",
   "travel_calculated_amount",
   "sb_team_lunch",
@@ -98,7 +102,6 @@
   "rate_per_km",
   "jv_number",
   "jv_date",
-  "pre_approval_attachment",
   "sanctioned_amount",
   "is_resubmission",
   "reporting_manager",
@@ -195,6 +198,18 @@
    "read_only": 1
   },
   {
+   "default": "0",
+   "fieldname": "is_proxy_claim",
+   "fieldtype": "Check",
+   "label": "Filing on Behalf of Office Assistant / Staff"
+  },
+  {
+   "fieldname": "proxy_claimant",
+   "fieldtype": "Data",
+   "label": "Filed By (Proxy / Receptionist)",
+   "read_only": 1
+  },
+  {
    "collapsible": 1,
    "fieldname": "sb_bank",
    "fieldtype": "Section Break",
@@ -224,7 +239,7 @@
   {
    "fieldname": "sb_pre_travel",
    "fieldtype": "Section Break",
-   "label": "Pre-Travel Authorization & Approval Screenshot"
+   "label": "Pre-Travel Authorization & Approval Email / Screenshot"
   },
   {
    "fieldname": "pre_travel_request",
@@ -236,6 +251,11 @@
   {
    "fieldname": "cb_pre_travel",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pre_approval_attachment",
+   "fieldtype": "Attach",
+   "label": "Pre-Approval Email / Screenshot Attachment"
   },
   {
    "fieldname": "sb_client_travel",
@@ -316,6 +336,12 @@
    "fieldname": "per_diem_meals_note",
    "fieldtype": "Data",
    "label": "Meals Provided Remarks (Optional)"
+  },
+  {
+   "fieldname": "per_diem_breakdown",
+   "fieldtype": "Table",
+   "label": "Flexible Daily Meal Breakdown",
+   "options": "Employee Per Diem Day"
   },
   {
    "default": "500",
@@ -695,11 +721,6 @@
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "JV Date"
-  },
-  {
-   "fieldname": "pre_approval_attachment",
-   "fieldtype": "Attach Image",
-   "label": "Pre-Approval Attachment / Approval Screenshot"
   },
   {
    "default": "0",
