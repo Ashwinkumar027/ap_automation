@@ -14,3 +14,4 @@ class EmployeePerDiemDay(Document):
         if self.claim_dinner:
             amt += 200.0
         self.day_amount = flt(amt, 2)
+
