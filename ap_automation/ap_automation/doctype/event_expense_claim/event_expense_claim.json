@@ -23,6 +23,8 @@
   "total_gst_amount",
   "total_tds_amount",
   "total_claim_amount",
+  "total_income",
+  "total_expenses",
   "total_amount",
   "status",
   "sb_items",
@@ -154,6 +156,22 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Total Claim Amount (INR)",
+   "read_only": 1
+  },
+  {
+   "default": "0.0",
+   "fieldname": "total_income",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Income (INR)",
+   "read_only": 1
+  },
+  {
+   "default": "0.0",
+   "fieldname": "total_expenses",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Expenses (INR)",
    "read_only": 1
   },
   {

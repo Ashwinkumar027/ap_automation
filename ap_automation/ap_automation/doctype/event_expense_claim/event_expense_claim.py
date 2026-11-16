@@ -42,6 +42,34 @@ def _resolve_tds_for_event_row(base_amount: float, tds_section: Optional[str]) -
 
 def _compute_event_row_statutory(row) -> None:
     """Normalizes vendor/tax defaults and computes Base, CGST/SGST/IGST, TDS, and Net Amount in place."""
+    # Synchronize particulars <-> vendor_name
+    if getattr(row, "particulars", None) and not getattr(row, "vendor_name", None):
+        row.vendor_name = row.particulars
+    elif getattr(row, "vendor_name", None) and not getattr(row, "particulars", None):
+        row.particulars = row.vendor_name
+
+    # Parse and normalize multi-attachment JSON payload
+    raw_atts = getattr(row, "attachments", None)
+    parsed_atts = []
+    if raw_atts:
+        try:
+            parsed_atts = json.loads(raw_atts) if isinstance(raw_atts, str) else raw_atts
+        except Exception:
+            parsed_atts = []
+
+    if parsed_atts and isinstance(parsed_atts, list):
+        row.attachments_count = len(parsed_atts)
+        first_url = parsed_atts[0].get("file_url") if isinstance(parsed_atts[0], dict) else str(parsed_atts[0])
+        if not getattr(row, "receipt_attachment", None) and first_url:
+            row.receipt_attachment = first_url
+    elif getattr(row, "receipt_attachment", None):
+        clean_url = str(row.receipt_attachment).strip()
+        row.attachments_count = 1
+        if not raw_atts:
+            row.attachments = json.dumps([{"file_url": clean_url, "file_name": clean_url.split('/')[-1]}])
+    else:
+        row.attachments_count = 0
+
     if getattr(row, "vendor", None):
         sup_fields = ["supplier_name"]
         if frappe.db.has_column("Supplier", "gstin"):
@@ -59,7 +87,37 @@ def _compute_event_row_statutory(row) -> None:
         if default_tds:
             row.tds_section = default_tds
 
-    base = flt(getattr(row, "base_amount", 0.0))
+    inc_val = round(flt(getattr(row, "income_amount", 0.0)), 2)
+    exp_val = round(flt(getattr(row, "expense_amount", 0.0)), 2)
+    base = round(flt(getattr(row, "base_amount", 0.0)), 2)
+
+    # Sync expense_amount <-> base_amount
+    if exp_val > 0 and base <= 0:
+        base = exp_val
+        row.base_amount = base
+    elif base > 0 and exp_val <= 0 and inc_val <= 0:
+        exp_val = base
+        row.expense_amount = exp_val
+    elif inc_val > 0 and exp_val <= 0:
+        base = 0.0
+        row.base_amount = 0.0
+        row.expense_amount = 0.0
+
+    # If row is Income-only (e.g. Imprest advance received, cash collection), zero out taxes
+    if inc_val > 0 and exp_val <= 0:
+        row.tax_type = "No GST / Exempt"
+        row.gst_rate = "0%"
+        row.gst_amount = 0.0
+        row.cgst_amount = 0.0
+        row.sgst_amount = 0.0
+        row.igst_amount = 0.0
+        row.tds_section = "None / Exempt"
+        row.tds_rate = 0.0
+        row.tds_amount = 0.0
+        row.total_invoice_amount = 0.0
+        row.amount = 0.0
+        return
+
     if base <= 0 and flt(getattr(row, "amount", 0.0)) > 0:
         # Backward compatibility for legacy records or callers passing gross `amount` only
         base = flt(row.amount)
@@ -130,13 +188,19 @@ class EventExpenseClaim(APDocument):
         tot_gst = 0.0
         tot_tds = 0.0
         tot_net = 0.0
+        tot_income = 0.0
+        tot_expenses = 0.0
 
         for idx, row in enumerate(self.expense_items or [], start=1):
             _compute_event_row_statutory(row)
-            if flt(row.base_amount) <= 0 and flt(row.amount) <= 0:
+            inc = flt(getattr(row, "income_amount", 0.0))
+            exp = flt(getattr(row, "expense_amount", 0.0)) or flt(row.amount) or flt(row.base_amount)
+            if inc <= 0 and exp <= 0:
                 raise APValidationError(
-                    f"Row #{idx}: Base Amount / Expense Amount must be greater than zero."
+                    f"Row #{idx}: Either Income (INR) or Expense (INR) must be greater than zero."
                 )
+            tot_income += inc
+            tot_expenses += exp
             tot_base += flt(row.base_amount)
             tot_cgst += flt(row.cgst_amount)
             tot_sgst += flt(row.sgst_amount)
@@ -145,14 +209,16 @@ class EventExpenseClaim(APDocument):
             tot_tds += flt(row.tds_amount)
             tot_net += flt(row.amount)
 
+        self.total_income = round(tot_income, 2)
+        self.total_expenses = round(tot_expenses, 2)
         self.total_base_amount = round(tot_base, 2)
         self.total_cgst_amount = round(tot_cgst, 2)
         self.total_sgst_amount = round(tot_sgst, 2)
         self.total_igst_amount = round(tot_igst, 2)
         self.total_gst_amount = round(tot_gst, 2)
         self.total_tds_amount = round(tot_tds, 2)
-        self.total_claim_amount = round(tot_net, 2)
-        self.total_amount = round(tot_net, 2)
+        self.total_claim_amount = round(tot_net if tot_net > 0 else tot_expenses, 2)
+        self.total_amount = self.total_claim_amount
 
     def validate(self):
         """Lifecycle validation hook."""
@@ -193,14 +259,19 @@ class EventExpenseClaim(APDocument):
 
             # Validate mandatory attachments & expense categories per line item
             for idx, row in enumerate(self.expense_items, start=1):
-                if not getattr(row, "receipt_attachment", None):
+                inc_val = flt(getattr(row, "income_amount", 0.0))
+                has_attachment = bool(getattr(row, "receipt_attachment", None) or getattr(row, "attachments", None))
+                if inc_val <= 0 and not has_attachment:
                     raise APValidationError(
                         f"Row #{idx}: Proof of spend (receipt/invoice attachment) is mandatory."
                     )
                 if not getattr(row, "expense_category", None):
-                    raise APValidationError(
-                        f"Row #{idx}: Expense Category is mandatory."
-                    )
+                    if inc_val > 0:
+                        row.expense_category = "Incidentals"
+                    else:
+                        raise APValidationError(
+                            f"Row #{idx}: Expense Category is mandatory."
+                        )
 
             # High-Performance O(1) Batch Duplicate Screening
             screen_event_expense_items_batch(
@@ -246,7 +317,43 @@ class EventExpenseClaim(APDocument):
         self.net_payable_to_spoc = recon["net_payable_to_spoc"]
         self.refund_receivable_from_spoc = recon["refund_receivable_from_spoc"]
 
+        # Support on-ground cash imprest advance received in the claim itself
+        if float(getattr(self, "total_income", 0.0) or 0.0) > 0.0 and float(self.disbursed_advance or 0.0) == 0.0:
+            self.disbursed_advance = float(self.total_income)
+            delta = round(float(self.total_expenses or 0.0) - float(self.total_income), 2)
+            self.settlement_delta = delta
+            if delta > 0:
+                self.settlement_type = "PAYABLE_TO_SPOC"
+                self.net_payable_to_spoc = delta
+                self.refund_receivable_from_spoc = 0.0
+            elif delta < 0:
+                self.settlement_type = "REFUND_FROM_SPOC"
+                self.net_payable_to_spoc = 0.0
+                self.refund_receivable_from_spoc = abs(delta)
+            else:
+                self.settlement_type = "ZERO_BALANCE_BALANCED"
+                self.net_payable_to_spoc = 0.0
+                self.refund_receivable_from_spoc = 0.0
+
         super().validate()
+
+    def get_row_attachments(self, row) -> list:
+        """Helper for Print Format & reports to safely extract attachments list from a line item."""
+        if not row:
+            return []
+        raw = getattr(row, "attachments", None)
+        if raw:
+            try:
+                parsed = json.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    return parsed
+            except Exception:
+                pass
+        rec = getattr(row, "receipt_attachment", None)
+        if rec:
+            u = str(rec).strip()
+            return [{"file_url": u, "file_name": u.split('/')[-1]}]
+        return []
 
     def before_save(self):
         """Blocks direct manual `status` tampering."""
@@ -562,6 +669,27 @@ def verify_event_expense_claim(claim_name: str, remarks: Optional[str] = None, v
         "net_payable_to_spoc": recon["net_payable_to_spoc"],
         "refund_receivable_from_spoc": recon["refund_receivable_from_spoc"],
     }
+
+    # Support on-ground cash imprest advance received in the claim itself
+    if float(getattr(doc, "total_income", 0.0) or 0.0) > 0.0 and float(recon.get("disbursed_advance") or 0.0) == 0.0:
+        updates["disbursed_advance"] = float(doc.total_income)
+        delta = round(float(doc.total_expenses or 0.0) - float(doc.total_income), 2)
+        updates["settlement_delta"] = delta
+        if delta > 0:
+            s_type = "PAYABLE_TO_SPOC"
+            updates["settlement_type"] = s_type
+            updates["net_payable_to_spoc"] = delta
+            updates["refund_receivable_from_spoc"] = 0.0
+        elif delta < 0:
+            s_type = "REFUND_FROM_SPOC"
+            updates["settlement_type"] = s_type
+            updates["net_payable_to_spoc"] = 0.0
+            updates["refund_receivable_from_spoc"] = abs(delta)
+        else:
+            s_type = "ZERO_BALANCE_BALANCED"
+            updates["settlement_type"] = s_type
+            updates["net_payable_to_spoc"] = 0.0
+            updates["refund_receivable_from_spoc"] = 0.0
 
     event_closed = False
     if not is_final or s_type == "INTERMEDIATE_CLAIM":

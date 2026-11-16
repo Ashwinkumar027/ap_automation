@@ -67,39 +67,62 @@
     </table>
 </div>
 
-<div class="section-title">Itemized Event Bills &amp; Tax Breakdown</div>
+<div class="section-title">Itemized Event Spends &amp; Settlement Breakdown</div>
 <table class="items-table">
     <thead>
         <tr>
             <th style="width: 4%;">S.NO</th>
-            <th style="width: 9%;">BILL DATE</th>
+            <th style="width: 10%;">DATE</th>
             <th style="width: 14%;">CATEGORY</th>
-            <th style="width: 18%;">VENDOR / PAYEE</th>
-            <th style="width: 11%;">BILL # / GSTIN</th>
-            <th style="width: 10%; text-align: right;">BASE</th>
-            <th style="width: 11%; text-align: right;">GST</th>
-            <th style="width: 10%; text-align: right;">TDS</th>
-            <th style="width: 13%; text-align: right;">NET AMOUNT</th>
+            <th style="width: 20%;">PARTICULARS / PAYEE</th>
+            <th style="width: 12%; text-align: right;">INCOME (₹)</th>
+            <th style="width: 12%; text-align: right;">EXPENSES (₹)</th>
+            <th style="width: 14%; text-align: right;">TAX (GST/TDS)</th>
+            <th style="width: 14%; text-align: center;">BILLS ATTACHED</th>
         </tr>
     </thead>
     <tbody>
         {% for row in (doc.expense_items or []) %}
+        {% set att_list = doc.get_row_attachments(row) %}
         <tr>
             <td style="font-weight: 700; color: #64748b;">{{ loop.index }}</td>
             <td>{{ frappe.utils.formatdate(row.bill_date) if row.bill_date else "-" }}</td>
             <td style="font-weight: 600;">{{ row.expense_category }}<br><span style="font-size: 10px; color: #64748b;">{{ row.line_status or "Verified" }}</span></td>
-            <td style="font-weight: 700; color: #0f172a;">{{ row.vendor_name }}</td>
-            <td>{{ row.bill_number or "-" }}{% if row.tax_id %}<br><span style="font-size: 10px; color: #475569;">{{ row.tax_id }}</span>{% endif %}</td>
-            <td style="text-align: right;">₹ {{ frappe.utils.fmt_money(row.base_amount or row.amount or 0, precision=2) }}</td>
-            <td style="text-align: right;">₹ {{ frappe.utils.fmt_money(row.gst_amount or 0, precision=2) }}{% if (row.gst_amount or 0) > 0 %}<br><span style="font-size: 10px; color: #64748b;">{{ row.gst_rate or "" }}</span>{% endif %}</td>
-            <td style="text-align: right; color: #b91c1c;">₹ {{ frappe.utils.fmt_money(row.tds_amount or 0, precision=2) }}</td>
-            <td style="text-align: right; font-weight: 800; color: #0f172a;">₹ {{ frappe.utils.fmt_money(row.amount or 0, precision=2) }}</td>
+            <td style="font-weight: 700; color: #0f172a;">{{ row.particulars or row.vendor_name }}</td>
+            <td style="text-align: right; color: #059669; font-weight: 700;">{{ "₹ " + frappe.utils.fmt_money(row.income_amount, precision=2) if (row.income_amount or 0) > 0 else "-" }}</td>
+            <td style="text-align: right; font-weight: 700;">{{ "₹ " + frappe.utils.fmt_money(row.expense_amount or row.amount or 0, precision=2) if (row.expense_amount or row.amount or 0) > 0 else "-" }}</td>
+            <td style="text-align: right; font-size: 11px; color: #475569;">
+                {% if (row.gst_amount or 0) > 0 %}GST: ₹ {{ frappe.utils.fmt_money(row.gst_amount, precision=2) }}<br>{% endif %}
+                {% if (row.tds_amount or 0) > 0 %}<span style="color: #b91c1c;">TDS: -₹ {{ frappe.utils.fmt_money(row.tds_amount, precision=2) }}</span>{% endif %}
+                {% if (row.gst_amount or 0) == 0 and (row.tds_amount or 0) == 0 %}Exempt{% endif %}
+            </td>
+            <td style="text-align: center;">
+                {% if att_list %}
+                <span style="display: inline-block; background: #f0fdf4; border: 1px solid #86efac; color: #15803d; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px;">
+                    📎 {{ att_list|length }} Receipt{{ "s" if att_list|length > 1 else "" }}
+                </span>
+                {% else %}
+                <span style="color: #94a3b8; font-size: 11px;">No Proof</span>
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
 
 <div class="summary-card" style="width: 480px;">
+    {% if (doc.total_income or 0) > 0 %}
+    <div class="summary-row" style="color: #059669; font-weight: 700;">
+        <span>Total Ground Income / Advance:</span>
+        <span>₹ {{ frappe.utils.fmt_money(doc.total_income or 0, precision=2) }}</span>
+    </div>
+    {% endif %}
+    {% if (doc.total_expenses or 0) > 0 %}
+    <div class="summary-row" style="font-weight: 700;">
+        <span>Total Ground Expenses:</span>
+        <span>₹ {{ frappe.utils.fmt_money(doc.total_expenses or 0, precision=2) }}</span>
+    </div>
+    {% endif %}
     {% if (doc.total_base_amount or 0) > 0 %}
     <div class="summary-row">
         <span>Total Base Taxable Value:</span>
@@ -169,6 +192,75 @@
     </div>
     {% endif %}
 </div>
+
+<!-- VISUAL RECEIPT PHOTO ANNEXURE -->
+<div style="page-break-before: always; margin-top: 24px;"></div>
+<div class="section-title" style="font-size: 16px; border-bottom: 2px solid #ea580c; padding-bottom: 6px; margin-bottom: 8px;">
+    📷 VISUAL RECEIPT PHOTO ANNEXURE (ITEMIZED DOCKET)
+</div>
+<div style="font-size: 11px; color: #64748b; margin-bottom: 18px;">
+    Attached receipt vouchers, invoices, and payment screenshots verified for each respective person / line item.
+</div>
+
+{% for row in (doc.expense_items or []) %}
+    {% set att_list = doc.get_row_attachments(row) %}
+    {% if att_list %}
+    <div style="margin-bottom: 24px; border: 1.5px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #ffffff;">
+        <table style="width: 100%; border-collapse: collapse; background: #f1f5f9; border-bottom: 1px solid #cbd5e1;">
+            <tr>
+                <td style="padding: 10px 14px;">
+                    <span style="font-weight: 800; color: #0f172a; font-size: 13px;">
+                        Row #{{ loop.index }}: {{ row.particulars or row.vendor_name or "Expense Row" }}
+                    </span>
+                    <span style="font-size: 11px; color: #64748b; margin-left: 8px;">
+                        ({{ row.expense_category }}) &bull; Date: {{ frappe.utils.formatdate(row.bill_date) if row.bill_date else "-" }}
+                    </span>
+                </td>
+                <td style="text-align: right; padding: 10px 14px;">
+                    <span style="font-size: 12px; font-weight: 800; color: #047857; margin-right: 12px;">
+                        ₹ {{ frappe.utils.fmt_money(row.expense_amount or row.amount or 0, precision=2) }}
+                    </span>
+                    <span style="background: #dcfce7; color: #15803d; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px;">
+                        📎 {{ att_list|length }} Receipt{{ "s" if att_list|length > 1 else "" }}
+                    </span>
+                </td>
+            </tr>
+        </table>
+
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+            {% for att in att_list %}
+                {% set f_url = att.file_url if att is mapping else att %}
+                {% set f_name = (att.file_name if att is mapping else "") or f_url.split('/')[-1] %}
+                {% set is_pdf = f_name.lower().endswith('.pdf') %}
+                <td style="width: 50%; vertical-align: top; padding: 12px; border: 1px solid #e2e8f0; text-align: center;">
+                    <div style="font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 8px; word-break: break-all;">
+                        🧾 Proof {{ loop.index }}: {{ f_name }}
+                    </div>
+                    {% if not is_pdf %}
+                        <img src="{{ f_url }}" style="max-height: 260px; max-width: 95%; object-fit: contain; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);" />
+                    {% else %}
+                        <div style="height: 160px; display: flex; align-items: center; justify-content: center; background: #f8fafc; border: 1px dashed #94a3b8; border-radius: 6px;">
+                            <div style="text-align: center; color: #2563eb; font-weight: 700;">
+                                <div style="font-size: 32px;">📄</div>
+                                <div style="font-size: 12px; margin-top: 6px;">PDF Document Attached</div>
+                                <div style="font-size: 10px; color: #64748b;">{{ f_name }}</div>
+                            </div>
+                        </div>
+                    {% endif %}
+                </td>
+                {% if loop.index % 2 == 0 and not loop.last %}
+                    </tr><tr>
+                {% endif %}
+            {% endfor %}
+            {% if att_list|length % 2 != 0 %}
+                <td style="width: 50%; border: none;"></td>
+            {% endif %}
+            </tr>
+        </table>
+    </div>
+    {% endif %}
+{% endfor %}
 
 {% if doc.approval_trail %}
 <div class="section-title">Approval Audit Trail</div>
