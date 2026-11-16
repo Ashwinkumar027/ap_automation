@@ -44,6 +44,7 @@ frappe.ui.form.on("Event Expense Claim", {
         });
 
         fetch_event_budget_snapshot(frm);
+        setup_grid_styling(frm);
 
         if (frm.doc.docstatus === 1 && !frm.is_new()) {
             render_unified_claim_banner(frm, null);
@@ -272,6 +273,7 @@ frappe.ui.form.on("Event Expense Claim", {
                 frm.set_value('spoc', ev.event_spoc);
                 frm.set_value('spoc_name', ev.spoc_name);
                 fetch_event_budget_snapshot(frm);
+        setup_grid_styling(frm);
                 sync_live_claim_reconciliation(frm);
             });
         } else {
@@ -827,12 +829,14 @@ function render_unified_claim_banner(frm, recon) {
                         ${verdict_desc}
                     </div>
                     <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 11px; font-weight: 700; color: #475569;">
+                        ${(flt(frm.doc.total_income) > 0) ? `<span>📥 Total Income: ${format_curr(frm.doc.total_income)}</span><span>|</span>` : ''}
+                        ${(flt(frm.doc.total_expenses) > 0) ? `<span>📤 Total Expenses: ${format_curr(frm.doc.total_expenses)}</span><span>|</span>` : ''}
                         <span>💵 Cash Advance: ${format_curr(adv)}</span>
                         <span>|</span>
                         <span>🧾 Prior Bills: ${format_curr(prior)}</span>
                         <span>|</span>
                         <span>📝 This Claim Net: ${format_curr(local_total)}</span>
-                        ${(!is_zero_refund && items_count > 0) ? `<span>|</span><span>🏷️ Base ${format_curr(tot_base)} + GST ${format_curr(tot_gst)} - TDS ${format_curr(tot_tds)}</span>` : ''}
+                        ${(!is_zero_refund && items_count > 0 && tot_base > 0) ? `<span>|</span><span>🏷️ Base ${format_curr(tot_base)} + GST ${format_curr(tot_gst)} - TDS ${format_curr(tot_tds)}</span>` : ''}
                         ${(!is_zero_refund && items_count > 0) ? `<span>|</span><span style="color: ${missing_receipts > 0 ? '#b91c1c' : '#047857'};">${missing_receipts > 0 ? `⚠️ ${missing_receipts}/${items_count} missing receipts` : `✅ ${items_count} receipts attached`}</span>` : ''}
                     </div>
                     ${budget_pill_html}
@@ -883,10 +887,41 @@ function calculate_event_row_statutory(frm, cdt, cdn, sync_recon = true) {
     const row = locals[cdt] && locals[cdt][cdn];
     if (!row) return;
 
+    if (row.particulars && !row.vendor_name) {
+        row.vendor_name = row.particulars;
+    } else if (row.vendor_name && !row.particulars) {
+        row.particulars = row.vendor_name;
+    }
+
+    const inc_val = flt(row.income_amount);
+    let exp_val = flt(row.expense_amount);
     let base = flt(row.base_amount);
-    if (base <= 0 && flt(row.amount) > 0) {
-        base = flt(row.amount);
+
+    if (exp_val > 0 && base <= 0) {
+        base = exp_val;
         row.base_amount = base;
+    } else if (base > 0 && exp_val <= 0 && inc_val <= 0) {
+        exp_val = base;
+        row.expense_amount = exp_val;
+    }
+
+    // Income-only row (e.g. Imprest received, cash collections)
+    if (inc_val > 0 && exp_val <= 0) {
+        row.base_amount = 0.0;
+        row.tax_type = 'No GST / Exempt';
+        row.gst_rate = '0%';
+        row.gst_amount = 0.0;
+        row.cgst_amount = 0.0;
+        row.sgst_amount = 0.0;
+        row.igst_amount = 0.0;
+        row.tds_section = 'None / Exempt';
+        row.tds_rate = 0.0;
+        row.tds_amount = 0.0;
+        row.total_invoice_amount = 0.0;
+        row.amount = 0.0;
+        frm.refresh_field('expense_items');
+        calculate_all_event_rows(frm, sync_recon);
+        return;
     }
 
     const tax_type = (row.tax_type || 'No GST / Exempt').trim();
@@ -925,12 +960,17 @@ function calculate_event_row_statutory(frm, cdt, cdn, sync_recon = true) {
 function calculate_all_event_rows(frm, sync_recon = true) {
     if (cint(frm.doc.is_zero_spend_refund) === 1) return;
     let tot_base = 0, tot_cgst = 0, tot_sgst = 0, tot_igst = 0, tot_gst = 0, tot_tds = 0, tot_net = 0;
+    let tot_income = 0, tot_expenses = 0;
     (frm.doc.expense_items || []).forEach(row => {
+        let inc = flt(row.income_amount);
+        let exp = flt(row.expense_amount) || flt(row.base_amount) || flt(row.amount);
         let base = flt(row.base_amount);
-        if (base <= 0 && flt(row.amount) > 0) {
-            base = flt(row.amount);
+        if (base <= 0 && exp > 0) {
+            base = exp;
             row.base_amount = base;
         }
+        tot_income += inc;
+        tot_expenses += exp;
         tot_base += base;
         tot_cgst += flt(row.cgst_amount);
         tot_sgst += flt(row.sgst_amount);
@@ -940,15 +980,17 @@ function calculate_all_event_rows(frm, sync_recon = true) {
         tot_net += flt(row.amount);
     });
     if (frm.doc.docstatus === 0) {
+        frm.doc.total_income = Math.round(tot_income * 100) / 100;
+        frm.doc.total_expenses = Math.round(tot_expenses * 100) / 100;
         frm.doc.total_base_amount = Math.round(tot_base * 100) / 100;
         frm.doc.total_cgst_amount = Math.round(tot_cgst * 100) / 100;
         frm.doc.total_sgst_amount = Math.round(tot_sgst * 100) / 100;
         frm.doc.total_igst_amount = Math.round(tot_igst * 100) / 100;
         frm.doc.total_gst_amount = Math.round(tot_gst * 100) / 100;
         frm.doc.total_tds_amount = Math.round(tot_tds * 100) / 100;
-        frm.doc.total_claim_amount = Math.round(tot_net * 100) / 100;
-        frm.doc.total_amount = Math.round(tot_net * 100) / 100;
-        ['total_base_amount', 'total_cgst_amount', 'total_sgst_amount', 'total_igst_amount', 'total_gst_amount', 'total_tds_amount', 'total_claim_amount'].forEach(fn => frm.refresh_field(fn));
+        frm.doc.total_claim_amount = Math.round((tot_net > 0 ? tot_net : tot_expenses) * 100) / 100;
+        frm.doc.total_amount = frm.doc.total_claim_amount;
+        ['total_income', 'total_expenses', 'total_base_amount', 'total_cgst_amount', 'total_sgst_amount', 'total_igst_amount', 'total_gst_amount', 'total_tds_amount', 'total_claim_amount'].forEach(fn => frm.refresh_field(fn));
     }
     if (sync_recon) {
         sync_live_claim_reconciliation(frm);
@@ -1034,7 +1076,363 @@ function open_event_claim_tax_review_dialog(frm) {
     d.show();
 }
 
+function setup_grid_styling(frm) {
+    if (!frm.fields_dict['expense_items'] || !frm.fields_dict['expense_items'].grid) return;
+    const grid = frm.fields_dict['expense_items'].grid;
+
+    // Apply custom styling so row heights stay compact (44px) without expanding vertically
+    if (!document.getElementById('ap-event-grid-compact-css')) {
+        const style = document.createElement('style');
+        style.id = 'ap-event-grid-compact-css';
+        style.innerHTML = `
+            .form-grid[data-fieldname="expense_items"] .grid-body .grid-row {
+                min-height: 44px !important;
+                max-height: 52px !important;
+            }
+            .form-grid[data-fieldname="expense_items"] .grid-body .grid-row .row-index {
+                line-height: 40px !important;
+            }
+            .form-grid[data-fieldname="expense_items"] .grid-body .grid-row .grid-static-col {
+                min-height: 42px !important;
+                max-height: 48px !important;
+                display: flex !important;
+                align-items: center !important;
+                overflow: hidden !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    grid.wrapper.off('render-complete.ap_event_grid').on('render-complete.ap_event_grid', function () {
+        bind_event_grid_uploaders(frm);
+    });
+    setTimeout(() => bind_event_grid_uploaders(frm), 200);
+}
+
+function bind_event_grid_uploaders(frm) {
+    if (!frm.fields_dict['expense_items'] || !frm.fields_dict['expense_items'].grid) return;
+    const grid = frm.fields_dict['expense_items'].grid;
+    const grid_rows = $(grid.wrapper).find('.grid-body .grid-row');
+    const is_editable = (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft');
+
+    grid_rows.each(function (idx) {
+        const row_elem = $(this);
+        const row_data = (grid.grid_rows && grid.grid_rows[idx] && grid.grid_rows[idx].doc) || (frm.doc.expense_items || [])[idx];
+        if (!row_data) return;
+
+        const cell = row_elem.find('.grid-static-col[data-fieldname="receipt_attachment"]');
+        if (!cell.length) return;
+
+        let atts = [];
+        if (row_data.attachments) {
+            try {
+                atts = typeof row_data.attachments === 'string' ? JSON.parse(row_data.attachments) : row_data.attachments;
+            } catch (e) {
+                atts = [];
+            }
+        }
+        if (!Array.isArray(atts)) atts = [];
+        if (atts.length === 0 && row_data.receipt_attachment) {
+            atts = [{ file_url: row_data.receipt_attachment, file_name: row_data.receipt_attachment.split('/').pop().split('?')[0] }];
+        }
+
+        const count = atts.length;
+        const state_key = `${count}_${row_data.name || idx}`;
+        if (cell.attr('data-rendered-state') === state_key && cell.children().length > 0) return;
+        cell.attr('data-rendered-state', state_key);
+        cell.empty();
+
+        if (count > 0) {
+            const badge = $(`
+                <div class="ap-eec-capsule-badge" style="
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    background: #f0fdf4;
+                    border: 1px solid #86efac;
+                    border-radius: 6px;
+                    padding: 2px 8px;
+                    cursor: pointer;
+                    height: 28px;
+                    max-height: 28px;
+                    white-space: nowrap;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+                " title="Click to inspect all ${count} receipts for this row">
+                    <span style="font-size: 11px;">📎</span>
+                    <span style="font-size: 11px; font-weight: 700; color: #15803d;">${count} Receipt${count > 1 ? 's' : ''}</span>
+                    <span class="ap-row-view-btn" style="
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 4px;
+                        background: #dcfce7;
+                        color: #15803d;
+                        font-size: 11px;
+                        margin-left: 2px;
+                    " title="View row bills">👁️</span>
+                    ${is_editable ? `
+                    <span class="ap-row-add-btn" style="
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 4px;
+                        background: #bbf7d0;
+                        color: #166534;
+                        font-size: 11px;
+                        font-weight: 800;
+                        margin-left: 2px;
+                    " title="Upload more receipts to this row">➕</span>
+                    ` : ''}
+                </div>
+            `);
+
+            badge.on('click', function (e) {
+                if ($(e.target).closest('.ap-row-add-btn').length > 0) {
+                    e.stopPropagation();
+                    upload_bills_to_event_row(frm, idx);
+                } else {
+                    e.stopPropagation();
+                    open_event_row_receipts_modal(frm, idx);
+                }
+            });
+            cell.append(badge);
+        } else {
+            const upload_btn = $(`
+                <button type="button" class="btn btn-xs btn-default ap-upload-btn" style="
+                    border: 1px dashed #94a3b8;
+                    color: #2563eb;
+                    font-size: 11px;
+                    font-weight: 600;
+                    padding: 2px 8px;
+                    border-radius: 6px;
+                    background: #f8fafc;
+                    height: 28px;
+                    white-space: nowrap;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                ">
+                    <span>📎 Attach Bills</span>
+                </button>
+            `);
+            upload_btn.on('click', function (e) {
+                e.stopPropagation();
+                upload_bills_to_event_row(frm, idx);
+            });
+            cell.append(upload_btn);
+        }
+    });
+}
+
+function upload_bills_to_event_row(frm, row_idx) {
+    const grid = frm.fields_dict['expense_items'].grid;
+    const row = (grid.grid_rows && grid.grid_rows[row_idx] && grid.grid_rows[row_idx].doc) || (frm.doc.expense_items || [])[row_idx];
+    if (!row) return;
+
+    let existing_atts = [];
+    if (row.attachments) {
+        try {
+            existing_atts = typeof row.attachments === 'string' ? JSON.parse(row.attachments) : row.attachments;
+        } catch (e) {
+            existing_atts = [];
+        }
+    }
+    if (!Array.isArray(existing_atts)) existing_atts = [];
+    if (existing_atts.length === 0 && row.receipt_attachment) {
+        existing_atts.push({
+            file_url: row.receipt_attachment,
+            file_name: row.receipt_attachment.split('/').pop().split('?')[0]
+        });
+    }
+
+    new frappe.ui.FileUploader({
+        folder: 'Home/Attachments',
+        doctype: frm.doc.doctype,
+        docname: frm.doc.name,
+        allow_multiple: true,
+        on_success: (file_doc) => {
+            const clean_url = file_doc.file_url;
+            const f_name = file_doc.file_name || clean_url.split('/').pop().split('?')[0];
+            const f_size = file_doc.file_size ? `${Math.round(file_doc.file_size / 1024)} KB` : '';
+            existing_atts.push({
+                file_url: clean_url,
+                file_name: f_name,
+                file_size: f_size
+            });
+
+            frappe.model.set_value(row.doctype, row.name, 'attachments', JSON.stringify(existing_atts));
+            frappe.model.set_value(row.doctype, row.name, 'attachments_count', existing_atts.length);
+            if (!row.receipt_attachment) {
+                frappe.model.set_value(row.doctype, row.name, 'receipt_attachment', clean_url);
+            }
+            if (!row.particulars && existing_atts.length === 1) {
+                frappe.model.set_value(row.doctype, row.name, 'particulars', f_name.replace(/\.[^/.]+$/, ''));
+            }
+            frm.refresh_field('expense_items');
+            setTimeout(() => bind_event_grid_uploaders(frm), 150);
+            render_unified_claim_banner(frm, null);
+        }
+    });
+}
+
+function open_event_row_receipts_modal(frm, row_idx) {
+    const grid = frm.fields_dict['expense_items'].grid;
+    const row = (grid.grid_rows && grid.grid_rows[row_idx] && grid.grid_rows[row_idx].doc) || (frm.doc.expense_items || [])[row_idx];
+    if (!row) return;
+
+    let atts = [];
+    if (row.attachments) {
+        try {
+            atts = typeof row.attachments === 'string' ? JSON.parse(row.attachments) : row.attachments;
+        } catch (e) {
+            atts = [];
+        }
+    }
+    if (!Array.isArray(atts)) atts = [];
+    if (atts.length === 0 && row.receipt_attachment) {
+        atts.push({ file_url: row.receipt_attachment, file_name: row.receipt_attachment.split('/').pop().split('?')[0] });
+    }
+
+    const title_str = row.particulars || row.vendor_name || `Row #${row_idx + 1}`;
+    const is_editable = (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft');
+
+    const render_cards_html = () => {
+        if (atts.length === 0) {
+            return `<div style="text-align:center; padding:30px; color:#64748b; font-size:13px;">No bills attached to this row yet.</div>`;
+        }
+        return `
+            <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; margin-top: 12px; max-height: 460px; overflow-y: auto; padding: 4px;">
+                ${atts.map((att, a_idx) => {
+                    const u = att.file_url || att.url || '';
+                    const fn = att.file_name || u.split('/').pop().split('?')[0];
+                    const ext = (fn.lastIndexOf('.') !== -1 ? fn.substring(fn.lastIndexOf('.')).toLowerCase() : '');
+                    const is_img = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext);
+                    return `
+                        <div class="ap-row-receipt-card" style="border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; padding: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); display: flex; flex-direction: column;">
+                            <div style="height: 120px; background: #f8fafc; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 8px; cursor: pointer;" onclick="window.open('${u}', '_blank')">
+                                ${is_img 
+                                    ? `<img src="${u}" style="max-height: 100%; max-width: 100%; object-fit: contain;" />` 
+                                    : `<div style="text-align:center; color:#2563eb; font-weight:700; font-size:24px;">📄<div style="font-size:11px; color:#64748b; margin-top:4px;">PDF Document</div></div>`
+                                }
+                            </div>
+                            <div style="font-size: 11px; font-weight: 700; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 6px;" title="${fn}">
+                                ${fn}
+                            </div>
+                            <div style="display: flex; gap: 6px; margin-top: auto;">
+                                <a href="${u}" target="_blank" class="btn btn-xs btn-default" style="flex:1; text-align:center; font-size:10.5px; padding:3px 6px;">👁️ View</a>
+                                <a href="${u}" download="${fn}" class="btn btn-xs btn-default" style="font-size:10.5px; padding:3px 6px;">⬇️</a>
+                                ${is_editable ? `
+                                <button type="button" class="btn btn-xs btn-danger ap-remove-file-btn" data-file-index="${a_idx}" style="font-size:10.5px; padding:3px 6px;">🗑️</button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    };
+
+    const d = new frappe.ui.Dialog({
+        title: __('Receipts for {0}', [title_str]),
+        size: 'large',
+        fields: [
+            {
+                fieldname: 'header_html',
+                fieldtype: 'HTML',
+                options: `
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:10px 14px;">
+                        <div>
+                            <div style="font-size:13px; font-weight:800; color:#0f172a;">${title_str}</div>
+                            <div style="font-size:11px; color:#64748b; margin-top:2px;">Category: <b>${row.expense_category || 'General'}</b> &bull; Total Bills: <b class="ap-modal-total-count">${atts.length}</b></div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase;">Row Total</div>
+                            <div style="font-size:15px; font-weight:800; color:#047857;">₹ ${frappe.format(row.expense_amount || row.amount || 0, { fieldtype: 'Currency' })}</div>
+                        </div>
+                    </div>
+                `
+            },
+            {
+                fieldname: 'cards_html',
+                fieldtype: 'HTML',
+                options: render_cards_html()
+            }
+        ]
+    });
+
+    if (is_editable) {
+        d.set_primary_action(__('➕ Upload More Bills to this Row'), function() {
+            new frappe.ui.FileUploader({
+                folder: 'Home/Attachments',
+                doctype: frm.doc.doctype,
+                docname: frm.doc.name,
+                allow_multiple: true,
+                on_success: (file_doc) => {
+                    const clean_url = file_doc.file_url;
+                    const f_name = file_doc.file_name || clean_url.split('/').pop().split('?')[0];
+                    const f_size = file_doc.file_size ? `${Math.round(file_doc.file_size / 1024)} KB` : '';
+                    atts.push({
+                        file_url: clean_url,
+                        file_name: f_name,
+                        file_size: f_size
+                    });
+                    frappe.model.set_value(row.doctype, row.name, 'attachments', JSON.stringify(atts));
+                    frappe.model.set_value(row.doctype, row.name, 'attachments_count', atts.length);
+                    if (!row.receipt_attachment) {
+                        frappe.model.set_value(row.doctype, row.name, 'receipt_attachment', clean_url);
+                    }
+                    d.fields_dict.cards_html.$wrapper.html(render_cards_html());
+                    d.$wrapper.find('.ap-modal-total-count').text(atts.length);
+                    frm.refresh_field('expense_items');
+                    setTimeout(() => bind_event_grid_uploaders(frm), 150);
+                    render_unified_claim_banner(frm, null);
+                }
+            });
+        });
+    }
+
+    d.$wrapper.on('click', '.ap-remove-file-btn', function(e) {
+        e.preventDefault();
+        const f_idx = parseInt($(this).attr('data-file-index'), 10);
+        if (!isNaN(f_idx) && f_idx >= 0 && f_idx < atts.length) {
+            atts.splice(f_idx, 1);
+            frappe.model.set_value(row.doctype, row.name, 'attachments', JSON.stringify(atts));
+            frappe.model.set_value(row.doctype, row.name, 'attachments_count', atts.length);
+            frappe.model.set_value(row.doctype, row.name, 'receipt_attachment', atts.length > 0 ? atts[0].file_url : '');
+            d.fields_dict.cards_html.$wrapper.html(render_cards_html());
+            d.$wrapper.find('.ap-modal-total-count').text(atts.length);
+            frm.refresh_field('expense_items');
+            setTimeout(() => bind_event_grid_uploaders(frm), 150);
+            render_unified_claim_banner(frm, null);
+        }
+    });
+
+    d.show();
+}
+
 frappe.ui.form.on("Event Expense Item", {
+    particulars: function(frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (row.particulars && !row.vendor_name) {
+            frappe.model.set_value(cdt, cdn, 'vendor_name', row.particulars);
+        }
+    },
+    income_amount: function(frm, cdt, cdn) {
+        calculate_event_row_statutory(frm, cdt, cdn);
+        setTimeout(() => bind_event_grid_uploaders(frm), 150);
+    },
+    expense_amount: function(frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (flt(row.expense_amount) > 0) {
+            frappe.model.set_value(cdt, cdn, 'base_amount', flt(row.expense_amount));
+        }
+        calculate_event_row_statutory(frm, cdt, cdn);
+        setTimeout(() => bind_event_grid_uploaders(frm), 150);
+    },
     vendor: function(frm, cdt, cdn) {
         const row = locals[cdt][cdn];
         if (row.vendor) {
@@ -1077,12 +1475,17 @@ frappe.ui.form.on("Event Expense Item", {
     },
     receipt_attachment: function(frm) {
         render_unified_claim_banner(frm, null);
+        setTimeout(() => bind_event_grid_uploaders(frm), 150);
         if (window.APReceiptGallery) {
             window.APReceiptGallery.refreshFormButtons(frm);
         }
     },
+    expense_items_add: function(frm) {
+        setTimeout(() => bind_event_grid_uploaders(frm), 150);
+    },
     expense_items_remove: function(frm) {
         calculate_all_event_rows(frm, true);
+        setTimeout(() => bind_event_grid_uploaders(frm), 150);
         if (window.APReceiptGallery) {
             window.APReceiptGallery.refreshFormButtons(frm);
         }

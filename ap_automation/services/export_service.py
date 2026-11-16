@@ -1,5 +1,6 @@
 from typing import Any, Callable, Dict, List, Optional
 import io
+import json
 import frappe
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -480,7 +481,7 @@ def export_event_advance_excel(advance_name: str = None, docname: str = None):
     _stream_excel_response(wb, f"Event_Advance_{doc.name}.xlsx")
 
 
-def _populate_event_expense_sheet(ws, doc: Any, styles: Dict[str, Any], event_title: str = "") -> None:
+def _populate_event_expense_sheet(ws, doc: Any, styles: Dict[str, Any], event_title: str = "", wb: Any = None) -> None:
     thin_border = styles["thin_border"]
     total_font = styles["total_font"]
     total_fill = styles["total_fill"]
@@ -489,19 +490,21 @@ def _populate_event_expense_sheet(ws, doc: Any, styles: Dict[str, Any], event_ti
         ("Expense Claim ID:", doc.name, "Status:", doc.status or "Draft"),
         ("Linked Event:", f"{doc.event} ({event_title})" if event_title else (doc.event or "N/A"), "Claim Date:", str(getattr(doc, "posting_date", "") or "")),
         ("Company:", doc.company or "N/A", "Event SPOC:", doc.spoc_name or doc.spoc or "N/A"),
-        ("Total Base / GST / TDS:", f"Base ₹ {float(getattr(doc, 'total_base_amount', 0) or 0):,.2f} | GST ₹ {float(getattr(doc, 'total_gst_amount', 0) or 0):,.2f} | TDS ₹ {float(getattr(doc, 'total_tds_amount', 0) or 0):,.2f}", "Net Claim Amount (₹):", f"₹ {float(getattr(doc, 'total_claim_amount', 0) or 0):,.2f}"),
+        ("Total Income / Expenses:", f"Income ₹ {float(getattr(doc, 'total_income', 0) or 0):,.2f} | Expenses ₹ {float(getattr(doc, 'total_expenses', 0) or 0):,.2f}", "Net Claim Amount (₹):", f"₹ {float(getattr(doc, 'total_claim_amount', 0) or 0):,.2f}"),
     ]
     r = _write_meta_grid(ws, meta, start_row=3, styles=styles) + 1
 
-    ws.cell(row=r, column=1, value="ITEMIZED EVENT EXPENSE BILLS (WITH GST & TDS)").font = styles["sec_font"]
+    ws.cell(row=r, column=1, value="ITEMIZED EVENT EXPENSE BILLS (WITH INCOME & EXPENSES)").font = styles["sec_font"]
     r += 1
     headers = [
         "S.NO",
         "BILL DATE",
+        "PARTICULARS / DESCRIPTION",
         "EXPENSE CATEGORY",
         "VENDOR / PAYEE NAME",
-        "VENDOR GSTIN",
         "BILL # / RECEIPT #",
+        "INCOME (₹)",
+        "EXPENSES (₹)",
         "BASE TAXABLE (₹)",
         "GST TYPE",
         "GST %",
@@ -512,7 +515,7 @@ def _populate_event_expense_sheet(ws, doc: Any, styles: Dict[str, Any], event_ti
         "TDS SECTION",
         "TDS (₹)",
         "NET AMOUNT (₹)",
-        "RECEIPT PROOF",
+        "ATTACHED BILLS (CLICK TO VIEW)",
         "LINE STATUS",
     ]
     r = _write_table_headers(ws, r, headers, styles)
@@ -520,61 +523,99 @@ def _populate_event_expense_sheet(ws, doc: Any, styles: Dict[str, Any], event_ti
     start_r = r
     items = getattr(doc, "expense_items", None) or []
     cat_summary: Dict[str, float] = {}
+    all_attachments_list: List[Dict[str, Any]] = []
+
     for idx, row in enumerate(items, 1):
         cat = getattr(row, "expense_category", "") or "Incidentals"
+        part = getattr(row, "particulars", "") or getattr(row, "vendor_name", "") or ""
+        inc_val = float(getattr(row, "income_amount", 0.0) or 0.0)
+        exp_val = float(getattr(row, "expense_amount", 0.0) or 0.0)
         amt = float(getattr(row, "amount", 0.0) or 0.0)
-        base = float(getattr(row, "base_amount", 0.0) or 0.0) or amt
+        base = float(getattr(row, "base_amount", 0.0) or 0.0) or exp_val or amt
         cgst = float(getattr(row, "cgst_amount", 0.0) or 0.0)
         sgst = float(getattr(row, "sgst_amount", 0.0) or 0.0)
         igst = float(getattr(row, "igst_amount", 0.0) or 0.0)
         total_bill = float(getattr(row, "total_invoice_amount", 0.0) or 0.0) or round(base + cgst + sgst + igst, 2)
         tds_amt = float(getattr(row, "tds_amount", 0.0) or 0.0)
-        cat_summary[cat] = cat_summary.get(cat, 0.0) + amt
+        if exp_val > 0 or amt > 0:
+            cat_summary[cat] = cat_summary.get(cat, 0.0) + (exp_val or amt)
+
+        # Parse attachments for this row
+        row_atts = []
+        raw_atts = getattr(row, "attachments", None)
+        if raw_atts:
+            try:
+                row_atts = json.loads(raw_atts) if isinstance(raw_atts, str) else raw_atts
+            except Exception:
+                row_atts = []
+        if not row_atts and getattr(row, "receipt_attachment", None):
+            rec_url = str(row.receipt_attachment).strip()
+            row_atts = [{"file_url": rec_url, "file_name": rec_url.split('/')[-1]}]
+
+        for att_idx, att in enumerate(row_atts, 1):
+            att_u = att.get("file_url") if isinstance(att, dict) else str(att)
+            att_fn = (att.get("file_name") if isinstance(att, dict) else "") or att_u.split('/')[-1]
+            all_attachments_list.append({
+                "row_idx": idx,
+                "particulars": part,
+                "category": cat,
+                "date": str(getattr(row, "bill_date", "") or doc.posting_date or ""),
+                "proof_no": att_idx,
+                "file_name": att_fn,
+                "file_url": att_u,
+            })
 
         ws.cell(row=r, column=1, value=idx).alignment = Alignment(horizontal="center")
         ws.cell(row=r, column=2, value=str(getattr(row, "bill_date", "") or doc.posting_date or "")).alignment = Alignment(horizontal="center")
-        ws.cell(row=r, column=3, value=cat)
-        ws.cell(row=r, column=4, value=getattr(row, "vendor_name", "") or "")
-        ws.cell(row=r, column=5, value=getattr(row, "tax_id", "") or "N/A").alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=3, value=part)
+        ws.cell(row=r, column=4, value=cat)
+        ws.cell(row=r, column=5, value=getattr(row, "vendor_name", "") or "")
         ws.cell(row=r, column=6, value=getattr(row, "bill_number", "") or "N/A").alignment = Alignment(horizontal="center")
 
         for col_idx, num_val in (
-            (7, base),
-            (10, cgst),
-            (11, sgst),
-            (12, igst),
-            (13, total_bill),
-            (15, tds_amt),
-            (16, amt),
+            (7, inc_val),
+            (8, exp_val),
+            (9, base),
+            (12, cgst),
+            (13, sgst),
+            (14, igst),
+            (15, total_bill),
+            (17, tds_amt),
+            (18, amt),
         ):
             c_num = ws.cell(row=r, column=col_idx, value=num_val)
             c_num.number_format = "₹ #,##0.00"
             c_num.alignment = Alignment(horizontal="right")
 
-        ws.cell(row=r, column=8, value=getattr(row, "tax_type", None) or "No GST / Exempt")
-        ws.cell(row=r, column=9, value=getattr(row, "gst_rate", None) or "0%").alignment = Alignment(horizontal="center")
-        ws.cell(row=r, column=14, value=getattr(row, "tds_section", None) or "None / Exempt")
+        ws.cell(row=r, column=10, value=getattr(row, "tax_type", None) or "No GST / Exempt")
+        ws.cell(row=r, column=11, value=getattr(row, "gst_rate", None) or "0%").alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=16, value=getattr(row, "tds_section", None) or "None / Exempt")
 
-        rec_url = getattr(row, "receipt_attachment", None) or ""
-        rec_cell = ws.cell(row=r, column=17, value="View Receipt" if rec_url else "No Receipt")
-        if rec_url:
-            rec_cell.hyperlink = rec_url
+        # Clickable photo / bill hyperlink
+        rec_cell = ws.cell(row=r, column=19)
+        if row_atts:
+            primary_url = row_atts[0].get("file_url") if isinstance(row_atts[0], dict) else str(row_atts[0])
+            full_url = frappe.utils.get_url(primary_url) if primary_url.startswith("/") else primary_url
+            label = f"📎 {len(row_atts)} Bill{'s' if len(row_atts)>1 else ''} (Click to View)"
+            rec_cell.value = f'=HYPERLINK("{full_url}", "{label}")'
             rec_cell.font = styles["link_font"]
+        else:
+            rec_cell.value = "No Receipt"
         rec_cell.alignment = Alignment(horizontal="center")
 
         line_st = getattr(row, "line_status", "") or ("Disputed" if getattr(row, "is_disputed", 0) else "Verified")
-        ws.cell(row=r, column=18, value=line_st).alignment = Alignment(horizontal="center")
-        for c in range(1, 19):
+        ws.cell(row=r, column=20, value=line_st).alignment = Alignment(horizontal="center")
+        for c in range(1, 21):
             ws.cell(row=r, column=c).border = thin_border
         r += 1
 
     if items:
         ws.cell(row=r, column=1, value="TOTAL").font = total_font
         ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
-        for c in range(1, 19):
+        for c in range(1, 21):
             ws.cell(row=r, column=c).fill = total_fill
             ws.cell(row=r, column=c).border = thin_border
-        for col_idx, col_let in ((7, "G"), (10, "J"), (11, "K"), (12, "L"), (13, "M"), (15, "O"), (16, "P")):
+        for col_idx, col_let in ((7, "G"), (8, "H"), (9, "I"), (12, "L"), (13, "M"), (14, "N"), (15, "O"), (17, "Q"), (18, "R")):
             tot_cell = ws.cell(row=r, column=col_idx, value=f"=SUM({col_let}{start_r}:{col_let}{r-1})")
             tot_cell.font = total_font
             tot_cell.number_format = "₹ #,##0.00"
@@ -588,6 +629,8 @@ def _populate_event_expense_sheet(ws, doc: Any, styles: Dict[str, Any], event_ti
     r = _write_table_headers(ws, r, ["RECONCILIATION METRIC", "VALUE / AMOUNT (₹)", "NOTES"], styles)
     s_type = getattr(doc, "settlement_type", None) or "N/A"
     recon_rows = [
+        ("Total Ground Income / Advance", float(getattr(doc, "total_income", 0.0) or 0.0), "Ground imprest advance / cash receipts"),
+        ("Total Ground Expenses", float(getattr(doc, "total_expenses", 0.0) or getattr(doc, "total_claim_amount", 0.0) or 0.0), "Total expenses incurred across all team members"),
         ("Total Cash Advance Disbursed", float(getattr(doc, "disbursed_advance", 0.0) or 0.0), "Disbursed Event Advance Requests"),
         ("Prior Verified Claim Spends", float(getattr(doc, "prior_verified_claims", 0.0) or 0.0), "Earlier submitted claims for this Event"),
         ("Current Claimed Ground Spends", float(getattr(doc, "total_claim_amount", 0.0) or 0.0), "Zero-Spend Refund Mode" if getattr(doc, "is_zero_spend_refund", 0) else "Bills on this voucher"),
@@ -610,6 +653,36 @@ def _populate_event_expense_sheet(ws, doc: Any, styles: Dict[str, Any], event_ti
 
     _write_approval_trail(ws, doc, r, styles)
 
+    # Sheet 2: Dedicated Clickable Receipt Photo Index
+    if wb and all_attachments_list:
+        ws_photos = wb.create_sheet("Receipt Photos Index")
+        ws_photos.merge_cells("A1:G1")
+        ws_photos["A1"] = f"ATTACHED RECEIPT PHOTOS & EVIDENCE INDEX — {doc.name}"
+        ws_photos["A1"].font = styles["title_font"]
+        ws_photos.row_dimensions[1].height = 26
+
+        pr = _write_table_headers(
+            ws_photos,
+            3,
+            ["Line #", "Particulars / Person", "Expense Category", "Bill Date", "Proof #", "File Name", "Clickable Photo Link"],
+            styles
+        )
+        for p_item in all_attachments_list:
+            ws_photos.cell(row=pr, column=1, value=p_item["row_idx"]).alignment = Alignment(horizontal="center")
+            ws_photos.cell(row=pr, column=2, value=p_item["particulars"])
+            ws_photos.cell(row=pr, column=3, value=p_item["category"])
+            ws_photos.cell(row=pr, column=4, value=p_item["date"]).alignment = Alignment(horizontal="center")
+            ws_photos.cell(row=pr, column=5, value=f"Receipt #{p_item['proof_no']}").alignment = Alignment(horizontal="center")
+            ws_photos.cell(row=pr, column=6, value=p_item["file_name"])
+
+            p_full = frappe.utils.get_url(p_item["file_url"]) if p_item["file_url"].startswith("/") else p_item["file_url"]
+            link_c = ws_photos.cell(row=pr, column=7, value=f'=HYPERLINK("{p_full}", "📷 Open Photo / Receipt")')
+            link_c.font = styles["link_font"]
+            link_c.alignment = Alignment(horizontal="center")
+            for c in range(1, 8):
+                ws_photos.cell(row=pr, column=c).border = thin_border
+            pr += 1
+
 
 @frappe.whitelist()
 def export_event_expense_excel(claim_name: str = None, docname: str = None):
@@ -620,11 +693,11 @@ def export_event_expense_excel(claim_name: str = None, docname: str = None):
     wb, ws = _init_workbook(
         sheet_title=f"Claim {doc.name}",
         banner_text=f"EVENT EXPENSE CLAIM STATEMENT — {doc.name}",
-        merge_range="A1:R1",
+        merge_range="A1:T1",
         styles=styles,
     )
     event_title = frappe.db.get_value("Event Master", doc.event, "event_name") if doc.event else ""
-    _populate_event_expense_sheet(ws, doc, styles, event_title=event_title or "")
+    _populate_event_expense_sheet(ws, doc, styles, event_title=event_title or "", wb=wb)
     _stream_excel_response(wb, f"Event_Expense_Claim_{doc.name}.xlsx")
 
 

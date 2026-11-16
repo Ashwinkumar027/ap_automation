@@ -84,15 +84,30 @@ def screen_event_expense_items_batch(
     seen_in_voucher: Set[Tuple[str, float]] = set()
 
     for idx, item in enumerate(items, start=1):
-        bill_no = (getattr(item, "bill_number", "") or "").strip()
-        vendor = (getattr(item, "vendor_name", "") or "").strip()
+        income_amt = round(float(getattr(item, "income_amount", 0.0) or 0.0), 2)
         amount = round(float(getattr(item, "amount", 0.0) or 0.0), 2)
         total_bill_amt = round(float(getattr(item, "total_invoice_amount", 0.0) or 0.0), 2)
+        
+        # Skip duplicate checking for income-only entries (e.g. Imprest advance received, cash collection)
+        if income_amt > 0 and amount <= 0:
+            continue
+
+        bill_no = (getattr(item, "bill_number", "") or "").strip()
+        vendor = (getattr(item, "vendor_name", "") or getattr(item, "particulars", "") or "").strip()
 
         if not bill_no:
-            raise APValidationError(f"Row #{idx}: Bill / Receipt Number is mandatory on each expense item.")
+            # Support person-level spend groupings (e.g. Balakumar Expenses, Naveen Expenses)
+            if getattr(item, "particulars", None):
+                bill_no = f"EXP-{idx}"
+                item.bill_number = bill_no
+            else:
+                raise APValidationError(f"Row #{idx}: Bill / Receipt Number or Particulars is mandatory on each expense item.")
         if amount <= 0:
-            raise APValidationError(f"Row #{idx}: Invalid Amount (INR {amount:,.2f}) on Bill #{bill_no}. Amount must be > 0.")
+            exp_amt = round(float(getattr(item, "expense_amount", 0.0) or 0.0), 2)
+            if exp_amt > 0:
+                amount = exp_amt
+            else:
+                raise APValidationError(f"Row #{idx}: Invalid Amount (INR {amount:,.2f}) on Bill #{bill_no}. Amount must be > 0.")
 
         # Check internal duplicate within this voucher
         bill_key = (bill_no.lower(), amount)

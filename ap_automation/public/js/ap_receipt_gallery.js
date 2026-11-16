@@ -292,39 +292,84 @@ window.APReceiptGallery = {
                 const dt = row.invoice_date || row.expense_date || row.bill_date || frm.doc.posting_date || '';
                 const b_no = row.invoice_number || row.bill_number || row.bill_no || '';
 
-                const child_bill_field = ['attach_receipt', 'receipt_attachment', 'attachment', 'quote_attachment', 'tax_invoice_attachment']
-                    .find(f => typeof row[f] === 'string' && row[f].trim()) || 'receipt_attachment';
-                const file_url = row[child_bill_field];
-                if (file_url && typeof file_url === 'string' && file_url.trim()) {
-                    const clean_url = file_url.trim();
-                    const file_name = clean_url.split('/').pop().split('?')[0];
-                    const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
-
-                    atts.push({
-                        source: 'row',
-                        table_field: table_field,
-                        field_source: child_bill_field,
-                        proof_type: 'bill',
-                        proof_label: '🧾 1. Tax Invoice / Bill',
-                        row_idx: row.idx || (idx + 1),
-                        merchant: smart_title,
-                        subtitle: raw_v || raw_m || '',
-                        vendor: raw_v,
-                        vendor_name: raw_v,
-                        category: cat,
-                        expense_head: head,
-                        custom_ledger_name: row.custom_ledger_name || '',
-                        description: row.description || row.remarks || row.particulars || row.discrepancy_remarks || '',
-                        amount: amt,
-                        date: dt,
-                        bill_no: b_no,
-                        file_url: clean_url,
-                        view_url: self.buildViewUrl(frm, clean_url),
-                        file_name: file_name,
-                        is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext),
-                        is_pdf: ext === '.pdf',
-                        extension: ext
+                // Multi-Attachment Support (e.g. Event Command Center with N receipts per row)
+                let multi_parsed = [];
+                if (row.attachments) {
+                    try {
+                        multi_parsed = typeof row.attachments === 'string' ? JSON.parse(row.attachments) : row.attachments;
+                    } catch (e) {
+                        multi_parsed = [];
+                    }
+                }
+                if (Array.isArray(multi_parsed) && multi_parsed.length > 0) {
+                    multi_parsed.forEach((att_item, m_idx) => {
+                        const m_url = typeof att_item === 'string' ? att_item : (att_item.file_url || att_item.url || '');
+                        if (m_url && typeof m_url === 'string' && m_url.trim()) {
+                            const clean_url = m_url.trim();
+                            const m_name = (typeof att_item === 'object' && att_item.file_name) || clean_url.split('/').pop().split('?')[0];
+                            const ext = (m_name.lastIndexOf('.') !== -1 ? m_name.substring(m_name.lastIndexOf('.')).toLowerCase() : '');
+                            atts.push({
+                                source: 'row',
+                                table_field: table_field,
+                                field_source: 'attachments',
+                                proof_type: 'bill',
+                                proof_label: `🧾 Bill ${m_idx + 1} of ${multi_parsed.length}`,
+                                row_idx: row.idx || (idx + 1),
+                                merchant: smart_title,
+                                subtitle: raw_v || raw_m || '',
+                                vendor: raw_v,
+                                vendor_name: raw_v,
+                                category: cat,
+                                expense_head: head,
+                                custom_ledger_name: row.custom_ledger_name || '',
+                                description: row.description || row.remarks || row.particulars || row.discrepancy_remarks || '',
+                                amount: amt,
+                                date: dt,
+                                bill_no: b_no,
+                                file_url: clean_url,
+                                view_url: self.buildViewUrl(frm, clean_url),
+                                file_name: m_name,
+                                is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext),
+                                is_pdf: ext === '.pdf',
+                                extension: ext
+                            });
+                        }
                     });
+                } else {
+                    const child_bill_field = ['attach_receipt', 'receipt_attachment', 'attachment', 'quote_attachment', 'tax_invoice_attachment']
+                        .find(f => typeof row[f] === 'string' && row[f].trim()) || 'receipt_attachment';
+                    const file_url = row[child_bill_field];
+                    if (file_url && typeof file_url === 'string' && file_url.trim()) {
+                        const clean_url = file_url.trim();
+                        const file_name = clean_url.split('/').pop().split('?')[0];
+                        const ext = (file_name.lastIndexOf('.') !== -1 ? file_name.substring(file_name.lastIndexOf('.')).toLowerCase() : '');
+
+                        atts.push({
+                            source: 'row',
+                            table_field: table_field,
+                            field_source: child_bill_field,
+                            proof_type: 'bill',
+                            proof_label: '🧾 1. Tax Invoice / Bill',
+                            row_idx: row.idx || (idx + 1),
+                            merchant: smart_title,
+                            subtitle: raw_v || raw_m || '',
+                            vendor: raw_v,
+                            vendor_name: raw_v,
+                            category: cat,
+                            expense_head: head,
+                            custom_ledger_name: row.custom_ledger_name || '',
+                            description: row.description || row.remarks || row.particulars || row.discrepancy_remarks || '',
+                            amount: amt,
+                            date: dt,
+                            bill_no: b_no,
+                            file_url: clean_url,
+                            view_url: self.buildViewUrl(frm, clean_url),
+                            file_name: file_name,
+                            is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext),
+                            is_pdf: ext === '.pdf',
+                            extension: ext
+                        });
+                    }
                 }
 
                 // In-row Bank Proof / Cancelled Cheque Display

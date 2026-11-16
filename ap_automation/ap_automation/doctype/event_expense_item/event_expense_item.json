@@ -7,6 +7,7 @@
  "engine": "InnoDB",
  "field_order": [
   "spend_stream",
+  "particulars",
   "expense_category",
   "service_type",
   "vendor",
@@ -14,7 +15,11 @@
   "tax_id",
   "bill_number",
   "bill_date",
+  "income_amount",
+  "expense_amount",
   "receipt_attachment",
+  "attachments",
+  "attachments_count",
   "base_amount",
   "tax_type",
   "gst_rate",
@@ -41,6 +46,13 @@
    "label": "Spend Stream",
    "options": "SPOC On-Ground Cash Spend\nFinance Direct Pay",
    "reqd": 0
+  },
+  {
+   "columns": 3,
+   "fieldname": "particulars",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Particulars / Description"
   },
   {
    "columns": 2,
@@ -72,20 +84,20 @@
    "columns": 2,
    "fieldname": "vendor_name",
    "fieldtype": "Data",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Vendor / Payee Name",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "columns": 2,
    "fieldname": "bill_number",
    "fieldtype": "Data",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Bill / Receipt Number",
-   "reqd": 1
+   "reqd": 0
   },
   {
-   "columns": 2,
+   "columns": 1,
    "fieldname": "bill_date",
    "fieldtype": "Date",
    "in_list_view": 1,
@@ -94,9 +106,25 @@
   },
   {
    "columns": 2,
-   "fieldname": "base_amount",
+   "default": "0.0",
+   "fieldname": "income_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
+   "label": "Income (INR)"
+  },
+  {
+   "columns": 2,
+   "default": "0.0",
+   "fieldname": "expense_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Expenses (INR)"
+  },
+  {
+   "columns": 2,
+   "fieldname": "base_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 0,
    "label": "Base Taxable (INR)"
   },
   {
@@ -104,7 +132,7 @@
    "default": "No GST / Exempt",
    "fieldname": "tax_type",
    "fieldtype": "Select",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "GST Type",
    "options": "No GST / Exempt\nIntra-State (CGST + SGST)\nInter-State (IGST)"
   },
@@ -113,7 +141,7 @@
    "default": "0%",
    "fieldname": "gst_rate",
    "fieldtype": "Select",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "GST %",
    "options": "0%\n5%\n12%\n18%\n28%"
   },
@@ -145,7 +173,7 @@
    "columns": 1,
    "fieldname": "gst_amount",
    "fieldtype": "Currency",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Total GST (INR)",
    "read_only": 1
   },
@@ -162,7 +190,7 @@
    "default": "None / Exempt",
    "fieldname": "tds_section",
    "fieldtype": "Select",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "TDS Section",
    "options": "None / Exempt\n194C / 393(1) - Contractor (Individual/HUF) (1%)\n194C / 393(1) - Contractor (Other than Individual/HUF) (2%)\n194J / 393(1) - Technical Services / Royalty (2%)\n194J / 393(1) - Professional Services & Director Fees (10%)\n194-I / 393(1) - Rent for Plant & Machinery (2%)\n194-I / 393(1) - Rent for Land & Building (10%)\n194Q / 393(1) - Purchase of Goods (0.1%)\n194H / 393(1) - Commission & Brokerage (2%)\n194A / 393(1) - Interest on Securities (10%)\n194A / 393(1) - Interest other than securities (Senior Citizen) (10%)\n194A / 393(1) - Interest other than securities (Others) (10%)\n194A / 393(1) - Interest other than securities (Specified Person) (10%)\n194-IA / 393(1) - Transfer of Immovable Property (1%)\n194-IB / 393(1) - Rent by Non-Specified Person (2%)\n194M / 393(1) - Contract & Professional Fees by Non-Specified Person (2%)\n194R / 393(1) - Business & Profession Perquisite (10%)\n194T / 393(3) - Partner Remuneration & Interest (10%)\n192 / 392 - Salary (Slab Rate)\n206AB - Higher Non-Filer (20%)\n194C - Contractor (1%)\n194C - Contractor (2%)\n194J - Technical Fees (2%)\n194J - Professional Fees (10%)\n194Q - Purchase of Goods (0.1%)\n194I - Rent (10%)"
   },
@@ -178,7 +206,7 @@
    "columns": 1,
    "fieldname": "tds_amount",
    "fieldtype": "Currency",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Deducted TDS (INR)",
    "read_only": 1
   },
@@ -186,7 +214,7 @@
    "columns": 2,
    "fieldname": "amount",
    "fieldtype": "Currency",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Net Amount (INR)",
    "read_only": 1
   },
@@ -198,11 +226,25 @@
    "label": "Vendor GSTIN"
   },
   {
+   "columns": 2,
    "fieldname": "receipt_attachment",
    "fieldtype": "Attach",
    "in_list_view": 1,
-   "label": "Receipt Attachment",
-   "reqd": 1
+   "label": "Bills / Receipts",
+   "reqd": 0
+  },
+  {
+   "fieldname": "attachments",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "Attachments JSON"
+  },
+  {
+   "default": "0",
+   "fieldname": "attachments_count",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Bills Count"
   },
   {
    "columns": 1,
