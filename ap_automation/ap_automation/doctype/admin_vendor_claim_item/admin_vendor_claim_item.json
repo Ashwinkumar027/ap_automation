@@ -14,6 +14,9 @@
   "invoice_number",
   "invoice_date",
   "receipt_attachment",
+  "po_type",
+  "purchase_order",
+  "po_attachment",
   "base_amount",
   "tax_type",
   "gst_rate",
@@ -100,6 +103,31 @@
    "fieldtype": "Attach",
    "in_list_view": 1,
    "label": "Proof / Attachment"
+  },
+  {
+   "columns": 2,
+   "default": "Without PO",
+   "fieldname": "po_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "PO Type",
+   "options": "Without PO\nWith PO"
+  },
+  {
+   "columns": 2,
+   "depends_on": "eval:doc.po_type=='With PO'",
+   "fieldname": "purchase_order",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Purchase Order",
+   "options": "AP Purchase Order"
+  },
+  {
+   "columns": 2,
+   "fieldname": "po_attachment",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "PO / Approval Attachment"
   },
   {
    "columns": 2,
