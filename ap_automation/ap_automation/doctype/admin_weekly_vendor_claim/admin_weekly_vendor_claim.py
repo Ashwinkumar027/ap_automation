@@ -121,6 +121,11 @@ class AdminWeeklyVendorClaim(Document):
             if val <= 0:
                 frappe.throw(_("Row #{0}: Base Taxable Amount must be strictly greater than 0.00.").format(idx), title=_("Invalid Amount"), exc=APValidationError)
 
+            if not getattr(row, "po_type", None):
+                row.po_type = "Without PO"
+            if row.po_type == "Without PO":
+                row.purchase_order = None
+
             if is_submitting and not row.receipt_attachment:
                 frappe.throw(
                     _("Row #{0} ({1}): Vendor Bill Proof PDF/Photo attachment is strictly mandatory.").format(idx, row.vendor),
@@ -924,6 +929,9 @@ def generate_weekly_excel_download(docname):
         "Company",
         "Invoice #",
         "Invoice Date",
+        "PO Type",
+        "Purchase Order",
+        "PO / Approval Proof",
         "Base Taxable (INR)",
         "GST %",
         "Calculated GST (INR)",
@@ -945,6 +953,11 @@ def generate_weekly_excel_download(docname):
             full_url = get_url(row.receipt_attachment)
             proof_formula = f'=HYPERLINK("{full_url}", "View Proof")'
 
+        po_proof_formula = ""
+        if getattr(row, "po_attachment", None):
+            full_po_url = get_url(row.po_attachment)
+            po_proof_formula = f'=HYPERLINK("{full_po_url}", "View PO / Approval")'
+
         rows.append([
             idx,
             row.vendor_category or "",
@@ -953,6 +966,9 @@ def generate_weekly_excel_download(docname):
             row.company or doc.company or "",
             row.invoice_number or "",
             str(row.invoice_date or ""),
+            row.po_type or "Without PO",
+            row.purchase_order or "",
+            po_proof_formula,
             flt(row.base_amount),
             row.gst_rate or "18%",
             flt(row.gst_amount),
@@ -971,6 +987,9 @@ def generate_weekly_excel_download(docname):
     rows.append([
         "",
         "TOTAL",
+        "",
+        "",
+        "",
         "",
         "",
         "",

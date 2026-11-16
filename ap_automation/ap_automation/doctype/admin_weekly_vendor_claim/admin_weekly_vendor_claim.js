@@ -18,6 +18,17 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
                 }
             };
         });
+        frm.set_query('purchase_order', 'vendor_lines', function (doc, cdt, cdn) {
+            const row = locals[cdt][cdn];
+            const filters = {};
+            if (row && row.vendor) {
+                filters.vendor = row.vendor;
+            }
+            if (doc.company) {
+                filters.company_entity = doc.company;
+            }
+            return { filters: filters };
+        });
     },
 
     refresh: function (frm) {
@@ -46,6 +57,17 @@ frappe.ui.form.on('Admin Weekly Vendor Claim', {
                     is_active: 1
                 }
             };
+        });
+        frm.set_query('purchase_order', 'vendor_lines', function (doc, cdt, cdn) {
+            const row = locals[cdt][cdn];
+            const filters = {};
+            if (row && row.vendor) {
+                filters.vendor = row.vendor;
+            }
+            if (doc.company) {
+                filters.company_entity = doc.company;
+            }
+            return { filters: filters };
         });
         render_admin_vendor_stepper(frm);
         render_status_guidance_banner(frm);
@@ -172,6 +194,24 @@ frappe.ui.form.on('Admin Vendor Claim Item', {
         const row = locals[cdt][cdn];
         if (!row.company) {
             frappe.model.set_value(cdt, cdn, 'company', frm.doc.company || frappe.defaults.get_user_default("Company") || "");
+        }
+        if (!row.po_type) {
+            frappe.model.set_value(cdt, cdn, 'po_type', 'Without PO');
+        }
+    },
+
+    po_type: function (frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (row.po_type === 'Without PO' && row.purchase_order) {
+            frappe.model.set_value(cdt, cdn, 'purchase_order', '');
+        }
+        frm.refresh_field('vendor_lines');
+    },
+
+    purchase_order: function (frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (row.purchase_order && row.po_type !== 'With PO') {
+            frappe.model.set_value(cdt, cdn, 'po_type', 'With PO');
         }
     },
 
@@ -803,6 +843,9 @@ function apply_grid_role_permissions(frm) {
     safe_toggle_enable('line_status', true);
     safe_toggle_enable('discrepancy_remarks', true);
     safe_toggle_enable('bank_proof_attachment', true);
+    safe_toggle_enable('po_type', true);
+    safe_toggle_enable('purchase_order', true);
+    safe_toggle_enable('po_attachment', true);
 }
 
 // --------------------------------------------------------------------------------------
@@ -879,6 +922,15 @@ function bind_custom_grid_uploaders(frm) {
             badgeBg: '#eff6ff',
             badgeBorder: '#3b82f6',
             badgeColor: '#1e40af'
+        },
+        {
+            fieldname: 'po_attachment',
+            emptyText: '📑 Add PO',
+            attachedText: '📑 Attached',
+            viewTitle: 'Click to view PO / approval attachment',
+            badgeBg: '#faf5ff',
+            badgeBorder: '#a855f7',
+            badgeColor: '#6b21a8'
         }
     ];
 
@@ -956,6 +1008,36 @@ function open_admin_receipt_gallery(frm, start_idx) {
                 is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(bp_ext),
                 is_pdf: bp_ext === '.pdf',
                 extension: bp_ext
+            });
+        }
+        if (row.po_attachment) {
+            const po_clean = row.po_attachment.trim();
+            const po_name = po_clean.split('/').pop();
+            const po_ext = (po_name.lastIndexOf('.') !== -1 ? po_name.substring(po_name.lastIndexOf('.')).toLowerCase() : '');
+            const is_with_po = row.po_type === 'With PO';
+            const po_title = is_with_po
+                ? (row.purchase_order ? `📑 3. Purchase Order (${row.purchase_order})` : '📑 3. Purchase Order Copy')
+                : '📑 3. Expense Approval Proof';
+            atts.push({
+                source: 'row',
+                proof_type: 'po',
+                proof_label: po_title,
+                row_idx: row.idx || (idx + 1),
+                vendor: row.vendor_name || row.vendor || 'Vendor Bill',
+                vendor_name: row.vendor_name || row.vendor || 'Vendor Bill',
+                category: is_with_po ? 'Purchase Order Document' : 'Management Expense Approval',
+                base_amount: 0.0,
+                gst_amount: 0.0,
+                tds_amount: 0.0,
+                amount: parseFloat(row.amount || 0.0),
+                company: row.company || '',
+                invoice: row.purchase_order ? `PO: ${row.purchase_order}` : `Bill: ${row.invoice_number || 'N/A'}`,
+                date: row.invoice_date || frm.doc.posting_date || '',
+                file_url: po_clean,
+                file_name: po_name,
+                is_image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(po_ext),
+                is_pdf: po_ext === '.pdf',
+                extension: po_ext
             });
         }
     });
@@ -1050,6 +1132,9 @@ const REQUIRED_GRID_COLUMNS = [
     { fieldname: 'invoice_number', columns: 2 },
     { fieldname: 'invoice_date', columns: 2 },
     { fieldname: 'receipt_attachment', columns: 2 },
+    { fieldname: 'po_type', columns: 2 },
+    { fieldname: 'purchase_order', columns: 2 },
+    { fieldname: 'po_attachment', columns: 2 },
     { fieldname: 'base_amount', columns: 2 },
     { fieldname: 'tax_type', columns: 2 },
     { fieldname: 'gst_rate', columns: 1 },
@@ -1139,6 +1224,9 @@ const ADMIN_VENDOR_COL_WIDTHS = {
     invoice_number: 135,
     invoice_date: 120,
     receipt_attachment: 140,
+    po_type: 125,
+    purchase_order: 155,
+    po_attachment: 150,
     base_amount: 125,
     tax_type: 175,
     gst_rate: 90,
