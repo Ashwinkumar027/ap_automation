@@ -6,45 +6,62 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "sb_vendor_info",
   "vendor_category",
   "service_type",
   "vendor",
   "vendor_name",
   "vendor_gstin",
   "company",
+  "cb_vendor_info",
   "invoice_number",
   "invoice_date",
   "receipt_attachment",
+  "is_urgent",
+  "urgency_reason",
+  "sb_po_info",
   "po_type",
   "purchase_order",
+  "cb_po_info",
   "po_attachment",
   "purchase_receipt",
+  "sb_tax_calc",
   "base_amount",
   "tax_type",
   "gst_rate",
   "cgst_amount",
+  "cb_tax_calc",
   "sgst_amount",
   "igst_amount",
   "gst_amount",
   "total_invoice_amount",
+  "sb_deductions",
   "tds_section",
   "tds_rate",
   "tds_amount",
+  "cb_deductions",
   "advance_deducted",
   "retention_hold_amount",
   "amount",
+  "sb_banking",
   "bank_beneficiary_name",
   "bank_account_number",
   "bank_ifsc_code",
+  "cb_banking",
   "penny_drop_status",
   "bank_proof_attachment",
+  "sb_audit",
   "line_status",
   "discrepancy_remarks",
-  "remarks",
-  "is_urgent",
-  "urgency_reason"
+  "cb_audit",
+  "remarks"
  ],
  "fields": [
+  {
+   "fieldname": "sb_vendor_info",
+   "fieldtype": "Section Break",
+   "label": "Vendor & Bill Identification"
+  },
   {
    "columns": 2,
    "fieldname": "vendor_category",
@@ -98,6 +115,10 @@
    "hidden": 1
   },
   {
+   "fieldname": "cb_vendor_info",
+   "fieldtype": "Column Break"
+  },
+  {
    "columns": 2,
    "fieldname": "invoice_number",
    "fieldtype": "Data",
@@ -121,6 +142,26 @@
    "label": "Bill Proof / Attachment"
   },
   {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "is_urgent",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Urgent"
+  },
+  {
+   "columns": 2,
+   "fieldname": "urgency_reason",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Urgency Reason"
+  },
+  {
+   "fieldname": "sb_po_info",
+   "fieldtype": "Section Break",
+   "label": "Purchase Order Sourcing"
+  },
+  {
    "columns": 2,
    "default": "Without PO",
    "fieldname": "po_type",
@@ -139,6 +180,10 @@
    "options": "AP Purchase Order"
   },
   {
+   "fieldname": "cb_po_info",
+   "fieldtype": "Column Break"
+  },
+  {
    "columns": 2,
    "fieldname": "po_attachment",
    "fieldtype": "Attach",
@@ -152,6 +197,11 @@
    "in_list_view": 1,
    "label": "Purchase Receipt (GRN)",
    "options": "Purchase Receipt"
+  },
+  {
+   "fieldname": "sb_tax_calc",
+   "fieldtype": "Section Break",
+   "label": "Base Taxable & GST Computation"
   },
   {
    "columns": 2,
@@ -188,6 +238,10 @@
    "read_only": 1
   },
   {
+   "fieldname": "cb_tax_calc",
+   "fieldtype": "Column Break"
+  },
+  {
    "columns": 2,
    "fieldname": "sgst_amount",
    "fieldtype": "Currency",
@@ -220,6 +274,11 @@
    "read_only": 1
   },
   {
+   "fieldname": "sb_deductions",
+   "fieldtype": "Section Break",
+   "label": "TDS Withholding & Deductions"
+  },
+  {
    "columns": 3,
    "default": "None / Exempt",
    "fieldname": "tds_section",
@@ -243,6 +302,10 @@
    "in_list_view": 1,
    "label": "Deducted TDS (INR)",
    "read_only": 1
+  },
+  {
+   "fieldname": "cb_deductions",
+   "fieldtype": "Column Break"
   },
   {
    "columns": 2,
@@ -269,6 +332,11 @@
    "read_only": 1
   },
   {
+   "fieldname": "sb_banking",
+   "fieldtype": "Section Break",
+   "label": "Verified Banking Coordinates"
+  },
+  {
    "columns": 2,
    "fieldname": "bank_beneficiary_name",
    "fieldtype": "Data",
@@ -293,6 +361,10 @@
    "read_only": 1
   },
   {
+   "fieldname": "cb_banking",
+   "fieldtype": "Column Break"
+  },
+  {
    "columns": 2,
    "fieldname": "penny_drop_status",
    "fieldtype": "Data",
@@ -306,6 +378,11 @@
    "fieldtype": "Attach",
    "in_list_view": 1,
    "label": "Bank Proof / Cheque"
+  },
+  {
+   "fieldname": "sb_audit",
+   "fieldtype": "Section Break",
+   "label": "Line Audit & Verification"
   },
   {
    "columns": 2,
@@ -324,33 +401,22 @@
    "label": "Auditor Remarks"
   },
   {
+   "fieldname": "cb_audit",
+   "fieldtype": "Column Break"
+  },
+  {
    "columns": 2,
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "in_list_view": 1,
    "label": "Operational Remarks"
-  },
-  {
-   "columns": 1,
-   "default": "0",
-   "fieldname": "is_urgent",
-   "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "Is Urgent"
-  },
-  {
-   "columns": 2,
-   "fieldname": "urgency_reason",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Urgency Reason"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-11-17 15:10:00.000000",
+ "modified": "2026-11-17 15:55:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Vendor Invoice Item",

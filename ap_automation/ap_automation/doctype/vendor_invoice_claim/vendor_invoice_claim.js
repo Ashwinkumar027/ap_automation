@@ -23,22 +23,22 @@ frappe.listview_settings["Vendor Invoice Claim"] = {
             listview.filter_area.clear();
         }, __('Quick Filters'));
 
-        listview.page.add_inner_button(__('🟠 Needs Review'), function () {
+        listview.page.add_inner_button(__('Needs Review'), function () {
             listview.filter_area.clear();
             listview.filter_area.add([['Vendor Invoice Claim', 'status', '=', 'Pending Accounts Review']]);
         }, __('Quick Filters'));
 
-        listview.page.add_inner_button(__('🟢 Approved for Payment'), function () {
+        listview.page.add_inner_button(__('Approved for Payment'), function () {
             listview.filter_area.clear();
             listview.filter_area.add([['Vendor Invoice Claim', 'status', '=', 'Approved for Payment']]);
         }, __('Quick Filters'));
 
-        listview.page.add_inner_button(__('🔴 Contested / Disputed'), function () {
+        listview.page.add_inner_button(__('Contested / Disputed'), function () {
             listview.filter_area.clear();
             listview.filter_area.add([['Vendor Invoice Claim', 'status', '=', 'Disputed']]);
         }, __('Quick Filters'));
 
-        listview.page.add_inner_button(__('💳 Paid (UTR Stamped)'), function () {
+        listview.page.add_inner_button(__('Paid (UTR Stamped)'), function () {
             listview.filter_area.clear();
             listview.filter_area.add([['Vendor Invoice Claim', 'status', '=', 'Paid']]);
         }, __('Quick Filters'));
@@ -112,11 +112,11 @@ frappe.ui.form.on("Vendor Invoice Claim", {
             let diff_badge = '';
             if (prev > 0) {
                 if (diff < 0) {
-                    diff_badge = `<span style="background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 11px;">📉 Savings: ${format_curr(diff)} (${pct.toFixed(1)}%)</span>`;
+                    diff_badge = `<span style="background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 11px;">Savings: ${format_curr(diff)} (${pct.toFixed(1)}%)</span>`;
                 } else if (diff > 0) {
-                    diff_badge = `<span style="background: #fffbeb; color: #b45309; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 11px;">📈 Cost Escalation: +${format_curr(diff)} (+${pct.toFixed(1)}%)</span>`;
+                    diff_badge = `<span style="background: #fffbeb; color: #b45309; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 11px;">Cost Escalation: +${format_curr(diff)} (+${pct.toFixed(1)}%)</span>`;
                 } else {
-                    diff_badge = `<span style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 11px;">⚖️ Identical Spend</span>`;
+                    diff_badge = `<span style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 11px;">Identical Spend</span>`;
                 }
             }
 
@@ -124,7 +124,7 @@ frappe.ui.form.on("Vendor Invoice Claim", {
                 <div class="ap-event-benchmark-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #6366f1; border-radius: 8px; padding: 12px 16px; margin: 12px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
                         <div style="font-size: 12px; font-weight: 700; color: #1e1b4b;">
-                            🎟️ Event Stream A: <b>${ev.event_name || frm.doc.event}</b> &bull; ${ev.event_location || 'Venue N/A'}
+                            Event Stream A: <b>${ev.event_name || frm.doc.event}</b> &bull; ${ev.event_location || 'Venue N/A'}
                         </div>
                         <div>${diff_badge}</div>
                     </div>
@@ -180,18 +180,18 @@ frappe.ui.form.on("Vendor Invoice Claim", {
 
         // Quick Navigation to Linked AP Purchase Order
         if (frm.doc.purchase_order) {
-            frm.add_custom_button(__('👁️ View AP Purchase Order'), function() {
+            frm.add_custom_button(__('View AP Purchase Order'), function() {
                 frappe.set_route('Form', 'AP Purchase Order', frm.doc.purchase_order);
             }, __('Navigate'));
         }
 
-        // Action: 🚫 Flag Dispute / Rejection (Never Silent)
+        // Action:  Flag Dispute / Rejection (Never Silent)
         if (!frm.is_new() && frm.doc.docstatus !== 2) {
-            frm.add_custom_button(__('↩️ Dispute / Return Claim'), function() {
+            frm.add_custom_button(__('↩ Dispute / Return Claim'), function() {
                 open_vendor_dispute_modal(frm);
             }, __('Actions'));
 
-            frm.add_custom_button(__('📋 Audit & Error Inspector'), function() {
+            frm.add_custom_button(__('Audit & Error Inspector'), function() {
                 open_vendor_audit_inspector_modal(frm);
             }, __('Actions'));
         }
@@ -212,7 +212,7 @@ frappe.ui.form.on("Vendor Invoice Claim", {
 
         if (status === "Draft" || status === "Disputed") {
             if (!frm.is_new()) {
-                frm.add_custom_button(__('🚀 Submit for Approval'), function() {
+                frm.add_custom_button(__('Submit for Approval'), function() {
                     frappe.confirm(
                         __('Are you sure you want to submit this Vendor Invoice Claim for Manager Approval?'),
                         function() {
@@ -270,7 +270,7 @@ frappe.ui.form.on("Vendor Invoice Claim", {
             let warn_text = audit.warnings.map(w => `• <b>${w.label}:</b> ${w.msg}`).join('<br>');
             frappe.validated = false;
             frappe.confirm(
-                __(`<b>⚠️ Potential Match Discrepancy Detected</b><br><br>${warn_text}<br><br>Submitting this invoice will route it directly to <b>Disputed</b> status for Accounts Manager investigation. Do you want to continue?`),
+                __(`<b> Potential Match Discrepancy Detected</b><br><br>${warn_text}<br><br>Submitting this invoice will route it directly to <b>Disputed</b> status for Accounts Manager investigation. Do you want to continue?`),
                 function() {
                     // Confirmed by user: proceed with submission
                     frappe.validated = true;
@@ -444,12 +444,30 @@ frappe.ui.form.on("Vendor Invoice Claim", {
     },
 
     toggle_route_fields: function(frm) {
-        let is_po = frm.doc.invoice_type === "With Purchase Order";
-        frm.toggle_reqd("purchase_order", is_po);
-        frm.toggle_display("purchase_order", is_po);
-        frm.toggle_display("vendor_po_request", false);
-        frm.toggle_reqd("email_approval_attachment", !is_po);
-        frm.toggle_display("email_approval_attachment", !is_po);
+        let has_items = Boolean(frm.doc.items && frm.doc.items.length > 0);
+        if (has_items) {
+            frm.toggle_display("sb_invoice", false);
+            frm.toggle_display("sb_bank", false);
+            frm.toggle_display("cb_po_link", false);
+            frm.toggle_display("purchase_order", false);
+            frm.toggle_display("vendor_po_request", false);
+            frm.toggle_display("email_approval_attachment", false);
+            frm.toggle_reqd("purchase_order", false);
+            frm.toggle_reqd("email_approval_attachment", false);
+            frm.toggle_reqd("tax_invoice_number", false);
+            frm.toggle_reqd("tax_invoice_date", false);
+            frm.toggle_reqd("tax_invoice_attachment", false);
+        } else {
+            frm.toggle_display("sb_invoice", true);
+            frm.toggle_display("sb_bank", true);
+            frm.toggle_display("cb_po_link", true);
+            let is_po = frm.doc.invoice_type === "With Purchase Order";
+            frm.toggle_reqd("purchase_order", is_po);
+            frm.toggle_display("purchase_order", is_po);
+            frm.toggle_display("vendor_po_request", false);
+            frm.toggle_reqd("email_approval_attachment", !is_po);
+            frm.toggle_display("email_approval_attachment", !is_po);
+        }
     }
 });
 
@@ -485,7 +503,7 @@ function render_vendor_claim_approval_buttons(frm) {
         let is_designated_mgr = frm.doc.designated_approver && frappe.session.user === frm.doc.designated_approver;
         let is_mgr = frappe.user.has_role(["Admin L1 Approver", "Admin Manager", "Reporting Manager", "System Manager"]) || is_designated_mgr || is_admin;
         if ((!is_owner && is_mgr) || is_admin) {
-            frm.add_custom_button(__('✅ Approve (Manager)'), function() {
+            frm.add_custom_button(__('Approve (Manager)'), function() {
                 frappe.prompt([
                     { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Approval Remarks (Optional)') }
                 ], function(values) {
@@ -535,7 +553,7 @@ function render_vendor_claim_approval_buttons(frm) {
     else if (status === "Pending Accounts Review") {
         let is_accounts = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager', 'AP Director', 'Accounts Director']) || is_admin;
         if (is_accounts) {
-            frm.add_custom_button(__('✅ Verify & Post Tally JV'), function() {
+            frm.add_custom_button(__('Verify & Post Tally JV'), function() {
                 frappe.prompt([
                     {
                         fieldname: 'tally_reference',
@@ -605,13 +623,13 @@ function render_vendor_claim_approval_buttons(frm) {
 
         if (frm.doc.payment_release_notified) {
             if (is_maker || is_releaser) {
-                frm.add_custom_button(__('✓ Payment Release Sent (IDFC Uploaded)'), function() {
+                frm.add_custom_button(__(' Payment Release Sent (IDFC Uploaded)'), function() {
                     const notif_date = frm.doc.payment_release_notified_on ? frappe.datetime.str_to_user(frm.doc.payment_release_notified_on) : 'Recently';
                     frappe.msgprint(__('IDFC file uploaded and Payment Release notification sent on {0} by {1}.', [notif_date, frm.doc.payment_release_maker || 'Maker']));
                 }).addClass('btn-success disabled');
             }
         } else if (is_maker) {
-            frm.add_custom_button(__('📤 Payment Release'), function() {
+            frm.add_custom_button(__('Payment Release'), function() {
                 frappe.confirm(
                     __('Confirm that the IDFC Excel has been uploaded to IDFC Netbanking.<br><br>This will notify the Payment Releaser (Checker) to release funds.'),
                     function() {
@@ -633,7 +651,7 @@ function render_vendor_claim_approval_buttons(frm) {
         }
 
         if (frm.doc.payment_release_notified && is_releaser && not_same_maker) {
-            frm.add_custom_button(__('💳 Disburse & Stamp UTR'), function() {
+            frm.add_custom_button(__('Disburse & Stamp UTR'), function() {
                 frappe.prompt([
                     {
                         fieldname: 'utr_reference',
@@ -673,7 +691,7 @@ function render_vendor_claim_approval_buttons(frm) {
     const post_director_statuses = ['Approved for Payment', 'Queued in Batch', 'Paid'];
     let is_excel_authorized = frappe.user.has_role(['Accounts L1 Auditor', 'Accounts User', 'Accounts Manager', 'Accounts Director', 'Payment Releaser', 'AP Director']) || is_admin;
     if (post_director_statuses.includes(status) && is_excel_authorized) {
-        frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
+        frm.add_custom_button(__('IDFC Bank Disbursal Excel (.xlsx)'), function() {
             window.open(`/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_vendor_invoice_excel?voucher_name=${encodeURIComponent(frm.doc.name)}`, '_blank');
         }).addClass('btn-info idfc-excel-btn').css({
             'background-color': '#1e3a8a',
@@ -694,130 +712,193 @@ function render_vendor_claim_approval_buttons(frm) {
 function run_pre_submit_audit(frm) {
     let errors = [];
     let warnings = [];
+    let has_items = Boolean(frm.doc.items && frm.doc.items.length > 0);
 
-    // 1. Vendor & Master Profile
-    if (!frm.doc.vendor) {
-        errors.push({
-            fieldname: "vendor",
-            label: __("Vendor / Supplier Master"),
-            msg: __("Vendor is mandatory. Please select a valid Supplier from ERPNext Master."),
-            icon: "🏢"
+    if (has_items) {
+        // Multi-row itemized invoice audit
+        frm.doc.items.forEach((row, idx) => {
+            let num = idx + 1;
+            if (!row.vendor) {
+                errors.push({
+                    fieldname: "items",
+                    label: __(`Row #${num}: Vendor / Supplier`),
+                    msg: __(`Row #${num}: Supplier is mandatory.`),
+                    icon: ""
+                });
+            }
+            if (!row.invoice_number) {
+                errors.push({
+                    fieldname: "items",
+                    label: __(`Row #${num}: Invoice #`),
+                    msg: __(`Row #${num}: Invoice / Bill reference number is mandatory.`),
+                    icon: ""
+                });
+            }
+            if (!row.invoice_date) {
+                errors.push({
+                    fieldname: "items",
+                    label: __(`Row #${num}: Invoice Date`),
+                    msg: __(`Row #${num}: Invoice Date is mandatory.`),
+                    icon: ""
+                });
+            }
+            if (!row.receipt_attachment) {
+                errors.push({
+                    fieldname: "items",
+                    label: __(`Row #${num}: Bill Proof Attachment`),
+                    msg: __(`Row #${num}: Bill Proof / Receipt PDF or Image is mandatory.`),
+                    icon: ""
+                });
+            }
+            if (flt(row.base_amount) <= 0) {
+                errors.push({
+                    fieldname: "items",
+                    label: __(`Row #${num}: Base Taxable Amount`),
+                    msg: __(`Row #${num}: Base Taxable Amount must be strictly positive.`),
+                    icon: ""
+                });
+            }
+            if (row.po_type === "With PO" && !row.purchase_order) {
+                errors.push({
+                    fieldname: "items",
+                    label: __(`Row #${num}: Purchase Order Link`),
+                    msg: __(`Row #${num}: Purchase Order is mandatory when PO Type is 'With PO'.`),
+                    icon: ""
+                });
+            }
+            let row_total = flt(row.total_invoice_amount) || flt(row.base_amount);
+            let row_adv = flt(row.advance_deducted);
+            if (row_adv > row_total && row_total > 0) {
+                errors.push({
+                    fieldname: "items",
+                    label: __(`Row #${num}: Advance Over-Limit`),
+                    msg: __(`Row #${num}: Advance deducted (INR ${formatINR(row_adv)}) cannot exceed total bill amount (INR ${formatINR(row_total)}).`),
+                    icon: ""
+                });
+            }
         });
+
+        if (flt(frm.doc.base_amount) <= 0) {
+            errors.push({
+                fieldname: "items",
+                label: __("Total Taxable Base"),
+                msg: __("Total taxable base across itemized rows must be strictly positive."),
+                icon: ""
+            });
+        }
+    } else {
+        // Legacy single-bill audit
+        if (!frm.doc.vendor) {
+            errors.push({
+                fieldname: "vendor",
+                label: __("Vendor / Supplier Master"),
+                msg: __("Vendor is mandatory. Please select a valid Supplier from ERPNext Master."),
+                icon: ""
+            });
+        }
+
+        if (!frm.doc.bank_account_number || !frm.doc.bank_ifsc_code) {
+            errors.push({
+                fieldname: "vendor",
+                label: __("Vendor Bank Account Master"),
+                msg: __("Vendor does not have an active Bank Account in ERPNext. Submissions cannot proceed without a verified disbursement destination."),
+                icon: ""
+            });
+        }
+
+        let pd_status = (frm._bank_account_doc && frm._bank_account_doc.penny_drop_status) || frm.doc.bank_name;
+        if (pd_status === "LOCKED_PENNY_DROP_MISMATCH" || pd_status === "Pending Verification") {
+            errors.push({
+                fieldname: "bank_name",
+                label: __("Zero-Trust Penny Drop Security Shield"),
+                msg: __("Vendor bank account is hard-locked due to NPCI Penny Drop Name Mismatch. Accounts Manager clearance is strictly required before submission."),
+                icon: ""
+            });
+        }
+
+        if (frm.doc.invoice_type === "With Purchase Order" && !frm.doc.purchase_order) {
+            errors.push({
+                fieldname: "purchase_order",
+                label: __("Linked AP Purchase Order"),
+                msg: __("Linked Purchase Order is mandatory when Route is 'With Purchase Order'."),
+                icon: ""
+            });
+        }
+
+        if (frm.doc.invoice_type === "Without PO (Direct Tax Invoice)" && !frm.doc.email_approval_attachment) {
+            errors.push({
+                fieldname: "email_approval_attachment",
+                label: __("Approving Manager Email Proof"),
+                msg: __("For non-PO direct tax invoices, an approving manager's email screenshot or PDF proof is strictly mandatory."),
+                icon: ""
+            });
+        }
+
+        if (!frm.doc.tax_invoice_attachment) {
+            errors.push({
+                fieldname: "tax_invoice_attachment",
+                label: __("Vendor Tax Invoice PDF Attachment"),
+                msg: __("The original Vendor Tax Invoice PDF is strictly mandatory for GST and compliance."),
+                icon: ""
+            });
+        }
+
+        if (!frm.doc.tax_invoice_number) {
+            errors.push({
+                fieldname: "tax_invoice_number",
+                label: __("Tax Invoice Number"),
+                msg: __("Vendor's Tax Invoice # is missing."),
+                icon: ""
+            });
+        }
+
+        if (!frm.doc.tax_invoice_date) {
+            errors.push({
+                fieldname: "tax_invoice_date",
+                label: __("Tax Invoice Date"),
+                msg: __("Tax Invoice Date is missing."),
+                icon: ""
+            });
+        }
+
+        let base = flt(frm.doc.base_amount);
+        let total = flt(frm.doc.total_invoice_amount);
+        let adv = flt(frm.doc.advance_deducted);
+
+        if (base <= 0) {
+            errors.push({
+                fieldname: "base_amount",
+                label: __("Base Taxable Amount"),
+                msg: __("Base Taxable Amount must be strictly positive (greater than INR 0.00)."),
+                icon: ""
+            });
+        }
+
+        if (adv < 0) {
+            errors.push({
+                fieldname: "advance_deducted",
+                label: __("Prior Advance Deducted"),
+                msg: __("Advance deducted cannot be a negative amount."),
+                icon: ""
+            });
+        }
+
+        if (adv > total && total > 0) {
+            errors.push({
+                fieldname: "advance_deducted",
+                label: __("Advance Deducted Over-Limit"),
+                msg: __(`Prior Advance Deducted (INR ${formatINR(adv)}) cannot exceed Total Invoice Amount (INR ${formatINR(total)}).`),
+                icon: ""
+            });
+        }
     }
 
-    // 2. Banking Details & NPCI Lockout
-    if (!frm.doc.bank_account_number || !frm.doc.bank_ifsc_code) {
-        errors.push({
-            fieldname: "vendor",
-            label: __("Vendor Bank Account Master"),
-            msg: __("Vendor does not have an active Bank Account in ERPNext. Submissions cannot proceed without a verified disbursement destination."),
-            icon: "🏦"
-        });
-    }
-
-    let pd_status = (frm._bank_account_doc && frm._bank_account_doc.penny_drop_status) || frm.doc.bank_name;
-    if (pd_status === "LOCKED_PENNY_DROP_MISMATCH" || pd_status === "Pending Verification") {
-        errors.push({
-            fieldname: "bank_name",
-            label: __("Zero-Trust Penny Drop Security Shield"),
-            msg: __("Vendor bank account is hard-locked due to NPCI Penny Drop Name Mismatch. Accounts Manager clearance is strictly required before submission."),
-            icon: "🛡️"
-        });
-    }
-
-    // 3. Intake Route Proof Attachments
-    if (frm.doc.invoice_type === "With Purchase Order" && !frm.doc.purchase_order) {
-        errors.push({
-            fieldname: "purchase_order",
-            label: __("Linked AP Purchase Order"),
-            msg: __("Linked Purchase Order is mandatory when Route is 'With Purchase Order'."),
-            icon: "📦"
-        });
-    }
-
-    if (frm.doc.invoice_type === "Without PO (Direct Tax Invoice)" && !frm.doc.email_approval_attachment) {
-        errors.push({
-            fieldname: "email_approval_attachment",
-            label: __("Approving Manager Email Proof"),
-            msg: __("For non-PO direct tax invoices, an approving manager's email screenshot or PDF proof is strictly mandatory (PRD Section 6)."),
-            icon: "📧"
-        });
-    }
-
-    if (!frm.doc.tax_invoice_attachment) {
-        errors.push({
-            fieldname: "tax_invoice_attachment",
-            label: __("Vendor Tax Invoice PDF Attachment"),
-            msg: __("The original Vendor Tax Invoice PDF is strictly mandatory for GST & forensic compliance."),
-            icon: "📄"
-        });
-    }
-
-    // 4. Statutory Invoice Metadata
-    if (!frm.doc.tax_invoice_number) {
-        errors.push({
-            fieldname: "tax_invoice_number",
-            label: __("Tax Invoice Number"),
-            msg: __("Vendor's Tax Invoice # is missing."),
-            icon: "🔢"
-        });
-    }
-
-    if (!frm.doc.tax_invoice_date) {
-        errors.push({
-            fieldname: "tax_invoice_date",
-            label: __("Tax Invoice Date"),
-            msg: __("Tax Invoice Date is missing."),
-            icon: "📅"
-        });
-    }
-
-    // 5. Financial Validation
-    let base = flt(frm.doc.base_amount);
-    let total = flt(frm.doc.total_invoice_amount);
-    let adv = flt(frm.doc.advance_deducted);
-
-    if (base <= 0) {
-        errors.push({
-            fieldname: "base_amount",
-            label: __("Base Taxable Amount"),
-            msg: __("Base Taxable Amount must be strictly positive (greater than INR 0.00)."),
-            icon: "💰"
-        });
-    }
-
-    if (adv < 0) {
-        errors.push({
-            fieldname: "advance_deducted",
-            label: __("Prior Advance Deducted"),
-            msg: __("Advance deducted cannot be a negative amount."),
-            icon: "⚠️"
-        });
-    }
-
-    if (adv > total && total > 0) {
-        errors.push({
-            fieldname: "advance_deducted",
-            label: __("Advance Deducted Over-Limit"),
-            msg: __(`Prior Advance Deducted (INR ${formatINR(adv)}) cannot exceed Total Invoice Amount (INR ${formatINR(total)}).`),
-            icon: "🚨"
-        });
-    }
-
-    // 6. 3-Way Match Variance Warning
     if (frm.doc.match_status && frm.doc.match_status.includes("Mismatch Flagged")) {
         warnings.push({
             fieldname: "match_status",
             label: __("3-Way Match Discrepancy"),
             msg: `${frm.doc.match_status}: ${frm.doc.match_variance_details || 'Price or quantity variance exceeds policy tolerance.'}`,
-            icon: "🔴"
-        });
-    } else if (frm.doc.match_status === "Missing GRN Flagged") {
-        warnings.push({
-            fieldname: "match_status",
-            label: __("Goods Receipt (GRN) Missing"),
-            msg: __("No linked Purchase Receipt (GRN) found. Claim will require special physical proof audit."),
-            icon: "🟠"
+            icon: ""
         });
     }
 
@@ -843,7 +924,7 @@ function show_submission_blocker_dialog(frm, audit) {
                 </div>
             </div>
             <button class="btn btn-xs btn-default ap-btn-jump-field" data-field="${err.fieldname}" style="white-space: nowrap; margin-top: 2px;">
-                ${__('Jump to Field 👉')}
+                ${__('Jump to Field')}
             </button>
         </div>
     `).join('');
@@ -866,7 +947,7 @@ function show_submission_blocker_dialog(frm, audit) {
     }
 
     let d = new frappe.ui.Dialog({
-        title: __(`🚫 Cannot Submit Claim (${audit.errors.length} Mandatory Item${audit.errors.length > 1 ? 's' : ''} Missing)`),
+        title: __(` Cannot Submit Claim (${audit.errors.length} Mandatory Item${audit.errors.length > 1 ? 's' : ''} Missing)`),
         fields: [
             {
                 fieldtype: "HTML",
@@ -875,7 +956,7 @@ function show_submission_blocker_dialog(frm, audit) {
                     <div style="padding: 4px 0;">
                         <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px; margin-bottom: 14px;">
                             <div style="font-weight: 700; color: #b91c1c; font-size: 14px; display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 18px;">⚠️</span>
+                                <span style="font-size: 18px;"></span>
                                 <span>Zero-Silent Submission Protection Activated</span>
                             </div>
                             <div style="color: #7f1d1d; font-size: 12px; margin-top: 4px;">
@@ -890,7 +971,7 @@ function show_submission_blocker_dialog(frm, audit) {
                 `
             }
         ],
-        primary_action_label: __('Fix First Issue 🎯'),
+        primary_action_label: __('Fix First Issue'),
         primary_action() {
             d.hide();
             if (audit.errors.length > 0) {
@@ -912,7 +993,7 @@ function show_submission_blocker_dialog(frm, audit) {
     d.show();
 
     frappe.show_alert({
-        message: __(`🚫 Submission blocked: ${audit.errors.length} mandatory item(s) missing`),
+        message: __(` Submission blocked: ${audit.errors.length} mandatory item(s) missing`),
         indicator: 'red'
     }, 7);
 }
@@ -936,7 +1017,7 @@ function jump_to_and_highlight_field(frm, fieldname) {
 // --------------------------------------------------------------------------------------
 function open_vendor_dispute_modal(frm) {
     let d = new frappe.ui.Dialog({
-        title: __('🚫 Flag Claim as Disputed / Rejected'),
+        title: __(' Flag Claim as Disputed / Rejected'),
         fields: [
             {
                 fieldname: 'reason_code',
@@ -1044,7 +1125,7 @@ function open_vendor_audit_inspector_modal(frm) {
                     <td style="padding: 8px 10px; font-weight: 600; color: #334155; font-size: 12px;">${item.title}</td>
                     <td style="padding: 8px 10px; text-align: center;">
                         <span style="display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: ${item.ok ? '#dcfce7' : '#fee2e2'}; color: ${item.ok ? '#15803d' : '#b91c1c'};">
-                            ${item.ok ? '✓ PASS' : '✗ ACTION'}
+                            ${item.ok ? ' PASS' : ' ACTION'}
                         </span>
                     </td>
                     <td style="padding: 8px 10px; font-size: 12px; color: #64748b;">${item.detail}</td>
@@ -1052,7 +1133,7 @@ function open_vendor_audit_inspector_modal(frm) {
             `).join('');
 
             let d = new frappe.ui.Dialog({
-                title: __('📋 Forensic Pre-Flight Audit & Error Logs'),
+                title: __(' Forensic Pre-Flight Audit & Error Logs'),
                 fields: [
                     {
                         fieldtype: 'HTML',
@@ -1100,6 +1181,52 @@ function open_vendor_audit_inspector_modal(frm) {
 function get_vendor_claim_attachments(frm) {
     let attachments = [];
 
+    if (frm.doc.items && frm.doc.items.length > 0) {
+        frm.doc.items.forEach((row, idx) => {
+            let num = idx + 1;
+            let v_label = row.vendor_name || row.vendor || `Row ${num}`;
+            if (row.receipt_attachment) {
+                let url = row.receipt_attachment;
+                let fname = url.split('/').pop().split('?')[0];
+                let ext = fname.split('.').pop().toLowerCase();
+                attachments.push({
+                    category: `Bill Proof #${row.invoice_number || num} (${v_label})`,
+                    file_url: url,
+                    file_name: fname,
+                    extension: ext,
+                    amount: flt(row.total_invoice_amount) || flt(row.base_amount),
+                    date: row.invoice_date || frm.doc.posting_date
+                });
+            }
+            if (row.po_attachment) {
+                let url = row.po_attachment;
+                let fname = url.split('/').pop().split('?')[0];
+                let ext = fname.split('.').pop().toLowerCase();
+                attachments.push({
+                    category: `PO Proof (${row.purchase_order || v_label})`,
+                    file_url: url,
+                    file_name: fname,
+                    extension: ext,
+                    amount: 0.0,
+                    date: row.invoice_date || frm.doc.posting_date
+                });
+            }
+            if (row.bank_proof_attachment) {
+                let url = row.bank_proof_attachment;
+                let fname = url.split('/').pop().split('?')[0];
+                let ext = fname.split('.').pop().toLowerCase();
+                attachments.push({
+                    category: `Bank Cheque (${v_label})`,
+                    file_url: url,
+                    file_name: fname,
+                    extension: ext,
+                    amount: 0.0,
+                    date: row.invoice_date || frm.doc.posting_date
+                });
+            }
+        });
+    }
+
     if (frm.doc.tax_invoice_attachment) {
         let url = frm.doc.tax_invoice_attachment;
         let fname = url.split('/').pop().split('?')[0];
@@ -1109,7 +1236,6 @@ function get_vendor_claim_attachments(frm) {
             file_url: url,
             file_name: fname,
             extension: ext,
-            icon: ext === 'pdf' ? '📄' : '🖼️',
             amount: frm.doc.total_invoice_amount || 0.0,
             date: frm.doc.tax_invoice_date || frm.doc.creation
         });
@@ -1124,7 +1250,6 @@ function get_vendor_claim_attachments(frm) {
             file_url: url,
             file_name: fname,
             extension: ext,
-            icon: ext === 'pdf' ? '📧' : '🖼️',
             amount: frm.doc.base_amount || 0.0,
             date: frm.doc.creation
         });
@@ -1139,7 +1264,6 @@ function get_vendor_claim_attachments(frm) {
             file_url: url,
             file_name: fname,
             extension: ext,
-            icon: ext === 'pdf' ? '🏦' : '🖼️',
             amount: 0.0,
             date: frm.doc.creation
         });
@@ -1156,7 +1280,7 @@ function setup_vendor_receipt_gallery_button(frm) {
         attachments = get_vendor_claim_attachments(frm);
     }
     if (attachments.length > 0) {
-        frm.add_custom_button(__(`📁 Receipt Gallery (${attachments.length})`), function () {
+        frm.add_custom_button(__(`Receipt Gallery (${attachments.length})`), function () {
             open_vendor_receipt_gallery(frm, 0);
         }, __('Audit Proofs'));
     }
@@ -1267,7 +1391,7 @@ function open_vendor_receipt_gallery(frm, start_idx) {
         } else {
             preview_body.html(`
                 <div style="color: #94a3b8; text-align: center;">
-                    <div style="font-size: 48px; margin-bottom: 12px;">📁</div>
+                    <div style="font-size: 48px; margin-bottom: 12px;"></div>
                     <div style="font-size: 14px; font-weight: 600;">Preview Not Supported</div>
                     <div style="font-size: 12px; margin-top: 4px;">File format: .${att.extension}</div>
                     <a href="${att.file_url}" target="_blank" class="btn btn-sm btn-primary" style="margin-top: 14px;">Open / Download File</a>
@@ -1326,8 +1450,8 @@ function render_vendor_invoice_dashboard(frm) {
         audit_banner_html = `
             <div style="background: #fef2f2; border: 1px solid #f87171; border-left: 5px solid #dc2626; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <strong style="color: #991b1b; font-size: 13px;">🚫 Claim in Disputed / Flagged Status</strong>
-                    <button class="btn btn-xs btn-outline-danger ap-btn-banner-audit-logs" style="font-size: 11px;">📋 View Dispute & Audit History</button>
+                    <strong style="color: #991b1b; font-size: 13px;"> Claim in Disputed / Flagged Status</strong>
+                    <button class="btn btn-xs btn-outline-danger ap-btn-banner-audit-logs" style="font-size: 11px;"> View Dispute & Audit History</button>
                 </div>
                 <div style="color: #7f1d1d; font-size: 12px; margin-top: 4px; line-height: 1.4;">
                     ${frm.doc.match_variance_details || '3-Way match price variance or auditor discrepancy flagged.'}
@@ -1343,8 +1467,8 @@ function render_vendor_invoice_dashboard(frm) {
         audit_banner_html = `
             <div style="background: #fffbeb; border: 1px solid #fde68a; border-left: 5px solid #d97706; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <strong style="color: #92400e; font-size: 13px;">⚠️ Pre-Submission Checklist: ${audit.errors.length} Action Item(s) Pending</strong>
-                    <button class="btn btn-xs btn-warning ap-btn-banner-checklist" style="color: #78350f; font-weight: 700; font-size: 11px;">Resolve Checklist 🎯</button>
+                    <strong style="color: #92400e; font-size: 13px;"> Pre-Submission Checklist: ${audit.errors.length} Action Item(s) Pending</strong>
+                    <button class="btn btn-xs btn-warning ap-btn-banner-checklist" style="color: #78350f; font-weight: 700; font-size: 11px;">Resolve Checklist</button>
                 </div>
                 <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">
                     ${chips}
@@ -1355,7 +1479,7 @@ function render_vendor_invoice_dashboard(frm) {
         audit_banner_html = `
             <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-left: 5px solid #16a34a; border-radius: 8px; padding: 8px 14px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
                 <span style="color: #166534; font-size: 12px; font-weight: 600;">
-                    ✅ Pre-Submission Audit Cleared: All mandatory proofs, banking master, and financial totals verified.
+                     Pre-Submission Audit Cleared: All mandatory proofs, banking master, and financial totals verified.
                 </span>
                 <span style="font-size: 11px; background: #dcfce7; color: #15803d; font-weight: 700; padding: 2px 8px; border-radius: 999px;">Ready to Submit</span>
             </div>
@@ -1408,7 +1532,7 @@ function render_vendor_invoice_dashboard(frm) {
 
         return `
             <div style="flex: 1; text-align: center; padding: 8px 4px; background: ${bg}; color: ${color}; border: 1px solid ${border}; border-radius: 6px; font-size: 11px; font-weight: ${is_current ? '700' : '600'};">
-                ${is_completed ? '✓ ' : ''}${is_disputed ? '⚠️ ' : ''}${st.label}
+                ${is_completed ? ' ' : ''}${is_disputed ? ' ' : ''}${st.label}
             </div>
         `;
     }).join('');
@@ -1420,14 +1544,14 @@ function render_vendor_invoice_dashboard(frm) {
     if (pd_status === "LOCKED_PENNY_DROP_MISMATCH") {
         bank_shield_html = `
             <div style="display: inline-flex; align-items: center; gap: 8px; background: #fee2e2; border: 1px solid #ef4444; border-radius: 6px; padding: 4px 10px; color: #b91c1c; font-size: 12px; font-weight: 700;">
-                <span>🛡️ NPCI Penny Drop Lockout</span>
+                <span> NPCI Penny Drop Lockout</span>
                 <button class="btn btn-xs btn-danger ap-btn-unlock-bank" data-ba="${frm.doc.bank_account_number}" style="padding: 2px 8px; font-size: 11px;">Clear Override</button>
             </div>
         `;
     } else {
         bank_shield_html = `
             <div style="display: inline-flex; align-items: center; gap: 6px; background: #ecfdf5; border: 1px solid #10b981; border-radius: 6px; padding: 4px 10px; color: #047857; font-size: 12px; font-weight: 600;">
-                <span>🛡️ Bank Verified (NPCI Score: 100)</span>
+                <span> Bank Verified (NPCI Score: 100)</span>
             </div>
         `;
     }
@@ -1437,15 +1561,15 @@ function render_vendor_invoice_dashboard(frm) {
     if (bank_proof_url) {
         bank_proof_html = `
             <div style="display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; border: 1.5px solid #93c5fd; border-radius: 6px; padding: 4px 10px; color: #1e40af; font-size: 12px; font-weight: 700;">
-                <span>🏦 Cheque / Bank Proof:</span>
+                <span> Cheque / Bank Proof:</span>
                 <a href="${bank_proof_url}" target="_blank" style="color: #2563eb; text-decoration: underline; font-weight: 800;">View ↗</a>
-                <button type="button" class="btn btn-xs btn-primary ap-btn-view-bank-proof" data-url="${bank_proof_url}" style="padding: 1px 7px; font-size: 11px; margin-left: 4px; background: #3b82f6; border-color: #2563eb;">🔍 Preview</button>
+                <button type="button" class="btn btn-xs btn-primary ap-btn-view-bank-proof" data-url="${bank_proof_url}" style="padding: 1px 7px; font-size: 11px; margin-left: 4px; background: #3b82f6; border-color: #2563eb;"> Preview</button>
             </div>
         `;
     } else {
         bank_proof_html = `
             <div style="display: inline-flex; align-items: center; gap: 6px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 4px 10px; color: #92400e; font-size: 12px; font-weight: 600;">
-                <span>⚠️ No Cheque Uploaded on Bank Master</span>
+                <span> No Cheque Uploaded on Bank Master</span>
             </div>
         `;
     }
@@ -1520,7 +1644,7 @@ function render_vendor_invoice_dashboard(frm) {
                     <div style="font-size: 14px; font-weight: 700; color: #dc2626; margin-top: 2px;">- ${formatINR(tds)}</div>
                 </div>
                 <div style="background: linear-gradient(135deg, #059669 0%, #047857 100%); color: white; padding: 8px 12px; border-radius: 6px; box-shadow: 0 2px 6px rgba(5,150,105,0.25);">
-                    <div style="font-size: 10px; color: #d1fae5; text-transform: uppercase; font-weight: 700;">👉 Net Disbursal</div>
+                    <div style="font-size: 10px; color: #d1fae5; text-transform: uppercase; font-weight: 700;"> Net Disbursal</div>
                     <div style="font-size: 16px; font-weight: 800; color: #ffffff; margin-top: 2px;">${formatINR(net)}</div>
                 </div>
             </div>
@@ -1592,7 +1716,7 @@ function render_vendor_invoice_dashboard(frm) {
             : `<div style="text-align: center; padding: 10px; background: #0f172a; border-radius: 8px;"><img src="${proof_url}" style="max-width: 100%; max-height: 550px; border-radius: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);" /></div>`;
         
         let d = new frappe.ui.Dialog({
-            title: __('🏦 Vendor Bank Account Proof (Cancelled Cheque / Passbook)'),
+            title: __(' Vendor Bank Account Proof (Cancelled Cheque / Passbook)'),
             size: 'large',
             fields: [{ fieldtype: 'HTML', fieldname: 'cheque_preview', options: preview_body }]
         });

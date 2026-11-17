@@ -91,7 +91,7 @@ def validate_supplier_deduplication(doc, method=None):
         if duplicate and len(duplicate) > 0:
             dup_vendor = duplicate[0]
             error_msg = (
-                f"🚫 <b>Duplicate Vendor Creation Blocked!</b><br><br>"
+                f"<b>Duplicate Vendor Creation Blocked!</b><br><br>"
                 f"A vendor with matching <b>PAN / GSTIN ({raw_tax_id})</b> already exists in ERPNext Master:<br>"
                 f"• <b>Existing Vendor ID:</b> {dup_vendor.name}<br>"
                 f"• <b>Existing Vendor Name:</b> {dup_vendor.supplier_name}<br>"
@@ -131,7 +131,7 @@ def validate_supplier_deduplication(doc, method=None):
                 pct = int(similarity * 100)
                 frappe.msgprint(
                     msg=(
-                        f"⚠️ <b>Potential Duplicate Vendor Warning ({pct}% Name Similarity):</b><br>"
+                        f"<b>Potential Duplicate Vendor Warning ({pct}% Name Similarity):</b><br>"
                         f"The new vendor name '<b>{supplier_name}</b>' closely matches an existing active vendor: "
                         f"<b>{existing_name}</b> (ID: <code>{existing.name}</code>).<br>"
                         f"Please verify this is not an unintentional duplicate before proceeding."
