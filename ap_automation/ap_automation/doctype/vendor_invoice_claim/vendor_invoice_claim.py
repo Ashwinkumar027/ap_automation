@@ -327,7 +327,11 @@ class VendorInvoiceClaim(APDocument):
 
         advance = float(getattr(self, "advance_deducted", 0.0) or 0.0)
         retention = float(getattr(self, "retention_hold_amount", 0.0) or 0.0)
-        gst_withheld = float(getattr(self, "gst_withheld_amount", 0.0) or 0.0)
+        if getattr(self, "gst_released_separately", 0):
+            self.gst_withheld_amount = gst
+            gst_withheld = gst
+        else:
+            gst_withheld = float(getattr(self, "gst_withheld_amount", 0.0) or 0.0)
 
         if advance < 0:
             log_and_throw("Advance Deducted cannot be negative.", title="Negative Advance Amount", doc=self)

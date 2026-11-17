@@ -285,25 +285,25 @@ function render_custom_po_actions(frm) {
     if (frm.is_new()) return;
 
     // 1. Download PO PDF Button (Universal)
-    frm.add_custom_button(__('📄 Download PO (PDF)'), function() {
+    frm.add_custom_button(__('Download PO (PDF)'), function() {
         const url = `/api/method/ap_automation.services.po_pdf_service.download_purchase_order_pdf?po_name=${encodeURIComponent(frm.doc.name)}`;
         window.open(url, '_blank');
     }).addClass('btn-secondary');
 
-    // 2. Draft Status: Submitter Action -> Submit for HoD Approval
+    // 2. Draft Status: Submit for Dynamic Approval Workflow
     if (frm.doc.status === 'Draft' || !frm.doc.status) {
-        frm.add_custom_button(__('🚀 Submit for HoD Approval'), function() {
+        frm.add_custom_button(__('Submit for Approval'), function() {
             frappe.confirm(
-                `Are you sure you want to submit Purchase Order <strong>#${frm.doc.name}</strong> for HoD / Director Approval?`,
+                `Are you sure you want to submit Purchase Order <strong>#${frm.doc.name}</strong> for approval?`,
                 function() {
                     frappe.call({
-                        method: 'ap_automation.ap_automation.doctype.ap_purchase_order.ap_purchase_order.submit_for_hod_approval',
-                        args: { po_name: frm.doc.name },
+                        method: 'submit_po',
+                        doc: frm.doc,
                         freeze: true,
-                        freeze_message: __('Submitting PO for HoD Review...'),
+                        freeze_message: __('Submitting PO for Approval...'),
                         callback: function(r) {
-                            if (r.message && r.message.status === 'success') {
-                                frappe.show_alert({ message: __('🚀 ' + r.message.message), indicator: 'green' });
+                            if (!r.exc) {
+                                frappe.show_alert({ message: __('Purchase Order submitted successfully.'), indicator: 'green' });
                                 frm.reload_doc();
                             }
                         }
@@ -318,7 +318,93 @@ function render_custom_po_actions(frm) {
         });
     }
 
-    // 3. Pending HoD Approval Status: HoD / Director / Signatory Review
+    // 3. Stage 1: Pending Assistant Manager Review (Admin Dept)
+    if (frm.doc.status === 'Pending Assistant Manager Review') {
+        frm.add_custom_button(__('Recommend and Forward to Manager'), function() {
+            frappe.prompt([
+                { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Review Remarks'), reqd: 1 }
+            ], function(values) {
+                frappe.call({
+                    method: 'review_by_assistant_manager',
+                    doc: frm.doc,
+                    args: { remarks: values.remarks },
+                    freeze: true,
+                    freeze_message: __('Forwarding PO to Manager...'),
+                    callback: function(r) {
+                        if (!r.exc) {
+                            frappe.show_alert({ message: __('Purchase Order reviewed and forwarded to Manager.'), indicator: 'green' });
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }, __('Assistant Manager Review'), __('Forward to Manager'));
+        }).addClass('btn-primary');
+
+        frm.add_custom_button(__('Return to Requester'), function() {
+            frappe.prompt([
+                { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Return Reason / Discrepancy Remarks'), reqd: 1 }
+            ], function(values) {
+                frappe.call({
+                    method: 'return_po',
+                    doc: frm.doc,
+                    args: { remarks: values.remarks },
+                    freeze: true,
+                    freeze_message: __('Returning PO to Draft...'),
+                    callback: function(r) {
+                        if (!r.exc) {
+                            frappe.show_alert({ message: __('Purchase Order returned to Draft.'), indicator: 'orange' });
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }, __('Return Purchase Order'), __('Return to Draft'));
+        }).addClass('btn-danger');
+    }
+
+    // 4. Stage 2: Pending Manager Review (Admin Manager or Department Manager)
+    if (frm.doc.status === 'Pending Manager Review' || frm.doc.status === 'Pending Admin Manager Review') {
+        frm.add_custom_button(__('Approve and Forward to Director'), function() {
+            frappe.prompt([
+                { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Manager Review Remarks'), reqd: 1 }
+            ], function(values) {
+                frappe.call({
+                    method: 'review_by_manager',
+                    doc: frm.doc,
+                    args: { remarks: values.remarks },
+                    freeze: true,
+                    freeze_message: __('Forwarding PO to Director...'),
+                    callback: function(r) {
+                        if (!r.exc) {
+                            frappe.show_alert({ message: __('Purchase Order approved and forwarded to Director.'), indicator: 'green' });
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }, __('Manager Approval Review'), __('Forward to Director'));
+        }).addClass('btn-primary');
+
+        frm.add_custom_button(__('Return PO'), function() {
+            frappe.prompt([
+                { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Return Reason / Discrepancy Remarks'), reqd: 1 }
+            ], function(values) {
+                frappe.call({
+                    method: 'return_po',
+                    doc: frm.doc,
+                    args: { remarks: values.remarks },
+                    freeze: true,
+                    freeze_message: __('Returning PO...'),
+                    callback: function(r) {
+                        if (!r.exc) {
+                            frappe.show_alert({ message: __('Purchase Order returned.'), indicator: 'orange' });
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }, __('Return Purchase Order'), __('Return PO'));
+        }).addClass('btn-danger');
+    }
+
+    // 5. Stage 3: Pending HoD / Director Approval
     if (frm.doc.status === 'Pending HoD Approval') {
         let current_user = frappe.session.user;
         let is_signatory = (frm.doc.authorised_signatory && frm.doc.authorised_signatory === current_user);
@@ -327,10 +413,10 @@ function render_custom_po_actions(frm) {
 
         if (is_signatory || is_admin || is_director) {
             // Approve & Sign Button
-            frm.add_custom_button(__('✔ Approve & Sign PO'), function() {
+            frm.add_custom_button(__('Approve and Sign PO'), function() {
                 let current_sig = frm.doc.signatory_name || 'Director';
                 frappe.confirm(
-                    `Are you sure you want to <strong>Approve & Digitally Sign</strong> Purchase Order <strong>#${frm.doc.name}</strong> as <strong>${current_sig}</strong>?<br><small style="color: #64748b;">This will apply your digital SHA-256 seal and automatically dispatch the E-Sign link to the vendor.</small>`,
+                    `Are you sure you want to approve and digitally sign Purchase Order <strong>#${frm.doc.name}</strong> as <strong>${current_sig}</strong>?<br><small style="color: #64748b;">This will apply your digital SHA-256 seal and automatically dispatch the E-Sign link to the vendor.</small>`,
                     function() {
                         frappe.call({
                             method: 'ap_automation.services.po_pdf_service.approve_and_digitally_sign_po',
@@ -339,11 +425,11 @@ function render_custom_po_actions(frm) {
                                 signatory_name: frm.doc.signatory_name
                             },
                             freeze: true,
-                            freeze_message: __('Certifying Digital Signature & Dispatching to Vendor...'),
+                            freeze_message: __('Certifying Digital Signature and Dispatching to Vendor...'),
                             callback: function(r) {
                                 if (r.message && r.message.status === 'success') {
                                     frappe.show_alert({
-                                        message: __('🎉 PO Approved & Certified by ' + r.message.signatory_name + '. Dispatched to vendor.'),
+                                        message: __('Purchase Order approved and certified by ' + r.message.signatory_name + '. Dispatched to vendor.'),
                                         indicator: 'green'
                                     }, 6);
                                     frm.reload_doc();
@@ -359,22 +445,25 @@ function render_custom_po_actions(frm) {
                 'font-weight': '700'
             });
 
-            // Return to Draft Button
-            frm.add_custom_button(__('❌ Return to Draft'), function() {
+            // Return Button
+            frm.add_custom_button(__('Return to Reviewer'), function() {
                 frappe.prompt([
                     { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Return Reason / Discrepancy Remarks'), reqd: 1 }
                 ], function(values) {
                     frappe.call({
-                        method: 'ap_automation.ap_automation.doctype.ap_purchase_order.ap_purchase_order.reject_by_hod',
-                        args: { po_name: frm.doc.name, remarks: values.remarks },
+                        method: 'return_po',
+                        doc: frm.doc,
+                        args: { remarks: values.remarks },
                         freeze: true,
-                        freeze_message: __('Returning PO to Draft...'),
+                        freeze_message: __('Returning PO...'),
                         callback: function(r) {
-                            frappe.show_alert({ message: __('❌ PO Returned to Draft'), indicator: 'orange' });
-                            frm.reload_doc();
+                            if (!r.exc) {
+                                frappe.show_alert({ message: __('Purchase Order returned.'), indicator: 'orange' });
+                                frm.reload_doc();
+                            }
                         }
                     });
-                }, __('Reject & Return PO'), __('Return to Draft'));
+                }, __('Return Purchase Order'), __('Return'));
             }).addClass('btn-danger').css({
                 'background-color': '#dc2626',
                 'border-color': '#b91c1c',
@@ -384,28 +473,77 @@ function render_custom_po_actions(frm) {
         }
     }
 
-    // 4. Awaiting Vendor E-Signature Status
+    // 6. Active PO Actions: Revise PO
+    if (frm.doc.status === 'Active PO') {
+        frm.add_custom_button(__('Revise Purchase Order'), function() {
+            frappe.prompt([
+                { fieldname: 'reason', fieldtype: 'Small Text', label: __('Revision Reason / Scope Expansion Details'), reqd: 1 }
+            ], function(values) {
+                frappe.call({
+                    method: 'revise_po',
+                    doc: frm.doc,
+                    args: { reason: values.reason },
+                    freeze: true,
+                    freeze_message: __('Creating Revision Version...'),
+                    callback: function(r) {
+                        if (r.message && r.message.new_po_name) {
+                            frappe.show_alert({
+                                message: __('Purchase Order revised. Opening revision #' + r.message.new_po_name),
+                                indicator: 'green'
+                            });
+                            frappe.set_route('Form', 'AP Purchase Order', r.message.new_po_name);
+                        }
+                    }
+                });
+            }, __('Revise Purchase Order'), __('Create Revision'));
+        }, __('Actions'));
+    }
+
+    // 7. Cancellation Action (Allowed on Draft, Review Stages, or Active PO)
+    if (!['Cancelled', 'Superseded / Revised'].includes(frm.doc.status)) {
+        frm.add_custom_button(__('Cancel Purchase Order'), function() {
+            frappe.prompt([
+                { fieldname: 'reason', fieldtype: 'Small Text', label: __('Cancellation Remarks / Reason'), reqd: 1 }
+            ], function(values) {
+                frappe.call({
+                    method: 'cancel_po',
+                    doc: frm.doc,
+                    args: { reason: values.reason },
+                    freeze: true,
+                    freeze_message: __('Cancelling Purchase Order...'),
+                    callback: function(r) {
+                        if (!r.exc) {
+                            frappe.show_alert({ message: __('Purchase Order cancelled.'), indicator: 'red' });
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            }, __('Cancel Purchase Order'), __('Confirm Cancellation'));
+        }, __('Actions'));
+    }
+
+    // 8. Awaiting Vendor E-Signature Status
     if (frm.doc.status === 'Awaiting Vendor E-Signature') {
-        frm.add_custom_button(__('✉️ Resend E-Sign Link'), function() {
+        frm.add_custom_button(__('Resend E-Sign Link'), function() {
             frappe.call({
                 method: 'send_po_to_vendor_for_esign',
                 doc: frm.doc,
                 freeze: true,
                 freeze_message: __('Resending E-Sign Link to Vendor...'),
                 callback: function() {
-                    frappe.show_alert({ message: __('✉️ E-Sign link resent to ' + frm.doc.vendor_email), indicator: 'green' });
+                    frappe.show_alert({ message: __('E-Sign link resent to ' + frm.doc.vendor_email), indicator: 'green' });
                 }
             });
         }, __('Actions'));
     }
 
-    // Actions menu for link sharing
+    // 9. Actions menu for link sharing
     if (frm.doc.vendor_sign_url) {
-        frm.add_custom_button(__('📋 Copy E-Sign Link'), function() {
+        frm.add_custom_button(__('Copy E-Sign Link'), function() {
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(frm.doc.vendor_sign_url).then(() => {
                     frappe.show_alert({
-                        message: __('📋 Vendor E-Sign Portal URL copied to clipboard!'),
+                        message: __('Vendor E-Sign Portal URL copied to clipboard.'),
                         indicator: 'green'
                     }, 5);
                 });
@@ -416,7 +554,7 @@ function render_custom_po_actions(frm) {
             }
         }, __('Actions'));
 
-        frm.add_custom_button(__('↗️ Open Signing Portal'), function() {
+        frm.add_custom_button(__('Open Signing Portal'), function() {
             window.open(frm.doc.vendor_sign_url, '_blank');
         }, __('Actions'));
     }
@@ -428,7 +566,7 @@ if (frappe.realtime) {
     frappe.realtime.on('po_vendor_signed', function(data) {
         if (cur_frm && cur_frm.doc && cur_frm.doc.name === data.po_name) {
             frappe.show_alert({
-                message: __('🎉 ' + (data.text || 'PO digitally signed by vendor! It is now ACTIVE.')),
+                message: __(data.text || 'Purchase Order digitally signed by vendor. It is now active.'),
                 indicator: 'green'
             }, 10);
             cur_frm.reload_doc();

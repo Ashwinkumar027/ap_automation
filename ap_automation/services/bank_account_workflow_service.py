@@ -228,3 +228,4 @@ def reject_bank_account(bank_account_name: str, reason: str) -> Dict[str, Any]:
         "message": f"Bank Account #{ba.name} marked as Rejected.",
         "approval_status": ba.approval_status
     }
+

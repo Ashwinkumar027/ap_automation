@@ -5,3 +5,4 @@ from frappe.model.document import Document
 
 class VendorMilestonePaymentItem(Document):
     pass
+
