@@ -83,18 +83,23 @@ class VendorInvoiceClaim(APDocument):
         if po_val and frappe.db.exists("AP Purchase Order", po_val):
             self.flags.ignore_links = True
 
-        self.bind_and_lock_vendor_profile()
-        self.validate_intake_route_and_proofs()
-        self.calculate_financial_totals()
+        has_items = bool(getattr(self, "items", None) and len(self.items) > 0)
+        if has_items:
+            self.validate_and_lock_vendor_lines()
+            self.calculate_financial_totals()
+        else:
+            self.bind_and_lock_vendor_profile()
+            self.validate_intake_route_and_proofs()
+            self.calculate_financial_totals()
 
-        # Execute 3-Way Matching Engine
-        execute_3way_matching(self)
+            # Execute 3-Way Matching Engine
+            execute_3way_matching(self)
 
-        # Apply Statutory Indian TDS
-        apply_tds_to_invoice(self)
+            # Apply Statutory Indian TDS
+            apply_tds_to_invoice(self)
 
-        # Re-verify and finalize all financial totals and deductions
-        self.calculate_financial_totals()
+            # Re-verify and finalize all financial totals and deductions
+            self.calculate_financial_totals()
 
         # Map payee and invoice fields for APDocument base spend hash and banking dispatch
         self.payee_name = getattr(self, "vendor_name", "") or getattr(self, "vendor", "")
@@ -130,21 +135,253 @@ class VendorInvoiceClaim(APDocument):
                 title="Approval Stages Pending",
                 doc=self
             )
-        self.bind_and_lock_vendor_profile()
-        self.validate_intake_route_and_proofs()
+        if getattr(self, "items", None) and len(self.items) > 0:
+            self.validate_and_lock_vendor_lines()
+        else:
+            self.bind_and_lock_vendor_profile()
+            self.validate_intake_route_and_proofs()
         self.calculate_financial_totals()
 
     def on_submit(self):
         """Registers spend fingerprint lock and syncs linked Event Master budget ledger."""
         super().on_submit()
+        if getattr(self, "items", None) and len(self.items) > 0:
+            for row in self.items:
+                row_amt = flt(row.total_invoice_amount) or flt(row.base_amount)
+                if row_amt > 0 and getattr(row, "invoice_number", None):
+                    dummy_doc = frappe._dict({
+                        "doctype": "Vendor Invoice Claim",
+                        "name": f"{self.name}-{row.idx}",
+                        "company": row.company or self.company,
+                        "vendor": row.vendor,
+                        "vendor_name": row.vendor_name or row.vendor,
+                        "tax_invoice_number": row.invoice_number,
+                        "total_invoice_amount": row_amt,
+                        "net_payable_amount": flt(row.amount),
+                        "status": self.status
+                    })
+                    register_spend_fingerprint(dummy_doc)
         register_spend_fingerprint(self)
         _sync_event_master_if_linked(getattr(self, "event", None))
 
     def on_cancel(self):
         """Releases spend fingerprint lock and re-syncs linked Event Master budget ledger."""
         super().on_cancel()
+        if getattr(self, "items", None) and len(self.items) > 0:
+            for row in self.items:
+                dummy_doc = frappe._dict({
+                    "name": f"{self.name}-{row.idx}",
+                })
+                try:
+                    release_spend_fingerprint(dummy_doc)
+                except Exception:
+                    pass
         release_spend_fingerprint(self)
         _sync_event_master_if_linked(getattr(self, "event", None))
+
+    def validate_and_lock_vendor_lines(self):
+        """
+        Validates every line item in the items child table:
+        1. Ensures supplier is valid and active.
+        2. Auto-fetches Supplier Legal Name and GSTIN.
+        3. Auto-fetches and locks verified Bank Account and IFSC from Supplier Bank Master.
+        4. Enforces Penny Drop Zero-Trust security check.
+        5. Enforces mandatory bill proof, invoice number, and invoice date upon submission.
+        6. Enforces positive base taxable amount.
+        7. If po_type == 'With PO', validates purchase_order link and checks remaining balance.
+        8. Intra-claim duplicate invoice protection: ensures same vendor + invoice_number isn't entered twice.
+        9. AP Spend Fingerprint cross-lane duplicate spend detection.
+        10. Sets header vendor metadata (single vendor vs 'Multiple Vendors (N Bills)').
+        """
+        is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved")
+        seen_bills = set()
+        distinct_vendors = []
+
+        for idx, row in enumerate(self.items, start=1):
+            if not row.vendor:
+                log_and_throw(f"Row #{idx}: Supplier / Vendor is mandatory.", title="Missing Vendor", doc=self)
+
+            supp = frappe.db.get_value(
+                "Supplier",
+                row.vendor,
+                ["supplier_name", "tax_id", "country", "disabled"],
+                as_dict=True
+            )
+            if not supp:
+                log_and_throw(f"Row #{idx}: Supplier '{row.vendor}' not found in master.", title="Supplier Not Found", doc=self)
+
+            if supp.disabled:
+                log_and_throw(
+                    f"Row #{idx}: Supplier '{row.vendor}' is Disabled / Inactive in ERPNext. Invoices cannot be processed.",
+                    title="Supplier Inactive / Disabled",
+                    exc=APSecurityError,
+                    doc=self
+                )
+
+            row.vendor_name = supp.supplier_name
+            row.vendor_gstin = supp.tax_id or ""
+            if not getattr(row, "company", None):
+                row.company = self.company or frappe.defaults.get_user_default("Company")
+
+            if row.vendor not in distinct_vendors:
+                distinct_vendors.append(row.vendor)
+
+            base_val = flt(row.base_amount)
+            if is_submitting and base_val <= 0:
+                log_and_throw(
+                    f"Row #{idx} ({row.vendor_name}): Base Taxable Amount must be strictly greater than 0.00 upon submission.",
+                    title="Invalid Base Amount",
+                    doc=self
+                )
+
+            # Bank Account fetching and locking
+            bank_acc = self._fetch_supplier_bank_account(row.vendor)
+            if bank_acc:
+                row.bank_beneficiary_name = bank_acc.get("bank_name") or supp.supplier_name
+                row.bank_account_number = bank_acc.get("bank_account_no") or ""
+                row.bank_ifsc_code = bank_acc.get("ifsc_code") or ""
+                row.penny_drop_status = bank_acc.get("penny_drop_status") or "VERIFIED"
+                if not getattr(row, "bank_proof_attachment", None):
+                    row.bank_proof_attachment = bank_acc.get("bank_proof_attachment") or ""
+
+                if is_submitting and bank_acc.get("penny_drop_status") == "LOCKED_PENNY_DROP_MISMATCH":
+                    log_and_throw(
+                        f"Row #{idx} ({row.vendor_name}): Bank account ({bank_acc.get('bank_account_no')}) is hard-locked due to NPCI Penny Drop Name Mismatch! Submission is halted until Accounts Manager override.",
+                        title="NPCI Penny Drop Lockout",
+                        exc=APSecurityError,
+                        doc=self
+                    )
+            elif is_submitting:
+                log_and_throw(
+                    f"Row #{idx} ({row.vendor_name}): Registered verified bank account not found in ERPNext. Please update Supplier Bank Master.",
+                    title="Vendor Bank Master Missing",
+                    doc=self
+                )
+
+            # PO validation
+            po_type = getattr(row, "po_type", "Without PO") or "Without PO"
+            row.po_type = po_type
+            if po_type == "With PO":
+                if not getattr(row, "purchase_order", None):
+                    if is_submitting:
+                        log_and_throw(
+                            f"Row #{idx} ({row.vendor_name}): Linked Purchase Order is mandatory when PO Type is 'With PO'.",
+                            title="Missing Purchase Order",
+                            doc=self
+                        )
+                else:
+                    po_doc = frappe.db.get_value(
+                        "AP Purchase Order",
+                        row.purchase_order,
+                        ["name", "net_taxable_value", "advance_amount", "status"],
+                        as_dict=True
+                    )
+                    if po_doc and base_val > 0:
+                        po_contracted = flt(po_doc.net_taxable_value)
+                        prior_res = frappe.db.sql(
+                            """
+                            SELECT SUM(vii.base_amount) as total
+                            FROM `tabVendor Invoice Item` vii
+                            JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
+                            WHERE vii.purchase_order = %s AND vic.name != %s
+                              AND vic.docstatus != 2
+                              AND vic.status NOT IN ('Disputed', 'Draft', 'Cancelled')
+                            """,
+                            (row.purchase_order, getattr(self, "name", "NEW") or "NEW"),
+                            as_dict=True
+                        )
+                        prior_invoiced = flt(prior_res[0].total) if prior_res else 0.0
+                        sibling_sum = sum(
+                            flt(r.base_amount)
+                            for i, r in enumerate(self.items)
+                            if i < idx - 1 and getattr(r, "purchase_order", None) == row.purchase_order
+                        )
+                        cumulative = round(prior_invoiced + sibling_sum + base_val, 2)
+                        allowed_max = round(po_contracted * 1.10, 2)  # 10% price tolerance
+                        if po_contracted > 0 and cumulative > allowed_max and is_submitting:
+                            log_and_throw(
+                                f"Row #{idx}: Over-Invoicing Alert! Cumulative billed base for PO #{row.purchase_order} (Prior INR {prior_invoiced:,.2f} + Sibling INR {sibling_sum:,.2f} + Current INR {base_val:,.2f} = INR {cumulative:,.2f}) exceeds contracted value (INR {po_contracted:,.2f}).",
+                                title="PO Over-Invoicing Detected",
+                                doc=self
+                            )
+            else:
+                row.purchase_order = None
+
+            # Submission mandatory checks
+            if is_submitting:
+                if not getattr(row, "invoice_number", None):
+                    log_and_throw(f"Row #{idx}: Invoice # / Bill Ref is mandatory.", title="Missing Invoice Number", doc=self)
+                if not getattr(row, "invoice_date", None):
+                    log_and_throw(f"Row #{idx}: Invoice Date is mandatory.", title="Missing Invoice Date", doc=self)
+                if not getattr(row, "receipt_attachment", None):
+                    log_and_throw(
+                        f"Row #{idx} ({row.vendor_name}): Bill Proof PDF/Photo attachment is strictly mandatory.",
+                        title="Missing Bill Attachment",
+                        doc=self
+                    )
+
+            # Intra-voucher duplicate invoice protection
+            inv_no = (getattr(row, "invoice_number", None) or "").strip().lower()
+            if row.vendor and inv_no:
+                bill_tuple = (row.vendor.strip(), inv_no)
+                if bill_tuple in seen_bills:
+                    log_and_throw(
+                        f"Row #{idx}: Duplicate Invoice detected! Invoice '{row.invoice_number}' for Vendor '{row.vendor_name or row.vendor}' is entered multiple times in this claim. Duplicate line items within the same claim are strictly prohibited.",
+                        title="Duplicate Line Item in Claim",
+                        doc=self
+                    )
+                seen_bills.add(bill_tuple)
+
+                # Cross-lane duplicate spend fingerprint check
+                row_amt = flt(row.total_invoice_amount) or base_val
+                if row_amt > 0 and is_submitting:
+                    from ap_automation.services.duplicate_engine import calculate_invoice_fingerprint
+                    inv_hash = calculate_invoice_fingerprint(row.vendor_name or row.vendor, row.invoice_number, row_amt)
+                    collisions = frappe.get_all(
+                        "AP Spend Fingerprint",
+                        filters={
+                            "fingerprint_hash": inv_hash,
+                            "tier": "EXACT_INVOICE",
+                            "status": "ACTIVE"
+                        },
+                        fields=["document_type", "document_name", "company", "invoice_number", "amount"],
+                        limit=1
+                    )
+                    for c in collisions:
+                        if c["document_name"] == self.name:
+                            continue
+                        log_and_throw(
+                            f"Row #{idx}: Cross-Lane Duplicate Spend Detected! Invoice '{row.invoice_number}' from '{row.vendor_name}' (Amount: INR {row_amt:,.2f}) has already been claimed in {c['document_type']} #{c['document_name']} under Company '{c['company']}'. Duplicate submissions across spend lanes are strictly blocked.",
+                            title="Cross-Lane Duplicate Spend Detected",
+                            doc=self
+                        )
+
+        # Set parent header metadata
+        if len(distinct_vendors) == 1:
+            first_row = self.items[0]
+            self.vendor = first_row.vendor
+            self.vendor_name = first_row.vendor_name
+            self.vendor_gstin = first_row.vendor_gstin
+            self.bank_name = first_row.bank_beneficiary_name
+            self.bank_account_number = first_row.bank_account_number
+            self.bank_ifsc_code = first_row.bank_ifsc_code
+            self.bank_proof_attachment = first_row.bank_proof_attachment
+            if len(self.items) == 1:
+                self.tax_invoice_number = first_row.invoice_number
+                self.tax_invoice_date = first_row.invoice_date
+                if not getattr(self, "tax_invoice_attachment", None):
+                    self.tax_invoice_attachment = first_row.receipt_attachment
+            else:
+                self.tax_invoice_number = f"Consolidated ({len(self.items)} Bills)"
+        elif len(distinct_vendors) > 1:
+            first_row = self.items[0]
+            self.vendor = first_row.vendor
+            self.vendor_name = f"Multiple Vendors ({len(self.items)} Bills)"
+            self.vendor_gstin = "Multiple"
+            self.bank_name = "Multiple Accounts"
+            self.bank_account_number = "Multiple Accounts"
+            self.bank_ifsc_code = "Multiple Accounts"
+            self.tax_invoice_number = f"Consolidated ({len(self.items)} Bills)"
 
     def bind_and_lock_vendor_profile(self):
         """
@@ -305,6 +542,120 @@ class VendorInvoiceClaim(APDocument):
 
     def calculate_financial_totals(self):
         """Calculates GST amount and Total Invoice amount with progressive Draft support."""
+        has_items = bool(getattr(self, "items", None) and len(self.items) > 0)
+        is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved")
+
+        if has_items:
+            tot_base = 0.0
+            tot_gst = 0.0
+            tot_cgst = 0.0
+            tot_sgst = 0.0
+            tot_igst = 0.0
+            tot_bill = 0.0
+            tot_tds = 0.0
+            tot_adv = 0.0
+            tot_ret = 0.0
+            tot_net = 0.0
+
+            for idx, row in enumerate(self.items, start=1):
+                base = flt(row.base_amount)
+                if base <= 0 and flt(row.amount) > 0:
+                    base = flt(row.amount)
+                    row.base_amount = base
+
+                # GST calculation
+                rate_str = row.gst_rate or "18%"
+                gst_pct = flt(str(rate_str).replace("%", "").strip() or 0.0)
+                gst_amt = round(base * (gst_pct / 100.0), 2)
+                total_bill = round(base + gst_amt, 2)
+
+                # Tax type split
+                tax_type = getattr(row, "tax_type", "Intra-State (CGST + SGST)") or "Intra-State (CGST + SGST)"
+                if "Inter-State" in tax_type or "IGST" in tax_type:
+                    row.tax_type = "Inter-State (IGST)"
+                    row.igst_amount = gst_amt
+                    row.cgst_amount = 0.0
+                    row.sgst_amount = 0.0
+                else:
+                    row.tax_type = "Intra-State (CGST + SGST)"
+                    half_gst = round(gst_amt / 2.0, 2)
+                    row.cgst_amount = half_gst
+                    row.sgst_amount = round(gst_amt - half_gst, 2)
+                    row.igst_amount = 0.0
+
+                # Statutory TDS calculation
+                section = getattr(row, "tds_section", "None / Exempt") or "None / Exempt"
+                try:
+                    from ap_automation.services.tds_service import calculate_tds
+                    tds_info = calculate_tds(base, section)
+                    tds_rate = tds_info.get("rate", 0.0)
+                    tds_amt = tds_info.get("tds_amount", 0.0)
+                except Exception:
+                    tds_rate = 0.0
+                    import re
+                    m = re.search(r"\((\d+(?:\.\d+)?)\s*%\)", section)
+                    if m:
+                        tds_rate = flt(m.group(1))
+                    elif "194C" in section:
+                        tds_rate = 2.0
+                    elif "194J" in section:
+                        tds_rate = 10.0
+                    elif "194Q" in section:
+                        tds_rate = 0.1
+                    elif "194I" in section:
+                        tds_rate = 10.0
+                    tds_amt = round(base * (tds_rate / 100.0), 2)
+
+                # Deductions
+                advance = flt(row.advance_deducted)
+                retention = flt(row.retention_hold_amount)
+                total_deductions = round(tds_amt + advance + retention, 2)
+
+                if is_submitting and total_deductions > total_bill:
+                    log_and_throw(
+                        f"Row #{idx}: Deductions (TDS INR {tds_amt:,.2f} + Advance INR {advance:,.2f} + Retention INR {retention:,.2f} = INR {total_deductions:,.2f}) exceed Bill Total (INR {total_bill:,.2f}).",
+                        title="Deductions Exceed Bill Total",
+                        doc=self
+                    )
+
+                net_pay = round(max(total_bill - total_deductions, 0.0), 2)
+
+                row.gst_amount = gst_amt
+                row.total_invoice_amount = total_bill
+                row.tds_rate = tds_rate
+                row.tds_amount = tds_amt
+                row.amount = net_pay
+
+                # Disputed lines excluded from net totals
+                if getattr(row, "line_status", "Pending") == "Disputed / Discrepancy":
+                    continue
+
+                tot_base += base
+                tot_gst += gst_amt
+                tot_cgst += row.cgst_amount
+                tot_sgst += row.sgst_amount
+                tot_igst += row.igst_amount
+                tot_bill += total_bill
+                tot_tds += tds_amt
+                tot_adv += advance
+                tot_ret += retention
+                tot_net += net_pay
+
+            self.total_lines = len(self.items)
+            self.base_amount = round(tot_base, 2)
+            self.gst_amount = round(tot_gst, 2)
+            self.cgst_amount = round(tot_cgst, 2)
+            self.sgst_amount = round(tot_sgst, 2)
+            self.igst_amount = round(tot_igst, 2)
+            self.total_invoice_amount = round(tot_bill, 2)
+            self.tds_amount = round(tot_tds, 2)
+            self.advance_deducted = round(tot_adv, 2)
+            self.total_prior_payments_adjusted = self.advance_deducted
+            self.retention_hold_amount = round(tot_ret, 2)
+            self.net_payable_amount = round(tot_net, 2)
+            self.total_amount = self.net_payable_amount
+            return
+
         base = float(getattr(self, "base_amount", 0.0) or getattr(self, "invoice_amount", 0.0) or getattr(self, "taxable_amount", 0.0) or 0.0)
         self.base_amount = base
         is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved")
@@ -1224,3 +1575,164 @@ def submit_for_approval(docname: str):
         "status": "Pending Manager Approval",
         "message": f"Claim #{docname} submitted successfully! Routed to Reporting Manager for approval."
     }
+
+
+@frappe.whitelist()
+def export_vendor_invoices_excel(docname: str):
+    """
+    Exports itemized vendor invoices/bills to a professional Excel (.xlsx) file.
+    """
+    if not docname:
+        frappe.throw("Document Name is required.")
+
+    doc = frappe.get_doc("Vendor Invoice Claim", docname)
+
+    headers = [
+        "Sr No",
+        "Vendor Code",
+        "Vendor Legal Name",
+        "Vendor GSTIN",
+        "Invoice #",
+        "Invoice Date",
+        "PO Type",
+        "Purchase Order",
+        "Base Taxable (INR)",
+        "Tax Type",
+        "GST %",
+        "CGST (INR)",
+        "SGST (INR)",
+        "IGST (INR)",
+        "Calculated GST (INR)",
+        "Total Bill (INR)",
+        "TDS Section",
+        "TDS Rate %",
+        "Deducted TDS (INR)",
+        "Advance Deducted (INR)",
+        "Retention Hold (INR)",
+        "Net Pay (INR)",
+        "Bank Beneficiary Name",
+        "Bank A/C No",
+        "IFSC Code",
+        "Penny Drop Status",
+        "Line Status",
+        "Discrepancy Remarks",
+        "Remarks",
+        "Is Urgent",
+        "Urgency Reason"
+    ]
+
+    rows = []
+    items = getattr(doc, "items", None) or []
+    if items:
+        for idx, row in enumerate(items, start=1):
+            rows.append([
+                idx,
+                row.vendor or "",
+                row.vendor_name or "",
+                row.vendor_gstin or "",
+                row.invoice_number or "",
+                str(row.invoice_date or ""),
+                row.po_type or "Without PO",
+                row.purchase_order or "",
+                flt(row.base_amount),
+                row.tax_type or "",
+                row.gst_rate or "",
+                flt(row.cgst_amount),
+                flt(row.sgst_amount),
+                flt(row.igst_amount),
+                flt(row.gst_amount),
+                flt(row.total_invoice_amount),
+                row.tds_section or "None / Exempt",
+                flt(row.tds_rate),
+                flt(row.tds_amount),
+                flt(row.advance_deducted),
+                flt(row.retention_hold_amount),
+                flt(row.amount),
+                row.bank_beneficiary_name or "",
+                row.bank_account_number or "",
+                row.bank_ifsc_code or "",
+                row.penny_drop_status or "",
+                row.line_status or "Pending",
+                row.discrepancy_remarks or "",
+                row.remarks or "",
+                "Yes" if row.is_urgent else "No",
+                row.urgency_reason or ""
+            ])
+    else:
+        # Legacy single-bill line
+        rows.append([
+            1,
+            doc.vendor or "",
+            doc.vendor_name or "",
+            doc.vendor_gstin or "",
+            doc.tax_invoice_number or "",
+            str(doc.tax_invoice_date or ""),
+            doc.invoice_type or "",
+            doc.purchase_order or "",
+            flt(doc.base_amount),
+            doc.tax_type or "",
+            doc.gst_rate or "",
+            flt(doc.cgst_amount),
+            flt(doc.sgst_amount),
+            flt(doc.igst_amount),
+            flt(doc.gst_amount),
+            flt(doc.total_invoice_amount),
+            doc.tds_section or "None / Exempt",
+            flt(doc.tds_rate),
+            flt(doc.tds_amount),
+            flt(doc.advance_deducted),
+            flt(doc.retention_hold_amount),
+            flt(doc.net_payable_amount),
+            doc.bank_name or "",
+            doc.bank_account_number or "",
+            doc.bank_ifsc_code or "",
+            "VERIFIED",
+            doc.status or "Draft",
+            "",
+            "",
+            "Yes" if doc.is_urgent else "No",
+            doc.urgency_reason or ""
+        ])
+
+    # Summary row
+    rows.append([
+        "TOTAL",
+        "",
+        "",
+        "",
+        f"Bills: {doc.total_lines or len(rows)}",
+        "",
+        "",
+        "",
+        flt(doc.base_amount),
+        "",
+        "",
+        flt(doc.cgst_amount),
+        flt(doc.sgst_amount),
+        flt(doc.igst_amount),
+        flt(doc.gst_amount),
+        flt(doc.total_invoice_amount),
+        "",
+        "",
+        flt(doc.tds_amount),
+        flt(doc.advance_deducted),
+        flt(doc.retention_hold_amount),
+        flt(doc.net_payable_amount),
+        "",
+        "",
+        "",
+        "",
+        doc.status,
+        "",
+        "",
+        "",
+        ""
+    ])
+
+    from frappe.utils.xlsxutils import make_xlsx
+    xlsx_file = make_xlsx([headers] + rows, "Itemized Vendor Invoices")
+
+    frappe.response["filename"] = f"Vendor_Invoice_Claim_{doc.name}.xlsx"
+    frappe.response["filecontent"] = xlsx_file.getvalue()
+    frappe.response["type"] = "binary"
+

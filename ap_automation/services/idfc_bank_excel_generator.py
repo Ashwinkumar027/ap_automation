@@ -707,50 +707,99 @@ def download_idfc_vendor_invoice_excel(voucher_name: str):
     p_date = getdate(doc.get("posting_date") or doc.get("invoice_date") or nowdate())
     tx_date_str = p_date.strftime("%d/%m/%Y")
 
-    b_name = doc.get("vendor_name") or doc.get("vendor") or "VENDOR"
-    b_ac = doc.get("bank_account_number") or ""
-    b_ifsc = doc.get("bank_ifsc_code") or ""
-    if not str(b_ac).strip() or not str(b_ifsc).strip():
-        frappe.throw(
-            _("Vendor Bank Account Number or IFSC Code is missing on Vendor Invoice Claim {0}. "
-              "Please provide verified banking details before generating IDFC Disbursal Excel.")
-            .format(voucher_name)
-        )
+    items = getattr(doc, "items", None) or []
+    payment_rows = []
 
-    # Net payable amount
-    amount = flt(doc.get("net_payable_amount") or doc.get("total_amount") or doc.get("total_invoice_amount") or 0.0)
-    if amount <= 0:
-        frappe.throw(_("No payable amount found on this vendor invoice claim."))
+    if items:
+        for idx, row in enumerate(items, start=1):
+            if getattr(row, "line_status", "Pending") == "Disputed / Discrepancy":
+                continue
+            amt = flt(row.amount)
+            if amt <= 0:
+                continue
 
-    # Vendor notification email
-    email = ""
-    if doc.get("vendor"):
-        email = frappe.db.get_value("Supplier", doc.vendor, "email_id") or ""
+            b_name = row.bank_beneficiary_name or row.vendor_name or row.vendor or "VENDOR"
+            b_ac = (row.bank_account_number or "").strip()
+            b_ifsc = (row.bank_ifsc_code or "").strip().upper()
+            if not b_ac or not b_ifsc:
+                frappe.throw(
+                    _("Row #{0} ({1}): Vendor Bank Account Number or IFSC Code is missing on Vendor Invoice Claim {2}. "
+                      "Please provide verified banking details before generating IDFC Disbursal Excel.")
+                    .format(idx, b_name, voucher_name)
+                )
 
-    # Transaction Type resolution per IDFC Banking Rules:
-    clean_ifsc = str(b_ifsc).strip().upper()
-    if clean_ifsc.startswith("IDFB"):
-        tx_type = "IFT"
-    elif amount >= 200000.0:
-        tx_type = "RTGS"
+            clean_ifsc = b_ifsc
+            if clean_ifsc.startswith("IDFB"):
+                tx_type = "IFT"
+            elif amt >= 200000.0:
+                tx_type = "RTGS"
+            else:
+                tx_type = "NEFT"
+
+            supplier_email = ""
+            if getattr(row, "vendor", None):
+                supplier_email = frappe.db.get_value("Supplier", row.vendor, "email_id") or ""
+
+            inv_ref = getattr(row, "invoice_number", "") or f"L{idx}"
+            remarks = f"VINV {doc.name} {inv_ref}".strip()[:30]
+
+            payment_rows.append({
+                "beneficiary_name": str(b_name).strip().upper(),
+                "beneficiary_account_number": str(b_ac).strip(),
+                "ifsc": clean_ifsc,
+                "transaction_type": tx_type,
+                "debit_account_number": debit_account,
+                "transaction_date": tx_date_str,
+                "amount": amt,
+                "currency": "INR",
+                "beneficiary_email": supplier_email,
+                "remarks": remarks,
+            })
     else:
-        tx_type = "NEFT"
+        b_name = doc.get("vendor_name") or doc.get("vendor") or "VENDOR"
+        b_ac = doc.get("bank_account_number") or ""
+        b_ifsc = doc.get("bank_ifsc_code") or ""
+        if not str(b_ac).strip() or not str(b_ifsc).strip():
+            frappe.throw(
+                _("Vendor Bank Account Number or IFSC Code is missing on Vendor Invoice Claim {0}. "
+                  "Please provide verified banking details before generating IDFC Disbursal Excel.")
+                .format(voucher_name)
+            )
 
-    payment_row = {
-        "beneficiary_name": str(b_name).strip().upper(),
-        "beneficiary_account_number": str(b_ac).strip(),
-        "ifsc": clean_ifsc,
-        "transaction_type": tx_type,
-        "debit_account_number": debit_account,
-        "transaction_date": tx_date_str,
-        "amount": amount,
-        "currency": "INR",
-        "beneficiary_email": email,
-        "remarks": f"VINV {doc.name}"[:30],
-    }
+        amount = flt(doc.get("net_payable_amount") or doc.get("total_amount") or doc.get("total_invoice_amount") or 0.0)
+        if amount <= 0:
+            frappe.throw(_("No payable amount found on this vendor invoice claim."))
+
+        email = ""
+        if doc.get("vendor"):
+            email = frappe.db.get_value("Supplier", doc.vendor, "email_id") or ""
+
+        clean_ifsc = str(b_ifsc).strip().upper()
+        if clean_ifsc.startswith("IDFB"):
+            tx_type = "IFT"
+        elif amount >= 200000.0:
+            tx_type = "RTGS"
+        else:
+            tx_type = "NEFT"
+
+        payment_rows.append({
+            "beneficiary_name": str(b_name).strip().upper(),
+            "beneficiary_account_number": str(b_ac).strip(),
+            "ifsc": clean_ifsc,
+            "transaction_type": tx_type,
+            "debit_account_number": debit_account,
+            "transaction_date": tx_date_str,
+            "amount": amount,
+            "currency": "INR",
+            "beneficiary_email": email,
+            "remarks": f"VINV {doc.name}"[:30],
+        })
+
+    if not payment_rows:
+        frappe.throw(_("No payable vendor items found on Vendor Invoice Claim {0}.").format(doc.name))
 
     filename, filebytes = generate_idfc_bank_excel_bytes(
-        payment_rows=[payment_row],
+        payment_rows=payment_rows,
         debit_account_no=debit_account,
         transaction_date_str=tx_date_str,
         filename_prefix=f"IDFC_Bank_Vendor_{doc.name}"

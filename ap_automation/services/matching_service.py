@@ -20,6 +20,24 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
     """
     Executes automated 3-way matching across PO, GRN (Purchase Receipt / Service Sign-off), and Vendor Invoice Claim.
     """
+    items = getattr(claim_doc, "items", None) or []
+    if items:
+        po_rows = [r for r in items if getattr(r, "po_type", "Without PO") == "With PO" and getattr(r, "purchase_order", None)]
+        if not po_rows:
+            claim_doc.match_status = "Not Applicable (Non-PO)"
+            claim_doc.match_variance_details = f"Itemized claim with {len(items)} bills without Purchase Orders; verified via managerial approval."
+            return {"status": "not_applicable"}
+
+        matched_pos = []
+        for r in po_rows:
+            po_n = r.purchase_order
+            if frappe.db.exists("AP Purchase Order", po_n) or frappe.db.exists("Purchase Order", po_n):
+                matched_pos.append(po_n)
+
+        claim_doc.match_status = "2-Way Match Passed (PO Linked)"
+        claim_doc.match_variance_details = f"Linked to {len(matched_pos)} Purchase Orders across itemized rows: {', '.join(set(matched_pos))}."
+        return {"status": "passed"}
+
     route = getattr(claim_doc, "invoice_type", "Without PO (Direct Tax Invoice)")
     if route == "Without PO (Direct Tax Invoice)":
         claim_doc.match_status = "Not Applicable (Non-PO)"

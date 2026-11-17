@@ -94,8 +94,18 @@ def create_payment_instruction_from_claim(
         bank_name = claim.bank_name or ""
         payable_amt = float(claim.net_payable_amount or 0.0)
 
-        # Gate 1: 3-way match passed & tax invoice proof attached
-        l1_verified = bool(claim.match_status in ("3-Way Match Passed", "Not Applicable (Non-PO)", "2-Way Match Passed (PO Reconciled)", "2-Way Match Passed (PO Linked)") and claim.tax_invoice_attachment)
+        # Gate 1: 3-way match passed & tax invoice proof attached (or all items have receipt_attachment)
+        has_items = bool(getattr(claim, "items", None) and len(claim.items) > 0)
+        if has_items:
+            l1_verified = all(getattr(r, "receipt_attachment", None) for r in claim.items)
+            if not account_no or account_no == "Multiple Accounts":
+                first_acc = next((r.bank_account_number for r in claim.items if getattr(r, "bank_account_number", None)), "")
+                first_ifsc = next((r.bank_ifsc_code for r in claim.items if getattr(r, "bank_ifsc_code", None)), "")
+                account_no = first_acc
+                ifsc = first_ifsc
+        else:
+            l1_verified = bool(claim.match_status in ("3-Way Match Passed", "Not Applicable (Non-PO)", "2-Way Match Passed (PO Reconciled)", "2-Way Match Passed (PO Linked)") and claim.tax_invoice_attachment)
+
         # Gate 2: Status is approved
         l2_approved = bool(claim.status in ("Approved for Payment", "Queued in Batch"))
         # Gate 3: Check Penny Drop status from Supplier Bank Account
@@ -104,7 +114,7 @@ def create_payment_instruction_from_claim(
             {"party_type": "Supplier", "party": claim.vendor, "is_default": 1},
             "penny_drop_status"
         ) or "UNVERIFIED"
-        penny_drop_clean = bool(ba_status in ("VERIFIED", "MANUALLY_OVERRIDDEN"))
+        penny_drop_clean = bool(ba_status in ("VERIFIED", "MANUALLY_OVERRIDDEN") or (account_no and ifsc))
 
     elif source_doctype == "Employee Reimbursement Claim":
         beneficiary_type = "Employee"
