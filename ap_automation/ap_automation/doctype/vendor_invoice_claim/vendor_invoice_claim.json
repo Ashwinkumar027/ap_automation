@@ -8,13 +8,11 @@
  "engine": "InnoDB",
  "field_order": [
   "sb_route",
-  "invoice_type",
   "company",
   "event",
   "email_approval_attachment",
   "cb_po_link",
   "status",
-  "workflow_state",
   "total_lines",
   "vendor_name",
   "sb_items",
@@ -32,6 +30,27 @@
   "advance_deducted",
   "retention_hold_amount",
   "net_payable_amount",
+  "sec_urgency",
+  "is_urgent",
+  "urgency_reason",
+  "urgency_flagged_by",
+  "urgency_flagged_on",
+  "sec_milestones",
+  "milestone_payments",
+  "total_prior_payments_adjusted",
+  "retention_hold_reason",
+  "gst_released_separately",
+  "gst_withheld_amount",
+  "sb_event_variance",
+  "previous_benchmark_spend",
+  "cost_variance",
+  "cost_variance_percentage",
+  "cb_variance",
+  "scope_variance_justification",
+  "payment_release_maker",
+  "payment_releaser",
+  "payment_release_notified",
+  "payment_release_notified_on",
   "sb_governance",
   "current_approval_level",
   "designated_approver",
@@ -58,27 +77,6 @@
   "tally_reference",
   "tally_posted_on",
   "tally_posted_by",
-  "sec_urgency",
-  "is_urgent",
-  "urgency_reason",
-  "urgency_flagged_by",
-  "urgency_flagged_on",
-  "sb_event_variance",
-  "previous_benchmark_spend",
-  "cb_variance",
-  "cost_variance",
-  "cost_variance_percentage",
-  "scope_variance_justification",
-  "payment_release_maker",
-  "payment_releaser",
-  "payment_release_notified",
-  "payment_release_notified_on",
-  "sec_milestones",
-  "milestone_payments",
-  "total_prior_payments_adjusted",
-  "retention_hold_reason",
-  "gst_released_separately",
-  "gst_withheld_amount",
   "sb_bank",
   "bank_name",
   "bank_account_number",
@@ -86,6 +84,8 @@
   "bank_proof_attachment",
   "sb_attachments",
   "tax_invoice_attachment",
+  "invoice_type",
+  "workflow_state",
   "vendor",
   "vendor_gstin",
   "purchase_order",
@@ -112,14 +112,6 @@
    "label": "Intake Route & Entity"
   },
   {
-   "fieldname": "invoice_type",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Intake Route",
-   "options": "With Purchase Order\nWithout PO (Direct Tax Invoice)",
-   "reqd": 1
-  },
-  {
    "fieldname": "company",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -132,7 +124,8 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Linked Event Master (Stream A)",
-   "options": "Event Master"
+   "options": "Event Master",
+   "hidden": 0
   },
   {
    "fieldname": "email_approval_attachment",
@@ -143,7 +136,8 @@
   },
   {
    "fieldname": "cb_po_link",
-   "fieldtype": "Column Break"
+   "fieldtype": "Column Break",
+   "label": ""
   },
   {
    "default": "Draft",
@@ -152,12 +146,6 @@
    "in_list_view": 1,
    "label": "Status",
    "options": "Draft\nPending Manager Approval\nPending Director Approval\nPending Accounts Review\nPending Accounts L2 Approval\nApproved for Payment\nQueued in Batch\nPaid\nDisputed\nRejected",
-   "read_only": 1
-  },
-  {
-   "fieldname": "workflow_state",
-   "fieldtype": "Data",
-   "label": "Workflow State",
    "read_only": 1
   },
   {
@@ -170,7 +158,7 @@
    "fieldname": "vendor_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Vendor Legal Name",
+   "label": "Vendor / Supplier Legal Name",
    "read_only": 1,
    "reqd": 0,
    "hidden": 0
@@ -288,9 +276,145 @@
    "hidden": 0
   },
   {
+   "fieldname": "sec_urgency",
+   "fieldtype": "Section Break",
+   "label": "Priority & Urgency Classification (Optional)",
+   "collapsible": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_urgent",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Urgent Payment Request"
+  },
+  {
+   "depends_on": "eval:doc.is_urgent==1",
+   "fieldname": "urgency_reason",
+   "fieldtype": "Small Text",
+   "label": "Reason for Urgency",
+   "description": "Mention clear operational justification why this bill requires priority processing."
+  },
+  {
+   "fieldname": "urgency_flagged_by",
+   "fieldtype": "Link",
+   "label": "Urgency Flagged By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "urgency_flagged_on",
+   "fieldtype": "Datetime",
+   "label": "Urgency Flagged On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_milestones",
+   "fieldtype": "Section Break",
+   "label": "Milestone Advances & Retention Hold Reconciliation (Optional)",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "milestone_payments",
+   "fieldtype": "Table",
+   "label": "Mapped Prior Advances & Part Payments",
+   "options": "Vendor Milestone Payment Item"
+  },
+  {
+   "default": "0",
+   "fieldname": "total_prior_payments_adjusted",
+   "fieldtype": "Currency",
+   "label": "Total Prior Advances Adjusted (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "retention_hold_reason",
+   "fieldtype": "Small Text",
+   "label": "Retention Hold Reason"
+  },
+  {
+   "default": "0",
+   "fieldname": "gst_released_separately",
+   "fieldtype": "Check",
+   "label": "GST Released Separately"
+  },
+  {
+   "default": "0",
+   "fieldname": "gst_withheld_amount",
+   "fieldtype": "Currency",
+   "label": "GST Withheld Amount (INR)"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sb_event_variance",
+   "fieldtype": "Section Break",
+   "label": "Event Cost Comparison & Scope Justification (Stream A Only)",
+   "depends_on": "eval:Boolean(doc.event)"
+  },
+  {
+   "fieldname": "previous_benchmark_spend",
+   "fieldtype": "Currency",
+   "label": "Previous Event / Benchmark Spend (INR)",
+   "description": "Historical spend from prior event or initial vendor quotation for comparison"
+  },
+  {
+   "fieldname": "cost_variance",
+   "fieldtype": "Currency",
+   "label": "Cost Variance (Current - Benchmark)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost_variance_percentage",
+   "fieldtype": "Percent",
+   "label": "Cost Variance (%)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_variance",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "scope_variance_justification",
+   "fieldtype": "Small Text",
+   "label": "Scope Changes & Commercial Justification",
+   "description": "Explain additions/removals in scope (e.g., removed truss pillars, raised stage, added photobooth)"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "payment_release_maker",
+   "fieldtype": "Link",
+   "label": "Payment Release Maker",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "payment_releaser",
+   "fieldtype": "Link",
+   "label": "Payment Releaser (Director)",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "payment_release_notified",
+   "fieldtype": "Check",
+   "label": "Payment Release Notified",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "payment_release_notified_on",
+   "fieldtype": "Datetime",
+   "label": "Payment Release Notified On",
+   "read_only": 1
+  },
+  {
    "fieldname": "sb_governance",
    "fieldtype": "Section Break",
-   "label": "Approval Workflow & Batching"
+   "label": "Approval Workflow & Audit Trail",
+   "collapsible": 1
   },
   {
    "default": "1",
@@ -340,8 +464,9 @@
   },
   {
    "fieldtype": "Section Break",
-   "label": "Multi-Tier Business Approvals (PRD Stage 3)",
-   "fieldname": "sb_business_approval"
+   "label": "Multi-Tier Business Approvals (Manager -> HoD -> Director)",
+   "fieldname": "sb_business_approval",
+   "collapsible": 1
   },
   {
    "fieldtype": "Link",
@@ -399,8 +524,9 @@
   },
   {
    "fieldtype": "Section Break",
-   "label": "Accounts Signoff & Tally Reference (PRD Stages 4, 6, 7)",
-   "fieldname": "sb_accounts_tally"
+   "label": "Accounts Signoff & Tally Reference",
+   "fieldname": "sb_accounts_tally",
+   "collapsible": 1
   },
   {
    "fieldtype": "Link",
@@ -449,138 +575,6 @@
    "read_only": 1,
    "options": "User",
    "fieldname": "tally_posted_by"
-  },
-  {
-   "fieldname": "sec_urgency",
-   "fieldtype": "Section Break",
-   "label": "Priority & Urgency Classification"
-  },
-  {
-   "default": "0",
-   "fieldname": "is_urgent",
-   "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "Urgent Payment Request"
-  },
-  {
-   "depends_on": "eval:doc.is_urgent==1",
-   "fieldname": "urgency_reason",
-   "fieldtype": "Small Text",
-   "label": "Reason for Urgency",
-   "description": "Mention clear operational justification why this bill requires priority processing."
-  },
-  {
-   "fieldname": "urgency_flagged_by",
-   "fieldtype": "Link",
-   "label": "Urgency Flagged By",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "fieldname": "urgency_flagged_on",
-   "fieldtype": "Datetime",
-   "label": "Urgency Flagged On",
-   "read_only": 1
-  },
-  {
-   "collapsible": 1,
-   "fieldname": "sb_event_variance",
-   "fieldtype": "Section Break",
-   "label": "Event Cost Comparison & Scope Justification (Director Review)"
-  },
-  {
-   "fieldname": "previous_benchmark_spend",
-   "fieldtype": "Currency",
-   "label": "Previous Event / Benchmark Spend (INR)",
-   "description": "Historical spend from prior event or initial vendor quotation for comparison"
-  },
-  {
-   "fieldname": "cb_variance",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "cost_variance",
-   "fieldtype": "Currency",
-   "label": "Cost Variance (Current - Benchmark)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "cost_variance_percentage",
-   "fieldtype": "Percent",
-   "label": "Cost Variance (%)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "scope_variance_justification",
-   "fieldtype": "Small Text",
-   "label": "Scope Changes & Commercial Justification",
-   "description": "Explain additions/removals in scope (e.g., removed truss pillars, raised stage, added photobooth)"
-  },
-  {
-   "allow_on_submit": 1,
-   "fieldname": "payment_release_maker",
-   "fieldtype": "Link",
-   "label": "Payment Release Maker",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "allow_on_submit": 1,
-   "fieldname": "payment_releaser",
-   "fieldtype": "Link",
-   "label": "Payment Releaser (Director)",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "allow_on_submit": 1,
-   "default": "0",
-   "fieldname": "payment_release_notified",
-   "fieldtype": "Check",
-   "label": "Payment Release Notified",
-   "read_only": 1
-  },
-  {
-   "allow_on_submit": 1,
-   "fieldname": "payment_release_notified_on",
-   "fieldtype": "Datetime",
-   "label": "Payment Release Notified On",
-   "read_only": 1
-  },
-  {
-   "fieldname": "sec_milestones",
-   "fieldtype": "Section Break",
-   "label": "Milestone Advance & Part Payments Reconciliation"
-  },
-  {
-   "fieldname": "milestone_payments",
-   "fieldtype": "Table",
-   "label": "Mapped Prior Advances & Part Payments",
-   "options": "Vendor Milestone Payment Item"
-  },
-  {
-   "default": "0",
-   "fieldname": "total_prior_payments_adjusted",
-   "fieldtype": "Currency",
-   "label": "Total Prior Advances Adjusted (INR)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "retention_hold_reason",
-   "fieldtype": "Small Text",
-   "label": "Retention Hold Reason"
-  },
-  {
-   "default": "0",
-   "fieldname": "gst_released_separately",
-   "fieldtype": "Check",
-   "label": "GST Released Separately"
-  },
-  {
-   "default": "0",
-   "fieldname": "gst_withheld_amount",
-   "fieldtype": "Currency",
-   "label": "GST Withheld Amount (INR)"
   },
   {
    "fieldname": "sb_bank",
@@ -632,6 +626,23 @@
    "label": "Vendor Tax Invoice PDF",
    "hidden": 1,
    "reqd": 0
+  },
+  {
+   "fieldname": "invoice_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Intake Route",
+   "options": "With Purchase Order\nWithout PO (Direct Tax Invoice)",
+   "reqd": 0,
+   "hidden": 1,
+   "default": "Without PO (Direct Tax Invoice)"
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Data",
+   "label": "Workflow State",
+   "read_only": 1,
+   "hidden": 1
   },
   {
    "fieldname": "vendor",

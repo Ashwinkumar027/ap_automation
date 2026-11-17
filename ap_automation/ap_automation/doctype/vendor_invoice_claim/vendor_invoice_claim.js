@@ -467,6 +467,10 @@ frappe.ui.form.on("Vendor Invoice Claim", {
         frm.toggle_display("email_approval_attachment", true);
         frm.toggle_reqd("email_approval_attachment", false);
 
+        // Hide invoice_type (Intake Route) - row-level PO selection handles it row by row!
+        frm.toggle_display("invoice_type", false);
+        frm.toggle_reqd("invoice_type", false);
+
         // Hide legacy single-bill inputs
         [
             "vendor", "vendor_gstin", "purchase_order", "vendor_po_request",
