@@ -1792,7 +1792,8 @@ window.APReceiptGallery = {
                 'Employee Reimbursement Claim': 'expense_lines',
                 'Admin Weekly Vendor Claim': 'vendor_lines',
                 'Event Expense Claim': 'expense_items',
-                'Event Advance Request': 'imprest_items'
+                'Event Advance Request': 'imprest_items',
+                'Vendor Invoice Claim': 'items'
             };
             const resolved_table = (current_proof && current_proof.table_field) || TABLE_MAP[frm.doc.doctype] || 'claim_items';
             const upload_field = (current_proof && current_proof.source === 'parent')

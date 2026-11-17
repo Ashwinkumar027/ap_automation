@@ -238,6 +238,12 @@ frappe.ui.form.on("Vendor Invoice Claim", {
             window.APClarificationThread.render(frm);
         }
 
+        if (!frm.is_new()) {
+            frm.add_custom_button(__('Download Itemized Excel'), function() {
+                window.open(`/api/method/ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.export_vendor_invoices_excel?docname=${encodeURIComponent(frm.doc.name)}`);
+            }, __('Reports & Exports'));
+        }
+
         // Dynamically fetch active statutory TDS sections from AP TDS Master
         frappe.call({
             method: "ap_automation.services.tds_service.get_all_active_tds_sections",
@@ -1640,6 +1646,69 @@ function render_vendor_invoice_dashboard(frm) {
 // FINANCIAL CALCULATIONS & FORMATTING
 // --------------------------------------------------------------------------------------
 function calculate_vendor_totals(frm) {
+    if (frm.doc.items && frm.doc.items.length > 0) {
+        let tot_base = 0.0, tot_gst = 0.0, tot_cgst = 0.0, tot_sgst = 0.0, tot_igst = 0.0;
+        let tot_bill = 0.0, tot_tds = 0.0, tot_adv = 0.0, tot_ret = 0.0, tot_net = 0.0;
+        let distinct_vendors = [];
+
+        frm.doc.items.forEach(row => {
+            if (row.vendor && !distinct_vendors.includes(row.vendor)) {
+                distinct_vendors.push(row.vendor);
+            }
+            if (row.line_status === "Disputed / Discrepancy") return;
+            tot_base += flt(row.base_amount);
+            tot_gst += flt(row.gst_amount);
+            tot_cgst += flt(row.cgst_amount);
+            tot_sgst += flt(row.sgst_amount);
+            tot_igst += flt(row.igst_amount);
+            tot_bill += flt(row.total_invoice_amount);
+            tot_tds += flt(row.tds_amount);
+            tot_adv += flt(row.advance_deducted);
+            tot_ret += flt(row.retention_hold_amount);
+            tot_net += flt(row.amount);
+        });
+
+        frm.set_value("total_lines", frm.doc.items.length);
+        frm.set_value("base_amount", round_currency(tot_base));
+        frm.set_value("gst_amount", round_currency(tot_gst));
+        frm.set_value("cgst_amount", round_currency(tot_cgst));
+        frm.set_value("sgst_amount", round_currency(tot_sgst));
+        frm.set_value("igst_amount", round_currency(tot_igst));
+        frm.set_value("total_invoice_amount", round_currency(tot_bill));
+        frm.set_value("tds_amount", round_currency(tot_tds));
+        frm.set_value("advance_deducted", round_currency(tot_adv));
+        frm.set_value("total_prior_payments_adjusted", round_currency(tot_adv));
+        frm.set_value("retention_hold_amount", round_currency(tot_ret));
+        frm.set_value("net_payable_amount", round_currency(tot_net));
+        frm.set_value("total_amount", round_currency(tot_net));
+
+        // Header vendor reflection
+        if (distinct_vendors.length === 1 && frm.doc.items[0].vendor) {
+            let r0 = frm.doc.items[0];
+            if (r0.vendor && (!frm.doc.vendor || frm.doc.vendor !== r0.vendor)) {
+                frm.set_value("vendor", r0.vendor);
+            }
+            if (r0.vendor_name) frm.set_value("vendor_name", r0.vendor_name);
+            if (r0.vendor_gstin) frm.set_value("vendor_gstin", r0.vendor_gstin);
+            if (r0.bank_beneficiary_name) frm.set_value("bank_name", r0.bank_beneficiary_name);
+            if (r0.bank_account_number) frm.set_value("bank_account_number", r0.bank_account_number);
+            if (r0.bank_ifsc_code) frm.set_value("bank_ifsc_code", r0.bank_ifsc_code);
+            if (r0.bank_proof_attachment) frm.set_value("bank_proof_attachment", r0.bank_proof_attachment);
+            if (frm.doc.items.length === 1 && r0.invoice_number) {
+                frm.set_value("tax_invoice_number", r0.invoice_number);
+                if (r0.invoice_date) frm.set_value("tax_invoice_date", r0.invoice_date);
+            } else {
+                frm.set_value("tax_invoice_number", `Consolidated (${frm.doc.items.length} Bills)`);
+            }
+        } else if (distinct_vendors.length > 1) {
+            frm.set_value("vendor_name", `Multiple Vendors (${frm.doc.items.length} Bills)`);
+            frm.set_value("tax_invoice_number", `Consolidated (${frm.doc.items.length} Bills)`);
+        }
+
+        render_vendor_invoice_dashboard(frm);
+        return;
+    }
+
     let base = flt(frm.doc.base_amount);
     let gst_rate_str = frm.doc.gst_rate || "18%";
     let gst_pct = flt(gst_rate_str.replace('%', ''));
@@ -1717,6 +1786,56 @@ function calculate_vendor_totals(frm) {
     render_vendor_invoice_dashboard(frm);
 }
 
+function calculate_vendor_row_totals(frm, cdt, cdn) {
+    let row = locals[cdt][cdn];
+    let base = flt(row.base_amount);
+    let gst_rate_str = row.gst_rate || "18%";
+    let gst_pct = flt(gst_rate_str.replace('%', ''));
+    let gst = round_currency(base * (gst_pct / 100.0));
+    let total = round_currency(base + gst);
+
+    let tax_type = row.tax_type || "Intra-State (CGST + SGST)";
+    let cgst_amount = 0.0, sgst_amount = 0.0, igst_amount = 0.0;
+    if (tax_type.indexOf("Inter-State") !== -1 || tax_type.indexOf("IGST") !== -1) {
+        igst_amount = gst;
+    } else {
+        cgst_amount = round_currency(gst / 2.0);
+        sgst_amount = round_currency(gst - cgst_amount);
+    }
+
+    let tds_rate = 0.0;
+    let tds_sec = row.tds_section || "None / Exempt";
+    if (tds_sec && tds_sec !== "None / Exempt") {
+        const m = tds_sec.match(/\((\d+(?:\.\d+)?)\s*%\)/);
+        if (m) {
+            tds_rate = flt(m[1]);
+        } else if (tds_sec.indexOf("194C") !== -1) {
+            tds_rate = 2.0;
+        } else if (tds_sec.indexOf("194J") !== -1) {
+            tds_rate = 10.0;
+        } else if (tds_sec.indexOf("194Q") !== -1) {
+            tds_rate = 0.1;
+        } else if (tds_sec.indexOf("194I") !== -1) {
+            tds_rate = 10.0;
+        }
+    }
+    let tds = round_currency(base * (tds_rate / 100.0));
+    let advance = flt(row.advance_deducted);
+    let retention = flt(row.retention_hold_amount);
+    let net = Math.max(round_currency(total - advance - tds - retention), 0.0);
+
+    frappe.model.set_value(cdt, cdn, "cgst_amount", cgst_amount);
+    frappe.model.set_value(cdt, cdn, "sgst_amount", sgst_amount);
+    frappe.model.set_value(cdt, cdn, "igst_amount", igst_amount);
+    frappe.model.set_value(cdt, cdn, "gst_amount", gst);
+    frappe.model.set_value(cdt, cdn, "total_invoice_amount", total);
+    frappe.model.set_value(cdt, cdn, "tds_rate", tds_rate);
+    frappe.model.set_value(cdt, cdn, "tds_amount", tds);
+    frappe.model.set_value(cdt, cdn, "amount", net);
+
+    calculate_vendor_totals(frm);
+}
+
 function round_currency(v) {
     return Math.round((v + Number.EPSILON) * 100) / 100;
 }
@@ -1728,6 +1847,92 @@ function formatINR(val) {
         maximumFractionDigits: 2
     });
 }
+
+frappe.ui.form.on("Vendor Invoice Item", {
+    vendor: function(frm, cdt, cdn) {
+        let row = locals[cdt][cdn];
+        if (!row.vendor) return;
+
+        frappe.call({
+            method: "ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.get_vendor_bank_info",
+            args: { vendor: row.vendor },
+            callback: function(r) {
+                if (r && r.message) {
+                    const data = r.message;
+                    frappe.model.set_value(cdt, cdn, "vendor_name", data.vendor_name || row.vendor);
+                    frappe.model.set_value(cdt, cdn, "vendor_gstin", data.vendor_gstin || "");
+                    const ba = data.bank_account || {};
+                    frappe.model.set_value(cdt, cdn, "bank_beneficiary_name", ba.bank_name || data.vendor_name || row.vendor);
+                    frappe.model.set_value(cdt, cdn, "bank_account_number", ba.bank_account_number || "");
+                    frappe.model.set_value(cdt, cdn, "bank_ifsc_code", ba.bank_ifsc_code || "");
+                    frappe.model.set_value(cdt, cdn, "penny_drop_status", ba.penny_drop_status || "VERIFIED");
+                    if (ba.bank_proof_attachment) {
+                        frappe.model.set_value(cdt, cdn, "bank_proof_attachment", ba.bank_proof_attachment);
+                    }
+                    calculate_vendor_totals(frm);
+                }
+            }
+        });
+    },
+
+    po_type: function(frm, cdt, cdn) {
+        let row = locals[cdt][cdn];
+        if (row.po_type === "Without PO") {
+            frappe.model.set_value(cdt, cdn, "purchase_order", "");
+            frappe.model.set_value(cdt, cdn, "po_attachment", "");
+        }
+    },
+
+    purchase_order: function(frm, cdt, cdn) {
+        let row = locals[cdt][cdn];
+        if (!row.purchase_order) return;
+
+        frappe.call({
+            method: "ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.get_purchase_order_details",
+            args: { purchase_order: row.purchase_order },
+            callback: function(r) {
+                if (r && r.message) {
+                    const po = r.message;
+                    if (po.vendor && !row.vendor) {
+                        frappe.model.set_value(cdt, cdn, "vendor", po.vendor);
+                    }
+                    if (flt(po.advance_amount) > 0 && flt(row.advance_deducted) === 0) {
+                        frappe.model.set_value(cdt, cdn, "advance_deducted", po.advance_amount);
+                    }
+                    if (flt(po.base_amount) > 0 && flt(row.base_amount) === 0) {
+                        frappe.model.set_value(cdt, cdn, "base_amount", po.base_amount);
+                    }
+                    calculate_vendor_row_totals(frm, cdt, cdn);
+                }
+            }
+        });
+    },
+
+    base_amount: function(frm, cdt, cdn) {
+        calculate_vendor_row_totals(frm, cdt, cdn);
+    },
+    gst_rate: function(frm, cdt, cdn) {
+        calculate_vendor_row_totals(frm, cdt, cdn);
+    },
+    tax_type: function(frm, cdt, cdn) {
+        calculate_vendor_row_totals(frm, cdt, cdn);
+    },
+    tds_section: function(frm, cdt, cdn) {
+        calculate_vendor_row_totals(frm, cdt, cdn);
+    },
+    advance_deducted: function(frm, cdt, cdn) {
+        calculate_vendor_row_totals(frm, cdt, cdn);
+    },
+    retention_hold_amount: function(frm, cdt, cdn) {
+        calculate_vendor_row_totals(frm, cdt, cdn);
+    },
+    items_add: function(frm) {
+        calculate_vendor_totals(frm);
+    },
+    items_remove: function(frm) {
+        calculate_vendor_totals(frm);
+    }
+});
 
 frappe.ui.form.on("Vendor Milestone Payment Item", {
     disbursed_amount: function(frm, cdt, cdn) {

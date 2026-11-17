@@ -150,6 +150,9 @@ class APDocument(Document):
 
     def _validate_beneficiary_banking(self):
         """Pre-flight validation of bank details."""
+        if (getattr(self, "items", None) and len(self.items) > 0) or (getattr(self, "vendor_lines", None) and len(self.vendor_lines) > 0):
+            return
+
         acc_num = getattr(self, "bank_account_number", None)
         ifsc = getattr(self, "bank_ifsc_code", None)
         is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") in ("Approved for Payment", "Queued in Batch")
