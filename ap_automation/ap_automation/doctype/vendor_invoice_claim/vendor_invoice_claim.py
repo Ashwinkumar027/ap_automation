@@ -87,6 +87,7 @@ class VendorInvoiceClaim(APDocument):
         if has_items:
             self.validate_and_lock_vendor_lines()
             self.calculate_financial_totals()
+            execute_3way_matching(self)
         else:
             self.bind_and_lock_vendor_profile()
             self.validate_intake_route_and_proofs()
@@ -611,9 +612,9 @@ class VendorInvoiceClaim(APDocument):
                 retention = flt(row.retention_hold_amount)
                 total_deductions = round(tds_amt + advance + retention, 2)
 
-                if is_submitting and total_deductions > total_bill:
+                if total_deductions > total_bill:
                     log_and_throw(
-                        f"Row #{idx}: Deductions (TDS INR {tds_amt:,.2f} + Advance INR {advance:,.2f} + Retention INR {retention:,.2f} = INR {total_deductions:,.2f}) exceed Bill Total (INR {total_bill:,.2f}).",
+                        f"Row #{idx}: Deductions (TDS INR {tds_amt:,.2f} + Advance INR {advance:,.2f} + Retention INR {retention:,.2f} = INR {total_deductions:,.2f}) cannot exceed total bill amount (INR {total_bill:,.2f}).",
                         title="Deductions Exceed Bill Total",
                         doc=self
                     )
@@ -654,6 +655,24 @@ class VendorInvoiceClaim(APDocument):
             self.retention_hold_amount = round(tot_ret, 2)
             self.net_payable_amount = round(tot_net, 2)
             self.total_amount = self.net_payable_amount
+
+            # Urgency audit for multi-row intake
+            if getattr(self, "is_urgent", 0) or any(getattr(r, "is_urgent", 0) for r in self.items):
+                self.is_urgent = 1
+                if not getattr(self, "urgency_reason", None) or len(self.urgency_reason.strip()) < 5:
+                    first_r_reason = next((r.urgency_reason for r in self.items if getattr(r, "urgency_reason", None)), None)
+                    if first_r_reason and len(first_r_reason.strip()) >= 5:
+                        self.urgency_reason = first_r_reason
+                    else:
+                        log_and_throw(
+                            "Reason for Urgency is mandatory when marking a payment request as urgent.",
+                            title="Missing Urgency Reason",
+                            doc=self
+                        )
+                if not getattr(self, "urgency_flagged_by", None):
+                    self.urgency_flagged_by = frappe.session.user
+                    self.urgency_flagged_on = now_datetime()
+
             return
 
         base = float(getattr(self, "base_amount", 0.0) or getattr(self, "invoice_amount", 0.0) or getattr(self, "taxable_amount", 0.0) or 0.0)

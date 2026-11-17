@@ -23,22 +23,22 @@ frappe.listview_settings["Vendor Invoice Claim"] = {
             listview.filter_area.clear();
         }, __('Quick Filters'));
 
-        listview.page.add_inner_button(__('🟠 Needs Review'), function () {
+        listview.page.add_inner_button(__('Needs Review'), function () {
             listview.filter_area.clear();
             listview.filter_area.add([['Vendor Invoice Claim', 'status', '=', 'Pending Accounts Review']]);
         }, __('Quick Filters'));
 
-        listview.page.add_inner_button(__('🟢 Approved for Payment'), function () {
+        listview.page.add_inner_button(__('Approved for Payment'), function () {
             listview.filter_area.clear();
             listview.filter_area.add([['Vendor Invoice Claim', 'status', '=', 'Approved for Payment']]);
         }, __('Quick Filters'));
 
-        listview.page.add_inner_button(__('🔴 Contested / Disputed'), function () {
+        listview.page.add_inner_button(__('Contested / Disputed'), function () {
             listview.filter_area.clear();
             listview.filter_area.add([['Vendor Invoice Claim', 'status', '=', 'Disputed']]);
         }, __('Quick Filters'));
 
-        listview.page.add_inner_button(__('💳 Paid (UTR Stamped)'), function () {
+        listview.page.add_inner_button(__('Paid (UTR Stamped)'), function () {
             listview.filter_area.clear();
             listview.filter_area.add([['Vendor Invoice Claim', 'status', '=', 'Paid']]);
         }, __('Quick Filters'));
