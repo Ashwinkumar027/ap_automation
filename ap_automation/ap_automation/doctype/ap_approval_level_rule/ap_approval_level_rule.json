@@ -9,6 +9,7 @@
   "level_number",
   "level_name",
   "designated_approver",
+  "approver_role",
   "allow_delegation",
   "action_type"
  ],
@@ -32,8 +33,14 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Designated Approver (User)",
-   "options": "User",
-   "reqd": 1
+   "options": "User"
+  },
+  {
+   "fieldname": "approver_role",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Approver Role (If User is empty)",
+   "options": "Role"
   },
   {
    "default": "1",

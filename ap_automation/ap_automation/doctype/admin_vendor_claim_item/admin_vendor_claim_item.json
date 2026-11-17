@@ -36,7 +36,9 @@
   "bank_ifsc_code",
   "penny_drop_status",
   "bank_proof_attachment",
-  "remarks"
+  "remarks",
+  "is_urgent",
+  "urgency_reason"
  ],
  "fields": [
   {
@@ -289,6 +291,18 @@
    "in_list_view": 1,
    "label": "Operational Remarks",
    "columns": 2
+  },
+  {
+   "default": "0",
+   "fieldname": "is_urgent",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Urgent"
+  },
+  {
+   "fieldname": "urgency_reason",
+   "fieldtype": "Data",
+   "label": "Urgency Reason"
   }
  ],
  "grid_page_length": 50,

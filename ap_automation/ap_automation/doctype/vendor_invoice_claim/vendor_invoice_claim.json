@@ -59,7 +59,48 @@
   "match_variance_details",
   "tds_section",
   "tds_rate",
-  "tds_amount"
+  "tds_amount",
+  "service_type",
+  "tax_type",
+  "cgst_rate",
+  "cgst_amount",
+  "sgst_rate",
+  "sgst_amount",
+  "igst_rate",
+  "igst_amount",
+  "tds_threshold_warning",
+  "sb_business_approval",
+  "manager_approver",
+  "manager_approved_on",
+  "cb_appr_1",
+  "hod_approver",
+  "hod_approved_on",
+  "cb_appr_2",
+  "director_approver",
+  "director_approved_on",
+  "director_threshold",
+  "sb_accounts_tally",
+  "accounts_l1_verifier",
+  "accounts_l1_verified_on",
+  "accounts_l2_approver",
+  "accounts_l2_approved_on",
+  "cb_tally",
+  "tally_reference",
+  "tally_posted_on",
+  "tally_posted_by",
+  "sec_milestones",
+  "milestone_payments",
+  "total_prior_payments_adjusted",
+  "col_break_retention",
+  "retention_hold_amount",
+  "retention_hold_reason",
+  "gst_released_separately",
+  "gst_withheld_amount",
+  "sec_urgency",
+  "is_urgent",
+  "urgency_reason",
+  "urgency_flagged_by",
+  "urgency_flagged_on"
  ],
  "fields": [
   {
@@ -582,6 +623,84 @@
    "fieldtype": "Link",
    "label": "Payment Releaser (Director)",
    "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_milestones",
+   "fieldtype": "Section Break",
+   "label": "Milestone Advance & Part Payments Reconciliation"
+  },
+  {
+   "fieldname": "milestone_payments",
+   "fieldtype": "Table",
+   "label": "Mapped Prior Advances & Part Payments",
+   "options": "Vendor Milestone Payment Item"
+  },
+  {
+   "default": "0",
+   "fieldname": "total_prior_payments_adjusted",
+   "fieldtype": "Currency",
+   "label": "Total Prior Advances Adjusted (INR)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_retention",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "retention_hold_amount",
+   "fieldtype": "Currency",
+   "label": "Retention Hold Amount (INR)",
+   "description": "Retention amount withheld until final project completion or snag-list handover"
+  },
+  {
+   "fieldname": "retention_hold_reason",
+   "fieldtype": "Small Text",
+   "label": "Retention Hold Reason"
+  },
+  {
+   "default": "0",
+   "fieldname": "gst_released_separately",
+   "fieldtype": "Check",
+   "label": "GST Released Separately"
+  },
+  {
+   "default": "0",
+   "fieldname": "gst_withheld_amount",
+   "fieldtype": "Currency",
+   "label": "GST Withheld Amount (INR)"
+  },
+  {
+   "fieldname": "sec_urgency",
+   "fieldtype": "Section Break",
+   "label": "Priority & Urgency Classification"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_urgent",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Urgent Payment Request"
+  },
+  {
+   "depends_on": "eval:doc.is_urgent==1",
+   "fieldname": "urgency_reason",
+   "fieldtype": "Small Text",
+   "label": "Reason for Urgency",
+   "description": "Mention clear operational justification why this bill requires priority processing."
+  },
+  {
+   "fieldname": "urgency_flagged_by",
+   "fieldtype": "Link",
+   "label": "Urgency Flagged By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "urgency_flagged_on",
+   "fieldtype": "Datetime",
+   "label": "Urgency Flagged On",
    "read_only": 1
   }
  ],

@@ -33,7 +33,9 @@ app_include_css = [
     "/assets/ap_automation/css/ap_automation.css?v=20261113a"
 ]
 
-doctype_js = {}
+doctype_js = {
+    "Bank Account": "public/js/bank_account_workflow.js"
+}
 
 standard_queries = {
     "Employee": "ap_automation.services.team_bonding_wallet_service.get_team_participants_query"

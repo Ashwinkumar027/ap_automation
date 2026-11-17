@@ -65,6 +65,12 @@
   "signatory_signature_hash",
   "sec_terms",
   "terms_and_conditions",
+  "sec_procurement",
+  "procurement_type",
+  "sole_source_justification",
+  "single_quotation_attachment",
+  "comparison_statement_attachment",
+  "quotations",
   "sec_esign",
   "vendor_sign_status",
   "vendor_sign_url",
@@ -74,7 +80,20 @@
   "vendor_signed_timestamp",
   "vendor_signature_image",
   "sec_workflow",
-  "status"
+  "status",
+  "revision_version",
+  "original_po",
+  "previous_po_version",
+  "is_latest_version",
+  "revision_reason",
+  "cancellation_reason",
+  "cancelled_by",
+  "cancelled_on",
+  "rejection_reason",
+  "assistant_manager_reviewer",
+  "assistant_manager_reviewed_on",
+  "manager_reviewer",
+  "manager_reviewed_on"
  ],
  "fields": [
   {
@@ -206,9 +225,8 @@
   },
   {
    "fieldname": "spoc_department",
-   "fieldtype": "Select",
+   "fieldtype": "Data",
    "label": "Department",
-   "options": "Information Technology\nFinance & Accounts\nOperations\nMarketing & Growth\nHuman Resources\nLegal & Compliance\nExecutive Leadership",
    "reqd": 1
   },
   {
@@ -475,7 +493,131 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "PO Status",
-   "options": "Draft\nPending HoD Approval\nAwaiting Vendor E-Signature\nActive PO\nCompleted / Invoiced\nCancelled",
+   "options": "Draft\nPending Assistant Manager Review\nPending Manager Review\nPending Admin Manager Review\nPending HoD Approval\nAwaiting Vendor E-Signature\nActive PO\nCompleted / Invoiced\nSuperseded / Revised\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_procurement",
+   "fieldtype": "Section Break",
+   "label": "12. Vendor Quotations & Quotation Comparison"
+  },
+  {
+   "default": "Multiple Vendors (Competitive Bidding)",
+   "fieldname": "procurement_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Procurement / Sourcing Type",
+   "options": "Multiple Vendors (Competitive Bidding)\nSingle / Sole Source Vendor (Direct Procurement)",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.procurement_type=='Single / Sole Source Vendor (Direct Procurement)'",
+   "fieldname": "sole_source_justification",
+   "fieldtype": "Small Text",
+   "label": "Sole Source Procurement Justification",
+   "description": "State reason why competitive quotations are not applicable (e.g. centralized Airtel corporate SIM cards, OEM proprietary provider)"
+  },
+  {
+   "depends_on": "eval:doc.procurement_type=='Single / Sole Source Vendor (Direct Procurement)'",
+   "fieldname": "single_quotation_attachment",
+   "fieldtype": "Attach",
+   "label": "Single Vendor Quotation File"
+  },
+  {
+   "depends_on": "eval:doc.procurement_type=='Multiple Vendors (Competitive Bidding)'",
+   "fieldname": "comparison_statement_attachment",
+   "fieldtype": "Attach",
+   "label": "Quotation Comparison Statement / CS Sheet"
+  },
+  {
+   "fieldname": "quotations",
+   "fieldtype": "Table",
+   "label": "Vendor Quotations Evaluation",
+   "options": "PO Vendor Quotation Item"
+  },
+  {
+   "default": "0",
+   "fieldname": "revision_version",
+   "fieldtype": "Int",
+   "label": "Revision Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "original_po",
+   "fieldtype": "Link",
+   "label": "Original PO Reference",
+   "options": "AP Purchase Order",
+   "read_only": 1
+  },
+  {
+   "fieldname": "previous_po_version",
+   "fieldtype": "Link",
+   "label": "Preceding PO Version",
+   "options": "AP Purchase Order",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_latest_version",
+   "fieldtype": "Check",
+   "label": "Is Latest Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "revision_reason",
+   "fieldtype": "Small Text",
+   "label": "Revision Reason / Remarks",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancellation_reason",
+   "fieldtype": "Small Text",
+   "label": "Cancellation Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancelled_by",
+   "fieldtype": "Link",
+   "label": "Cancelled By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancelled_on",
+   "fieldtype": "Datetime",
+   "label": "Cancelled On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejection_reason",
+   "fieldtype": "Small Text",
+   "label": "Rejection / Return Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "assistant_manager_reviewer",
+   "fieldtype": "Link",
+   "label": "Assistant Manager Reviewer",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "assistant_manager_reviewed_on",
+   "fieldtype": "Datetime",
+   "label": "Assistant Manager Reviewed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "manager_reviewer",
+   "fieldtype": "Link",
+   "label": "Manager Reviewer",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "manager_reviewed_on",
+   "fieldtype": "Datetime",
+   "label": "Manager Reviewed On",
    "read_only": 1
   }
  ],

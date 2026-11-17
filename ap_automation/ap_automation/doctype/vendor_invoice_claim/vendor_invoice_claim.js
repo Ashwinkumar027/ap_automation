@@ -316,6 +316,28 @@ frappe.ui.form.on("Vendor Invoice Claim", {
                             frm.set_value("advance_deducted", po.advance_amount);
                         }
                         calculate_vendor_totals(frm);
+
+                        // Auto-populate prior milestone advances and part payments
+                        frappe.call({
+                            method: "ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.fetch_po_milestones",
+                            args: { po_name: frm.doc.purchase_order },
+                            callback: function(res) {
+                                if (res && res.message && res.message.length > 0) {
+                                    frm.clear_table("milestone_payments");
+                                    res.message.forEach(m => {
+                                        let row = frm.add_child("milestone_payments");
+                                        row.milestone_type = m.milestone_type;
+                                        row.payment_reference = m.payment_reference;
+                                        row.payment_date = m.payment_date;
+                                        row.disbursed_amount = m.disbursed_amount;
+                                        row.adjusted_amount = m.adjusted_amount;
+                                        row.remarks = m.remarks;
+                                    });
+                                    frm.refresh_field("milestone_payments");
+                                    calculate_vendor_totals(frm);
+                                }
+                            }
+                        });
                     }
                 }
             });
@@ -401,6 +423,18 @@ frappe.ui.form.on("Vendor Invoice Claim", {
 
     tds_section: function(frm) {
         calculate_vendor_totals(frm);
+    },
+
+    retention_hold_amount: function(frm) {
+        calculate_vendor_totals(frm);
+    },
+
+    gst_released_separately: function(frm) {
+        calculate_vendor_totals(frm);
+    },
+
+    is_urgent: function(frm) {
+        frm.toggle_reqd("urgency_reason", Boolean(frm.doc.is_urgent));
     },
 
     toggle_route_fields: function(frm) {
@@ -1643,8 +1677,29 @@ function calculate_vendor_totals(frm) {
             tds_rate = 10.0;
         }
     }
+    let milestone_sum = 0.0;
+    (frm.doc.milestone_payments || []).forEach(row => {
+        milestone_sum += flt(row.adjusted_amount || row.disbursed_amount || 0);
+    });
+
+    let advance = flt(frm.doc.advance_deducted);
+    if (milestone_sum > 0) {
+        advance = milestone_sum;
+        frm.set_value("total_prior_payments_adjusted", milestone_sum);
+        frm.set_value("advance_deducted", milestone_sum);
+    }
+
+    let retention = flt(frm.doc.retention_hold_amount);
+    let gst_withheld = 0.0;
+    if (frm.doc.gst_released_separately) {
+        gst_withheld = gst;
+        frm.set_value("gst_withheld_amount", gst_withheld);
+    } else {
+        frm.set_value("gst_withheld_amount", 0.0);
+    }
+
     let tds = round_currency(base * (tds_rate / 100.0));
-    let net = round_currency(total - advance - tds);
+    let net = Math.max(round_currency(total - advance - tds - retention - gst_withheld), 0.0);
 
     frm.set_value("cgst_rate", cgst_rate);
     frm.set_value("cgst_amount", cgst_amount);
@@ -1673,3 +1728,19 @@ function formatINR(val) {
         maximumFractionDigits: 2
     });
 }
+
+frappe.ui.form.on("Vendor Milestone Payment Item", {
+    disbursed_amount: function(frm, cdt, cdn) {
+        let row = locals[cdt][cdn];
+        if (!row.adjusted_amount) {
+            frappe.model.set_value(cdt, cdn, "adjusted_amount", row.disbursed_amount);
+        }
+        calculate_vendor_totals(frm);
+    },
+    adjusted_amount: function(frm, cdt, cdn) {
+        calculate_vendor_totals(frm);
+    },
+    milestone_payments_remove: function(frm) {
+        calculate_vendor_totals(frm);
+    }
+});
