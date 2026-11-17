@@ -169,3 +169,4 @@ function render_bank_account_approval_actions(frm) {
         }).addClass('btn-danger');
     }
 }
+
