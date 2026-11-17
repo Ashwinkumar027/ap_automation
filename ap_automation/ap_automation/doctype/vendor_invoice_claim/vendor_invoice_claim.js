@@ -252,6 +252,10 @@ frappe.ui.form.on("Vendor Invoice Claim", {
                     const opts = r.message.map(m => m.display_label || m.name);
                     if (!opts.includes("None / Exempt")) opts.unshift("None / Exempt");
                     frm.set_df_property("tds_section", "options", opts.join("\n"));
+                    let child_df = frappe.meta.get_docfield("Vendor Invoice Item", "tds_section", frm.doc.name);
+                    if (child_df) {
+                        child_df.options = opts.join("\n");
+                    }
                 }
             }
         });
@@ -444,30 +448,41 @@ frappe.ui.form.on("Vendor Invoice Claim", {
     },
 
     toggle_route_fields: function(frm) {
-        let has_items = Boolean(frm.doc.items && frm.doc.items.length > 0);
-        if (has_items) {
-            frm.toggle_display("sb_invoice", false);
-            frm.toggle_display("sb_bank", false);
-            frm.toggle_display("cb_po_link", false);
-            frm.toggle_display("purchase_order", false);
-            frm.toggle_display("vendor_po_request", false);
-            frm.toggle_display("email_approval_attachment", false);
-            frm.toggle_reqd("purchase_order", false);
-            frm.toggle_reqd("email_approval_attachment", false);
-            frm.toggle_reqd("tax_invoice_number", false);
-            frm.toggle_reqd("tax_invoice_date", false);
-            frm.toggle_reqd("tax_invoice_attachment", false);
-        } else {
-            frm.toggle_display("sb_invoice", true);
-            frm.toggle_display("sb_bank", true);
-            frm.toggle_display("cb_po_link", true);
-            let is_po = frm.doc.invoice_type === "With Purchase Order";
-            frm.toggle_reqd("purchase_order", is_po);
-            frm.toggle_display("purchase_order", is_po);
-            frm.toggle_display("vendor_po_request", false);
-            frm.toggle_reqd("email_approval_attachment", !is_po);
-            frm.toggle_display("email_approval_attachment", !is_po);
-        }
+        // Hide legacy single-bill input sections so multi-row layout is clean and uncluttered
+        frm.toggle_display("sb_bank", false);
+        frm.toggle_display("sb_attachments", false);
+        frm.toggle_display("cb_po_link", true);
+
+        // Keep Consolidated Financial Summary visible and read-only
+        frm.toggle_display("sb_invoice", true);
+        [
+            "base_amount", "total_invoice_amount", "cgst_amount", "sgst_amount",
+            "igst_amount", "gst_amount", "tds_amount", "advance_deducted",
+            "retention_hold_amount", "net_payable_amount"
+        ].forEach(f => {
+            frm.set_df_property(f, "read_only", 1);
+        });
+
+        // Keep email approval attachment visible and optional
+        frm.toggle_display("email_approval_attachment", true);
+        frm.toggle_reqd("email_approval_attachment", false);
+
+        // Hide legacy single-bill inputs
+        [
+            "vendor", "vendor_gstin", "purchase_order", "vendor_po_request",
+            "tax_invoice_number", "tax_invoice_date", "service_type", "tax_type",
+            "gst_rate", "cgst_rate", "sgst_rate", "igst_rate",
+            "tds_section", "tds_rate", "tds_threshold_warning",
+            "match_status", "match_variance_details",
+            "tax_invoice_attachment",
+            "bank_name", "bank_account_number", "bank_ifsc_code", "bank_proof_attachment"
+        ].forEach(f => {
+            frm.toggle_display(f, false);
+            frm.toggle_reqd(f, false);
+        });
+
+        frm.toggle_reqd("base_amount", false);
+        frm.toggle_reqd("total_invoice_amount", false);
     }
 });
 
@@ -825,14 +840,7 @@ function run_pre_submit_audit(frm) {
             });
         }
 
-        if (frm.doc.invoice_type === "Without PO (Direct Tax Invoice)" && !frm.doc.email_approval_attachment) {
-            errors.push({
-                fieldname: "email_approval_attachment",
-                label: __("Approving Manager Email Proof"),
-                msg: __("For non-PO direct tax invoices, an approving manager's email screenshot or PDF proof is strictly mandatory."),
-                icon: ""
-            });
-        }
+        // Managerial email proof is optional
 
         if (!frm.doc.tax_invoice_attachment) {
             errors.push({
