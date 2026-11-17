@@ -3,9 +3,11 @@
 
 import hashlib
 import json
+import re
 import secrets
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, nowdate, now_datetime, get_url
 
@@ -65,7 +67,58 @@ COMPANY_ADDRESS_REGISTRY = {
     }
 }
 
+
+def resolve_po_workflow_policy(company: str, department: Optional[str] = None):
+    """
+    100% Dynamic: Queries AP Approval Matrix for company & department.
+    1. Checks for active matrix with matching company AND matching department (by ID or department_name).
+    2. If not found, checks for active matrix with matching company and empty department (company default).
+    """
+    if not frappe.db.exists("DocType", "AP Approval Matrix"):
+        return None
+
+    if department:
+        # Direct match on matrix.department
+        m_name = frappe.db.get_value(
+            "AP Approval Matrix",
+            {"company": company, "department": department, "document_lane": "AP Purchase Order", "is_active": 1},
+            "name"
+        )
+        if m_name:
+            return frappe.get_doc("AP Approval Matrix", m_name)
+
+        # Match via Department doctype link (department_name vs name)
+        dept_names = frappe.db.get_all(
+            "Department",
+            filters={"department_name": department},
+            pluck="name"
+        )
+        if dept_names:
+            m_name = frappe.db.get_value(
+                "AP Approval Matrix",
+                {"company": company, "department": ["in", dept_names], "document_lane": "AP Purchase Order", "is_active": 1},
+                "name"
+            )
+            if m_name:
+                return frappe.get_doc("AP Approval Matrix", m_name)
+
+    m_name = frappe.db.get_value(
+        "AP Approval Matrix",
+        {"company": company, "department": ["in", ["", None]], "document_lane": "AP Purchase Order", "is_active": 1},
+        "name"
+    )
+    if m_name:
+        return frappe.get_doc("AP Approval Matrix", m_name)
+
+    return None
+
+
 class APPurchaseOrder(Document):
+    def autoname(self):
+        if getattr(self, "name", None):
+            return
+        from frappe.model.naming import make_autoname
+        self.name = make_autoname("PO-.YYYY.-.MM.-.#####")
     def validate(self):
         """Lifecycle validation hook."""
         self.fetch_entity_master_data()
@@ -74,6 +127,7 @@ class APPurchaseOrder(Document):
         self.calculate_line_items_and_taxes()
         self.calculate_advance_commercials()
         self.ensure_default_terms()
+        self.validate_procurement_quotations()
         self.generate_signatory_hash()
         self.ensure_vendor_esign_token()
 
@@ -133,7 +187,6 @@ class APPurchaseOrder(Document):
         net_taxable = 0.0
         total_gst = 0.0
 
-        # Determine Intra-State vs Inter-State based on GSTIN State codes (first 2 digits)
         comp_state = (getattr(self, "company_gstin", "") or "")[:2].strip()
         vendor_state = (getattr(self, "vendor_gstin", "") or "")[:2].strip()
 
@@ -193,6 +246,23 @@ class APPurchaseOrder(Document):
         if not getattr(self, "terms_and_conditions", None):
             self.terms_and_conditions = DEFAULT_PO_TERMS
 
+    def validate_procurement_quotations(self, is_submitting: bool = False):
+        """Validates quotation requirements based on procurement type upon submission."""
+        if not is_submitting and self.status in ("Draft", "", None):
+            return
+
+        ptype = getattr(self, "procurement_type", None) or "Multiple Vendors (Competitive Bidding)"
+        if ptype == "Single / Sole Source Vendor (Direct Procurement)":
+            if not getattr(self, "sole_source_justification", None) or len(self.sole_source_justification.strip()) < 10:
+                frappe.throw(_("Sole Source Procurement Justification (minimum 10 characters) is mandatory when single vendor is selected."))
+            if not getattr(self, "single_quotation_attachment", None):
+                frappe.throw(_("Single Vendor Quotation File attachment is mandatory for sole source procurement."))
+        elif ptype == "Multiple Vendors (Competitive Bidding)":
+            if not getattr(self, "comparison_statement_attachment", None):
+                frappe.throw(_("Quotation Comparison Statement / CS Sheet attachment is mandatory for competitive bidding."))
+            if not self.get("quotations") or len(self.get("quotations")) == 0:
+                frappe.throw(_("At least one evaluated vendor quotation must be added in the quotations table."))
+
     def generate_signatory_hash(self):
         """Generates digital hash verifying the authorised signatory and PO contents."""
         if not getattr(self, "date_of_issue", None):
@@ -204,7 +274,7 @@ class APPurchaseOrder(Document):
         sign_name = getattr(self, "signatory_name", "Anshul Gupta") or "Anshul Gupta"
         raw = f"PO|{self.name or 'DRAFT'}|{self.company_entity}|{getattr(self, 'vendor', '')}|{flt(self.grand_total):.2f}|{self.date_of_issue}|{sign_name}"
         full_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-        self.signatory_signature_hash = f"SHA256:{full_hash[:4].upper()}-{full_hash[4:8].upper()}-{full_hash[8:12].upper()}-{full_hash[12:16].upper()}" 
+        self.signatory_signature_hash = f"SHA256:{full_hash[:4].upper()}-{full_hash[4:8].upper()}-{full_hash[8:12].upper()}-{full_hash[12:16].upper()}"
 
     def ensure_vendor_esign_token(self):
         """Generates secure token and public signing URL for vendor once, keeping it immutable."""
@@ -223,10 +293,294 @@ class APPurchaseOrder(Document):
         self.vendor_sign_url = f"{base_url}/po-sign?token={self.vendor_sign_token}&po={self.name or 'DRAFT'}"
 
     @frappe.whitelist()
+    def submit_po(self):
+        """
+        Submits PO from Draft into the dynamic multi-tier approval workflow.
+        Zero hardcoded departments: dynamically inspects AP Approval Matrix for department / company policy.
+        """
+        if self.status not in ("Draft", "", None):
+            frappe.throw(_(f"Only Draft Purchase Orders can be submitted for approval. Current status is '{self.status}'."))
+
+        if not self.get("items") or len(self.get("items")) == 0:
+            frappe.throw(_("Cannot submit Purchase Order without line items."))
+
+        for idx, item in enumerate(self.get("items"), 1):
+            if flt(item.qty) <= 0:
+                frappe.throw(_(f"Row #{idx}: Quantity must be greater than zero."))
+            if flt(item.rate) <= 0:
+                frappe.throw(_(f"Row #{idx}: Rate must be greater than zero."))
+
+        if not getattr(self, "vendor_email", None):
+            frappe.throw(_("Vendor Email is mandatory for Purchase Order submission."))
+
+        if not getattr(self, "spoc_email", None) or not getattr(self, "spoc_name", None):
+            frappe.throw(_("SPOC Name and Official Email are mandatory for Purchase Order submission."))
+
+        # Validate procurement requirements
+        self.validate_procurement_quotations(is_submitting=True)
+
+        # Dynamic routing via AP Approval Matrix
+        policy = resolve_po_workflow_policy(self.company_entity, self.spoc_department)
+        target_status = "Pending HoD Approval"
+        next_approver_desc = "Authorised Signatory / Director"
+
+        if policy and policy.get("approval_levels"):
+            levels = policy.get("approval_levels")
+            first_level = levels[0]
+            lvl_name = (first_level.level_name or "").lower()
+            if "assistant" in lvl_name:
+                target_status = "Pending Assistant Manager Review"
+                next_approver_desc = first_level.level_name
+            elif "manager" in lvl_name:
+                target_status = "Pending Admin Manager Review" if "admin" in lvl_name else "Pending Manager Review"
+                next_approver_desc = first_level.level_name
+
+        self.status = target_status
+        self.flags.ignore_permissions = True
+        self.save()
+
+        # Timeline comment in simple English (no emoji)
+        self.add_comment(
+            "Comment",
+            f"Purchase Order submitted for approval by {frappe.session.user}. Status transitioned to {self.status}. Awaiting {next_approver_desc}."
+        )
+
+        try:
+            from ap_automation.services.notification_service import notify_po_stage_transition
+            notify_po_stage_transition(self.name, "Draft", self.status)
+        except Exception as e:
+            frappe.log_error(f"Error dispatching PO submission notification: {e}")
+
+        return {"status": "success", "message": f"Purchase Order #{self.name} submitted. Status: {self.status}."}
+
+    # Backward compatibility alias
+    @frappe.whitelist()
+    def submit_for_hod_approval(self):
+        return self.submit_po()
+
+    @frappe.whitelist()
+    def review_by_assistant_manager(self, comments: Optional[str] = None):
+        """Assistant Manager reviews PO and forwards to Department / Admin Manager."""
+        if self.status != "Pending Assistant Manager Review":
+            frappe.throw(_(f"PO must be in 'Pending Assistant Manager Review'. Current status: '{self.status}'."))
+
+        self.assistant_manager_reviewer = frappe.session.user
+        self.assistant_manager_reviewed_on = now_datetime()
+        
+        # Route to manager stage
+        dept = (getattr(self, "spoc_department", "") or "").lower()
+        if "admin" in dept:
+            self.status = "Pending Admin Manager Review"
+        else:
+            self.status = "Pending Manager Review"
+
+        self.flags.ignore_permissions = True
+        self.save()
+
+        note = f" Comments: {comments}" if comments else ""
+        self.add_comment(
+            "Comment",
+            f"Assistant Manager review completed by {frappe.session.user}. Status transitioned to {self.status}.{note}"
+        )
+
+        try:
+            from ap_automation.services.notification_service import notify_po_stage_transition
+            notify_po_stage_transition(self.name, "Pending Assistant Manager Review", self.status)
+        except Exception as e:
+            frappe.log_error(f"PO Assistant Manager review notification error: {e}")
+
+        return {"status": "success", "message": f"Purchase Order #{self.name} forwarded to Manager.", "po_status": self.status}
+
+    @frappe.whitelist()
+    def review_by_manager(self, comments: Optional[str] = None):
+        """Department / Admin Manager reviews PO and forwards for Director Final Sanction."""
+        if self.status not in ("Pending Admin Manager Review", "Pending Manager Review", "Pending Assistant Manager Review"):
+            frappe.throw(_(f"PO cannot be reviewed by Manager in '{self.status}' status."))
+
+        self.manager_reviewer = frappe.session.user
+        self.manager_reviewed_on = now_datetime()
+        self.status = "Pending HoD Approval"
+        self.flags.ignore_permissions = True
+        self.save()
+
+        note = f" Comments: {comments}" if comments else ""
+        self.add_comment(
+            "Comment",
+            f"Manager approval granted by {frappe.session.user}. Forwarded for Director Final Sanction and Digital Seal.{note}"
+        )
+
+        try:
+            from ap_automation.services.notification_service import notify_po_stage_transition
+            notify_po_stage_transition(self.name, "Pending Manager Review", "Pending HoD Approval")
+        except Exception as e:
+            frappe.log_error(f"PO Manager review notification error: {e}")
+
+        return {"status": "success", "message": f"Purchase Order #{self.name} forwarded for Director Approval.", "po_status": self.status}
+
+    @frappe.whitelist()
+    def return_po(self, remarks: str = "Commercial discrepancy"):
+        """Returns PO to Draft for corrections."""
+        if not remarks or len(remarks.strip()) < 5:
+            frappe.throw(_("Return remarks are required."))
+
+        prev_status = self.status
+        self.status = "Draft"
+        self.rejection_reason = remarks.strip()
+        self.flags.ignore_permissions = True
+        self.save()
+
+        self.add_comment(
+            "Comment",
+            f"Purchase Order returned to Draft by {frappe.session.user}. Reason: {remarks.strip()}"
+        )
+
+        try:
+            from ap_automation.services.notification_service import notify_po_returned
+            notify_po_returned(self.name, remarks.strip())
+        except Exception as e:
+            frappe.log_error(f"PO return notification error: {e}")
+
+        return {"status": "success", "message": f"Purchase Order #{self.name} returned to Draft."}
+
+    # Backward compatibility alias
+    @frappe.whitelist()
+    def reject_by_hod(self, remarks: str = "Commercial discrepancy"):
+        return self.return_po(remarks)
+
+    @frappe.whitelist()
+    def cancel_po(self, reason: str):
+        """Cancels an existing PO with mandatory remarks."""
+        if not reason or len(reason.strip()) < 10:
+            frappe.throw(_("A cancellation reason (minimum 10 characters) is mandatory."))
+
+        if self.status == "Cancelled":
+            frappe.throw(_("Purchase Order is already cancelled."))
+
+        self.status = "Cancelled"
+        self.cancellation_reason = reason.strip()
+        self.cancelled_by = frappe.session.user
+        self.cancelled_on = now_datetime()
+        self.flags.ignore_permissions = True
+        self.save()
+
+        self.add_comment(
+            "Comment",
+            f"Purchase Order cancelled by {frappe.session.user}. Reason: {reason.strip()}"
+        )
+
+        try:
+            from ap_automation.services.notification_service import notify_po_cancelled
+            notify_po_cancelled(self.name, reason.strip())
+        except Exception as e:
+            frappe.log_error(f"PO cancellation notification error: {e}")
+
+        return {"status": "success", "message": f"Purchase Order #{self.name} cancelled successfully."}
+
+    @frappe.whitelist()
+    def revise_po(self, reason: str) -> Dict[str, Any]:
+        """
+        Creates a new version clone of an existing PO (e.g. PO-2026-11-00001 -> PO-2026-11-00001-R1).
+        Marks the previous PO as 'Superseded / Revised' and routes the new PO for re-approval.
+        """
+        if not reason or len(reason.strip()) < 10:
+            frappe.throw(_("A revision reason (minimum 10 characters) is mandatory."))
+
+        if self.status in ("Draft", "Cancelled", "Superseded / Revised"):
+            frappe.throw(_(f"Purchase Order in '{self.status}' status cannot be revised."))
+
+        # Determine revision suffix
+        base_name = self.original_po or self.name
+        match = re.search(r"-R(\d+)$", self.name)
+        if match:
+            rev_num = int(match.group(1)) + 1
+            new_po_name = re.sub(r"-R\d+$", f"-R{rev_num}", self.name)
+        else:
+            rev_num = 1
+            new_po_name = f"{self.name}-R{rev_num}"
+
+        # Clone document
+        new_po = frappe.new_doc("AP Purchase Order")
+        copy_fields = [
+            "company_entity", "vendor", "vendor_name", "vendor_registered_address",
+            "vendor_gstin", "msme_category", "vendor_contact_person", "vendor_email",
+            "vendor_mobile", "spoc_user", "spoc_name", "spoc_department", "spoc_email",
+            "spoc_mobile", "service_type", "default_uom", "is_subscription",
+            "subscription_start_date", "subscription_end_date", "auto_renewal_alert",
+            "payment_terms", "advance_percentage", "terms_and_conditions",
+            "procurement_type", "sole_source_justification", "single_quotation_attachment",
+            "comparison_statement_attachment"
+        ]
+        for f in copy_fields:
+            if hasattr(self, f):
+                setattr(new_po, f, getattr(self, f))
+
+        # Copy line items
+        for it in self.get("items", []):
+            new_po.append("items", {
+                "item_name": it.item_name,
+                "description": it.description,
+                "hsn_sac_code": it.hsn_sac_code,
+                "uom": it.uom,
+                "qty": it.qty,
+                "rate": it.rate,
+                "discount_amount": it.discount_amount,
+                "gst_rate": it.gst_rate
+            })
+
+        # Copy quotations
+        for q in self.get("quotations", []):
+            new_po.append("quotations", {
+                "vendor_name": q.vendor_name,
+                "quotation_ref": q.quotation_ref,
+                "quotation_date": q.quotation_date,
+                "quoted_amount": q.quoted_amount,
+                "quotation_file": q.quotation_file,
+                "is_selected": q.is_selected,
+                "selection_justification": q.selection_justification
+            })
+
+        new_po.name = new_po_name
+        new_po.revision_version = rev_num
+        new_po.original_po = base_name
+        new_po.previous_po_version = self.name
+        new_po.is_latest_version = 1
+        new_po.revision_reason = reason.strip()
+        new_po.status = "Draft"
+        new_po.insert(set_name=new_po_name, ignore_permissions=True)
+
+        # Mark current PO as Superseded
+        self.status = "Superseded / Revised"
+        self.is_latest_version = 0
+        self.flags.ignore_permissions = True
+        self.save()
+
+        # Cross-linked audit comments
+        self.add_comment(
+            "Comment",
+            f"This Purchase Order has been superseded and revised into new version {new_po.name}. Reason: {reason.strip()}"
+        )
+        new_po.add_comment(
+            "Comment",
+            f"Revision version created from preceding PO {self.name}. Reason: {reason.strip()}"
+        )
+
+        try:
+            from ap_automation.services.notification_service import notify_po_revised
+            notify_po_revised(self.name, new_po.name, reason.strip())
+        except Exception as e:
+            frappe.log_error(f"PO revision notification error: {e}")
+
+        return {
+            "status": "success",
+            "message": f"Purchase Order revised successfully into version #{new_po.name}.",
+            "new_po_name": new_po.name
+        }
+
+    @frappe.whitelist()
     def send_po_to_vendor_for_esign(self):
         """Sends the generated PO and E-Sign token link to the vendor via email."""
         if not getattr(self, "vendor_email", None):
-            frappe.throw("Vendor Email is required to send Purchase Order for digital signature.")
+            frappe.throw(_("Vendor Email is required to send Purchase Order for digital signature."))
 
         self.vendor_sign_status = "Sent to Vendor"
         self.save()
@@ -237,7 +591,7 @@ class APPurchaseOrder(Document):
         <p>Please find enclosed Purchase Order <strong>#{self.name}</strong> for <strong>₹{self.grand_total:,.2f}</strong> issued by <strong>{self.company_entity}</strong>.</p>
         <p><strong>Department SPOC:</strong> {self.spoc_name} ({self.spoc_email})</p>
         <p>Please review the details and sign digitally using the secure link below:</p>
-        <p><a href="{self.vendor_sign_url}" style="background-color: #1B365D; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">Review & Sign Purchase Order →</a></p>
+        <p><a href="{self.vendor_sign_url}" style="background-color: #1B365D; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">Review & Sign Purchase Order &rarr;</a></p>
         <p>Regards,<br>{getattr(self, 'signatory_name', 'Anshul Gupta')}<br>{getattr(self, 'signatory_designation', 'Director')}<br>{self.company_entity}</p>
         """
 
@@ -251,8 +605,6 @@ class APPurchaseOrder(Document):
             )
         except Exception as e:
             frappe.log_error(f"PO E-Sign email dispatch notification: {e}")
-
-        frappe.msgprint(f"✅ Purchase Order #{self.name} successfully dispatched to Vendor ({self.vendor_email}) for digital signature.")
 
     @frappe.whitelist()
     def record_vendor_esign(self, signer_name: str, signer_ip: str, signature_data: str = None):
@@ -285,98 +637,44 @@ class APPurchaseOrder(Document):
             frappe.log_error(f"PO rejection notification error: {e}")
         return {"status": "success", "message": "Purchase Order marked as rejected by vendor."}
 
-    @frappe.whitelist()
-    def submit_for_hod_approval(self):
-        """Transitions PO from Draft to Pending HoD Approval after rigorous validation."""
-        if self.status not in ("Draft", "", None):
-            frappe.throw(f"Only Draft Purchase Orders can be submitted for HoD approval. Current status is '{self.status}'.")
-
-        if not self.get("items") or len(self.get("items")) == 0:
-            frappe.throw("Cannot submit Purchase Order without line items.")
-
-        for idx, item in enumerate(self.get("items"), 1):
-            if flt(item.qty) <= 0:
-                frappe.throw(f"Row #{idx}: Quantity must be greater than zero.")
-            if flt(item.rate) <= 0:
-                frappe.throw(f"Row #{idx}: Rate must be greater than zero.")
-
-        if not getattr(self, "vendor_email", None):
-            frappe.throw("Vendor Email is mandatory for Purchase Order submission.")
-
-        if not getattr(self, "spoc_email", None) or not getattr(self, "spoc_name", None):
-            frappe.throw("SPOC Name and Official Email are mandatory for Purchase Order submission.")
-
-        # Ensure Authorised Signatory is specified
-        if not getattr(self, "authorised_signatory", None) and not getattr(self, "signatory_name", None):
-            frappe.throw("Authorised Signatory must be selected before submitting for approval.")
-
-        self.status = "Pending HoD Approval"
-        self.save(ignore_permissions=True)
-
-        # Add timeline audit comment
-        self.add_comment(
-            "Comment",
-            f"🚀 <b>PO Submitted for HoD / Director Approval</b> by <b>{frappe.session.user}</b>.<br>"
-            f"Awaiting review and digital signature by <b>{self.signatory_name or self.authorised_signatory}</b>."
-        )
-
-        # Dispatch HoD notification and In-Desk Notification Log
-        try:
-            from ap_automation.services.notification_service import notify_hod_for_po_approval
-            notify_hod_for_po_approval(self.name)
-        except Exception as e:
-            frappe.log_error(f"Error dispatching HoD notification: {e}")
-
-        return {"status": "success", "message": f"Purchase Order #{self.name} submitted for HoD / Director Approval."}
-
-    @frappe.whitelist()
-    def reject_by_hod(self, remarks: str = "Commercial discrepancy"):
-        """Allows HoD / Signatory / Director to return PO to Draft with specific remarks."""
-        current_user = frappe.session.user
-        roles = frappe.get_roles(current_user)
-        is_admin = "System Manager" in roles or current_user == "Administrator"
-        is_director = any(r in roles for r in ["AP Director", "Director", "Accounts Director"])
-        is_signatory = (getattr(self, "authorised_signatory", None) and self.authorised_signatory == current_user)
-
-        if not (is_admin or is_director or is_signatory):
-            frappe.throw("Only the Authorised Signatory, Director, or System Manager can return this Purchase Order.")
-
-        if self.status != "Pending HoD Approval":
-            frappe.throw(f"Only Purchase Orders in 'Pending HoD Approval' can be returned. Current status is '{self.status}'.")
-
-        self.status = "Draft"
-        self.save(ignore_permissions=True)
-
-        # Add timeline comment
-        self.add_comment(
-            "Comment",
-            f"❌ <b>Returned to Draft by HoD / Signatory</b> ({current_user}).<br>"
-            f"Remarks: <span style='color: #dc2626;'>{remarks}</span>"
-        )
-
-        # Notify SPOC
-        try:
-            from ap_automation.services.notification_service import notify_spoc_po_rejected_by_hod
-            notify_spoc_po_rejected_by_hod(self.name, remarks)
-        except Exception as e:
-            frappe.log_error(f"Error dispatching PO return notification: {e}")
-
-        return {"status": "success", "message": f"Purchase Order #{self.name} returned to Draft."}
-
 
 @frappe.whitelist()
 def submit_for_hod_approval(po_name: str):
-    """Module-level whitelisted API to submit PO for HoD approval."""
+    """Module-level whitelisted API to submit PO for approval."""
     if not po_name:
-        frappe.throw("PO Name is required.")
+        frappe.throw(_("PO Name is required."))
     doc = frappe.get_doc("AP Purchase Order", po_name)
-    return doc.submit_for_hod_approval()
+    return doc.submit_po()
 
 
 @frappe.whitelist()
 def reject_by_hod(po_name: str, remarks: str = "Commercial discrepancy"):
-    """Module-level whitelisted API to return PO from HoD review."""
+    """Module-level whitelisted API to return PO from review."""
     if not po_name:
-        frappe.throw("PO Name is required.")
+        frappe.throw(_("PO Name is required."))
     doc = frappe.get_doc("AP Purchase Order", po_name)
-    return doc.reject_by_hod(remarks)
+    return doc.return_po(remarks)
+
+
+@frappe.whitelist()
+def review_by_assistant_manager(po_name: str, comments: Optional[str] = None):
+    doc = frappe.get_doc("AP Purchase Order", po_name)
+    return doc.review_by_assistant_manager(comments)
+
+
+@frappe.whitelist()
+def review_by_manager(po_name: str, comments: Optional[str] = None):
+    doc = frappe.get_doc("AP Purchase Order", po_name)
+    return doc.review_by_manager(comments)
+
+
+@frappe.whitelist()
+def cancel_po(po_name: str, reason: str):
+    doc = frappe.get_doc("AP Purchase Order", po_name)
+    return doc.cancel_po(reason)
+
+
+@frappe.whitelist()
+def revise_po(po_name: str, reason: str):
+    doc = frappe.get_doc("AP Purchase Order", po_name)
+    return doc.revise_po(reason)

@@ -195,11 +195,13 @@ def apply_tds_to_invoice(claim_doc) -> None:
     claim_doc.tds_rate = tds_info["rate"]
     claim_doc.tds_amount = tds_info["tds_amount"]
 
-    # Statutory Net Payable Formula: Total Invoice (Base + GST) - Prior Advance - TDS Deducted
+    # Statutory Net Payable Formula: Total Invoice (Base + GST) - Prior Advance - TDS Deducted - Retention Hold - GST Withheld
     total = float(getattr(claim_doc, "total_invoice_amount", 0.0) or 0.0)
     advance = float(getattr(claim_doc, "advance_deducted", 0.0) or 0.0)
     tds = float(claim_doc.tds_amount or 0.0)
+    retention = float(getattr(claim_doc, "retention_hold_amount", 0.0) or 0.0)
+    gst_withheld = float(getattr(claim_doc, "gst_withheld_amount", 0.0) or 0.0)
 
-    net = round(max(total - advance - tds, 0.0), 2)
+    net = round(max(total - advance - tds - retention - gst_withheld, 0.0), 2)
     claim_doc.net_payable_amount = net
     claim_doc.total_amount = net

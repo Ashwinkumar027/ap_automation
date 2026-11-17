@@ -73,17 +73,17 @@ const pos = ref([
 onMounted(async () => {
   try {
     const list = await frappeGetDocList('AP Purchase Order', {
-      fields: ['name', 'vendor', 'po_date', 'total_amount', 'status'],
-      limit: 20,
+      fields: ['name', 'vendor', 'vendor_name', 'date_of_issue', 'creation', 'grand_total', 'status'],
+      limit: 50,
     });
     if (list && list.length) {
       pos.value = list.map(r => ({
         po: r.name,
-        vendor: r.vendor || 'Vendor',
-        date: formatDate(r.po_date),
-        amount: Number(r.total_amount || 0),
+        vendor: r.vendor_name || r.vendor || 'Vendor',
+        date: formatDate(r.date_of_issue || r.creation),
+        amount: Number(r.grand_total || 0),
         grn: 100,
-        status: r.status || 'Approved / Issued',
+        status: r.status || 'Draft',
       }));
     }
   } catch (err) {

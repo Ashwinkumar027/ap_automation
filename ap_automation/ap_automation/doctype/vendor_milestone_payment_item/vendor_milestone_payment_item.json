@@ -1,0 +1,89 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-11-17 13:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "milestone_type",
+  "payment_reference",
+  "payment_date",
+  "disbursed_amount",
+  "adjusted_amount",
+  "advance_request",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "default": "Milestone / Part Payment",
+   "fieldname": "milestone_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Milestone Type",
+   "options": "Mobilization Advance\nMilestone / Part Payment\nProgress Billing\nGST Tranche\nSecurity Hold\nOther Advance",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "payment_reference",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Disbursal Ref / UTR / Batch",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "payment_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Payment Date"
+  },
+  {
+   "columns": 2,
+   "fieldname": "disbursed_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Disbursed Amount (INR)",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "adjusted_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Adjusted Against Invoice (INR)",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "advance_request",
+   "fieldtype": "Link",
+   "label": "Linked Advance Request",
+   "options": "Vendor PO Request"
+  },
+  {
+   "columns": 2,
+   "fieldname": "remarks",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Remarks"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-17 13:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AP Automation",
+ "name": "Vendor Milestone Payment Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

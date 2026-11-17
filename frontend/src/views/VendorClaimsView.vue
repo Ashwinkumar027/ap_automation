@@ -317,7 +317,7 @@ const vendorList = computed(() => {
 onMounted(async () => {
   try {
     const records = await frappeGetDocList('Vendor Invoice Claim', {
-      fields: ['name', 'invoice_number', 'supplier', 'company', 'invoice_date', 'total_invoice_amount', 'purchase_order', 'status', 'workflow_state'],
+      fields: ['name', 'tax_invoice_number', 'vendor', 'vendor_name', 'company', 'tax_invoice_date', 'total_invoice_amount', 'purchase_order', 'status', 'workflow_state'],
       limit: 100,
     });
     if (records && records.length) {
@@ -327,14 +327,14 @@ onMounted(async () => {
         else if (r.status === 'Admin L2 Approved' || r.status === 'Accounts Audited') level = 2;
         return {
           id: r.name,
-          invoice: r.invoice_number || r.name,
-          vendor: r.supplier || 'Vendor',
+          invoice: r.tax_invoice_number || r.name,
+          vendor: r.vendor_name || r.vendor || 'Vendor',
           type: 'Vendor Invoice',
           company: r.company || companyList.value[0],
-          date: formatDate(r.invoice_date),
+          date: formatDate(r.tax_invoice_date),
           amount: Number(r.total_invoice_amount || 0),
           po: r.purchase_order || '',
-          status: r.status === 'Paid' ? 'Paid' : r.status === 'Approved' ? 'Approved' : r.status === 'Disputed' ? 'Disputed' : 'Pending',
+          status: r.status || 'Draft',
           level,
         };
       });

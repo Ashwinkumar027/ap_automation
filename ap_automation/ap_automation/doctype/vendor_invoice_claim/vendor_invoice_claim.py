@@ -15,6 +15,7 @@ Enforces:
 """
 from typing import Dict, Any, List, Optional, Union, Tuple
 import frappe
+from frappe.utils import now_datetime, flt, nowdate
 from ap_automation.controllers.ap_document import APDocument
 from ap_automation.exceptions import APValidationError, APSecurityError
 from ap_automation.services.duplicate_engine import register_spend_fingerprint, release_spend_fingerprint
@@ -91,6 +92,9 @@ class VendorInvoiceClaim(APDocument):
 
         # Apply Statutory Indian TDS
         apply_tds_to_invoice(self)
+
+        # Re-verify and finalize all financial totals and deductions
+        self.calculate_financial_totals()
 
         # Map payee and invoice fields for APDocument base spend hash and banking dispatch
         self.payee_name = getattr(self, "vendor_name", "") or getattr(self, "vendor", "")
@@ -203,16 +207,19 @@ class VendorInvoiceClaim(APDocument):
             self.bank_proof_attachment = bank_acc.get("bank_proof_attachment", "")
 
     def _fetch_supplier_bank_account(self, supplier_name: str) -> Dict[str, Any]:
-        """Looks up active Bank Account linked to Supplier in tabBank Account."""
+        """Looks up active Bank Account linked to Supplier in tabBank Account with approval enforcement."""
         has_pd = frappe.db.has_column("Bank Account", "penny_drop_status")
         pd_select = ", ba.penny_drop_status" if has_pd else ""
         has_bp = frappe.db.has_column("Bank Account", "bank_proof_attachment")
         bp_select = ", ba.bank_proof_attachment" if has_bp else ""
+        has_status = frappe.db.has_column("Bank Account", "approval_status")
+        status_filter = "AND (ba.approval_status = 'Approved / Active' OR ba.approval_status IS NULL OR ba.approval_status = '')" if has_status else ""
+
         accs = frappe.db.sql(
             f"""
             SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code{pd_select}{bp_select}
             FROM `tabBank Account` ba
-            WHERE ba.party_type = 'Supplier' AND ba.party = %s
+            WHERE ba.party_type = 'Supplier' AND ba.party = %s {status_filter}
             ORDER BY ba.is_default DESC, ba.creation DESC
             LIMIT 1
             """,
@@ -228,6 +235,23 @@ class VendorInvoiceClaim(APDocument):
                 "penny_drop_status": accs[0].get("penny_drop_status") or "VERIFIED",
                 "bank_proof_attachment": accs[0].get("bank_proof_attachment") or ""
             }
+
+        # If no approved account found, check if an account is pending approval
+        if has_status:
+            pending_acc = frappe.db.get_value(
+                "Bank Account",
+                {"party_type": "Supplier", "party": supplier_name},
+                ["name", "approval_status"],
+                as_dict=True
+            )
+            if pending_acc and pending_acc.approval_status not in ("Approved / Active", "", None):
+                log_and_throw(
+                    f"Vendor bank account '{pending_acc.name}' is currently in '{pending_acc.approval_status}' status. "
+                    f"Vendor bank account details must be approved through the governance workflow before payments can be processed.",
+                    title="Vendor Bank Account Approval Pending",
+                    doc=self
+                )
+
         return {}
 
     def validate_intake_route_and_proofs(self):
@@ -292,10 +316,35 @@ class VendorInvoiceClaim(APDocument):
 
         gst = round(base * (rate_val / 100.0), 2)
         total = round(base + gst, 2)
+
+        # Milestone advances reconciliation
+        if self.get("milestone_payments") and len(self.get("milestone_payments")) > 0:
+            total_milestone = sum(flt(m.adjusted_amount) for m in self.get("milestone_payments"))
+            self.total_prior_payments_adjusted = round(total_milestone, 2)
+            self.advance_deducted = round(total_milestone, 2)
+        else:
+            self.total_prior_payments_adjusted = float(getattr(self, "advance_deducted", 0.0) or 0.0)
+
         advance = float(getattr(self, "advance_deducted", 0.0) or 0.0)
+        retention = float(getattr(self, "retention_hold_amount", 0.0) or 0.0)
+        gst_withheld = float(getattr(self, "gst_withheld_amount", 0.0) or 0.0)
 
         if advance < 0:
             log_and_throw("Advance Deducted cannot be negative.", title="Negative Advance Amount", doc=self)
+
+        if retention < 0:
+            log_and_throw("Retention Hold Amount cannot be negative.", title="Negative Retention Amount", doc=self)
+
+        if retention > 0 and (not getattr(self, "retention_hold_reason", None) or len(self.retention_hold_reason.strip()) < 5):
+            log_and_throw("Retention Hold Reason is mandatory when retention hold amount is specified.", title="Missing Retention Reason", doc=self)
+
+        # Urgency validation
+        if getattr(self, "is_urgent", 0):
+            if not getattr(self, "urgency_reason", None) or len(self.urgency_reason.strip()) < 5:
+                log_and_throw("Reason for Urgency is mandatory when marking a payment request as urgent.", title="Missing Urgency Reason", doc=self)
+            if not getattr(self, "urgency_flagged_by", None):
+                self.urgency_flagged_by = frappe.session.user
+                self.urgency_flagged_on = now_datetime()
 
         if advance > total:
             log_and_throw(
@@ -351,20 +400,69 @@ class VendorInvoiceClaim(APDocument):
             self.tds_amount = getattr(self, "tds_amount", 0.0) or 0.0
 
         tds = float(getattr(self, "tds_amount", 0.0) or 0.0)
-        total_deductions = round(advance + tds, 2)
+        total_deductions = round(advance + tds + retention + gst_withheld, 2)
         if is_submitting and total_deductions > total:
             log_and_throw(
-                f"Total Deductions Exceed Invoice Total: Prior Advance Deducted (INR {advance:,.2f}) + "
-                f"Statutory TDS Withholding (INR {tds:,.2f}) = INR {total_deductions:,.2f}, which exceeds "
-                f"Total Invoice Amount (INR {total:,.2f}). Net payable cannot be negative. "
-                f"Please adjust Advance Deducted to at most INR {round(max(total - tds, 0.0), 2):,.2f}.",
+                f"Total Deductions Exceed Invoice Total: Prior Advances (INR {advance:,.2f}) + "
+                f"TDS (INR {tds:,.2f}) + Retention (INR {retention:,.2f}) + GST Withheld (INR {gst_withheld:,.2f}) = "
+                f"INR {total_deductions:,.2f}, which exceeds Invoice Total (INR {total:,.2f}). Net payable cannot be negative. "
+                f"Please adjust deductions so total deductions do not exceed invoice total.",
                 title="Deductions Exceed Invoice Amount",
                 doc=self
             )
 
-        net = round(max(total - advance - tds, 0.0), 2)
+        net = round(max(total - advance - tds - retention - gst_withheld, 0.0), 2)
         self.net_payable_amount = net
         self.total_amount = net
+
+
+@frappe.whitelist()
+def fetch_po_milestones(po_name: str) -> List[Dict[str, Any]]:
+    """
+    Fetches all disbursed and approved advance/milestone payments recorded against an AP Purchase Order.
+    Used to auto-populate milestone_payments child table on Vendor Invoice Claim.
+    """
+    if not po_name:
+        return []
+
+    results = []
+    # 1. Look up Vendor PO Request records linked to this PO
+    adv_requests = frappe.get_all(
+        "Vendor PO Request",
+        filters={"purchase_order": po_name, "status": ["in", ["Disbursed", "Approved"]]},
+        fields=["name", "advance_percentage", "requested_advance_amount", "justification", "status", "creation"]
+    )
+    for adv in adv_requests:
+        adv_amt = flt(adv.requested_advance_amount)
+        pct = flt(adv.advance_percentage)
+        m_type = "Mobilization Advance" if pct >= 50 else "Milestone / Part Payment"
+        pdate = adv.creation.strftime("%Y-%m-%d") if hasattr(adv.creation, "strftime") else str(adv.creation)[:10]
+        results.append({
+            "milestone_type": m_type,
+            "payment_reference": f"ADV-{adv.name}",
+            "payment_date": pdate,
+            "disbursed_amount": adv_amt,
+            "adjusted_amount": adv_amt,
+            "advance_request": adv.name,
+            "remarks": f"Advance request {adv.name} ({pct}% of PO)"
+        })
+
+    # 2. Check if the PO itself has an advance_amount recorded
+    if not results and frappe.db.exists("AP Purchase Order", po_name):
+        po = frappe.get_doc("AP Purchase Order", po_name)
+        adv_val = flt(po.advance_amount)
+        if adv_val > 0:
+            results.append({
+                "milestone_type": "Mobilization Advance" if flt(po.advance_percentage) >= 50 else "Milestone / Part Payment",
+                "payment_reference": f"PO-ADV-{po.name}",
+                "payment_date": po.date_of_issue or str(po.creation)[:10],
+                "disbursed_amount": adv_val,
+                "adjusted_amount": adv_val,
+                "advance_request": None,
+                "remarks": f"PO Mobilization Advance ({po.advance_percentage or 'Direct'})"
+            })
+
+    return results
 
 
 

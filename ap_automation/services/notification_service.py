@@ -2920,3 +2920,361 @@ def notify_clarification_resolved(query_name: str) -> None:
         alert_type="green",
         is_thread_reply=True
     )
+
+
+# --------------------------------------------------------------------------------------
+# VENDOR WORKFLOW & BANK ACCOUNT NOTIFICATIONS (SIMPLE ENGLISH, NO EMOJIS)
+# --------------------------------------------------------------------------------------
+
+def notify_po_stage_transition(po_name: str, from_stage: str, to_stage: str, approver_user: Optional[str] = None) -> None:
+    """Dispatches notification when a Purchase Order transitions between review/approval stages."""
+    if not frappe.db.exists("AP Purchase Order", po_name):
+        return
+
+    po = frappe.get_doc("AP Purchase Order", po_name)
+    company = po.company_entity
+    vendor_name = po.vendor_name
+    grand_total = float(po.grand_total or 0.0)
+    spoc_name = po.spoc_name or "Department SPOC"
+
+    recipients = []
+    if approver_user:
+        resolved = _resolve_email(approver_user)
+        if resolved:
+            recipients.append(resolved)
+
+    if not recipients:
+        # Fallback to signatory or default
+        sig = _resolve_email(getattr(po, "authorised_signatory", None))
+        if sig:
+            recipients.append(sig)
+        else:
+            recipients.append("admin@example.com")
+
+    cc = []
+    spoc_em = _resolve_email(po.spoc_email) or _resolve_email(po.owner)
+    if spoc_em and spoc_em not in recipients:
+        cc.append(spoc_em)
+
+    base_url = frappe.utils.get_url()
+    desk_url = f"{base_url}/desk/ap-purchase-order/{po.name}"
+    subject = f"Review Required: Purchase Order #{po.name} - {to_stage} ({vendor_name})"
+
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #1e3a8a; font-weight: 700;">Purchase Order Workflow</span>
+            <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 18px;">Purchase Order #{po.name} Awaiting Review</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Purchase Order <b>#{po.name}</b> for <b>{vendor_name}</b> has been moved from {from_stage} to <b>{to_stage}</b> and requires your review.
+        </p>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; margin: 16px 0;">
+            <div style="font-size: 13px; color: #475569;">Company: <b>{company}</b></div>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">Department: <b>{po.spoc_department or 'General'}</b></div>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">Vendor: <b>{vendor_name}</b></div>
+            <div style="font-size: 14px; color: #1e3a8a; font-weight: 700; margin-top: 4px;">Total Value: INR {grand_total:,.2f}</div>
+        </div>
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="{desk_url}" style="background: #1e3a8a; color: #ffffff; padding: 10px 20px; border-radius: 4px; text-decoration: none; font-weight: 600; font-size: 13px; display: inline-block;">
+                Open Purchase Order in Desk
+            </a>
+        </div>
+    </div>
+    """
+
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        cc=cc,
+        subject=subject,
+        message_html=html,
+        reference_doctype="AP Purchase Order",
+        reference_name=po.name,
+        alert_type="blue"
+    )
+
+
+def notify_po_returned(po_name: str, remarks: str) -> None:
+    """Dispatches notification when a Purchase Order is returned to Draft or previous stage."""
+    if not frappe.db.exists("AP Purchase Order", po_name):
+        return
+
+    po = frappe.get_doc("AP Purchase Order", po_name)
+    spoc_em = _resolve_email(po.spoc_email) or _resolve_email(po.owner)
+    recipients = [spoc_em] if spoc_em else ["admin@example.com"]
+
+    base_url = frappe.utils.get_url()
+    desk_url = f"{base_url}/desk/ap-purchase-order/{po.name}"
+    subject = f"Action Required: Purchase Order #{po.name} Returned ({po.vendor_name})"
+
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #b45309; padding-bottom: 10px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #b45309; font-weight: 700;">Purchase Order Workflow</span>
+            <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 18px;">Purchase Order #{po.name} Returned</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Purchase Order <b>#{po.name}</b> for <b>{po.vendor_name}</b> has been returned for revisions by <b>{frappe.session.user}</b>.
+        </p>
+        <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 6px; padding: 12px; margin: 16px 0; color: #92400e; font-size: 13px;">
+            <b>Return Remarks:</b> {frappe.utils.escape_html(remarks)}
+        </div>
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="{desk_url}" style="background: #b45309; color: #ffffff; padding: 10px 20px; border-radius: 4px; text-decoration: none; font-weight: 600; font-size: 13px; display: inline-block;">
+                Review Remarks and Update in Desk
+            </a>
+        </div>
+    </div>
+    """
+
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="AP Purchase Order",
+        reference_name=po.name,
+        alert_type="yellow"
+    )
+
+
+def notify_po_cancelled(po_name: str, reason: str) -> None:
+    """Dispatches notification when a Purchase Order is cancelled."""
+    if not frappe.db.exists("AP Purchase Order", po_name):
+        return
+
+    po = frappe.get_doc("AP Purchase Order", po_name)
+    recipients = []
+    spoc_em = _resolve_email(po.spoc_email) or _resolve_email(po.owner)
+    if spoc_em:
+        recipients.append(spoc_em)
+    sig_em = _resolve_email(getattr(po, "authorised_signatory", None))
+    if sig_em and sig_em not in recipients:
+        recipients.append(sig_em)
+    if not recipients:
+        recipients.append("admin@example.com")
+
+    base_url = frappe.utils.get_url()
+    desk_url = f"{base_url}/desk/ap-purchase-order/{po.name}"
+    subject = f"Notice: Purchase Order #{po.name} Cancelled ({po.vendor_name})"
+
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #b91c1c; padding-bottom: 10px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #b91c1c; font-weight: 700;">Purchase Order Workflow</span>
+            <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 18px;">Purchase Order #{po.name} Cancelled</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Purchase Order <b>#{po.name}</b> for <b>{po.vendor_name}</b> has been cancelled by <b>{frappe.session.user}</b>.
+        </p>
+        <div style="background: #fef2f2; border: 1px solid #fee2e2; border-radius: 6px; padding: 12px; margin: 16px 0; color: #991b1b; font-size: 13px;">
+            <b>Cancellation Reason:</b> {frappe.utils.escape_html(reason)}
+        </div>
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="{desk_url}" style="background: #475569; color: #ffffff; padding: 10px 20px; border-radius: 4px; text-decoration: none; font-weight: 600; font-size: 13px; display: inline-block;">
+                View Purchase Order in Desk
+            </a>
+        </div>
+    </div>
+    """
+
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="AP Purchase Order",
+        reference_name=po.name,
+        alert_type="red"
+    )
+
+
+def notify_po_revised(po_name: str, new_po_name: str, reason: str) -> None:
+    """Dispatches notification when a Purchase Order is revised into a new version."""
+    if not frappe.db.exists("AP Purchase Order", po_name):
+        return
+
+    po = frappe.get_doc("AP Purchase Order", po_name)
+    recipients = []
+    spoc_em = _resolve_email(po.spoc_email) or _resolve_email(po.owner)
+    if spoc_em:
+        recipients.append(spoc_em)
+    sig_em = _resolve_email(getattr(po, "authorised_signatory", None))
+    if sig_em and sig_em not in recipients:
+        recipients.append(sig_em)
+    if not recipients:
+        recipients.append("admin@example.com")
+
+    base_url = frappe.utils.get_url()
+    desk_url = f"{base_url}/desk/ap-purchase-order/{new_po_name}"
+    subject = f"Notice: Purchase Order #{po.name} Revised to #{new_po_name}"
+
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #2563eb; font-weight: 700;">Purchase Order Workflow</span>
+            <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 18px;">Purchase Order Version Revision</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Purchase Order <b>#{po.name}</b> has been superseded and revised into new version <b>#{new_po_name}</b> by <b>{frappe.session.user}</b>.
+        </p>
+        <div style="background: #eff6ff; border: 1px solid #dbeafe; border-radius: 6px; padding: 12px; margin: 16px 0; color: #1e40af; font-size: 13px;">
+            <b>Reason for Revision:</b> {frappe.utils.escape_html(reason)}
+        </div>
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="{desk_url}" style="background: #2563eb; color: #ffffff; padding: 10px 20px; border-radius: 4px; text-decoration: none; font-weight: 600; font-size: 13px; display: inline-block;">
+                Review Revised PO #{new_po_name}
+            </a>
+        </div>
+    </div>
+    """
+
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="AP Purchase Order",
+        reference_name=new_po_name,
+        alert_type="blue"
+    )
+
+
+def notify_bank_account_stage_transition(ba_name: str, from_stage: str, to_stage: str) -> None:
+    """Dispatches notification when a Vendor Bank Account moves between approval stages."""
+    if not frappe.db.exists("Bank Account", ba_name):
+        return
+
+    ba = frappe.get_doc("Bank Account", ba_name)
+    supplier_name = ba.party or ba.account_name or "Vendor"
+    recipients = ["admin@example.com"]
+
+    base_url = frappe.utils.get_url()
+    desk_url = f"{base_url}/desk/bank-account/{ba.name}"
+    subject = f"Review Required: Vendor Bank Account #{ba.name} - {to_stage} ({supplier_name})"
+
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #1e3a8a; font-weight: 700;">Vendor Bank Account Governance</span>
+            <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 18px;">Bank Account Verification Required</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            Vendor bank account details for <b>{supplier_name}</b> have progressed from {from_stage} to <b>{to_stage}</b> and require your verification.
+        </p>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; margin: 16px 0;">
+            <div style="font-size: 13px; color: #475569;">Vendor: <b>{supplier_name}</b></div>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">Bank: <b>{ba.bank or 'N/A'}</b></div>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">Account Number: <b>{ba.bank_account_no or 'N/A'}</b></div>
+            <div style="font-size: 13px; color: #475569; margin-top: 4px;">IFSC Code: <b>{ba.branch_code or 'N/A'}</b></div>
+        </div>
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="{desk_url}" style="background: #1e3a8a; color: #ffffff; padding: 10px 20px; border-radius: 4px; text-decoration: none; font-weight: 600; font-size: 13px; display: inline-block;">
+                Review Bank Account in Desk
+            </a>
+        </div>
+    </div>
+    """
+
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Bank Account",
+        reference_name=ba.name,
+        alert_type="blue"
+    )
+
+
+def notify_bank_account_activated(ba_name: str) -> None:
+    """Dispatches notification when a Vendor Bank Account is approved and activated."""
+    if not frappe.db.exists("Bank Account", ba_name):
+        return
+
+    ba = frappe.get_doc("Bank Account", ba_name)
+    supplier_name = ba.party or ba.account_name or "Vendor"
+    recipients = []
+    sub_em = _resolve_email(getattr(ba, "submitted_by", None)) or _resolve_email(ba.owner)
+    if sub_em:
+        recipients.append(sub_em)
+    if not recipients:
+        recipients.append("admin@example.com")
+
+    base_url = frappe.utils.get_url()
+    desk_url = f"{base_url}/desk/bank-account/{ba.name}"
+    subject = f"Notice: Vendor Bank Account #{ba.name} Approved and Activated ({supplier_name})"
+
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #16a34a; padding-bottom: 10px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #16a34a; font-weight: 700;">Vendor Bank Account Governance</span>
+            <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 18px;">Bank Account Approved and Active</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            The bank account details for vendor <b>{supplier_name}</b> have been verified by the Accounts team and activated for disbursements.
+        </p>
+        <div style="background: #f0fdf4; border: 1px solid #dcfce7; border-radius: 6px; padding: 12px; margin: 16px 0; color: #166534; font-size: 13px;">
+            Account Number ending in <b>{str(ba.bank_account_no or '')[-4:]}</b> is now active for disbursements.
+        </div>
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="{desk_url}" style="background: #16a34a; color: #ffffff; padding: 10px 20px; border-radius: 4px; text-decoration: none; font-weight: 600; font-size: 13px; display: inline-block;">
+                View Bank Account in Desk
+            </a>
+        </div>
+    </div>
+    """
+
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Bank Account",
+        reference_name=ba.name,
+        alert_type="green"
+    )
+
+
+def notify_bank_account_rejected(ba_name: str, reason: str) -> None:
+    """Dispatches notification when a Vendor Bank Account is rejected."""
+    if not frappe.db.exists("Bank Account", ba_name):
+        return
+
+    ba = frappe.get_doc("Bank Account", ba_name)
+    supplier_name = ba.party or ba.account_name or "Vendor"
+    recipients = []
+    sub_em = _resolve_email(getattr(ba, "submitted_by", None)) or _resolve_email(ba.owner)
+    if sub_em:
+        recipients.append(sub_em)
+    if not recipients:
+        recipients.append("admin@example.com")
+
+    base_url = frappe.utils.get_url()
+    desk_url = f"{base_url}/desk/bank-account/{ba.name}"
+    subject = f"Notice: Vendor Bank Account #{ba.name} Rejected ({supplier_name})"
+
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; background: #ffffff;">
+        <div style="border-bottom: 2px solid #b91c1c; padding-bottom: 10px; margin-bottom: 16px;">
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #b91c1c; font-weight: 700;">Vendor Bank Account Governance</span>
+            <h2 style="margin: 4px 0 0 0; color: #0f172a; font-size: 18px;">Bank Account Details Rejected</h2>
+        </div>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+            The bank account details submitted for vendor <b>{supplier_name}</b> have been rejected by <b>{frappe.session.user}</b>.
+        </p>
+        <div style="background: #fef2f2; border: 1px solid #fee2e2; border-radius: 6px; padding: 12px; margin: 16px 0; color: #991b1b; font-size: 13px;">
+            <b>Rejection Reason:</b> {frappe.utils.escape_html(reason)}
+        </div>
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="{desk_url}" style="background: #b91c1c; color: #ffffff; padding: 10px 20px; border-radius: 4px; text-decoration: none; font-weight: 600; font-size: 13px; display: inline-block;">
+                Review Rejection in Desk
+            </a>
+        </div>
+    </div>
+    """
+
+    _send_email_and_desk_alert(
+        recipients=recipients,
+        subject=subject,
+        message_html=html,
+        reference_doctype="Bank Account",
+        reference_name=ba.name,
+        alert_type="red"
+    )
+

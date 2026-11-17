@@ -386,6 +386,82 @@ def setup_custom_fields():
                 "fieldtype": "Attach",
                 "insert_after": "penny_drop_status",
                 "description": "Upload Cancelled Cheque, Passbook, or Bank Confirmation Letter for AP audit verification."
+            },
+            {
+                "fieldname": "approval_status",
+                "label": "Vendor Bank Account Approval Status",
+                "fieldtype": "Select",
+                "options": "Draft\nPending Assistant Admin Manager\nPending Admin Manager\nPending Accounts Verification\nApproved / Active\nRejected",
+                "default": "Approved / Active",
+                "insert_after": "bank_proof_attachment",
+                "in_list_view": 1
+            },
+            {
+                "fieldname": "submitted_by",
+                "label": "Submitted By (Receptionist)",
+                "fieldtype": "Link",
+                "options": "User",
+                "insert_after": "approval_status",
+                "read_only": 1
+            },
+            {
+                "fieldname": "submitted_on",
+                "label": "Submitted On",
+                "fieldtype": "Datetime",
+                "insert_after": "submitted_by",
+                "read_only": 1
+            },
+            {
+                "fieldname": "assistant_admin_manager_approved_by",
+                "label": "Assistant Admin Manager Approver",
+                "fieldtype": "Link",
+                "options": "User",
+                "insert_after": "submitted_on",
+                "read_only": 1
+            },
+            {
+                "fieldname": "assistant_admin_manager_approved_on",
+                "label": "Assistant Admin Manager Approved On",
+                "fieldtype": "Datetime",
+                "insert_after": "assistant_admin_manager_approved_by",
+                "read_only": 1
+            },
+            {
+                "fieldname": "admin_manager_approved_by",
+                "label": "Admin Manager Approver",
+                "fieldtype": "Link",
+                "options": "User",
+                "insert_after": "assistant_admin_manager_approved_on",
+                "read_only": 1
+            },
+            {
+                "fieldname": "admin_manager_approved_on",
+                "label": "Admin Manager Approved On",
+                "fieldtype": "Datetime",
+                "insert_after": "admin_manager_approved_by",
+                "read_only": 1
+            },
+            {
+                "fieldname": "accounts_verified_by",
+                "label": "Accounts Verified By",
+                "fieldtype": "Link",
+                "options": "User",
+                "insert_after": "admin_manager_approved_on",
+                "read_only": 1
+            },
+            {
+                "fieldname": "accounts_verified_on",
+                "label": "Accounts Verified On",
+                "fieldtype": "Datetime",
+                "insert_after": "accounts_verified_by",
+                "read_only": 1
+            },
+            {
+                "fieldname": "rejection_reason",
+                "label": "Bank Account Rejection Reason",
+                "fieldtype": "Small Text",
+                "insert_after": "accounts_verified_on",
+                "read_only": 1
             }
         ]
     }, update=True)

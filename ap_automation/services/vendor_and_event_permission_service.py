@@ -11,6 +11,15 @@ ACCOUNTS_GLOBAL_ROLES = {
     "AP Director",
 }
 
+VENDOR_ADMIN_AND_ACCOUNTS_ROLES = ACCOUNTS_GLOBAL_ROLES.union({
+    "Admin Manager",
+    "Assistant Admin Manager",
+    "Admin L1 Approver",
+    "Admin L2 Approver",
+    "Receptionist",
+    "Purchase User"
+})
+
 
 def is_accounts_user(user: Optional[str] = None) -> bool:
     if not user:
@@ -23,20 +32,30 @@ def is_accounts_user(user: Optional[str] = None) -> bool:
     return bool(user_roles.intersection(ACCOUNTS_GLOBAL_ROLES))
 
 
+def is_vendor_team_or_accounts_user(user: Optional[str] = None) -> bool:
+    if not user:
+        user = frappe.session.user
+    if user == "Administrator":
+        return True
+    user_roles = set(frappe.get_roles(user))
+    if "System Manager" in user_roles:
+        return True
+    return bool(user_roles.intersection(VENDOR_ADMIN_AND_ACCOUNTS_ROLES))
+
+
 # ==============================================================================
 # 1. LANE 3: VENDOR INVOICE PERMISSION HOOKS
 # ==============================================================================
 
 def get_vendor_invoice_permission_query_conditions(user: Optional[str] = None) -> str:
     """
-    Accounts team sees ALL vendor invoice claims.
-    All other users (Receptionist, Admin, Employee, Purchase User)
-    can ONLY see claims created by themselves or assigned to them for approval.
+    Accounts and Admin procurement teams see ALL vendor invoice claims.
+    Requesters and creators always see claims created by themselves or assigned to them for approval.
     """
     if not user:
         user = frappe.session.user
 
-    if is_accounts_user(user):
+    if is_vendor_team_or_accounts_user(user):
         return ""
 
     escaped_user = frappe.db.escape(user)
@@ -55,7 +74,7 @@ def has_vendor_invoice_permission(doc, user: Optional[str] = None, ptype: str = 
     if not doc or isinstance(doc, str):
         return None
 
-    if is_accounts_user(user):
+    if is_vendor_team_or_accounts_user(user):
         return True
 
     # Creator
@@ -72,13 +91,12 @@ def has_vendor_invoice_permission(doc, user: Optional[str] = None, ptype: str = 
 
 def get_admin_weekly_vendor_permission_query_conditions(user: Optional[str] = None) -> str:
     """
-    Accounts team sees ALL Admin Weekly Vendor Claims.
-    Admins / Receptionists / Approvers only see claims created by themselves or assigned to them.
+    Accounts and Admin team members see all Admin Weekly Vendor Claims.
     """
     if not user:
         user = frappe.session.user
 
-    if is_accounts_user(user):
+    if is_vendor_team_or_accounts_user(user):
         return ""
 
     escaped_user = frappe.db.escape(user)

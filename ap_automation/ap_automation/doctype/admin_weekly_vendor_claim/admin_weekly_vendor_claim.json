@@ -44,7 +44,12 @@
   "accounts_l2_approver",
   "accounts_l2_date",
   "payment_releaser",
-  "disbursement_date"
+  "disbursement_date",
+  "payment_release_notified",
+  "payment_release_notified_on",
+  "payment_release_maker",
+  "is_urgent",
+  "urgency_reason"
  ],
  "fields": [
   {
@@ -313,6 +318,19 @@
    "options": "User",
    "label": "Bank Disbursal Uploaded By (Maker)",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_urgent",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Urgent Weekly Voucher Batch"
+  },
+  {
+   "depends_on": "eval:doc.is_urgent==1",
+   "fieldname": "urgency_reason",
+   "fieldtype": "Small Text",
+   "label": "Urgency Justification"
   }
  ],
  "grid_page_length": 50,

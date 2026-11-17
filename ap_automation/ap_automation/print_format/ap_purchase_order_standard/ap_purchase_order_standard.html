@@ -261,6 +261,6 @@
     <!-- Terms and Conditions -->
     <div class="terms-box">
         <strong style="color: #4A5568;">Terms and Conditions:</strong>
-        <div>{{ doc.terms_and_conditions }}</div>
+        <div>{{ (doc.terms_and_conditions or '') | safe }}</div>
     </div>
 </div>

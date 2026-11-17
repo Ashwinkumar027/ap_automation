@@ -166,6 +166,20 @@ def render_po_html(doc):
     gst_amt = format_inr(doc.total_gst_amount or (doc.cgst_amount + doc.sgst_amount + doc.igst_amount))
     grand_total = format_inr(doc.grand_total)
 
+    # Commercial Terms & Conditions HTML
+    custom_terms = getattr(doc, "terms_and_conditions", None) or ""
+    if custom_terms:
+        terms_section_html = f"""
+        <div style="font-weight: 900; font-size: 8.5px; text-transform: uppercase; margin-top: 6px; letter-spacing: 0.2px;">
+            COMMERCIAL TERMS & SCOPE OF WORK:
+        </div>
+        <div style="font-size: 8px; color: #334155; line-height: 1.35; margin-bottom: 6px;">
+            {custom_terms}
+        </div>
+        """
+    else:
+        terms_section_html = ""
+
     # Signatory details
     final_signatory = doc.signatory_name or profile["default_signatory"]
     final_designation = profile["default_designation"] if not doc.signatory_designation or doc.signatory_designation in ["Director / Authorised Officer", "Director"] else doc.signatory_designation
@@ -436,6 +450,9 @@ def render_po_html(doc):
                 </tr>
             </tbody>
         </table>
+
+        <!-- Commercial Terms & Conditions -->
+        {terms_section_html}
 
         <!-- Legal GST & Compliance Clauses -->
         <div style="font-weight: 900; font-size: 8.5px; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.2px;">

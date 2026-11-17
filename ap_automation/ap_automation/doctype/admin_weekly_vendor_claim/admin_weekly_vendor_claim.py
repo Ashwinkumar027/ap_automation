@@ -252,16 +252,19 @@ class AdminWeeklyVendorClaim(Document):
 
     @staticmethod
     def _get_supplier_bank_details(supplier_id):
-        """Queries the active Bank Account linked to the Supplier."""
+        """Queries the active Bank Account linked to the Supplier with approval enforcement."""
         has_pd = frappe.db.has_column("Bank Account", "penny_drop_status")
         pd_select = ", ba.penny_drop_status" if has_pd else ""
         has_bp = frappe.db.has_column("Bank Account", "bank_proof_attachment")
         bp_select = ", ba.bank_proof_attachment" if has_bp else ""
+        has_status = frappe.db.has_column("Bank Account", "approval_status")
+        status_filter = "AND (ba.approval_status = 'Approved / Active' OR ba.approval_status IS NULL OR ba.approval_status = '')" if has_status else ""
+
         accs = frappe.db.sql(
             f"""
             SELECT ba.name, ba.bank, ba.bank_account_no, ba.branch_code, ba.account_name{pd_select}{bp_select}
             FROM `tabBank Account` ba
-            WHERE ba.party_type = 'Supplier' AND ba.party = %s
+            WHERE ba.party_type = 'Supplier' AND ba.party = %s {status_filter}
             ORDER BY ba.is_default DESC, ba.creation DESC
             LIMIT 1
             """,
