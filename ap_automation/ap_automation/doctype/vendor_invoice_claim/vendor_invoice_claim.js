@@ -1875,7 +1875,7 @@ function calculate_vendor_totals(frm) {
         milestone_sum += flt(row.adjusted_amount || row.disbursed_amount || 0);
     });
 
-    let advance = flt(frm.doc.advance_deducted);
+    advance = flt(frm.doc.advance_deducted);
     if (milestone_sum > 0) {
         advance = milestone_sum;
         frm.set_value("total_prior_payments_adjusted", milestone_sum);
