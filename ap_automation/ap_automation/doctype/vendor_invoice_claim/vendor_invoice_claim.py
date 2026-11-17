@@ -494,6 +494,10 @@ class VendorInvoiceClaim(APDocument):
 
     def validate_intake_route_and_proofs(self):
         """Enforces dual-route mandatory requirements and audit proof attachments with progressive Draft validation."""
+        has_items = bool(getattr(self, "items", None) and len(self.items) > 0)
+        if has_items:
+            return
+
         is_submitting = getattr(self, "docstatus", 0) == 1 or getattr(self, "status", "Draft") not in ("Draft", "Not Saved")
         route = getattr(self, "invoice_type", "Without PO (Direct Tax Invoice)")
 

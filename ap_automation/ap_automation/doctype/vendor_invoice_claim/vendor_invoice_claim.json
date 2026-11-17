@@ -9,69 +9,36 @@
  "field_order": [
   "sb_route",
   "invoice_type",
-  "event",
   "company",
-  "vendor",
-  "vendor_name",
-  "vendor_gstin",
-  "cb_po_link",
-  "purchase_order",
-  "vendor_po_request",
-  "sb_items",
-  "items",
-  "total_lines",
-  "sb_bank",
-  "bank_name",
-  "bank_account_number",
-  "bank_ifsc_code",
-  "bank_proof_attachment",
-  "sb_invoice",
-  "tax_invoice_number",
-  "tax_invoice_date",
-  "base_amount",
-  "gst_rate",
-  "gst_amount",
-  "cb_total",
-  "total_invoice_amount",
-  "advance_deducted",
-  "net_payable_amount",
-  "total_amount",
-  "sb_event_variance",
-  "previous_benchmark_spend",
-  "cb_variance",
-  "cost_variance",
-  "cost_variance_percentage",
-  "scope_variance_justification",
-  "sb_attachments",
-  "tax_invoice_attachment",
+  "event",
   "email_approval_attachment",
-  "sb_governance",
+  "cb_po_link",
   "status",
   "workflow_state",
+  "total_lines",
+  "vendor_name",
+  "sb_items",
+  "items",
+  "sb_invoice",
+  "base_amount",
+  "total_invoice_amount",
+  "cb_total",
+  "cgst_amount",
+  "sgst_amount",
+  "igst_amount",
+  "gst_amount",
+  "col_break_retention",
+  "tds_amount",
+  "advance_deducted",
+  "retention_hold_amount",
+  "net_payable_amount",
+  "sb_governance",
   "current_approval_level",
   "designated_approver",
   "batch_id",
-  "payment_release_notified",
-  "payment_release_notified_on",
-  "payment_release_maker",
-  "payment_releaser",
+  "purchase_receipt",
   "approval_trail",
   "amended_from",
-  "purchase_receipt",
-  "match_status",
-  "match_variance_details",
-  "tds_section",
-  "tds_rate",
-  "tds_amount",
-  "service_type",
-  "tax_type",
-  "cgst_rate",
-  "cgst_amount",
-  "sgst_rate",
-  "sgst_amount",
-  "igst_rate",
-  "igst_amount",
-  "tds_threshold_warning",
   "sb_business_approval",
   "manager_approver",
   "manager_approved_on",
@@ -91,19 +58,52 @@
   "tally_reference",
   "tally_posted_on",
   "tally_posted_by",
-  "sec_milestones",
-  "milestone_payments",
-  "total_prior_payments_adjusted",
-  "col_break_retention",
-  "retention_hold_amount",
-  "retention_hold_reason",
-  "gst_released_separately",
-  "gst_withheld_amount",
   "sec_urgency",
   "is_urgent",
   "urgency_reason",
   "urgency_flagged_by",
-  "urgency_flagged_on"
+  "urgency_flagged_on",
+  "sb_event_variance",
+  "previous_benchmark_spend",
+  "cb_variance",
+  "cost_variance",
+  "cost_variance_percentage",
+  "scope_variance_justification",
+  "payment_release_maker",
+  "payment_releaser",
+  "payment_release_notified",
+  "payment_release_notified_on",
+  "sec_milestones",
+  "milestone_payments",
+  "total_prior_payments_adjusted",
+  "retention_hold_reason",
+  "gst_released_separately",
+  "gst_withheld_amount",
+  "sb_bank",
+  "bank_name",
+  "bank_account_number",
+  "bank_ifsc_code",
+  "bank_proof_attachment",
+  "sb_attachments",
+  "tax_invoice_attachment",
+  "vendor",
+  "vendor_gstin",
+  "purchase_order",
+  "vendor_po_request",
+  "tax_invoice_number",
+  "tax_invoice_date",
+  "service_type",
+  "tax_type",
+  "gst_rate",
+  "cgst_rate",
+  "sgst_rate",
+  "igst_rate",
+  "tds_section",
+  "tds_rate",
+  "tds_threshold_warning",
+  "match_status",
+  "match_variance_details",
+  "total_amount"
  ],
  "fields": [
   {
@@ -128,218 +128,22 @@
    "reqd": 1
   },
   {
-   "fieldname": "vendor",
+   "fieldname": "event",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Vendor / Supplier",
-   "options": "Supplier",
-   "reqd": 1
-  },
-  {
-   "fieldname": "vendor_name",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Vendor Legal Name",
-   "read_only": 1
-  },
-  {
-   "fieldname": "vendor_gstin",
-   "fieldtype": "Data",
-   "label": "Vendor GSTIN",
-   "read_only": 1
-  },
-  {
-   "fieldname": "cb_po_link",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "purchase_order",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Linked Purchase Order",
-   "options": "AP Purchase Order",
-   "depends_on": "eval:doc.invoice_type=='With Purchase Order'"
-  },
-  {
-   "fieldname": "vendor_po_request",
-   "fieldtype": "Link",
-   "label": "Linked PO Advance Request",
-   "options": "Vendor PO Request",
-   "hidden": 1
-  },
-  {
-   "fieldname": "sb_bank",
-   "fieldtype": "Section Break",
-   "label": "Verified Vendor Bank Account (ERPNext Locked - Zero Typing)"
-  },
-  {
-   "fieldname": "bank_name",
-   "fieldtype": "Data",
-   "label": "Bank Name",
-   "read_only": 1
-  },
-  {
-   "fieldname": "bank_account_number",
-   "fieldtype": "Data",
-   "label": "Bank Account Number",
-   "read_only": 1
-  },
-  {
-   "fieldname": "bank_ifsc_code",
-   "fieldtype": "Data",
-   "label": "Bank IFSC Code",
-   "read_only": 1
-  },
-  {
-   "fieldname": "bank_proof_attachment",
-   "fieldtype": "Attach",
-   "label": "Bank Proof Attachment (Cancelled Cheque / Passbook)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "sb_invoice",
-   "fieldtype": "Section Break",
-   "label": "Tax Invoice Details & Financials"
-  },
-  {
-   "fieldname": "tax_invoice_number",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Vendor Tax Invoice #",
-   "reqd": 1
-  },
-  {
-   "fieldname": "tax_invoice_date",
-   "fieldtype": "Date",
-   "in_list_view": 1,
-   "label": "Invoice Date"
-  },
-  {
-   "fieldname": "service_type",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Type of Service",
-   "options": "AP Service Type Master",
-   "description": "Select or add service classification (e.g. IT Hardware, Subscriptions, AMC, Facility)",
-   "ignore_user_permissions": 1
-  },
-  {
-   "fieldname": "base_amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Base Taxable Amount (INR)",
-   "reqd": 1
-  },
-  {
-   "default": "Intra-State (CGST + SGST)",
-   "fieldname": "tax_type",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Tax Type (GST vs IGST)",
-   "options": "Intra-State (CGST + SGST)\nInter-State (IGST)",
-   "description": "Select Intra-State for 50:50 CGST & SGST split, or Inter-State for IGST."
-  },
-  {
-   "default": "18%",
-   "fieldname": "gst_rate",
-   "fieldtype": "Select",
-   "label": "GST Rate",
-   "options": "0%\n5%\n12%\n18%\n28%",
-   "reqd": 1
-  },
-  {
-   "fieldname": "cgst_rate",
-   "fieldtype": "Percent",
-   "label": "CGST Rate (%)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "cgst_amount",
-   "fieldtype": "Currency",
-   "label": "Calculated CGST (INR)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "sgst_rate",
-   "fieldtype": "Percent",
-   "label": "SGST Rate (%)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "sgst_amount",
-   "fieldtype": "Currency",
-   "label": "Calculated SGST (INR)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "igst_rate",
-   "fieldtype": "Percent",
-   "label": "IGST Rate (%)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "igst_amount",
-   "fieldtype": "Currency",
-   "label": "Calculated IGST (INR)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "gst_amount",
-   "fieldtype": "Currency",
-   "label": "Total Calculated GST (INR)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "cb_total",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "total_invoice_amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Total Invoice Amount (INR)",
-   "read_only": 1
-  },
-  {
-   "default": "0",
-   "fieldname": "advance_deducted",
-   "fieldtype": "Currency",
-   "label": "Prior Advance Deducted (INR)"
-  },
-  {
-   "fieldname": "net_payable_amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Net Payable to Vendor (INR)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "total_amount",
-   "fieldtype": "Currency",
-   "hidden": 1,
-   "label": "Base Spend Amount",
-   "read_only": 1
-  },
-  {
-   "fieldname": "sb_attachments",
-   "fieldtype": "Section Break",
-   "label": "Mandatory Audit Proof Attachments"
-  },
-  {
-   "fieldname": "tax_invoice_attachment",
-   "fieldtype": "Attach",
-   "label": "Vendor Tax Invoice PDF"
+   "label": "Linked Event Master (Stream A)",
+   "options": "Event Master"
   },
   {
    "fieldname": "email_approval_attachment",
    "fieldtype": "Attach",
-   "label": "Internal Email Approval PDF / Screenshot"
+   "label": "Internal Email Approval PDF / Screenshot (Optional)",
+   "hidden": 0,
+   "reqd": 0
   },
   {
-   "fieldname": "sb_governance",
-   "fieldtype": "Section Break",
-   "label": "Approval Workflow & Batching"
+   "fieldname": "cb_po_link",
+   "fieldtype": "Column Break"
   },
   {
    "default": "Draft",
@@ -355,6 +159,138 @@
    "fieldtype": "Data",
    "label": "Workflow State",
    "read_only": 1
+  },
+  {
+   "fieldname": "total_lines",
+   "fieldtype": "Int",
+   "label": "Total Bills Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "vendor_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vendor Legal Name",
+   "read_only": 1,
+   "reqd": 0,
+   "hidden": 0
+  },
+  {
+   "fieldname": "sb_items",
+   "fieldtype": "Section Break",
+   "label": "Itemized Vendor Invoices / Bills (Multi-Row Table)"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Vendor Invoices Table",
+   "options": "Vendor Invoice Item"
+  },
+  {
+   "fieldname": "sb_invoice",
+   "fieldtype": "Section Break",
+   "label": "Consolidated Financial Summary (Read-Only Totals)",
+   "hidden": 0
+  },
+  {
+   "fieldname": "base_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Taxable Base (INR)",
+   "reqd": 0,
+   "read_only": 1,
+   "hidden": 0
+  },
+  {
+   "fieldname": "total_invoice_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Gross Invoice (INR)",
+   "read_only": 1,
+   "reqd": 0,
+   "hidden": 0
+  },
+  {
+   "fieldname": "cb_total",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cgst_amount",
+   "fieldtype": "Currency",
+   "label": "Total CGST (INR)",
+   "read_only": 1,
+   "reqd": 0,
+   "hidden": 0
+  },
+  {
+   "fieldname": "sgst_amount",
+   "fieldtype": "Currency",
+   "label": "Total SGST (INR)",
+   "read_only": 1,
+   "reqd": 0,
+   "hidden": 0
+  },
+  {
+   "fieldname": "igst_amount",
+   "fieldtype": "Currency",
+   "label": "Total IGST (INR)",
+   "read_only": 1,
+   "reqd": 0,
+   "hidden": 0
+  },
+  {
+   "fieldname": "gst_amount",
+   "fieldtype": "Currency",
+   "label": "Total Calculated GST (INR)",
+   "read_only": 1,
+   "reqd": 0,
+   "hidden": 0
+  },
+  {
+   "fieldname": "col_break_retention",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tds_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total TDS Deducted (INR)",
+   "read_only": 1,
+   "reqd": 0,
+   "hidden": 0
+  },
+  {
+   "default": "0",
+   "fieldname": "advance_deducted",
+   "fieldtype": "Currency",
+   "label": "Total Prior Advances Adjusted (INR)",
+   "read_only": 1,
+   "reqd": 0,
+   "hidden": 0
+  },
+  {
+   "default": "0",
+   "fieldname": "retention_hold_amount",
+   "fieldtype": "Currency",
+   "label": "Total Retention Hold (INR)",
+   "description": "Retention amount withheld until final project completion or snag-list handover",
+   "read_only": 1,
+   "reqd": 0,
+   "hidden": 0
+  },
+  {
+   "fieldname": "net_payable_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Grand Total Net Payable (INR)",
+   "read_only": 1,
+   "reqd": 0,
+   "hidden": 0
+  },
+  {
+   "fieldname": "sb_governance",
+   "fieldtype": "Section Break",
+   "label": "Approval Workflow & Batching"
   },
   {
    "default": "1",
@@ -377,6 +313,15 @@
    "read_only": 1
   },
   {
+   "fieldname": "purchase_receipt",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Linked Goods Receipt Note (GRN)",
+   "options": "Purchase Receipt",
+   "ignore_user_permissions": 1,
+   "reqd": 0
+  },
+  {
    "fieldname": "approval_trail",
    "fieldtype": "Table",
    "label": "Approval Audit Trail",
@@ -392,57 +337,6 @@
    "print_hide": 1,
    "read_only": 1,
    "search_index": 1
-  },
-  {
-   "fieldname": "purchase_receipt",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Linked Goods Receipt Note (GRN)",
-   "options": "Purchase Receipt",
-   "ignore_user_permissions": 1,
-   "reqd": 0
-  },
-  {
-   "default": "Not Applicable (Non-PO)",
-   "fieldname": "match_status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "3-Way Match Status",
-   "options": "Not Applicable (Non-PO)\n3-Way Match Passed\n2-Way Match Passed (PO Reconciled)\n2-Way Match Passed (PO Linked)\nQuantity Mismatch Flagged\nPrice Mismatch Flagged\nMissing GRN Flagged",
-   "read_only": 1
-  },
-  {
-   "fieldname": "match_variance_details",
-   "fieldtype": "Small Text",
-   "label": "3-Way Match Audit Diagnostics",
-   "read_only": 1
-  },
-  {
-   "default": "None / Exempt",
-   "fieldname": "tds_section",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Statutory TDS Section (1961 & 2025 Act)",
-   "options": "None / Exempt\n194C / 393(1) - Contractor (Individual/HUF) (1%)\n194C / 393(1) - Contractor (Other than Individual/HUF) (2%)\n194J / 393(1) - Technical Services / Royalty (2%)\n194J / 393(1) - Professional Services & Director Fees (10%)\n194-I / 393(1) - Rent for Plant & Machinery (2%)\n194-I / 393(1) - Rent for Land & Building (10%)\n194Q / 393(1) - Purchase of Goods (0.1%)\n194H / 393(1) - Commission & Brokerage (2%)\n194A / 393(1) - Interest on Securities (10%)\n194A / 393(1) - Interest other than securities (Senior Citizen) (10%)\n194A / 393(1) - Interest other than securities (Others) (10%)\n194A / 393(1) - Interest other than securities (Specified Person) (10%)\n194-IA / 393(1) - Transfer of Immovable Property (1%)\n194-IB / 393(1) - Rent by Non-Specified Person (2%)\n194M / 393(1) - Contract & Professional Fees by Non-Specified Person (2%)\n194R / 393(1) - Business & Profession Perquisite (10%)\n194T / 393(3) - Partner Remuneration & Interest (10%)\n192 / 392 - Salary (Slab Rate)\n206AB - Higher Non-Filer (20%)\n194C - Contractor (1%)\n194C - Contractor (2%)\n194J - Technical Fees (2%)\n194J - Professional Fees (10%)\n194Q - Purchase of Goods (0.1%)\n194I - Rent (10%)"
-  },
-  {
-   "fieldname": "tds_rate",
-   "fieldtype": "Percent",
-   "label": "TDS Rate (%)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "tds_amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Deducted TDS Amount (INR)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "tds_threshold_warning",
-   "fieldtype": "Small Text",
-   "label": "TDS Threshold Diagnostic",
-   "read_only": 1
   },
   {
    "fieldtype": "Section Break",
@@ -557,11 +451,36 @@
    "fieldname": "tally_posted_by"
   },
   {
-   "fieldname": "event",
-   "fieldtype": "Link",
+   "fieldname": "sec_urgency",
+   "fieldtype": "Section Break",
+   "label": "Priority & Urgency Classification"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_urgent",
+   "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Linked Event Master (Stream A)",
-   "options": "Event Master"
+   "label": "Urgent Payment Request"
+  },
+  {
+   "depends_on": "eval:doc.is_urgent==1",
+   "fieldname": "urgency_reason",
+   "fieldtype": "Small Text",
+   "label": "Reason for Urgency",
+   "description": "Mention clear operational justification why this bill requires priority processing."
+  },
+  {
+   "fieldname": "urgency_flagged_by",
+   "fieldtype": "Link",
+   "label": "Urgency Flagged By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "urgency_flagged_on",
+   "fieldtype": "Datetime",
+   "label": "Urgency Flagged On",
+   "read_only": 1
   },
   {
    "collapsible": 1,
@@ -599,21 +518,6 @@
   },
   {
    "allow_on_submit": 1,
-   "default": "0",
-   "fieldname": "payment_release_notified",
-   "fieldtype": "Check",
-   "label": "Payment Release Notified",
-   "read_only": 1
-  },
-  {
-   "allow_on_submit": 1,
-   "fieldname": "payment_release_notified_on",
-   "fieldtype": "Datetime",
-   "label": "Payment Release Notified On",
-   "read_only": 1
-  },
-  {
-   "allow_on_submit": 1,
    "fieldname": "payment_release_maker",
    "fieldtype": "Link",
    "label": "Payment Release Maker",
@@ -626,6 +530,21 @@
    "fieldtype": "Link",
    "label": "Payment Releaser (Director)",
    "options": "User",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "payment_release_notified",
+   "fieldtype": "Check",
+   "label": "Payment Release Notified",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "payment_release_notified_on",
+   "fieldtype": "Datetime",
+   "label": "Payment Release Notified On",
    "read_only": 1
   },
   {
@@ -647,17 +566,6 @@
    "read_only": 1
   },
   {
-   "fieldname": "col_break_retention",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "0",
-   "fieldname": "retention_hold_amount",
-   "fieldtype": "Currency",
-   "label": "Retention Hold Amount (INR)",
-   "description": "Retention amount withheld until final project completion or snag-list handover"
-  },
-  {
    "fieldname": "retention_hold_reason",
    "fieldtype": "Small Text",
    "label": "Retention Hold Reason"
@@ -675,53 +583,215 @@
    "label": "GST Withheld Amount (INR)"
   },
   {
-   "fieldname": "sec_urgency",
+   "fieldname": "sb_bank",
    "fieldtype": "Section Break",
-   "label": "Priority & Urgency Classification"
+   "label": "Legacy Bank Details (Hidden)",
+   "hidden": 1
   },
   {
-   "default": "0",
-   "fieldname": "is_urgent",
-   "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "Urgent Payment Request"
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name",
+   "read_only": 1,
+   "hidden": 1,
+   "reqd": 0
   },
   {
-   "depends_on": "eval:doc.is_urgent==1",
-   "fieldname": "urgency_reason",
-   "fieldtype": "Small Text",
-   "label": "Reason for Urgency",
-   "description": "Mention clear operational justification why this bill requires priority processing."
+   "fieldname": "bank_account_number",
+   "fieldtype": "Data",
+   "label": "Bank Account Number",
+   "read_only": 1,
+   "hidden": 1,
+   "reqd": 0
   },
   {
-   "fieldname": "urgency_flagged_by",
+   "fieldname": "bank_ifsc_code",
+   "fieldtype": "Data",
+   "label": "Bank IFSC Code",
+   "read_only": 1,
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "fieldname": "bank_proof_attachment",
+   "fieldtype": "Attach",
+   "label": "Bank Proof Attachment (Cancelled Cheque / Passbook)",
+   "read_only": 1,
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "fieldname": "sb_attachments",
+   "fieldtype": "Section Break",
+   "label": "Legacy Attachments & Single-Bill Fields (Hidden)",
+   "hidden": 1
+  },
+  {
+   "fieldname": "tax_invoice_attachment",
+   "fieldtype": "Attach",
+   "label": "Vendor Tax Invoice PDF",
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "fieldname": "vendor",
    "fieldtype": "Link",
-   "label": "Urgency Flagged By",
-   "options": "User",
-   "read_only": 1
+   "in_list_view": 1,
+   "label": "Vendor / Supplier",
+   "options": "Supplier",
+   "reqd": 0,
+   "hidden": 1
   },
   {
-   "fieldname": "urgency_flagged_on",
-   "fieldtype": "Datetime",
-   "label": "Urgency Flagged On",
-   "read_only": 1
+   "fieldname": "vendor_gstin",
+   "fieldtype": "Data",
+   "label": "Vendor GSTIN",
+   "read_only": 1,
+   "hidden": 1,
+   "reqd": 0
   },
   {
-   "fieldname": "sb_items",
-   "fieldtype": "Section Break",
-   "label": "Itemized Vendor Invoices / Bills (Multi-Row Table)"
+   "fieldname": "purchase_order",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Linked Purchase Order",
+   "options": "AP Purchase Order",
+   "depends_on": "eval:doc.invoice_type=='With Purchase Order'",
+   "hidden": 1,
+   "reqd": 0
   },
   {
-   "fieldname": "items",
-   "fieldtype": "Table",
-   "label": "Vendor Invoices Table",
-   "options": "Vendor Invoice Item"
+   "fieldname": "vendor_po_request",
+   "fieldtype": "Link",
+   "label": "Linked PO Advance Request",
+   "options": "Vendor PO Request",
+   "hidden": 1,
+   "reqd": 0
   },
   {
-   "fieldname": "total_lines",
-   "fieldtype": "Int",
-   "label": "Total Bills Count",
-   "read_only": 1
+   "fieldname": "tax_invoice_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vendor Tax Invoice #",
+   "reqd": 0,
+   "hidden": 1
+  },
+  {
+   "fieldname": "tax_invoice_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Invoice Date",
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "fieldname": "service_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Type of Service",
+   "options": "AP Service Type Master",
+   "description": "Select or add service classification (e.g. IT Hardware, Subscriptions, AMC, Facility)",
+   "ignore_user_permissions": 1,
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "default": "Intra-State (CGST + SGST)",
+   "fieldname": "tax_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Tax Type (GST vs IGST)",
+   "options": "Intra-State (CGST + SGST)\nInter-State (IGST)",
+   "description": "Select Intra-State for 50:50 CGST & SGST split, or Inter-State for IGST.",
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "default": "18%",
+   "fieldname": "gst_rate",
+   "fieldtype": "Select",
+   "label": "GST Rate",
+   "options": "0%\n5%\n12%\n18%\n28%",
+   "reqd": 0,
+   "hidden": 1
+  },
+  {
+   "fieldname": "cgst_rate",
+   "fieldtype": "Percent",
+   "label": "CGST Rate (%)",
+   "read_only": 1,
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "fieldname": "sgst_rate",
+   "fieldtype": "Percent",
+   "label": "SGST Rate (%)",
+   "read_only": 1,
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "fieldname": "igst_rate",
+   "fieldtype": "Percent",
+   "label": "IGST Rate (%)",
+   "read_only": 1,
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "default": "None / Exempt",
+   "fieldname": "tds_section",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Statutory TDS Section (1961 & 2025 Act)",
+   "options": "None / Exempt\n194C / 393(1) - Contractor (Individual/HUF) (1%)\n194C / 393(1) - Contractor (Other than Individual/HUF) (2%)\n194J / 393(1) - Technical Services / Royalty (2%)\n194J / 393(1) - Professional Services & Director Fees (10%)\n194-I / 393(1) - Rent for Plant & Machinery (2%)\n194-I / 393(1) - Rent for Land & Building (10%)\n194Q / 393(1) - Purchase of Goods (0.1%)\n194H / 393(1) - Commission & Brokerage (2%)\n194A / 393(1) - Interest on Securities (10%)\n194A / 393(1) - Interest other than securities (Senior Citizen) (10%)\n194A / 393(1) - Interest other than securities (Others) (10%)\n194A / 393(1) - Interest other than securities (Specified Person) (10%)\n194-IA / 393(1) - Transfer of Immovable Property (1%)\n194-IB / 393(1) - Rent by Non-Specified Person (2%)\n194M / 393(1) - Contract & Professional Fees by Non-Specified Person (2%)\n194R / 393(1) - Business & Profession Perquisite (10%)\n194T / 393(3) - Partner Remuneration & Interest (10%)\n192 / 392 - Salary (Slab Rate)\n206AB - Higher Non-Filer (20%)\n194C - Contractor (1%)\n194C - Contractor (2%)\n194J - Technical Fees (2%)\n194J - Professional Fees (10%)\n194Q - Purchase of Goods (0.1%)\n194I - Rent (10%)",
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "fieldname": "tds_rate",
+   "fieldtype": "Percent",
+   "label": "TDS Rate (%)",
+   "read_only": 1,
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "fieldname": "tds_threshold_warning",
+   "fieldtype": "Small Text",
+   "label": "TDS Threshold Diagnostic",
+   "read_only": 1,
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "default": "Not Applicable (Non-PO)",
+   "fieldname": "match_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "3-Way Match Status",
+   "options": "Not Applicable (Non-PO)\n3-Way Match Passed\n2-Way Match Passed (PO Reconciled)\n2-Way Match Passed (PO Linked)\nQuantity Mismatch Flagged\nPrice Mismatch Flagged\nMissing GRN Flagged",
+   "read_only": 1,
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "fieldname": "match_variance_details",
+   "fieldtype": "Small Text",
+   "label": "3-Way Match Audit Diagnostics",
+   "read_only": 1,
+   "hidden": 1,
+   "reqd": 0
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Base Spend Amount",
+   "read_only": 1,
+   "reqd": 0
   }
  ],
  "grid_page_length": 50,
