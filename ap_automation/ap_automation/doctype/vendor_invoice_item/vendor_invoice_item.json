@@ -23,7 +23,10 @@
   "bill_payment_type",
   "po_type",
   "purchase_order",
+  "external_po_number",
   "cb_po_info",
+  "external_po_amount",
+  "external_po_date",
   "po_attachment",
   "purchase_receipt",
   "sb_tax_calc",
@@ -179,7 +182,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Has Purchase Order?",
-   "options": "Without PO\nWith PO"
+   "options": "Without PO\nWith PO\nExternal / Email PO (Not in System)"
   },
   {
    "columns": 2,
@@ -191,18 +194,45 @@
    "options": "AP Purchase Order"
   },
   {
+   "columns": 2,
+   "depends_on": "eval:doc.po_type=='External / Email PO (Not in System)'",
+   "description": "Enter the PO number from your email or PDF copy (e.g., EMAIL-PO-2026-045).",
+   "fieldname": "external_po_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Manual / Email PO Number"
+  },
+  {
    "fieldname": "cb_po_info",
    "fieldtype": "Column Break"
   },
   {
    "columns": 2,
-   "fieldname": "po_attachment",
-   "fieldtype": "Attach",
+   "depends_on": "eval:doc.po_type=='External / Email PO (Not in System)'",
+   "description": "Contracted PO value before GST (used to prevent over-billing and auto-track advances).",
+   "fieldname": "external_po_amount",
+   "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "PO / Approval Attachment"
+   "label": "External PO Value Before GST (INR)"
   },
   {
    "columns": 2,
+   "depends_on": "eval:doc.po_type=='External / Email PO (Not in System)'",
+   "fieldname": "external_po_date",
+   "fieldtype": "Date",
+   "label": "External PO Date"
+  },
+  {
+   "columns": 2,
+   "description": "Mandatory when PO is from Email / External PDF (not in system).",
+   "fieldname": "po_attachment",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "Upload PO / Email Copy"
+  },
+  {
+   "columns": 2,
+   "depends_on": "eval:doc.po_type=='With PO'",
    "fieldname": "purchase_receipt",
    "fieldtype": "Link",
    "in_list_view": 1,

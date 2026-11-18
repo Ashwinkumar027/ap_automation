@@ -23,7 +23,13 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
     items = getattr(claim_doc, "items", None) or []
     if items:
         po_rows = [r for r in items if getattr(r, "po_type", "Without PO") == "With PO" and getattr(r, "purchase_order", None)]
-        if not po_rows:
+        ext_po_rows = [
+            r for r in items
+            if getattr(r, "po_type", "Without PO") == "External / Email PO (Not in System)"
+            and getattr(r, "external_po_number", None)
+        ]
+
+        if not po_rows and not ext_po_rows:
             claim_doc.match_status = "Not Applicable (Non-PO)"
             claim_doc.match_variance_details = f"Itemized claim with {len(items)} bills without Purchase Orders; verified via managerial approval."
             return {"status": "not_applicable"}
@@ -34,8 +40,15 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
             if frappe.db.exists("AP Purchase Order", po_n) or frappe.db.exists("Purchase Order", po_n):
                 matched_pos.append(po_n)
 
+        ext_refs = [f"EXT:{r.external_po_number.strip()}" for r in ext_po_rows if getattr(r, "external_po_number", None)]
+        parts = []
+        if matched_pos:
+            parts.append(f"System PO(s): {', '.join(sorted(set(matched_pos)))}")
+        if ext_refs:
+            parts.append(f"External / Email PO(s) verified via uploaded copy: {', '.join(sorted(set(ext_refs)))}")
+
         claim_doc.match_status = "2-Way Match Passed (PO Linked)"
-        claim_doc.match_variance_details = f"Linked to {len(matched_pos)} Purchase Orders across itemized rows: {', '.join(set(matched_pos))}."
+        claim_doc.match_variance_details = f"PO reconciliation passed across itemized rows — {'; '.join(parts)}."
         return {"status": "passed"}
 
     route = getattr(claim_doc, "invoice_type", "Without PO (Direct Tax Invoice)")
