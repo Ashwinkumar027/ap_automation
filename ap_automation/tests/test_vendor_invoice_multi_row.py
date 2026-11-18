@@ -484,6 +484,303 @@ class TestVendorInvoiceMultiRow(unittest.TestCase):
             over_adv.insert(ignore_permissions=True)
         self.assertIn("PO Advance Over-Limit", str(ctx.exception))
 
+    def test_external_email_po_mixed_claim_math_and_exports(self):
+        """Mixed claim with System PO + External / Email PO + Without PO: exact math, matching diagnostics, and Excel/IDFC exports."""
+        po = frappe.new_doc("AP Purchase Order")
+        po.company_entity = self.company
+        po.vendor = self.vendors[0]
+        po.procurement_type = "Single / Sole Source Vendor (Direct Procurement)"
+        po.sole_source_justification = "Approved system PO vendor for mixed claim test."
+        po.single_quotation_attachment = "/files/quote_mix.pdf"
+        po.date_of_issue = nowdate()
+        po.delivery_deadline = nowdate()
+        po.payment_terms = "Milestone Based as per Agreement"
+        po.status = "Active PO"
+        po.append("items", {
+            "item_name": "System PO Scope",
+            "qty": 1,
+            "uom": "Lump Sum",
+            "rate": 100000.0,
+            "gst_rate": "18%",
+        })
+        po.flags.ignore_mandatory = True
+        po.insert(ignore_permissions=True)
+
+        ext_po_ref = f"EMAIL-PO-{frappe.generate_hash(length=5).upper()}"
+
+        claim = frappe.new_doc("Vendor Invoice Claim")
+        claim.company = self.company
+        claim.status = "Pending Manager Approval"
+
+        # Row 1: With System PO | Base 50,000 | Intra 18% (9,000) | 194C 2% (1,000) | Net = 58,000
+        claim.append("items", {
+            "vendor": self.vendors[0],
+            "bill_payment_type": "Final / Regular Bill",
+            "po_type": "With PO",
+            "purchase_order": po.name,
+            "invoice_number": f"INV-MIX-SYS-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/sys_inv.pdf",
+            "base_amount": 50000.0,
+            "tax_type": "Intra-State (CGST + SGST)",
+            "gst_rate": "18%",
+            "tds_section": "194C - Contractor (2%)",
+            "advance_deducted": 0.0,
+            "retention_hold_amount": 0.0,
+        })
+
+        # Row 2: External / Email PO | Base 100,000 | Inter 18% (18,000) | 194J 10% (10,000) | Retention 5,000 | Net = 103,000
+        claim.append("items", {
+            "vendor": self.vendors[1],
+            "bill_payment_type": "Final / Regular Bill",
+            "po_type": "External / Email PO (Not in System)",
+            "external_po_number": f"  {ext_po_ref}  ",
+            "external_po_amount": 120000.0,
+            "external_po_date": nowdate(),
+            "po_attachment": "/files/email_po_copy.pdf",
+            "invoice_number": f"INV-MIX-EXT-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/ext_inv.pdf",
+            "base_amount": 100000.0,
+            "tax_type": "Inter-State (IGST)",
+            "gst_rate": "18%",
+            "tds_section": "194J - Professional Fees (10%)",
+            "advance_deducted": 0.0,
+            "retention_hold_amount": 5000.0,
+        })
+
+        # Row 3: Without PO | Base 20,000 | Intra 12% (2,400) | Exempt TDS (0) | Net = 22,400
+        claim.append("items", {
+            "vendor": self.vendors[2],
+            "bill_payment_type": "Final / Regular Bill",
+            "po_type": "Without PO",
+            "invoice_number": f"INV-MIX-NOPO-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/nopo_inv.pdf",
+            "base_amount": 20000.0,
+            "tax_type": "Intra-State (CGST + SGST)",
+            "gst_rate": "12%",
+            "tds_section": "None / Exempt",
+            "advance_deducted": 0.0,
+            "retention_hold_amount": 0.0,
+        })
+
+        claim.insert(ignore_permissions=True)
+
+        # Verify normalized external PO number & exact financial totals
+        self.assertEqual(claim.items[1].external_po_number, ext_po_ref)
+        self.assertIsNone(claim.items[1].purchase_order)
+        self.assertAlmostEqual(claim.base_amount, 170000.0, places=2)
+        self.assertAlmostEqual(claim.cgst_amount, 5700.0, places=2)    # 4500 + 1200
+        self.assertAlmostEqual(claim.sgst_amount, 5700.0, places=2)    # 4500 + 1200
+        self.assertAlmostEqual(claim.igst_amount, 18000.0, places=2)
+        self.assertAlmostEqual(claim.gst_amount, 29400.0, places=2)
+        self.assertAlmostEqual(claim.total_invoice_amount, 199400.0, places=2)
+        self.assertAlmostEqual(claim.tds_amount, 11000.0, places=2)    # 1000 + 10000
+        self.assertAlmostEqual(claim.retention_hold_amount, 5000.0, places=2)
+        self.assertAlmostEqual(claim.net_payable_amount, 183400.0, places=2)  # 58000 + 103000 + 22400
+
+        # Verify matching diagnostics recognize BOTH System PO and External PO
+        self.assertEqual(claim.match_status, "2-Way Match Passed (PO Linked)")
+        self.assertIn(po.name, claim.match_variance_details)
+        self.assertIn(f"EXT:{ext_po_ref}", claim.match_variance_details)
+
+        # Verify Itemized Excel & IDFC CMS Excel export cleanly
+        export_vendor_invoices_excel(claim.name)
+        self.assertGreater(len(frappe.response.get("filecontent", b"")), 100)
+        claim.db_set("status", "Approved for Payment")
+        download_idfc_vendor_invoice_excel(claim.name)
+        self.assertGreater(len(frappe.response.get("filecontent", b"")), 100)
+
+    def test_external_email_po_advance_and_auto_pick_e2e(self):
+        """
+        End-to-end External / Email PO Advance -> Final Bill Auto-Pick:
+        1. Pay Advance (2,00,000) against EMAIL-PO (Value 5,00,000).
+        2. Query get_external_po_details with lowercase + spaces -> auto-picks 2,00,000, PO value 5,00,000, and PO attachment.
+        3. Submit Final Bill for full 5,00,000 + 18% GST - 2% TDS (10,000) - 2,00,000 Advance = 3,80,000 (no false over-invoicing!).
+        4. Re-query get_external_po_details -> unadjusted_advance_total == 0 (no double-deduction).
+        """
+        from ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim import get_external_po_details
+
+        ext_po_no = f"EMAIL-PO-ADV-{frappe.generate_hash(length=5).upper()}"
+
+        adv = frappe.new_doc("Vendor Invoice Claim")
+        adv.company = self.company
+        adv.status = "Paid"
+        adv.append("items", {
+            "vendor": self.vendors[1],
+            "bill_payment_type": "Advance / Part Payment",
+            "po_type": "External / Email PO (Not in System)",
+            "external_po_number": ext_po_no,
+            "external_po_amount": 500000.0,
+            "external_po_date": nowdate(),
+            "po_attachment": "/files/email_po_signed.pdf",
+            "invoice_number": f"ADV-EXT-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/adv_ext.pdf",
+            "base_amount": 200000.0,
+            "tax_type": "Intra-State (CGST + SGST)",
+            "gst_rate": "0%",
+            "tds_section": "None / Exempt",
+            "remarks": "40% External Email PO Advance"
+        })
+        adv.insert(ignore_permissions=True)
+
+        # Case-insensitive & trimmed lookup
+        info = get_external_po_details(self.vendors[1], f"  {ext_po_no.lower()}  ")
+        self.assertAlmostEqual(info["external_po_amount"], 500000.0, places=2)
+        self.assertEqual(info["po_attachment"], "/files/email_po_signed.pdf")
+        self.assertEqual(len(info["milestones"]), 1)
+        self.assertAlmostEqual(info["unadjusted_advance_total"], 200000.0, places=2)
+
+        # Submit Final Bill for full 5,00,000 base
+        final_claim = frappe.new_doc("Vendor Invoice Claim")
+        final_claim.company = self.company
+        final_claim.status = "Pending Manager Approval"
+        final_claim.append("items", {
+            "vendor": self.vendors[1],
+            "bill_payment_type": "Final / Regular Bill",
+            "po_type": "External / Email PO (Not in System)",
+            "external_po_number": ext_po_no.lower(),
+            "external_po_amount": info["external_po_amount"],
+            "po_attachment": info["po_attachment"],
+            "invoice_number": f"FINAL-EXT-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/final_ext.pdf",
+            "base_amount": 500000.0,
+            "tax_type": "Intra-State (CGST + SGST)",
+            "gst_rate": "18%",
+            "tds_section": "194C - Contractor (2%)",
+            "advance_deducted": info["unadjusted_advance_total"],
+            "retention_hold_amount": 0.0,
+        })
+        for m in info["milestones"]:
+            final_claim.append("milestone_payments", {
+                "milestone_type": m["milestone_type"],
+                "payment_reference": m["payment_reference"],
+                "payment_date": m["payment_date"],
+                "disbursed_amount": m["disbursed_amount"],
+                "adjusted_amount": m["adjusted_amount"],
+                "remarks": m["remarks"]
+            })
+
+        # Must succeed with zero false over-invoicing block
+        final_claim.insert(ignore_permissions=True)
+        # Math: 5,00,000 + 90,000 GST - 10,000 TDS - 2,00,000 Advance = 3,80,000
+        self.assertAlmostEqual(final_claim.net_payable_amount, 380000.0, places=2)
+
+        # Subsequent lookup must show 0 unadjusted advance
+        info_after = get_external_po_details(self.vendors[1], ext_po_no)
+        self.assertAlmostEqual(info_after["unadjusted_advance_total"], 0.0, places=2)
+        self.assertEqual(len(info_after["milestones"]), 0)
+
+    def test_external_email_po_over_invoicing_and_over_advance_blocked(self):
+        """Verify External PO enforces 110% over-invoicing cap and 100% over-advance cap (case-insensitive)."""
+        ext_po_no = f"EMAIL-PO-CAP-{frappe.generate_hash(length=5).upper()}"
+
+        # 1. Over-Advance blocked (110,000 > 100,000)
+        over_adv = frappe.new_doc("Vendor Invoice Claim")
+        over_adv.company = self.company
+        over_adv.status = "Pending Manager Approval"
+        over_adv.append("items", {
+            "vendor": self.vendors[0],
+            "bill_payment_type": "Advance / Part Payment",
+            "po_type": "External / Email PO (Not in System)",
+            "external_po_number": ext_po_no,
+            "external_po_amount": 100000.0,
+            "po_attachment": "/files/ext_po.pdf",
+            "invoice_number": f"EXT-OVADV-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/bill1.pdf",
+            "base_amount": 110000.0,
+            "tax_type": "Intra-State (CGST + SGST)",
+            "gst_rate": "0%",
+            "tds_section": "None / Exempt",
+        })
+        with self.assertRaises(APValidationError) as ctx1:
+            over_adv.insert(ignore_permissions=True)
+        self.assertIn("External PO Advance Over-Limit", str(ctx1.exception))
+
+        # 2. First regular bill for 80,000 passes
+        bill1 = frappe.new_doc("Vendor Invoice Claim")
+        bill1.company = self.company
+        bill1.status = "Approved for Payment"
+        bill1.append("items", {
+            "vendor": self.vendors[0],
+            "bill_payment_type": "Final / Regular Bill",
+            "po_type": "External / Email PO (Not in System)",
+            "external_po_number": ext_po_no,
+            "external_po_amount": 100000.0,
+            "po_attachment": "/files/ext_po.pdf",
+            "invoice_number": f"EXT-B1-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/bill1.pdf",
+            "base_amount": 80000.0,
+            "tax_type": "Intra-State (CGST + SGST)",
+            "gst_rate": "18%",
+            "tds_section": "None / Exempt",
+        })
+        bill1.insert(ignore_permissions=True)
+
+        # 3. Second regular bill using lowercase + spaces for 40,000 (80k + 40k = 120k > 110k cap) MUST be blocked!
+        bill2 = frappe.new_doc("Vendor Invoice Claim")
+        bill2.company = self.company
+        bill2.status = "Pending Manager Approval"
+        bill2.append("items", {
+            "vendor": self.vendors[0],
+            "bill_payment_type": "Final / Regular Bill",
+            "po_type": "External / Email PO (Not in System)",
+            "external_po_number": f" {ext_po_no.lower()} ",
+            "external_po_amount": 100000.0,
+            "po_attachment": "/files/ext_po.pdf",
+            "invoice_number": f"EXT-B2-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/bill2.pdf",
+            "base_amount": 40000.0,
+            "tax_type": "Intra-State (CGST + SGST)",
+            "gst_rate": "18%",
+            "tds_section": "None / Exempt",
+        })
+        with self.assertRaises(APValidationError) as ctx2:
+            bill2.insert(ignore_permissions=True)
+        self.assertIn("External PO Over-Invoicing Detected", str(ctx2.exception))
+
+    def test_external_email_po_mandatory_proofs_draft_vs_submit(self):
+        """Draft save allows partial External PO fields; submission strictly enforces number, value, and PO copy."""
+        # 1. Draft with missing PO number/value/attachment succeeds
+        draft = frappe.new_doc("Vendor Invoice Claim")
+        draft.company = self.company
+        draft.status = "Draft"
+        draft.append("items", {
+            "vendor": self.vendors[0],
+            "po_type": "External / Email PO (Not in System)",
+            "invoice_number": f"EXT-DRF-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "base_amount": 25000.0,
+            "gst_rate": "18%",
+        })
+        draft.insert(ignore_permissions=True)
+        self.assertEqual(draft.status, "Draft")
+
+        # 2. Submit without PO copy blocked
+        sub_no_copy = frappe.new_doc("Vendor Invoice Claim")
+        sub_no_copy.company = self.company
+        sub_no_copy.status = "Pending Manager Approval"
+        sub_no_copy.append("items", {
+            "vendor": self.vendors[0],
+            "po_type": "External / Email PO (Not in System)",
+            "external_po_number": "EMAIL-PO-NOCOPY",
+            "external_po_amount": 25000.0,
+            "invoice_number": f"EXT-NC-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/bill.pdf",
+            "base_amount": 25000.0,
+            "gst_rate": "18%",
+        })
+        with self.assertRaises(APValidationError) as ctx:
+            sub_no_copy.insert(ignore_permissions=True)
+        self.assertIn("Upload PO / Email Copy attachment is strictly mandatory", str(ctx.exception))
+
 
 def run_tests():
     suite = unittest.TestLoader().loadTestsFromTestCase(TestVendorInvoiceMultiRow)

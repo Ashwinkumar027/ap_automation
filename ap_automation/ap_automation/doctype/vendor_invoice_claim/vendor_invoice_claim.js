@@ -785,6 +785,32 @@ function run_pre_submit_audit(frm) {
                     icon: ""
                 });
             }
+            if (row.po_type === "External / Email PO (Not in System)") {
+                if (!(row.external_po_number || "").trim()) {
+                    errors.push({
+                        fieldname: "items",
+                        label: __(`Row #${num}: Manual / Email PO Number`),
+                        msg: __(`Row #${num}: Manual / Email PO Number is mandatory for External / Email POs.`),
+                        icon: ""
+                    });
+                }
+                if (flt(row.external_po_amount) <= 0) {
+                    errors.push({
+                        fieldname: "items",
+                        label: __(`Row #${num}: External PO Value`),
+                        msg: __(`Row #${num}: External PO Value Before GST (INR) must be greater than 0.00.`),
+                        icon: ""
+                    });
+                }
+                if (!row.po_attachment) {
+                    errors.push({
+                        fieldname: "items",
+                        label: __(`Row #${num}: Upload PO / Email Copy`),
+                        msg: __(`Row #${num}: Uploading the PO PDF or Email approval copy is mandatory for External / Email POs.`),
+                        icon: ""
+                    });
+                }
+            }
             let row_total = flt(row.total_invoice_amount) || flt(row.base_amount);
             let row_adv = flt(row.advance_deducted);
             if (row_adv > row_total && row_total > 0) {
@@ -1280,6 +1306,38 @@ function get_vendor_claim_attachments(frm) {
             date: frm.doc.creation
         });
     }
+
+    (frm.doc.items || []).forEach((row, idx) => {
+        if (row.receipt_attachment) {
+            let url = row.receipt_attachment;
+            let fname = url.split('/').pop().split('?')[0];
+            let ext = fname.split('.').pop().toLowerCase();
+            attachments.push({
+                category: `Row #${idx + 1} Bill Copy (${row.vendor_name || row.vendor || 'Vendor'})`,
+                file_url: url,
+                file_name: fname,
+                extension: ext,
+                amount: row.total_invoice_amount || row.base_amount || 0.0,
+                date: row.invoice_date || frm.doc.creation
+            });
+        }
+        if (row.po_attachment) {
+            let url = row.po_attachment;
+            let fname = url.split('/').pop().split('?')[0];
+            let ext = fname.split('.').pop().toLowerCase();
+            let po_lbl = row.po_type === "External / Email PO (Not in System)"
+                ? `Row #${idx + 1} External / Email PO (${row.external_po_number || 'Proof'})`
+                : `Row #${idx + 1} PO / Approval Copy`;
+            attachments.push({
+                category: po_lbl,
+                file_url: url,
+                file_name: fname,
+                extension: ext,
+                amount: row.external_po_amount || row.base_amount || 0.0,
+                date: row.external_po_date || row.invoice_date || frm.doc.creation
+            });
+        }
+    });
 
     return attachments;
 }
@@ -2016,9 +2074,10 @@ frappe.ui.form.on("Vendor Invoice Item", {
         if (row.bill_payment_type === "Advance / Part Payment") {
             frappe.model.set_value(cdt, cdn, "advance_deducted", 0);
             calculate_vendor_row_totals(frm, cdt, cdn);
-        } else if (row.purchase_order) {
-            // Switched back to Final / Regular Bill with PO linked -> auto-pick prior advances
+        } else if (row.po_type === "With PO" && row.purchase_order) {
             frm.script_manager.trigger("purchase_order", cdt, cdn);
+        } else if (row.po_type === "External / Email PO (Not in System)" && row.external_po_number) {
+            frm.script_manager.trigger("external_po_number", cdt, cdn);
         }
     },
 
@@ -2026,8 +2085,106 @@ frappe.ui.form.on("Vendor Invoice Item", {
         let row = locals[cdt][cdn];
         if (row.po_type === "Without PO") {
             frappe.model.set_value(cdt, cdn, "purchase_order", "");
+            frappe.model.set_value(cdt, cdn, "external_po_number", "");
+            frappe.model.set_value(cdt, cdn, "external_po_amount", 0);
+            frappe.model.set_value(cdt, cdn, "external_po_date", "");
             frappe.model.set_value(cdt, cdn, "po_attachment", "");
+        } else if (row.po_type === "With PO") {
+            frappe.model.set_value(cdt, cdn, "external_po_number", "");
+            frappe.model.set_value(cdt, cdn, "external_po_amount", 0);
+            frappe.model.set_value(cdt, cdn, "external_po_date", "");
+        } else if (row.po_type === "External / Email PO (Not in System)") {
+            frappe.model.set_value(cdt, cdn, "purchase_order", "");
         }
+        render_vendor_invoice_dashboard(frm);
+    },
+
+    external_po_number: function(frm, cdt, cdn) {
+        let row = locals[cdt][cdn];
+        const ext_po = (row.external_po_number || "").trim();
+        if (!ext_po || !row.vendor) {
+            render_vendor_invoice_dashboard(frm);
+            return;
+        }
+
+        frappe.call({
+            method: "ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.get_external_po_details",
+            args: {
+                vendor: row.vendor,
+                external_po_number: ext_po,
+                exclude_claim: frm.doc.name || ""
+            },
+            callback: function(r) {
+                if (r && r.message) {
+                    const ext = r.message;
+                    const is_advance_row = (row.bill_payment_type === "Advance / Part Payment");
+
+                    if (flt(ext.external_po_amount) > 0 && flt(row.external_po_amount) === 0) {
+                        frappe.model.set_value(cdt, cdn, "external_po_amount", ext.external_po_amount);
+                    }
+                    if (ext.external_po_date && !row.external_po_date) {
+                        frappe.model.set_value(cdt, cdn, "external_po_date", ext.external_po_date);
+                    }
+                    if (ext.po_attachment && !row.po_attachment) {
+                        frappe.model.set_value(cdt, cdn, "po_attachment", ext.po_attachment);
+                    }
+
+                    if (is_advance_row) {
+                        frappe.model.set_value(cdt, cdn, "advance_deducted", 0);
+                    } else {
+                        const adv_total = flt(ext.unadjusted_advance_total);
+                        if (adv_total > 0 && flt(row.advance_deducted) === 0) {
+                            frappe.model.set_value(cdt, cdn, "advance_deducted", adv_total);
+                        }
+                        if (ext.milestones && ext.milestones.length > 0) {
+                            const existing_refs = new Set(
+                                (frm.doc.milestone_payments || []).map(m => (m.payment_reference || "").trim())
+                            );
+                            let added_count = 0;
+                            ext.milestones.forEach(m => {
+                                const ref = (m.payment_reference || "").trim();
+                                if (ref && existing_refs.has(ref)) return;
+                                let mrow = frm.add_child("milestone_payments");
+                                mrow.milestone_type = m.milestone_type;
+                                mrow.payment_reference = m.payment_reference;
+                                mrow.payment_date = m.payment_date;
+                                mrow.disbursed_amount = flt(m.disbursed_amount);
+                                mrow.adjusted_amount = flt(m.adjusted_amount);
+                                mrow.remarks = m.remarks;
+                                if (ref) existing_refs.add(ref);
+                                added_count += 1;
+                            });
+                            if (added_count > 0) {
+                                frm.refresh_field("milestone_payments");
+                                frappe.show_alert({
+                                    message: __("Auto-picked INR {0} from {1} prior advance payment(s) for External PO {2}.", [
+                                        formatINR(adv_total),
+                                        added_count,
+                                        ext_po
+                                    ]),
+                                    indicator: "green"
+                                });
+                            }
+                        }
+                    }
+                    calculate_vendor_row_totals(frm, cdt, cdn);
+                }
+            }
+        });
+    },
+
+    external_po_amount: function(frm) {
+        render_vendor_invoice_dashboard(frm);
+    },
+
+    po_attachment: function(frm) {
+        setup_vendor_receipt_gallery_button(frm);
+        render_vendor_invoice_dashboard(frm);
+    },
+
+    receipt_attachment: function(frm) {
+        setup_vendor_receipt_gallery_button(frm);
+        render_vendor_invoice_dashboard(frm);
     },
 
     purchase_order: function(frm, cdt, cdn) {
