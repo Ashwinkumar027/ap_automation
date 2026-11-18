@@ -21,16 +21,17 @@
    "fieldname": "milestone_type",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Milestone Type",
+   "label": "Payment Type",
    "options": "Mobilization Advance\nMilestone / Part Payment\nProgress Billing\nGST Tranche\nSecurity Hold\nOther Advance",
-   "reqd": 1
+   "reqd": 1,
+   "description": "Advance, Part Payment, etc."
   },
   {
    "columns": 2,
    "fieldname": "payment_reference",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Disbursal Ref / UTR / Batch",
+   "label": "Previous Payment UTR / Ref #",
    "reqd": 1
   },
   {
@@ -38,14 +39,14 @@
    "fieldname": "payment_date",
    "fieldtype": "Date",
    "in_list_view": 1,
-   "label": "Payment Date"
+   "label": "Date Paid"
   },
   {
    "columns": 2,
    "fieldname": "disbursed_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Disbursed Amount (INR)",
+   "label": "Total Paid Earlier (INR)",
    "reqd": 1
   },
   {
@@ -53,7 +54,7 @@
    "fieldname": "adjusted_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Adjusted Against Invoice (INR)",
+   "label": "Deduct from This Bill (INR)",
    "reqd": 1
   },
   {

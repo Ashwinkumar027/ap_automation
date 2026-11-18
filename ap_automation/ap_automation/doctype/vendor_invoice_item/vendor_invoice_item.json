@@ -60,7 +60,7 @@
   {
    "fieldname": "sb_vendor_info",
    "fieldtype": "Section Break",
-   "label": "Vendor & Bill Identification"
+   "label": "Vendor & Bill Details"
   },
   {
    "columns": 2,
@@ -84,7 +84,7 @@
    "fieldname": "vendor",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Supplier / Vendor",
+   "label": "Vendor",
    "options": "Supplier",
    "reqd": 1
   },
@@ -123,7 +123,7 @@
    "fieldname": "invoice_number",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Invoice # / Bill Ref",
+   "label": "Bill / Invoice Number",
    "reqd": 1
   },
   {
@@ -139,7 +139,7 @@
    "fieldname": "receipt_attachment",
    "fieldtype": "Attach",
    "in_list_view": 1,
-   "label": "Bill Proof / Attachment"
+   "label": "Upload Bill Copy (PDF / Photo)"
   },
   {
    "columns": 1,
@@ -159,7 +159,7 @@
   {
    "fieldname": "sb_po_info",
    "fieldtype": "Section Break",
-   "label": "Purchase Order Sourcing"
+   "label": "Purchase Order (PO) Details"
   },
   {
    "columns": 2,
@@ -167,7 +167,7 @@
    "fieldname": "po_type",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "PO Type",
+   "label": "Has Purchase Order?",
    "options": "Without PO\nWith PO"
   },
   {
@@ -195,20 +195,20 @@
    "fieldname": "purchase_receipt",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Purchase Receipt (GRN)",
+   "label": "Goods Received Note (GRN)",
    "options": "Purchase Receipt"
   },
   {
    "fieldname": "sb_tax_calc",
    "fieldtype": "Section Break",
-   "label": "Base Taxable & GST Computation"
+   "label": "Bill Amount & GST"
   },
   {
    "columns": 2,
    "fieldname": "base_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Base Taxable (INR)",
+   "label": "Amount Before GST (INR)",
    "reqd": 1
   },
   {
@@ -217,7 +217,7 @@
    "fieldname": "tax_type",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Tax Type",
+   "label": "GST Type (Same State / Other State)",
    "options": "Intra-State (CGST + SGST)\nInter-State (IGST)"
   },
   {
@@ -262,7 +262,7 @@
    "fieldname": "gst_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Calculated GST (INR)",
+   "label": "Total GST (INR)",
    "read_only": 1
   },
   {
@@ -270,13 +270,13 @@
    "fieldname": "total_invoice_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total Bill (INR)",
+   "label": "Total Bill with GST (INR)",
    "read_only": 1
   },
   {
    "fieldname": "sb_deductions",
    "fieldtype": "Section Break",
-   "label": "TDS Withholding & Deductions"
+   "label": "TDS & Deductions"
   },
   {
    "columns": 3,
@@ -284,7 +284,7 @@
    "fieldname": "tds_section",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "TDS Section",
+   "label": "TDS Category",
    "options": "None / Exempt\n194C / 393(1) - Contractor (Individual/HUF) (1%)\n194C / 393(1) - Contractor (Other than Individual/HUF) (2%)\n194J / 393(1) - Technical Services / Royalty (2%)\n194J / 393(1) - Professional Services & Director Fees (10%)\n194-I / 393(1) - Rent for Plant & Machinery (2%)\n194-I / 393(1) - Rent for Land & Building (10%)\n194Q / 393(1) - Purchase of Goods (0.1%)\n194H / 393(1) - Commission & Brokerage (2%)\n194A / 393(1) - Interest on Securities (10%)\n194A / 393(1) - Interest other than securities (Senior Citizen) (10%)\n194A / 393(1) - Interest other than securities (Others) (10%)\n194A / 393(1) - Interest other than securities (Specified Person) (10%)\n194-IA / 393(1) - Transfer of Immovable Property (1%)\n194-IB / 393(1) - Rent by Non-Specified Person (2%)\n194M / 393(1) - Contract & Professional Fees by Non-Specified Person (2%)\n194R / 393(1) - Business & Profession Perquisite (10%)\n194T / 393(3) - Partner Remuneration & Interest (10%)\n192 / 392 - Salary (Slab Rate)\n206AB - Higher Non-Filer (20%)\n194C - Contractor (1%)\n194C - Contractor (2%)\n194J - Technical Fees (2%)\n194J - Professional Fees (10%)\n194Q - Purchase of Goods (0.1%)\n194I - Rent (10%)"
   },
   {
@@ -300,7 +300,7 @@
    "fieldname": "tds_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Deducted TDS (INR)",
+   "label": "TDS Deducted (INR)",
    "read_only": 1
   },
   {
@@ -313,7 +313,7 @@
    "fieldname": "advance_deducted",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Advance Deducted (INR)"
+   "label": "Advance Already Paid (INR)"
   },
   {
    "columns": 2,
@@ -321,27 +321,27 @@
    "fieldname": "retention_hold_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Retention Hold (INR)"
+   "label": "Amount Held Back (INR)"
   },
   {
    "columns": 2,
    "fieldname": "amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Net Pay (INR)",
+   "label": "Final Amount to Pay (INR)",
    "read_only": 1
   },
   {
    "fieldname": "sb_banking",
    "fieldtype": "Section Break",
-   "label": "Verified Banking Coordinates"
+   "label": "Vendor Bank Details (Auto-Filled)"
   },
   {
    "columns": 2,
    "fieldname": "bank_beneficiary_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Name As Per Bank",
+   "label": "Account Holder Name",
    "read_only": 1
   },
   {
@@ -369,7 +369,7 @@
    "fieldname": "penny_drop_status",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Penny Drop Status",
+   "label": "Bank Verification Status",
    "read_only": 1
   },
   {
@@ -382,7 +382,7 @@
   {
    "fieldname": "sb_audit",
    "fieldtype": "Section Break",
-   "label": "Line Audit & Verification"
+   "label": "Review & Notes"
   },
   {
    "columns": 2,
@@ -390,7 +390,7 @@
    "fieldname": "line_status",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Line Status",
+   "label": "Bill Status",
    "options": "Pending\nAccepted\nDisputed / Discrepancy"
   },
   {
@@ -409,7 +409,7 @@
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "in_list_view": 1,
-   "label": "Operational Remarks"
+   "label": "Notes / Description"
   }
  ],
  "grid_page_length": 50,
