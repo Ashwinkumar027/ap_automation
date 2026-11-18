@@ -279,32 +279,75 @@ class VendorInvoiceClaim(APDocument):
                     )
                     if po_doc and base_val > 0:
                         po_contracted = flt(po_doc.net_taxable_value)
-                        prior_res = frappe.db.sql(
-                            """
-                            SELECT SUM(vii.base_amount) as total
-                            FROM `tabVendor Invoice Item` vii
-                            JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
-                            WHERE vii.purchase_order = %s AND vic.name != %s
-                              AND vic.docstatus != 2
-                              AND vic.status NOT IN ('Disputed', 'Draft', 'Cancelled')
-                            """,
-                            (row.purchase_order, getattr(self, "name", "NEW") or "NEW"),
-                            as_dict=True
-                        )
-                        prior_invoiced = flt(prior_res[0].total) if prior_res else 0.0
-                        sibling_sum = sum(
-                            flt(r.base_amount)
-                            for i, r in enumerate(self.items)
-                            if i < idx - 1 and getattr(r, "purchase_order", None) == row.purchase_order
-                        )
-                        cumulative = round(prior_invoiced + sibling_sum + base_val, 2)
-                        allowed_max = round(po_contracted * 1.10, 2)  # 10% price tolerance
-                        if po_contracted > 0 and cumulative > allowed_max and is_submitting:
-                            log_and_throw(
-                                f"Row #{idx}: Over-Invoicing Alert! Cumulative billed base for PO #{row.purchase_order} (Prior INR {prior_invoiced:,.2f} + Sibling INR {sibling_sum:,.2f} + Current INR {base_val:,.2f} = INR {cumulative:,.2f}) exceeds contracted value (INR {po_contracted:,.2f}).",
-                                title="PO Over-Invoicing Detected",
-                                doc=self
+                        bill_type = getattr(row, "bill_payment_type", "Final / Regular Bill") or "Final / Regular Bill"
+                        row.bill_payment_type = bill_type
+                        has_bpt_col = frappe.db.has_column("Vendor Invoice Item", "bill_payment_type")
+
+                        if bill_type == "Advance / Part Payment":
+                            if has_bpt_col:
+                                prior_adv_res = frappe.db.sql(
+                                    """
+                                    SELECT SUM(vii.base_amount) as total
+                                    FROM `tabVendor Invoice Item` vii
+                                    JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
+                                    WHERE vii.purchase_order = %s AND vic.name != %s
+                                      AND vii.bill_payment_type = 'Advance / Part Payment'
+                                      AND vic.docstatus != 2
+                                      AND vic.status NOT IN ('Disputed', 'Draft', 'Cancelled')
+                                    """,
+                                    (row.purchase_order, getattr(self, "name", "NEW") or "NEW"),
+                                    as_dict=True
+                                )
+                                prior_adv = flt(prior_adv_res[0].total) if prior_adv_res else 0.0
+                            else:
+                                prior_adv = 0.0
+
+                            sibling_adv = sum(
+                                flt(r.base_amount)
+                                for i, r in enumerate(self.items)
+                                if i < idx - 1
+                                and getattr(r, "purchase_order", None) == row.purchase_order
+                                and (getattr(r, "bill_payment_type", "Final / Regular Bill") or "Final / Regular Bill") == "Advance / Part Payment"
                             )
+                            cumulative_adv = round(prior_adv + sibling_adv + base_val, 2)
+                            if po_contracted > 0 and cumulative_adv > po_contracted and is_submitting:
+                                log_and_throw(
+                                    f"Row #{idx}: PO Advance Over-Limit! Cumulative advance payments for PO #{row.purchase_order} (Prior INR {prior_adv:,.2f} + Sibling INR {sibling_adv:,.2f} + Current INR {base_val:,.2f} = INR {cumulative_adv:,.2f}) exceed contracted PO value (INR {po_contracted:,.2f}).",
+                                    title="PO Advance Exceeds Contract Value",
+                                    doc=self
+                                )
+                        else:
+                            # Regular / Final Bill: exclude prior Advance / Part Payment rows so final invoices are never falsely blocked
+                            bpt_filter = "AND COALESCE(vii.bill_payment_type, 'Final / Regular Bill') != 'Advance / Part Payment'" if has_bpt_col else ""
+                            prior_res = frappe.db.sql(
+                                f"""
+                                SELECT SUM(vii.base_amount) as total
+                                FROM `tabVendor Invoice Item` vii
+                                JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
+                                WHERE vii.purchase_order = %s AND vic.name != %s
+                                  {bpt_filter}
+                                  AND vic.docstatus != 2
+                                  AND vic.status NOT IN ('Disputed', 'Draft', 'Cancelled')
+                                """,
+                                (row.purchase_order, getattr(self, "name", "NEW") or "NEW"),
+                                as_dict=True
+                            )
+                            prior_invoiced = flt(prior_res[0].total) if prior_res else 0.0
+                            sibling_sum = sum(
+                                flt(r.base_amount)
+                                for i, r in enumerate(self.items)
+                                if i < idx - 1
+                                and getattr(r, "purchase_order", None) == row.purchase_order
+                                and (getattr(r, "bill_payment_type", "Final / Regular Bill") or "Final / Regular Bill") != "Advance / Part Payment"
+                            )
+                            cumulative = round(prior_invoiced + sibling_sum + base_val, 2)
+                            allowed_max = round(po_contracted * 1.10, 2)  # 10% price tolerance
+                            if po_contracted > 0 and cumulative > allowed_max and is_submitting:
+                                log_and_throw(
+                                    f"Row #{idx}: Over-Invoicing Alert! Cumulative billed base for PO #{row.purchase_order} (Prior INR {prior_invoiced:,.2f} + Sibling INR {sibling_sum:,.2f} + Current INR {base_val:,.2f} = INR {cumulative:,.2f}) exceeds contracted value (INR {po_contracted:,.2f}).",
+                                    title="PO Over-Invoicing Detected",
+                                    doc=self
+                                )
             else:
                 row.purchase_order = None
 
@@ -795,38 +838,129 @@ class VendorInvoiceClaim(APDocument):
 
 
 @frappe.whitelist()
-def fetch_po_milestones(po_name: str) -> List[Dict[str, Any]]:
+def fetch_po_milestones(po_name: str, exclude_claim: Optional[str] = None) -> List[Dict[str, Any]]:
     """
-    Fetches all disbursed and approved advance/milestone payments recorded against an AP Purchase Order.
-    Used to auto-populate milestone_payments child table on Vendor Invoice Claim.
+    Fetches all disbursed and approved advance/part payments recorded against an AP Purchase Order.
+    Priority order:
+      1. Prior 'Advance / Part Payment' rows in Vendor Invoice Claim linked to this PO (with remaining unadjusted balance).
+      2. Legacy Vendor PO Request records (backward compatibility).
+      3. Direct AP Purchase Order advance_amount (only if no prior advance claims exist).
+    Used to auto-populate Advances Already Paid Earlier (milestone_payments) and row advance_deducted.
     """
     if not po_name:
         return []
 
     results = []
-    # 1. Look up Vendor PO Request records linked to this PO
-    adv_requests = frappe.get_all(
-        "Vendor PO Request",
-        filters={"purchase_order": po_name, "status": ["in", ["Disbursed", "Approved"]]},
-        fields=["name", "advance_percentage", "requested_advance_amount", "justification", "status", "creation"]
-    )
-    for adv in adv_requests:
-        adv_amt = flt(adv.requested_advance_amount)
-        pct = flt(adv.advance_percentage)
-        m_type = "Mobilization Advance" if pct >= 50 else "Milestone / Part Payment"
-        pdate = adv.creation.strftime("%Y-%m-%d") if hasattr(adv.creation, "strftime") else str(adv.creation)[:10]
-        results.append({
-            "milestone_type": m_type,
-            "payment_reference": f"ADV-{adv.name}",
-            "payment_date": pdate,
-            "disbursed_amount": adv_amt,
-            "adjusted_amount": adv_amt,
-            "advance_request": adv.name,
-            "remarks": f"Advance request {adv.name} ({pct}% of PO)"
-        })
+    excl = exclude_claim or "NEW"
+    had_prior_advance_claims = False
 
-    # 2. Check if the PO itself has an advance_amount recorded
-    if not results and frappe.db.exists("AP Purchase Order", po_name):
+    # 1. Fetch prior 'Advance / Part Payment' rows filed via Vendor Invoice Claim for this PO
+    if frappe.db.has_column("Vendor Invoice Item", "bill_payment_type"):
+        adv_rows = frappe.db.sql(
+            """
+            SELECT
+                vic.name AS claim_name,
+                vic.status AS claim_status,
+                vic.batch_id AS batch_id,
+                vic.creation AS claim_creation,
+                vii.invoice_number AS inv_no,
+                vii.invoice_date AS inv_date,
+                vii.base_amount AS base_amount,
+                vii.total_invoice_amount AS gross_amount,
+                vii.amount AS net_paid,
+                vii.remarks AS row_remarks
+            FROM `tabVendor Invoice Item` vii
+            JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
+            WHERE vii.purchase_order = %s
+              AND vii.bill_payment_type = 'Advance / Part Payment'
+              AND vic.name != %s
+              AND vic.docstatus != 2
+              AND vic.status NOT IN ('Draft', 'Disputed', 'Cancelled', 'Rejected')
+              AND COALESCE(vii.line_status, 'Pending') != 'Disputed / Discrepancy'
+            ORDER BY vic.creation ASC, vii.idx ASC
+            """,
+            (po_name, excl),
+            as_dict=True
+        )
+
+        if adv_rows:
+            had_prior_advance_claims = True
+            for ar in adv_rows:
+                # Use net paid amount (or gross/base fallback if net is 0)
+                disbursed_amt = round(flt(ar.net_paid) or flt(ar.gross_amount) or flt(ar.base_amount), 2)
+                if disbursed_amt <= 0:
+                    continue
+
+                # Resolve real UTR from Payment Instruction if available
+                utr_ref = None
+                if frappe.db.exists("DocType", "Payment Instruction") and frappe.db.has_column("Payment Instruction", "idfc_utr"):
+                    utr_ref = frappe.db.get_value(
+                        "Payment Instruction",
+                        {"source_doctype": "Vendor Invoice Claim", "source_voucher": ar.claim_name, "idfc_utr": ["is", "set"]},
+                        "idfc_utr"
+                    )
+                pay_ref = utr_ref or ar.batch_id or f"{ar.claim_name} / {ar.inv_no or 'ADV'}"
+
+                # Check how much of this advance was already adjusted on other non-cancelled claims
+                adj_res = frappe.db.sql(
+                    """
+                    SELECT SUM(vm.adjusted_amount) AS already_adj
+                    FROM `tabVendor Milestone Payment Item` vm
+                    JOIN `tabVendor Invoice Claim` vic2 ON vic2.name = vm.parent
+                    WHERE vm.payment_reference = %s
+                      AND vic2.name != %s
+                      AND vic2.docstatus != 2
+                      AND vic2.status NOT IN ('Cancelled', 'Rejected', 'Disputed')
+                    """,
+                    (pay_ref, excl),
+                    as_dict=True
+                )
+                already_adjusted = round(flt(adj_res[0].already_adj) if adj_res else 0.0, 2)
+                remaining_to_deduct = round(max(disbursed_amt - already_adjusted, 0.0), 2)
+                if remaining_to_deduct <= 0:
+                    continue
+
+                pdate = str(ar.inv_date) if ar.inv_date else (
+                    ar.claim_creation.strftime("%Y-%m-%d") if hasattr(ar.claim_creation, "strftime") else str(ar.claim_creation)[:10]
+                )
+                note = f"Auto-picked from {ar.claim_name} ({ar.claim_status})"
+                if ar.row_remarks:
+                    note += f" - {ar.row_remarks[:80]}"
+
+                results.append({
+                    "milestone_type": "Mobilization Advance" if len(results) == 0 else "Milestone / Part Payment",
+                    "payment_reference": pay_ref,
+                    "payment_date": pdate,
+                    "disbursed_amount": disbursed_amt,
+                    "adjusted_amount": remaining_to_deduct,
+                    "advance_request": None,
+                    "remarks": note
+                })
+
+    # 2. Look up legacy Vendor PO Request records linked to this PO (backward compatibility)
+    if not results and not had_prior_advance_claims:
+        adv_requests = frappe.get_all(
+            "Vendor PO Request",
+            filters={"purchase_order": po_name, "status": ["in", ["Disbursed", "Approved"]]},
+            fields=["name", "advance_percentage", "requested_advance_amount", "justification", "status", "creation"]
+        )
+        for adv in adv_requests:
+            adv_amt = flt(adv.requested_advance_amount)
+            pct = flt(adv.advance_percentage)
+            m_type = "Mobilization Advance" if pct >= 50 else "Milestone / Part Payment"
+            pdate = adv.creation.strftime("%Y-%m-%d") if hasattr(adv.creation, "strftime") else str(adv.creation)[:10]
+            results.append({
+                "milestone_type": m_type,
+                "payment_reference": f"ADV-{adv.name}",
+                "payment_date": pdate,
+                "disbursed_amount": adv_amt,
+                "adjusted_amount": adv_amt,
+                "advance_request": adv.name,
+                "remarks": f"Advance request {adv.name} ({pct}% of PO)"
+            })
+
+    # 3. Fallback: Check if the PO itself has an advance_amount recorded (only if no advance claims exist yet)
+    if not results and not had_prior_advance_claims and frappe.db.exists("AP Purchase Order", po_name):
         po = frappe.get_doc("AP Purchase Order", po_name)
         adv_val = flt(po.advance_amount)
         if adv_val > 0:
@@ -893,13 +1027,16 @@ def get_vendor_bank_info(vendor: str) -> Dict[str, Any]:
     }
 
 @frappe.whitelist()
-def get_purchase_order_details(purchase_order: str) -> Dict[str, Any]:
+def get_purchase_order_details(purchase_order: str, exclude_claim: Optional[str] = None) -> Dict[str, Any]:
     """
-    Whitelisted API: Safely fetches AP Purchase Order (or ERPNext standard Purchase Order) details,
-    completely bypassing client-side query permission errors for accounts auditors, managers, and directors.
+    Whitelisted API: Safely fetches AP Purchase Order (or ERPNext standard Purchase Order) details
+    along with all unadjusted prior advance/part payments for automatic pick-up on final bills.
     """
     if not purchase_order:
         return {}
+
+    milestones = fetch_po_milestones(purchase_order, exclude_claim=exclude_claim)
+    unadjusted_advance_total = round(sum(flt(m.get("adjusted_amount")) for m in milestones), 2)
 
     # 1. Try AP Purchase Order first
     if frappe.db.exists("DocType", "AP Purchase Order") and frappe.db.exists("AP Purchase Order", purchase_order):
@@ -911,6 +1048,8 @@ def get_purchase_order_details(purchase_order: str) -> Dict[str, Any]:
             "company": po.company_entity or "",
             "base_amount": frappe.utils.flt(po.net_taxable_value or 0.0),
             "advance_amount": frappe.utils.flt(po.advance_amount or 0.0),
+            "unadjusted_advance_total": unadjusted_advance_total,
+            "milestones": milestones,
             "grand_total": frappe.utils.flt(po.grand_total or 0.0),
             "balance_due": frappe.utils.flt(po.balance_due_on_completion or 0.0),
             "status": po.status or "",
@@ -926,6 +1065,8 @@ def get_purchase_order_details(purchase_order: str) -> Dict[str, Any]:
             "company": getattr(po, "company", None) or "",
             "base_amount": frappe.utils.flt(getattr(po, "net_total", None) or getattr(po, "base_net_total", None) or 0.0),
             "advance_amount": frappe.utils.flt(getattr(po, "advance_paid", None) or 0.0),
+            "unadjusted_advance_total": unadjusted_advance_total,
+            "milestones": milestones,
             "grand_total": frappe.utils.flt(getattr(po, "grand_total", None) or 0.0),
             "balance_due": frappe.utils.flt(getattr(po, "rounded_total", None) or getattr(po, "grand_total", None) or 0.0),
             "status": getattr(po, "status", None) or "",

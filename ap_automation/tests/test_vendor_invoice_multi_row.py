@@ -317,6 +317,173 @@ class TestVendorInvoiceMultiRow(unittest.TestCase):
         self.assertIn("Vendor_Invoice_Claim_", frappe.response.get("filename", ""))
         self.assertGreater(len(frappe.response.get("filecontent", b"")), 100)
 
+    def test_advance_initiation_and_auto_pick_on_final_invoice(self):
+        """
+        End-to-end test:
+        1. Create AP Purchase Order for INR 10,00,000.
+        2. Pay Advance #1 (3,00,000) and Advance #2 (4,00,000) via Vendor Invoice Claim (Advance / Part Payment).
+        3. Call get_purchase_order_details -> auto-picks both advances (total 7,00,000).
+        4. Submit Final / Regular Bill for full 10,00,000 + 18% GST -> must NOT trigger false PO Over-Invoicing block!
+        5. Verify net payable = 11,80,000 - 20,000 TDS - 7,00,000 Advance = 4,60,000.
+        6. Re-query get_purchase_order_details -> unadjusted_advance_total == 0 (cannot double-deduct).
+        """
+        from ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim import (
+            get_purchase_order_details,
+            fetch_po_milestones,
+        )
+
+        # 1. Create AP Purchase Order (INR 10,00,000 base)
+        po = frappe.new_doc("AP Purchase Order")
+        po.company_entity = self.company
+        po.vendor = self.vendors[0]
+        po.procurement_type = "Single / Sole Source Vendor (Direct Procurement)"
+        po.sole_source_justification = "Specialized approved turnkey vendor for office project."
+        po.single_quotation_attachment = "/files/quote.pdf"
+        po.date_of_issue = nowdate()
+        po.delivery_deadline = nowdate()
+        po.payment_terms = "Milestone Based as per Agreement"
+        po.advance_percentage = "25%"
+        po.status = "Active PO"
+        po.append("items", {
+            "item_name": "Office Interior Renovation",
+            "qty": 1,
+            "uom": "Lump Sum",
+            "rate": 1000000.0,
+            "gst_rate": "18%",
+        })
+        po.flags.ignore_mandatory = True
+        po.insert(ignore_permissions=True)
+
+        # 2. Initiate & pay Advance #1 (INR 3,00,000)
+        adv1 = frappe.new_doc("Vendor Invoice Claim")
+        adv1.company = self.company
+        adv1.status = "Paid"
+        adv1.append("items", {
+            "vendor": self.vendors[0],
+            "bill_payment_type": "Advance / Part Payment",
+            "po_type": "With PO",
+            "purchase_order": po.name,
+            "invoice_number": f"ADV-PROFORMA-01-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/adv1.pdf",
+            "base_amount": 300000.0,
+            "tax_type": "Intra-State (CGST + SGST)",
+            "gst_rate": "0%",
+            "tds_section": "None / Exempt",
+            "remarks": "30% Mobilization Advance"
+        })
+        adv1.insert(ignore_permissions=True)
+
+        # Initiate & pay Advance #2 (INR 4,00,000)
+        adv2 = frappe.new_doc("Vendor Invoice Claim")
+        adv2.company = self.company
+        adv2.status = "Paid"
+        adv2.append("items", {
+            "vendor": self.vendors[0],
+            "bill_payment_type": "Advance / Part Payment",
+            "po_type": "With PO",
+            "purchase_order": po.name,
+            "invoice_number": f"ADV-PROFORMA-02-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/adv2.pdf",
+            "base_amount": 400000.0,
+            "tax_type": "Intra-State (CGST + SGST)",
+            "gst_rate": "0%",
+            "tds_section": "None / Exempt",
+            "remarks": "40% Material Delivery Advance"
+        })
+        adv2.insert(ignore_permissions=True)
+
+        # 3. Auto-pick check via get_purchase_order_details
+        po_info = get_purchase_order_details(po.name)
+        self.assertEqual(len(po_info["milestones"]), 2)
+        self.assertAlmostEqual(po_info["unadjusted_advance_total"], 700000.0, places=2)
+
+        # 4. File Final / Regular Bill for full 10,00,000 + 18% GST with auto-picked 7,00,000 advance
+        final_claim = frappe.new_doc("Vendor Invoice Claim")
+        final_claim.company = self.company
+        final_claim.status = "Pending Manager Approval"
+        final_claim.append("items", {
+            "vendor": self.vendors[0],
+            "bill_payment_type": "Final / Regular Bill",
+            "po_type": "With PO",
+            "purchase_order": po.name,
+            "invoice_number": f"FINAL-INV-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/final_inv.pdf",
+            "base_amount": 1000000.0,
+            "tax_type": "Intra-State (CGST + SGST)",
+            "gst_rate": "18%",
+            "tds_section": "194C - Contractor (2%)",
+            "advance_deducted": po_info["unadjusted_advance_total"],
+            "retention_hold_amount": 0.0
+        })
+        for m in po_info["milestones"]:
+            final_claim.append("milestone_payments", {
+                "milestone_type": m["milestone_type"],
+                "payment_reference": m["payment_reference"],
+                "payment_date": m["payment_date"],
+                "disbursed_amount": m["disbursed_amount"],
+                "adjusted_amount": m["adjusted_amount"],
+                "remarks": m["remarks"]
+            })
+
+        # Must NOT raise false PO Over-Invoicing error (3L + 4L advances + 10L final bill)
+        final_claim.insert(ignore_permissions=True)
+
+        # 5. Verify math: 10,00,000 + 1,80,000 GST - 20,000 TDS - 7,00,000 Advance = 4,60,000
+        self.assertAlmostEqual(final_claim.total_invoice_amount, 1180000.0, places=2)
+        self.assertAlmostEqual(final_claim.tds_amount, 20000.0, places=2)
+        self.assertAlmostEqual(final_claim.advance_deducted, 700000.0, places=2)
+        self.assertAlmostEqual(final_claim.net_payable_amount, 460000.0, places=2)
+
+        # 6. Subsequent auto-pick must return 0 unadjusted advances (zero double-deduction!)
+        remaining = fetch_po_milestones(po.name)
+        self.assertEqual(len(remaining), 0)
+
+    def test_advance_exceeding_po_contract_blocked(self):
+        """Verify cumulative Advance / Part Payment exceeding 100% of PO value is strictly blocked."""
+        po = frappe.new_doc("AP Purchase Order")
+        po.company_entity = self.company
+        po.vendor = self.vendors[0]
+        po.procurement_type = "Single / Sole Source Vendor (Direct Procurement)"
+        po.sole_source_justification = "Specialized approved turnkey vendor for office project."
+        po.single_quotation_attachment = "/files/quote.pdf"
+        po.date_of_issue = nowdate()
+        po.delivery_deadline = nowdate()
+        po.payment_terms = "Milestone Based as per Agreement"
+        po.status = "Active PO"
+        po.append("items", {
+            "item_name": "Consulting Retainer",
+            "qty": 1,
+            "uom": "Lump Sum",
+            "rate": 100000.0,
+            "gst_rate": "18%",
+        })
+        po.flags.ignore_mandatory = True
+        po.insert(ignore_permissions=True)
+
+        # Advance exceeding PO contracted value (120,000 > 100,000)
+        over_adv = frappe.new_doc("Vendor Invoice Claim")
+        over_adv.company = self.company
+        over_adv.status = "Pending Manager Approval"
+        over_adv.append("items", {
+            "vendor": self.vendors[0],
+            "bill_payment_type": "Advance / Part Payment",
+            "po_type": "With PO",
+            "purchase_order": po.name,
+            "invoice_number": f"ADV-OVER-{frappe.generate_hash(length=4)}",
+            "invoice_date": nowdate(),
+            "receipt_attachment": "/files/adv_over.pdf",
+            "base_amount": 120000.0,
+            "tax_type": "Intra-State (CGST + SGST)",
+            "gst_rate": "0%",
+            "tds_section": "None / Exempt"
+        })
+        with self.assertRaises(APValidationError) as ctx:
+            over_adv.insert(ignore_permissions=True)
+        self.assertIn("PO Advance Over-Limit", str(ctx.exception))
+
 
 def run_tests():
     suite = unittest.TestLoader().loadTestsFromTestCase(TestVendorInvoiceMultiRow)
