@@ -60,6 +60,7 @@
    "columns": 1,
    "fieldname": "advance_request",
    "fieldtype": "Link",
+   "hidden": 1,
    "label": "Linked Advance Request",
    "options": "Vendor PO Request"
   },
