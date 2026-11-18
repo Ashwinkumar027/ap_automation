@@ -184,6 +184,16 @@ def _dispatch_reimbursement_email(
     """
     Dispatches asynchronous email with RFC 5322 continuous single-threading and real-time Desk popups.
     """
+    if getattr(frappe.flags, "mute_emails", False):
+        return
+    # Skip real SMTP email queueing during automated tests unless frappe.sendmail is explicitly mocked/patched
+    is_mocked_sendmail = (
+        bool(getattr(frappe.sendmail, "_mock_name", None))
+        or type(frappe.sendmail).__module__.startswith("unittest.mock")
+    )
+    if getattr(frappe.flags, "in_test", False) and not is_mocked_sendmail:
+        return
+
     clean_recipients = list(dict.fromkeys([_resolve_email_address(r) for r in recipients if _resolve_email_address(r)]))
     if not clean_recipients:
         return
@@ -951,8 +961,9 @@ def _resolve_event_matrix_approvers(
     fallback_roles: List[str],
     exclude_keywords: Optional[List[str]] = None,
     doctype: str = "Event Advance Request",
+    allow_role_fallback: bool = True,
 ) -> List[str]:
-    """Resolves Event approver emails cleanly from AP Approval Matrix with role fallback."""
+    """Resolves Event approver emails cleanly from AP Approval Matrix with optional role fallback."""
     recipients: List[str] = []
     excludes = [k.lower() for k in (exclude_keywords or [])]
     try:
@@ -981,7 +992,7 @@ def _resolve_event_matrix_approvers(
     except Exception:
         pass
 
-    if not recipients and fallback_roles:
+    if not recipients and allow_role_fallback and fallback_roles:
         recipients = _get_role_recipients(fallback_roles)
 
     return list(dict.fromkeys([r for r in recipients if r]))
@@ -1008,9 +1019,12 @@ def notify_event_imprest_submitted(advance_doc) -> None:
         exclude_keywords=["accounts", "releaser"],
     )
     cc_recipients = (
-        _resolve_event_matrix_approvers(company, amount, ["accounts l1", "l1 auditor"], 2, ["Accounts L1 Auditor"])
-        + _resolve_event_matrix_approvers(company, amount, ["accounts director", "accounts l2"], 3, ["Accounts Director", "Accounts Manager"])
+        _resolve_event_matrix_approvers(company, amount, ["accounts l1", "l1 auditor"], 2, [], allow_role_fallback=False)
+        + _resolve_event_matrix_approvers(company, amount, ["accounts director", "accounts l2"], 3, [], allow_role_fallback=False)
     )
+    spoc_email = _resolve_email_address(getattr(advance_doc, "spoc", None))
+    if spoc_email and spoc_email not in cc_recipients:
+        cc_recipients.append(spoc_email)
 
     doc_url = _get_form_url("Event Advance Request", advance_doc.name)
     event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
@@ -1075,7 +1089,8 @@ def notify_event_imprest_sanctioned(advance_doc) -> None:
         amount=amount,
         stage_keywords=["accounts director", "accounts l2"],
         fallback_level=3,
-        fallback_roles=["Accounts Director"],
+        fallback_roles=[],
+        allow_role_fallback=False,
     )
     spoc_email = _resolve_email_address(advance_doc.spoc)
     if spoc_email:
@@ -1128,13 +1143,21 @@ def notify_event_advance_accounts_l1_verified(advance_doc) -> None:
         fallback_level=3,
         fallback_roles=["Accounts Director", "Accounts Manager"],
     )
-    cc_list = _resolve_event_matrix_approvers(
-        company=company,
-        amount=amount,
-        stage_keywords=["accounts l1", "l1 auditor"],
-        fallback_level=2,
-        fallback_roles=["Accounts L1 Auditor"],
-    )
+    cc_list = []
+    l1_actor_email = _resolve_email_address(getattr(advance_doc, "accounts_l1_verifier", None))
+    if l1_actor_email:
+        cc_list.append(l1_actor_email)
+    else:
+        cc_list.extend(
+            _resolve_event_matrix_approvers(
+                company=company,
+                amount=amount,
+                stage_keywords=["accounts l1", "l1 auditor"],
+                fallback_level=2,
+                fallback_roles=[],
+                allow_role_fallback=False,
+            )
+        )
     spoc_email = _resolve_email_address(advance_doc.spoc)
     if spoc_email:
         cc_list.append(spoc_email)
@@ -1183,10 +1206,26 @@ def notify_event_imprest_disbursed(advance_doc) -> None:
     if isinstance(advance_doc, str):
         advance_doc = frappe.get_doc("Event Advance Request", advance_doc)
 
+    company = getattr(advance_doc, "company", "") or ""
+    amount = float(getattr(advance_doc, "approved_advance_amount", advance_doc.requested_advance_amount) or 0.0)
     spoc_email = _resolve_email_address(advance_doc.spoc)
     recipients = [spoc_email] if spoc_email else []
-    accounts_users = _get_role_recipients(["Accounts L1 Auditor", "Accounts Director"])
-    recipients.extend(accounts_users)
+    cc_list = []
+    for actor in (
+        getattr(advance_doc, "accounts_l1_verifier", None),
+        getattr(advance_doc, "accounts_director", None),
+        getattr(advance_doc, "payment_releaser", None),
+    ):
+        em = _resolve_email_address(actor)
+        if em and em not in cc_list:
+            cc_list.append(em)
+    if not cc_list:
+        cc_list = (
+            _resolve_event_matrix_approvers(company, amount, ["accounts l1", "l1 auditor"], 2, [], allow_role_fallback=False)
+            + _resolve_event_matrix_approvers(company, amount, ["accounts director", "accounts l2"], 3, [], allow_role_fallback=False)
+        )
+    if not recipients:
+        recipients = list(cc_list) or _get_role_recipients(["Accounts Director"])
 
     doc_url = _get_form_url("Event Advance Request", advance_doc.name)
     event_name = frappe.db.get_value("Event Master", advance_doc.event, "event_name") or advance_doc.event
@@ -1212,7 +1251,7 @@ def notify_event_imprest_disbursed(advance_doc) -> None:
         badge_color="#2563eb"
     )
 
-    _dispatch_reimbursement_email(list(set(recipients)), subject, body, "Event Advance Request", advance_doc.name, alert_color="blue")
+    _dispatch_reimbursement_email(list(dict.fromkeys(recipients)), subject, body, "Event Advance Request", advance_doc.name, cc=cc_list, alert_color="blue")
 
 
 def notify_event_advance_rejected(advance_doc, reason: str) -> None:
