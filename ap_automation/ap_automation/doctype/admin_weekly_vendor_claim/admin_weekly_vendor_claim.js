@@ -190,22 +190,22 @@ function calculate_row_statutory(cdt, cdn) {
 // CHILD TABLE ROW CONTROLLER (ADMIN VENDOR CLAIM ITEM)
 // --------------------------------------------------------------------------------------
 frappe.ui.form.on('Admin Vendor Claim Item', {
-    vendor_lines_add: function (frm, cdt, cdn) {
-        const row = locals[cdt][cdn];
-        if (!row.company) {
-            frappe.model.set_value(cdt, cdn, 'company', frm.doc.company || frappe.defaults.get_user_default("Company") || "");
-        }
-        if (!row.po_type) {
-            frappe.model.set_value(cdt, cdn, 'po_type', 'Without PO');
-        }
-    },
-
     po_type: function (frm, cdt, cdn) {
         const row = locals[cdt][cdn];
-        if (row.po_type === 'Without PO' && row.purchase_order) {
-            frappe.model.set_value(cdt, cdn, 'purchase_order', '');
+        if (row.po_type === 'Without PO') {
+            if (row.purchase_order) frappe.model.set_value(cdt, cdn, 'purchase_order', '');
+            if (row.external_po_number) frappe.model.set_value(cdt, cdn, 'external_po_number', '');
+            if (row.external_po_amount) frappe.model.set_value(cdt, cdn, 'external_po_amount', 0);
+            if (row.external_po_date) frappe.model.set_value(cdt, cdn, 'external_po_date', '');
+        } else if (row.po_type === 'With PO') {
+            if (row.external_po_number) frappe.model.set_value(cdt, cdn, 'external_po_number', '');
+            if (row.external_po_amount) frappe.model.set_value(cdt, cdn, 'external_po_amount', 0);
+            if (row.external_po_date) frappe.model.set_value(cdt, cdn, 'external_po_date', '');
+        } else if (row.po_type === 'External / Email PO (Not in System)') {
+            if (row.purchase_order) frappe.model.set_value(cdt, cdn, 'purchase_order', '');
         }
         frm.refresh_field('vendor_lines');
+        setTimeout(() => bind_custom_grid_uploaders(frm), 200);
     },
 
     purchase_order: function (frm, cdt, cdn) {
@@ -213,6 +213,53 @@ frappe.ui.form.on('Admin Vendor Claim Item', {
         if (row.purchase_order && row.po_type !== 'With PO') {
             frappe.model.set_value(cdt, cdn, 'po_type', 'With PO');
         }
+    },
+
+    external_po_number: function (frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        const ext_po = (row.external_po_number || '').trim();
+        if (!ext_po) return;
+
+        if (row.po_type !== 'External / Email PO (Not in System)') {
+            frappe.model.set_value(cdt, cdn, 'po_type', 'External / Email PO (Not in System)');
+        }
+        if (!row.vendor) return;
+
+        frappe.call({
+            method: 'ap_automation.ap_automation.doctype.admin_weekly_vendor_claim.admin_weekly_vendor_claim.get_external_po_history',
+            args: {
+                vendor: row.vendor,
+                external_po_number: ext_po,
+                current_claim: frm.doc.name || 'NEW'
+            },
+            callback: function (r) {
+                if (r.message && r.message.found_prior) {
+                    const info = r.message;
+                    if (!flt(row.external_po_amount) && flt(info.external_po_amount) > 0) {
+                        frappe.model.set_value(cdt, cdn, 'external_po_amount', info.external_po_amount);
+                    }
+                    if (!row.external_po_date && info.external_po_date) {
+                        frappe.model.set_value(cdt, cdn, 'external_po_date', info.external_po_date);
+                    }
+                    if (!row.po_attachment && info.po_attachment) {
+                        frappe.model.set_value(cdt, cdn, 'po_attachment', info.po_attachment);
+                        setTimeout(() => bind_custom_grid_uploaders(frm), 200);
+                    }
+                    frappe.show_alert({
+                        message: __(
+                            'External PO <b>{0}</b> found in prior records: Contracted Value INR {1}, Previously Billed INR {2}, Remaining INR {3}.',
+                            [
+                                ext_po,
+                                format_inr(info.external_po_amount),
+                                format_inr(info.prior_billed),
+                                format_inr(info.remaining_balance)
+                            ]
+                        ),
+                        indicator: info.remaining_balance > 0 ? 'green' : 'orange'
+                    }, 8);
+                }
+            }
+        });
     },
 
     vendor_category: function (frm, cdt, cdn) {
@@ -307,7 +354,20 @@ frappe.ui.form.on('Admin Vendor Claim Item', {
         setTimeout(() => bind_custom_grid_uploaders(frm), 200);
     },
 
-    vendor_lines_add: function (frm) {
+    po_attachment: function (frm, cdt, cdn) {
+        setTimeout(() => bind_custom_grid_uploaders(frm), 200);
+    },
+
+    vendor_lines_add: function (frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (row) {
+            if (!row.company) {
+                frappe.model.set_value(cdt, cdn, 'company', frm.doc.company || frappe.defaults.get_user_default("Company") || "");
+            }
+            if (!row.po_type) {
+                frappe.model.set_value(cdt, cdn, 'po_type', 'Without PO');
+            }
+        }
         calculate_grid_totals(frm);
         update_voucher_title(frm);
         setTimeout(() => bind_custom_grid_uploaders(frm), 300);
@@ -560,6 +620,27 @@ function render_role_based_action_buttons(frm) {
     if (status === 'Draft' || is_returned_vendor) {
         const btn_text = is_returned_vendor ? __('🚀 Resubmit to Admin L1') : __('🚀 Submit to Admin L1');
         frm.add_custom_button(btn_text, function () {
+            const missing_ext = [];
+            (frm.doc.vendor_lines || []).forEach((row, idx) => {
+                if (row.po_type === 'External / Email PO (Not in System)') {
+                    const row_no = row.idx || (idx + 1);
+                    const errs = [];
+                    if (!(row.external_po_number || '').trim()) errs.push('Manual / Email PO Number');
+                    if (flt(row.external_po_amount) <= 0) errs.push('External PO Value Before GST (INR)');
+                    if (!row.po_attachment) errs.push('PO / Approval Attachment (PO copy)');
+                    if (errs.length) {
+                        missing_ext.push(`Row #${row_no} (${row.vendor_name || row.vendor || 'Vendor'}): ${errs.join(', ')}`);
+                    }
+                }
+            });
+            if (missing_ext.length) {
+                frappe.msgprint({
+                    title: __('External / Email PO Details Required'),
+                    indicator: 'red',
+                    message: __('Please complete the following mandatory External PO fields before submitting:<br><br>') + missing_ext.join('<br>')
+                });
+                return;
+            }
             frappe.confirm(
                 __('Are you sure you want to submit this weekly claim voucher to Admin L1 Review?'),
                 function () {
@@ -845,6 +926,9 @@ function apply_grid_role_permissions(frm) {
     safe_toggle_enable('bank_proof_attachment', true);
     safe_toggle_enable('po_type', true);
     safe_toggle_enable('purchase_order', true);
+    safe_toggle_enable('external_po_number', true);
+    safe_toggle_enable('external_po_amount', true);
+    safe_toggle_enable('external_po_date', true);
     safe_toggle_enable('po_attachment', true);
 }
 
@@ -856,8 +940,10 @@ function render_grid_attach_cell(frm, grid, row_elem, row_data, idx, cfg) {
     if (!cell.length || !row_data) return;
 
     const current_val = row_data[cfg.fieldname] || null;
-    if (cell.attr('data-rendered-url') === (current_val || 'empty') && cell.children().length > 0) return;
-    cell.attr('data-rendered-url', current_val || 'empty');
+    const is_ext_po_req = cfg.fieldname === 'po_attachment' && row_data.po_type === 'External / Email PO (Not in System)';
+    const state_key = `${current_val || 'empty'}|${is_ext_po_req ? 'ext_req' : 'std'}`;
+    if (cell.attr('data-rendered-url') === state_key && cell.children().length > 0) return;
+    cell.attr('data-rendered-url', state_key);
     cell.empty();
 
     if (current_val) {
@@ -874,9 +960,13 @@ function render_grid_attach_cell(frm, grid, row_elem, row_data, idx, cfg) {
         });
         cell.append(badge);
     } else {
+        const btn_style = is_ext_po_req
+            ? 'border:1px dashed #d97706; color:#92400e; font-size:11px; font-weight:700; padding:2px 7px; border-radius:4px; background:#fffbeb; white-space:nowrap;'
+            : 'border:1px dashed #94a3b8; color:#475569; font-size:11px; font-weight:600; padding:2px 7px; border-radius:4px; background:#f8fafc; white-space:nowrap;';
+        const btn_label = is_ext_po_req ? 'Upload PO Copy *' : cfg.emptyText;
         const upload_btn = $(`
-            <button type="button" class="btn btn-xs btn-default ap-upload-btn" style="border:1px dashed #94a3b8; color:#475569; font-size:11px; font-weight:600; padding:2px 7px; border-radius:4px; background:#f8fafc; white-space:nowrap;">
-                ${cfg.emptyText}
+            <button type="button" class="btn btn-xs btn-default ap-upload-btn" style="${btn_style}">
+                ${btn_label}
             </button>
         `);
         upload_btn.on('click', function (e) {
@@ -1015,9 +1105,18 @@ function open_admin_receipt_gallery(frm, start_idx) {
             const po_name = po_clean.split('/').pop();
             const po_ext = (po_name.lastIndexOf('.') !== -1 ? po_name.substring(po_name.lastIndexOf('.')).toLowerCase() : '');
             const is_with_po = row.po_type === 'With PO';
-            const po_title = is_with_po
-                ? (row.purchase_order ? `📑 3. Purchase Order (${row.purchase_order})` : '📑 3. Purchase Order Copy')
-                : '📑 3. Expense Approval Proof';
+            const is_ext_po = row.po_type === 'External / Email PO (Not in System)';
+            const po_title = is_ext_po
+                ? (row.external_po_number ? `3. External / Email PO (${row.external_po_number})` : '3. External / Email PO Copy')
+                : (is_with_po
+                    ? (row.purchase_order ? `📑 3. Purchase Order (${row.purchase_order})` : '📑 3. Purchase Order Copy')
+                    : '📑 3. Expense Approval Proof');
+            const po_category = is_ext_po
+                ? 'External / Email PO Document'
+                : (is_with_po ? 'Purchase Order Document' : 'Management Expense Approval');
+            const po_ref = is_ext_po && row.external_po_number
+                ? `Ext PO: ${row.external_po_number}`
+                : (row.purchase_order ? `PO: ${row.purchase_order}` : `Bill: ${row.invoice_number || 'N/A'}`);
             atts.push({
                 source: 'row',
                 proof_type: 'po',
@@ -1025,13 +1124,13 @@ function open_admin_receipt_gallery(frm, start_idx) {
                 row_idx: row.idx || (idx + 1),
                 vendor: row.vendor_name || row.vendor || 'Vendor Bill',
                 vendor_name: row.vendor_name || row.vendor || 'Vendor Bill',
-                category: is_with_po ? 'Purchase Order Document' : 'Management Expense Approval',
+                category: po_category,
                 base_amount: 0.0,
                 gst_amount: 0.0,
                 tds_amount: 0.0,
                 amount: parseFloat(row.amount || 0.0),
                 company: row.company || '',
-                invoice: row.purchase_order ? `PO: ${row.purchase_order}` : `Bill: ${row.invoice_number || 'N/A'}`,
+                invoice: po_ref,
                 date: row.invoice_date || frm.doc.posting_date || '',
                 file_url: po_clean,
                 file_name: po_name,
@@ -1134,6 +1233,9 @@ const REQUIRED_GRID_COLUMNS = [
     { fieldname: 'receipt_attachment', columns: 2 },
     { fieldname: 'po_type', columns: 2 },
     { fieldname: 'purchase_order', columns: 2 },
+    { fieldname: 'external_po_number', columns: 2 },
+    { fieldname: 'external_po_amount', columns: 2 },
+    { fieldname: 'external_po_date', columns: 2 },
     { fieldname: 'po_attachment', columns: 2 },
     { fieldname: 'base_amount', columns: 2 },
     { fieldname: 'tax_type', columns: 2 },
@@ -1224,8 +1326,11 @@ const ADMIN_VENDOR_COL_WIDTHS = {
     invoice_number: 135,
     invoice_date: 120,
     receipt_attachment: 140,
-    po_type: 125,
+    po_type: 195,
     purchase_order: 155,
+    external_po_number: 160,
+    external_po_amount: 145,
+    external_po_date: 125,
     po_attachment: 150,
     base_amount: 125,
     tax_type: 175,
@@ -1401,6 +1506,7 @@ function apply_admin_vendor_styles() {
             resize: none !important;
             overflow: hidden !important;
         }
+        [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="external_po_amount"],
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="base_amount"],
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="cgst_amount"],
         [data-fieldname="vendor_lines"] .grid-static-col[data-fieldname="sgst_amount"],
