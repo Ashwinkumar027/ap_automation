@@ -16,6 +16,9 @@
   "receipt_attachment",
   "po_type",
   "purchase_order",
+  "external_po_number",
+  "external_po_amount",
+  "external_po_date",
   "po_attachment",
   "base_amount",
   "tax_type",
@@ -113,7 +116,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "PO Type",
-   "options": "Without PO\nWith PO"
+   "options": "Without PO\nWith PO\nExternal / Email PO (Not in System)"
   },
   {
    "columns": 2,
@@ -123,6 +126,32 @@
    "in_list_view": 1,
    "label": "Purchase Order",
    "options": "AP Purchase Order"
+  },
+  {
+   "columns": 2,
+   "depends_on": "eval:doc.po_type=='External / Email PO (Not in System)'",
+   "description": "Enter the PO number from your email or PDF copy (e.g., EMAIL-PO-2026-045).",
+   "fieldname": "external_po_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Manual / Email PO Number"
+  },
+  {
+   "columns": 2,
+   "depends_on": "eval:doc.po_type=='External / Email PO (Not in System)'",
+   "description": "Total PO amount before GST as stated on the external PO / email.",
+   "fieldname": "external_po_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "External PO Value Before GST (INR)"
+  },
+  {
+   "columns": 2,
+   "depends_on": "eval:doc.po_type=='External / Email PO (Not in System)'",
+   "fieldname": "external_po_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "External PO Date"
   },
   {
    "columns": 2,
@@ -309,7 +338,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-11-02 16:30:00.000000",
+ "modified": "2026-11-18 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Admin Vendor Claim Item",

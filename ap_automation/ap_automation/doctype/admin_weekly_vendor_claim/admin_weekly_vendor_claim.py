@@ -123,8 +123,124 @@ class AdminWeeklyVendorClaim(Document):
 
             if not getattr(row, "po_type", None):
                 row.po_type = "Without PO"
+
             if row.po_type == "Without PO":
                 row.purchase_order = None
+                if hasattr(row, "external_po_number"):
+                    row.external_po_number = None
+                if hasattr(row, "external_po_amount"):
+                    row.external_po_amount = 0.0
+                if hasattr(row, "external_po_date"):
+                    row.external_po_date = None
+            elif row.po_type == "With PO":
+                if hasattr(row, "external_po_number"):
+                    row.external_po_number = None
+                if hasattr(row, "external_po_amount"):
+                    row.external_po_amount = 0.0
+                if hasattr(row, "external_po_date"):
+                    row.external_po_date = None
+            elif row.po_type == "External / Email PO (Not in System)":
+                row.purchase_order = None
+                ext_po_no = (getattr(row, "external_po_number", None) or "").strip()
+                row.external_po_number = ext_po_no
+                ext_po_amt = flt(getattr(row, "external_po_amount", 0.0))
+
+                if is_submitting:
+                    if not ext_po_no:
+                        frappe.throw(
+                            _("Row #{0} ({1}): Manual / Email PO Number is mandatory when PO Type is 'External / Email PO (Not in System)'.").format(
+                                idx, row.vendor_name or row.vendor
+                            ),
+                            title=_("Missing External PO Number"),
+                            exc=APValidationError
+                        )
+                    if ext_po_amt <= 0:
+                        frappe.throw(
+                            _("Row #{0} ({1}): External PO Value Before GST (INR) must be strictly greater than 0.00.").format(
+                                idx, row.vendor_name or row.vendor
+                            ),
+                            title=_("Missing External PO Value"),
+                            exc=APValidationError
+                        )
+                    if not getattr(row, "po_attachment", None):
+                        frappe.throw(
+                            _("Row #{0} ({1}): PO / Approval Attachment (External PO / Email copy) is strictly mandatory for External / Email POs.").format(
+                                idx, row.vendor_name or row.vendor
+                            ),
+                            title=_("Missing External PO Copy"),
+                            exc=APValidationError
+                        )
+
+                if (
+                    is_submitting
+                    and ext_po_no
+                    and ext_po_amt > 0
+                    and val > 0
+                    and getattr(row, "line_status", "Pending") != "Disputed / Discrepancy"
+                ):
+                    norm_ext = ext_po_no.lower()
+                    prior_admin_invoiced = 0.0
+                    if frappe.db.has_column("Admin Vendor Claim Item", "external_po_number"):
+                        prior_admin_res = frappe.db.sql(
+                            """
+                            SELECT SUM(avci.base_amount) as total
+                            FROM `tabAdmin Vendor Claim Item` avci
+                            JOIN `tabAdmin Weekly Vendor Claim` awvc ON awvc.name = avci.parent
+                            WHERE avci.vendor = %s
+                              AND LOWER(TRIM(COALESCE(avci.external_po_number, ''))) = %s
+                              AND awvc.name != %s
+                              AND awvc.docstatus != 2
+                              AND awvc.status NOT IN ('Draft', 'Rejected', 'Disputed', 'Cancelled')
+                              AND COALESCE(avci.line_status, 'Pending') != 'Disputed / Discrepancy'
+                            """,
+                            (row.vendor, norm_ext, getattr(self, "name", "NEW") or "NEW"),
+                            as_dict=True
+                        )
+                        prior_admin_invoiced = flt(prior_admin_res[0].total) if prior_admin_res else 0.0
+
+                    prior_vic_invoiced = 0.0
+                    if frappe.db.has_column("Vendor Invoice Item", "external_po_number"):
+                        has_bpt = frappe.db.has_column("Vendor Invoice Item", "bill_payment_type")
+                        bpt_filter = "AND COALESCE(vii.bill_payment_type, 'Final / Regular Bill') != 'Advance / Part Payment'" if has_bpt else ""
+                        prior_vic_res = frappe.db.sql(
+                            f"""
+                            SELECT SUM(vii.base_amount) as total
+                            FROM `tabVendor Invoice Item` vii
+                            JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
+                            WHERE vii.vendor = %s
+                              AND LOWER(TRIM(COALESCE(vii.external_po_number, ''))) = %s
+                              {bpt_filter}
+                              AND vic.docstatus != 2
+                              AND vic.status NOT IN ('Draft', 'Rejected', 'Disputed', 'Cancelled')
+                            """,
+                            (row.vendor, norm_ext),
+                            as_dict=True
+                        )
+                        prior_vic_invoiced = flt(prior_vic_res[0].total) if prior_vic_res else 0.0
+
+                    sibling_ext_sum = sum(
+                        flt(r.base_amount) or flt(r.amount)
+                        for i, r in enumerate(self.vendor_lines)
+                        if i < idx - 1
+                        and getattr(r, "vendor", None) == row.vendor
+                        and (getattr(r, "external_po_number", None) or "").strip().lower() == norm_ext
+                        and getattr(r, "line_status", "Pending") != "Disputed / Discrepancy"
+                    )
+                    prior_total = round(prior_admin_invoiced + prior_vic_invoiced, 2)
+                    cumulative_ext = round(prior_total + sibling_ext_sum + val, 2)
+                    allowed_ext_max = round(ext_po_amt * 1.10, 2)  # 10% price tolerance
+                    if cumulative_ext > allowed_ext_max:
+                        frappe.throw(
+                            _(
+                                "Row #{0}: External PO Over-Invoicing Detected! Cumulative billed base for External PO '{1}' "
+                                "(Prior INR {2:,.2f} + Sibling INR {3:,.2f} + Current INR {4:,.2f} = INR {5:,.2f}) "
+                                "exceeds contracted value (INR {6:,.2f} + 10% tolerance = INR {7:,.2f})."
+                            ).format(
+                                idx, ext_po_no, prior_total, sibling_ext_sum, val, cumulative_ext, ext_po_amt, allowed_ext_max
+                            ),
+                            title=_("External PO Over-Invoicing Detected"),
+                            exc=APValidationError
+                        )
 
             if is_submitting and not row.receipt_attachment:
                 frappe.throw(
@@ -462,6 +578,98 @@ def get_supplier_bank_info(supplier):
         "penny_drop_status": bank_info.get("penny_drop_status", "UNVERIFIED"),
         "bank_beneficiary_name": bank_info.get("bank_beneficiary_name", supp.supplier_name),
         "bank_proof_attachment": bank_info.get("bank_proof_attachment", "")
+    }
+
+
+@frappe.whitelist()
+def get_external_po_history(vendor, external_po_number, current_claim=None):
+    """
+    Returns prior billed summary and latest PO metadata (amount, date, attachment)
+    for a given (vendor, external_po_number) across both Admin Weekly Vendor Claim
+    and Vendor Invoice Claim (case-insensitive).
+    """
+    vendor = (vendor or "").strip()
+    ext_po_no = (external_po_number or "").strip()
+    if not vendor or not ext_po_no:
+        return None
+
+    norm_ext = ext_po_no.lower()
+    exclude_claim = (current_claim or "NEW").strip()
+
+    prior_admin_billed = 0.0
+    latest_meta = {}
+
+    if frappe.db.has_column("Admin Vendor Claim Item", "external_po_number"):
+        admin_rows = frappe.db.sql(
+            """
+            SELECT avci.base_amount, avci.external_po_amount, avci.external_po_date,
+                   avci.po_attachment, awvc.name as claim_name, awvc.status
+            FROM `tabAdmin Vendor Claim Item` avci
+            JOIN `tabAdmin Weekly Vendor Claim` awvc ON awvc.name = avci.parent
+            WHERE avci.vendor = %s
+              AND LOWER(TRIM(COALESCE(avci.external_po_number, ''))) = %s
+              AND awvc.name != %s
+              AND awvc.docstatus != 2
+              AND awvc.status NOT IN ('Rejected', 'Disputed', 'Cancelled')
+              AND COALESCE(avci.line_status, 'Pending') != 'Disputed / Discrepancy'
+            ORDER BY awvc.modified DESC
+            """,
+            (vendor, norm_ext, exclude_claim),
+            as_dict=True
+        )
+        for r in admin_rows:
+            if r.status != "Draft":
+                prior_admin_billed += flt(r.base_amount)
+            if not latest_meta and (flt(r.external_po_amount) > 0 or r.external_po_date or r.po_attachment):
+                latest_meta = {
+                    "external_po_amount": flt(r.external_po_amount),
+                    "external_po_date": str(r.external_po_date) if r.external_po_date else "",
+                    "po_attachment": r.po_attachment or "",
+                    "source_claim": r.claim_name
+                }
+
+    prior_vic_billed = 0.0
+    if frappe.db.has_column("Vendor Invoice Item", "external_po_number"):
+        has_bpt = frappe.db.has_column("Vendor Invoice Item", "bill_payment_type")
+        bpt_select = ", COALESCE(vii.bill_payment_type, 'Final / Regular Bill') as bill_payment_type" if has_bpt else ""
+        vic_rows = frappe.db.sql(
+            f"""
+            SELECT vii.base_amount, vii.external_po_amount, vii.external_po_date,
+                   vii.po_attachment, vic.name as claim_name, vic.status{bpt_select}
+            FROM `tabVendor Invoice Item` vii
+            JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
+            WHERE vii.vendor = %s
+              AND LOWER(TRIM(COALESCE(vii.external_po_number, ''))) = %s
+              AND vic.docstatus != 2
+              AND vic.status NOT IN ('Rejected', 'Disputed', 'Cancelled')
+            ORDER BY vic.modified DESC
+            """,
+            (vendor, norm_ext),
+            as_dict=True
+        )
+        for r in vic_rows:
+            if r.status != "Draft" and r.get("bill_payment_type", "Final / Regular Bill") != "Advance / Part Payment":
+                prior_vic_billed += flt(r.base_amount)
+            if not latest_meta and (flt(r.external_po_amount) > 0 or r.external_po_date or r.po_attachment):
+                latest_meta = {
+                    "external_po_amount": flt(r.external_po_amount),
+                    "external_po_date": str(r.external_po_date) if r.external_po_date else "",
+                    "po_attachment": r.po_attachment or "",
+                    "source_claim": r.claim_name
+                }
+
+    total_prior_billed = round(prior_admin_billed + prior_vic_billed, 2)
+    po_amt = flt(latest_meta.get("external_po_amount", 0.0))
+    remaining = round(max(0.0, po_amt - total_prior_billed), 2) if po_amt > 0 else 0.0
+
+    return {
+        "external_po_number": ext_po_no,
+        "external_po_amount": po_amt,
+        "external_po_date": latest_meta.get("external_po_date", ""),
+        "po_attachment": latest_meta.get("po_attachment", ""),
+        "prior_billed": total_prior_billed,
+        "remaining_balance": remaining,
+        "found_prior": bool(latest_meta or total_prior_billed > 0)
     }
 
 
@@ -961,6 +1169,11 @@ def generate_weekly_excel_download(docname):
             full_po_url = get_url(row.po_attachment)
             po_proof_formula = f'=HYPERLINK("{full_po_url}", "View PO / Approval")'
 
+        po_ref_display = row.purchase_order or ""
+        if (row.po_type or "") == "External / Email PO (Not in System)":
+            ext_no = (getattr(row, "external_po_number", None) or "").strip()
+            po_ref_display = f"EXT: {ext_no}" if ext_no else "EXT: (Not Specified)"
+
         rows.append([
             idx,
             row.vendor_category or "",
@@ -970,7 +1183,7 @@ def generate_weekly_excel_download(docname):
             row.invoice_number or "",
             str(row.invoice_date or ""),
             row.po_type or "Without PO",
-            row.purchase_order or "",
+            po_ref_display,
             po_proof_formula,
             flt(row.base_amount),
             row.gst_rate or "18%",
