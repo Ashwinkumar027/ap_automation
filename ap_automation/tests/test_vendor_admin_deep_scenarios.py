@@ -524,6 +524,13 @@ class TestVendorAdminDeepScenarios(unittest.TestCase):
         html = render_po_html(po)
         self.assertIn("COMMERCIAL TERMS & SCOPE OF WORK:", html)
         self.assertIn("60-day credit period", html)
+        self.assertNotIn("TERMS, CONDITIONS & STATUTORY GST COMPLIANCE:", html)
+
+        # Fallback test: when terms_and_conditions is empty/blank HTML, default GST clauses render
+        po.terms_and_conditions = "<p><br></p>"
+        html_default = render_po_html(po)
+        self.assertIn("TERMS, CONDITIONS & STATUTORY GST COMPLIANCE:", html_default)
+        self.assertNotIn("COMMERCIAL TERMS & SCOPE OF WORK:", html_default)
 
     def test_scenario_17_zero_emojis_across_all_actions_and_notifications(self):
         """Scenario 17: Verifies ZERO emojis in all notification subjects and message bodies."""

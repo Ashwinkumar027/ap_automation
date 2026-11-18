@@ -1,4 +1,5 @@
 import os
+import re
 import base64
 import json
 import hashlib
@@ -168,7 +169,8 @@ def render_po_html(doc):
 
     # Commercial Terms & Conditions HTML
     custom_terms = getattr(doc, "terms_and_conditions", None) or ""
-    if custom_terms:
+    custom_terms_plain = re.sub(r"<[^>]+>", "", custom_terms).replace("&nbsp;", " ").strip()
+    if custom_terms_plain:
         terms_section_html = f"""
         <div style="font-weight: 900; font-size: 8.5px; text-transform: uppercase; margin-top: 6px; letter-spacing: 0.2px;">
             COMMERCIAL TERMS & SCOPE OF WORK:
@@ -178,7 +180,32 @@ def render_po_html(doc):
         </div>
         """
     else:
-        terms_section_html = ""
+        terms_section_html = """
+        <div style="font-weight: 900; font-size: 8.5px; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.2px;">
+            TERMS, CONDITIONS & STATUTORY GST COMPLIANCE:
+        </div>
+        <ol class="gst-clauses">
+            <li><b>Compliance with GST Laws:</b> The Vendor must comply with all provisions of the Goods and Services Tax (GST) laws, including timely uploading of invoices to the Goods and Services Tax Network (GSTN).</li>
+            <li><b>Valid Invoice Requirement:</b> The Vendor must issue a valid GST-compliant tax invoice containing all mandatory fields (e.g., GSTIN of both parties, SAC/HSN code, invoice number, date, and description of services).</li>
+            <li><b>Input Tax Credit (ITC) Eligibility:</b> The Company will claim Input Tax Credit based on the details uploaded by the Vendor in GSTR-1, which must correctly reflect in the Company's GSTR-2B.</li>
+            <li><b>Timeline for Invoicing and Uploading:</b> Invoices must be submitted to the Company within 30 days of service delivery and uploaded to the GST portal by the 11th of the following month to ensure ITC availability.</li>
+            <li><b>Reimbursement of Taxes:</b> The Company will reimburse GST to the Vendor only after:
+                <ul>
+                    <li>The invoice is verified and approved.</li>
+                    <li>Vendor has uploaded the invoice in GSTR-1.</li>
+                    <li>The GST credit is available to the Company in its GSTR-2B.</li>
+                </ul>
+            </li>
+            <li><b>Consequences of Non-Compliance:</b>
+                <ul>
+                    <li>If input GST credit is denied to the Company due to Vendor non-compliance, the Vendor shall bear the loss, including any applicable interest.</li>
+                    <li>The Company may recover such amounts such as applicable taxes, including penalties and litigation costs, from any dues payable to the Vendor or withhold from future payments until the denied credit is reinstated.</li>
+                </ul>
+            </li>
+            <li><b>Non-Excusability of Tax Filing Delays:</b> Delay or non-payment by the Company cannot be cited as a reason by the Vendor for not filing tax returns or depositing taxes on time.</li>
+            <li><b>Required Documentation:</b> The Vendor must submit all documents and a valid invoice, as required by the Company, to claim payment.</li>
+        </ol>
+        """
 
     # Signatory details
     final_signatory = doc.signatory_name or profile["default_signatory"]
@@ -451,34 +478,8 @@ def render_po_html(doc):
             </tbody>
         </table>
 
-        <!-- Commercial Terms & Conditions -->
+        <!-- Commercial Terms & Conditions (or default statutory GST clauses when blank) -->
         {terms_section_html}
-
-        <!-- Legal GST & Compliance Clauses -->
-        <div style="font-weight: 900; font-size: 8.5px; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.2px;">
-            TERMS, CONDITIONS & STATUTORY GST COMPLIANCE:
-        </div>
-        <ol class="gst-clauses">
-            <li><b>Compliance with GST Laws:</b> The Vendor must comply with all provisions of the Goods and Services Tax (GST) laws, including timely uploading of invoices to the Goods and Services Tax Network (GSTN).</li>
-            <li><b>Valid Invoice Requirement:</b> The Vendor must issue a valid GST-compliant tax invoice containing all mandatory fields (e.g., GSTIN of both parties, SAC/HSN code, invoice number, date, and description of services).</li>
-            <li><b>Input Tax Credit (ITC) Eligibility:</b> The Company will claim Input Tax Credit based on the details uploaded by the Vendor in GSTR-1, which must correctly reflect in the Company's GSTR-2B.</li>
-            <li><b>Timeline for Invoicing and Uploading:</b> Invoices must be submitted to the Company within 30 days of service delivery and uploaded to the GST portal by the 11th of the following month to ensure ITC availability.</li>
-            <li><b>Reimbursement of Taxes:</b> The Company will reimburse GST to the Vendor only after:
-                <ul>
-                    <li>The invoice is verified and approved.</li>
-                    <li>Vendor has uploaded the invoice in GSTR-1.</li>
-                    <li>The GST credit is available to the Company in its GSTR-2B.</li>
-                </ul>
-            </li>
-            <li><b>Consequences of Non-Compliance:</b>
-                <ul>
-                    <li>If input GST credit is denied to the Company due to Vendor non-compliance, the Vendor shall bear the loss, including any applicable interest.</li>
-                    <li>The Company may recover such amounts such as applicable taxes, including penalties and litigation costs, from any dues payable to the Vendor or withhold from future payments until the denied credit is reinstated.</li>
-                </ul>
-            </li>
-            <li><b>Non-Excusability of Tax Filing Delays:</b> Delay or non-payment by the Company cannot be cited as a reason by the Vendor for not filing tax returns or depositing taxes on time.</li>
-            <li><b>Required Documentation:</b> The Vendor must submit all documents and a valid invoice, as required by the Company, to claim payment.</li>
-        </ol>
 
         <!-- Sign-off Section: 2 Columns (Issued by Company / Director on Left | Accepted by Vendor on Right) -->
         <table style="width: 100%; border-collapse: collapse; margin-top: 4px; border: none;">
