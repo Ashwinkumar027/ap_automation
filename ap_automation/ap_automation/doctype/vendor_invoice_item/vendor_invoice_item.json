@@ -20,6 +20,7 @@
   "is_urgent",
   "urgency_reason",
   "sb_po_info",
+  "bill_payment_type",
   "po_type",
   "purchase_order",
   "cb_po_info",
@@ -160,6 +161,16 @@
    "fieldname": "sb_po_info",
    "fieldtype": "Section Break",
    "label": "Purchase Order (PO) Details"
+  },
+  {
+   "columns": 2,
+   "default": "Final / Regular Bill",
+   "description": "Select 'Advance / Part Payment' if paying an advance before the final bill. Next time, the final bill will automatically pick up this advance.",
+   "fieldname": "bill_payment_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Bill Type",
+   "options": "Final / Regular Bill\nAdvance / Part Payment"
   },
   {
    "columns": 2,

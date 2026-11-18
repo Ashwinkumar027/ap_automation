@@ -2011,6 +2011,17 @@ frappe.ui.form.on("Vendor Invoice Item", {
         });
     },
 
+    bill_payment_type: function(frm, cdt, cdn) {
+        let row = locals[cdt][cdn];
+        if (row.bill_payment_type === "Advance / Part Payment") {
+            frappe.model.set_value(cdt, cdn, "advance_deducted", 0);
+            calculate_vendor_row_totals(frm, cdt, cdn);
+        } else if (row.purchase_order) {
+            // Switched back to Final / Regular Bill with PO linked -> auto-pick prior advances
+            frm.script_manager.trigger("purchase_order", cdt, cdn);
+        }
+    },
+
     po_type: function(frm, cdt, cdn) {
         let row = locals[cdt][cdn];
         if (row.po_type === "Without PO") {
@@ -2025,19 +2036,72 @@ frappe.ui.form.on("Vendor Invoice Item", {
 
         frappe.call({
             method: "ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.get_purchase_order_details",
-            args: { purchase_order: row.purchase_order },
+            args: {
+                purchase_order: row.purchase_order,
+                exclude_claim: frm.doc.name || ""
+            },
             callback: function(r) {
                 if (r && r.message) {
                     const po = r.message;
+                    const is_advance_row = (row.bill_payment_type === "Advance / Part Payment");
+
                     if (po.vendor && !row.vendor) {
                         frappe.model.set_value(cdt, cdn, "vendor", po.vendor);
                     }
-                    if (flt(po.advance_amount) > 0 && flt(row.advance_deducted) === 0) {
-                        frappe.model.set_value(cdt, cdn, "advance_deducted", po.advance_amount);
+
+                    if (is_advance_row) {
+                        // Initiating an Advance / Part Payment: do not deduct advances from an advance
+                        frappe.model.set_value(cdt, cdn, "advance_deducted", 0);
+                        if (flt(row.base_amount) === 0 && flt(po.advance_amount) > 0) {
+                            frappe.model.set_value(cdt, cdn, "base_amount", po.advance_amount);
+                        }
+                    } else {
+                        // Final / Regular Bill: auto-fill PO base and auto-pick unadjusted prior advances
+                        if (flt(po.base_amount) > 0 && flt(row.base_amount) === 0) {
+                            frappe.model.set_value(cdt, cdn, "base_amount", po.base_amount);
+                        }
+
+                        const adv_total = flt(po.unadjusted_advance_total) > 0
+                            ? flt(po.unadjusted_advance_total)
+                            : flt(po.advance_amount);
+
+                        if (adv_total > 0 && flt(row.advance_deducted) === 0) {
+                            frappe.model.set_value(cdt, cdn, "advance_deducted", adv_total);
+                        }
+
+                        // Auto-populate Advances Already Paid Earlier (milestone_payments) table without duplicates
+                        if (po.milestones && po.milestones.length > 0) {
+                            const existing_refs = new Set(
+                                (frm.doc.milestone_payments || []).map(m => (m.payment_reference || "").trim())
+                            );
+                            let added_count = 0;
+                            po.milestones.forEach(m => {
+                                const ref = (m.payment_reference || "").trim();
+                                if (ref && existing_refs.has(ref)) return;
+                                let mrow = frm.add_child("milestone_payments");
+                                mrow.milestone_type = m.milestone_type;
+                                mrow.payment_reference = m.payment_reference;
+                                mrow.payment_date = m.payment_date;
+                                mrow.disbursed_amount = flt(m.disbursed_amount);
+                                mrow.adjusted_amount = flt(m.adjusted_amount);
+                                mrow.remarks = m.remarks;
+                                if (ref) existing_refs.add(ref);
+                                added_count += 1;
+                            });
+                            if (added_count > 0) {
+                                frm.refresh_field("milestone_payments");
+                                frappe.show_alert({
+                                    message: __("Auto-picked INR {0} from {1} prior advance payment(s) for PO {2}.", [
+                                        formatINR(adv_total),
+                                        added_count,
+                                        row.purchase_order
+                                    ]),
+                                    indicator: "green"
+                                });
+                            }
+                        }
                     }
-                    if (flt(po.base_amount) > 0 && flt(row.base_amount) === 0) {
-                        frappe.model.set_value(cdt, cdn, "base_amount", po.base_amount);
-                    }
+
                     calculate_vendor_row_totals(frm, cdt, cdn);
                 }
             }
