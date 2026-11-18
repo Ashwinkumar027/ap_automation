@@ -25,7 +25,7 @@ app_include_js = [
     "/assets/ap_automation/js/ap_receipt_gallery.js?v=20261113a",
     "/assets/ap_automation/js/ap_workspace_dashboard.js?v=20261113a",
     "/assets/ap_automation/js/ap_clarification_thread.js?v=20261113a",
-    "/assets/ap_automation/js/ap_listview_enhancements.js?v=20261113a"
+    "/assets/ap_automation/js/ap_listview_enhancements.js?v=20261118a"
 ]
 
 # Scoped to AP Automation DocTypes only to preserve default Frappe Desk across all other apps
@@ -48,6 +48,7 @@ standard_queries = {
 permission_query_conditions = {
     "Employee Reimbursement Claim": "ap_automation.services.employee_reimbursement_permission_service.get_reimbursement_permission_query_conditions",
     "Pre Travel Request": "ap_automation.services.employee_reimbursement_permission_service.get_pre_travel_permission_query_conditions",
+    "AP Purchase Order": "ap_automation.services.vendor_and_event_permission_service.get_ap_purchase_order_permission_query_conditions",
     "Vendor Invoice Claim": "ap_automation.services.vendor_and_event_permission_service.get_vendor_invoice_permission_query_conditions",
     "Admin Weekly Vendor Claim": "ap_automation.services.vendor_and_event_permission_service.get_admin_weekly_vendor_permission_query_conditions",
     "Event Master": "ap_automation.services.vendor_and_event_permission_service.get_event_master_permission_query_conditions",
@@ -59,6 +60,7 @@ permission_query_conditions = {
 has_permission = {
     "Employee Reimbursement Claim": "ap_automation.services.employee_reimbursement_permission_service.has_reimbursement_permission",
     "Pre Travel Request": "ap_automation.services.employee_reimbursement_permission_service.has_pre_travel_permission",
+    "AP Purchase Order": "ap_automation.services.vendor_and_event_permission_service.has_ap_purchase_order_permission",
     "Vendor Invoice Claim": "ap_automation.services.vendor_and_event_permission_service.has_vendor_invoice_permission",
     "Admin Weekly Vendor Claim": "ap_automation.services.vendor_and_event_permission_service.has_admin_weekly_vendor_permission",
     "Event Master": "ap_automation.services.vendor_and_event_permission_service.has_event_master_permission",

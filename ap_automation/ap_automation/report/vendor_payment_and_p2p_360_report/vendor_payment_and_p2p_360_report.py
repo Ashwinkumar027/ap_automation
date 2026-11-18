@@ -160,8 +160,69 @@ def get_data_and_summary(filters):
 
     raw_data = frappe.db.sql(base_sql, values, as_dict=True)
 
+    # Enrich multi-row Vendor Invoice Claims from child table Vendor Invoice Item
+    claim_names = [r.name for r in raw_data if r.get("name")]
+    items_by_parent = {}
+    if claim_names and frappe.db.exists("DocType", "Vendor Invoice Item"):
+        has_ext = frappe.db.has_column("Vendor Invoice Item", "external_po_number")
+        ext_col = ", external_po_number" if has_ext else ""
+        child_rows = frappe.db.sql(
+            f"""
+            SELECT parent, po_type, purchase_order{ext_col}, tds_section, receipt_attachment, invoice_date
+            FROM `tabVendor Invoice Item`
+            WHERE parent IN ({', '.join(['%s'] * len(claim_names))})
+            ORDER BY idx ASC
+            """,
+            tuple(claim_names),
+            as_dict=True,
+        )
+        for cr in child_rows:
+            items_by_parent.setdefault(cr.parent, []).append(cr)
+
     # Format attachment as clickable Excel HYPERLINK with clean 'View Proof' display text
     for r in raw_data:
+        c_rows = items_by_parent.get(r.name) or []
+        if c_rows:
+            po_types = {cr.get("po_type") or "Without PO" for cr in c_rows}
+            if po_types == {"With PO"}:
+                r["invoice_type"] = "With Purchase Order"
+            elif po_types == {"External / Email PO (Not in System)"}:
+                r["invoice_type"] = "External / Email PO (Not in System)"
+            elif len(po_types) > 1:
+                r["invoice_type"] = "Mixed (PO & Non-PO)"
+            else:
+                r["invoice_type"] = "Without PO (Direct Tax Invoice)"
+
+            po_refs = []
+            for cr in c_rows:
+                if cr.get("po_type") == "With PO" and cr.get("purchase_order"):
+                    if cr.purchase_order not in po_refs:
+                        po_refs.append(cr.purchase_order)
+                elif cr.get("po_type") == "External / Email PO (Not in System)" and cr.get("external_po_number"):
+                    ext_ref = f"EXT: {cr.external_po_number.strip()}"
+                    if ext_ref not in po_refs:
+                        po_refs.append(ext_ref)
+            if po_refs:
+                r["purchase_order"] = ", ".join(po_refs)
+
+            tds_secs = [
+                cr.get("tds_section")
+                for cr in c_rows
+                if cr.get("tds_section") and cr.get("tds_section") != "None / Exempt"
+            ]
+            if tds_secs:
+                r["tds_section"] = ", ".join(dict.fromkeys(tds_secs))
+
+            if not r.get("tax_invoice_date"):
+                first_dt = next((cr.get("invoice_date") for cr in c_rows if cr.get("invoice_date")), None)
+                if first_dt:
+                    r["tax_invoice_date"] = first_dt
+
+            if not r.get("tax_invoice_attachment"):
+                first_att = next((cr.get("receipt_attachment") for cr in c_rows if cr.get("receipt_attachment")), None)
+                if first_att:
+                    r["tax_invoice_attachment"] = first_att
+
         att = r.get("tax_invoice_attachment")
         if att:
             full_url = get_url(att)

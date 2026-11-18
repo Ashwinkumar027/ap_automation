@@ -1,12 +1,12 @@
 # Copyright (c) 2026, Quanti and contributors
 # Unit test suite for Vendor Payment and P2P 360 Financial & Audit Report
 
+import unittest
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from ap_automation.ap_automation.report.vendor_payment_and_p2p_360_report.vendor_payment_and_p2p_360_report import execute
 
 
-class TestVendorPayment360Report(FrappeTestCase):
+class TestVendorPayment360Report(unittest.TestCase):
     def setUp(self):
         self.company = frappe.db.get_value("Company", {}, "name") or "Quanticus Software Solutions"
 

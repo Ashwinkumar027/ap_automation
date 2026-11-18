@@ -111,3 +111,56 @@ def submit_event_settlement(settlement_name: str) -> Dict[str, Any]:
         "new_status": doc.status,
         "message": f"Event Settlement #{doc.name} submitted ({doc.status})!",
     }
+
+
+@frappe.whitelist()
+def reject_or_return_event_settlement(settlement_name: str, reason: str) -> Dict[str, Any]:
+    """
+    Allows Accounts L1, Accounts Manager, Accounts Director, or System Manager
+    to return a submitted Event Settlement back to Draft so the SPOC can correct
+    refund UTR or settlement details.
+    """
+    if not settlement_name or not frappe.db.exists("Event Settlement", settlement_name):
+        raise APValidationError(f"Event Settlement '{settlement_name}' not found.")
+
+    if not reason or len(reason.strip()) < 5:
+        raise APValidationError("A clear return reason (minimum 5 characters) is mandatory.")
+
+    user = frappe.session.user
+    roles = set(frappe.get_roles(user))
+    allowed = {"Accounts L1 Auditor", "Accounts User", "Accounts Manager", "Accounts Director", "AP Director", "System Manager"}
+    if user != "Administrator" and not roles.intersection(allowed):
+        raise APSecurityError("Unauthorized: Only Accounts or Director roles can return an Event Settlement.")
+
+    doc = frappe.get_doc("Event Settlement", settlement_name)
+    if doc.status not in ("Under Accounts Review", "Approved for Payment"):
+        raise APValidationError(f"Only settlements in 'Under Accounts Review' or 'Approved for Payment' can be returned. Current status: '{doc.status}'.")
+
+    clean_reason = reason.strip()
+    frappe.db.set_value(
+        "Event Settlement",
+        settlement_name,
+        {
+            "docstatus": 0,
+            "status": "Draft",
+            "accounts_director": None,
+            "accounts_director_sign_date": None,
+            "payment_release_notified": 0,
+            "payment_release_notified_on": None,
+            "payment_release_maker": None,
+        },
+        update_modified=True,
+    )
+    doc.reload()
+    doc.add_comment(
+        "Comment",
+        f"<b>Event Settlement Returned to SPOC:</b> Returned to Draft by {user}. Reason: {frappe.utils.escape_html(clean_reason)}",
+    )
+    frappe.db.commit()
+
+    return {
+        "status": "SUCCESS",
+        "settlement": doc.name,
+        "new_status": "Draft",
+        "message": f"Event Settlement #{doc.name} returned to SPOC (Draft) for correction.",
+    }

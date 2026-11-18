@@ -21,6 +21,7 @@
   "total_sgst_amount",
   "total_igst_amount",
   "total_gst_amount",
+  "cb_claim_totals",
   "total_tds_amount",
   "total_claim_amount",
   "total_income",
@@ -144,6 +145,10 @@
    "fieldtype": "Currency",
    "label": "Total GST (INR)",
    "read_only": 1
+  },
+  {
+   "fieldname": "cb_claim_totals",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "total_tds_amount",
@@ -421,7 +426,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-09-03 14:05:37.829269",
+ "modified": "2026-11-18 15:50:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Event Expense Claim",
@@ -458,7 +463,7 @@
   },
   {
    "amend": 1,
-   "cancel": 1,
+   "cancel": 0,
    "create": 1,
    "email": 1,
    "export": 1,
@@ -472,7 +477,7 @@
   },
   {
    "amend": 1,
-   "cancel": 1,
+   "cancel": 0,
    "create": 1,
    "delete": 0,
    "email": 1,

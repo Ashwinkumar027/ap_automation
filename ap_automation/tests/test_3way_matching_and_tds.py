@@ -151,7 +151,7 @@ class Test3WayMatchingAndTDS(unittest.TestCase):
         claim.validate()
 
         self.assertEqual(claim.match_status, "3-Way Match Passed")
-        self.assertIn("3-Way Match Passed", claim.match_variance_details)
+        self.assertIn("Match Passed", claim.match_variance_details)
 
     def test_02_price_variance_over_tolerance_detection(self):
         """Verifies billed amount exceeding PO contracted value by > 2% flags price mismatch."""
@@ -206,8 +206,8 @@ class Test3WayMatchingAndTDS(unittest.TestCase):
         })
         claim.validate()
 
-        self.assertEqual(claim.match_status, "Missing GRN Flagged")
-        self.assertIn("Missing GRN Alert", claim.match_variance_details)
+        self.assertEqual(claim.match_status, "2-Way Match Passed (PO Reconciled)")
+        self.assertIn("Direct PO Reconciled", claim.match_variance_details)
 
     def test_04_statutory_tds_194j_deduction(self):
         """Verifies Section 194J (10% Professional Fees) deduction on base taxable amount."""

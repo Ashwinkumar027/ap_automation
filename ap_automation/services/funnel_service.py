@@ -108,13 +108,30 @@ def create_payment_instruction_from_claim(
 
         # Gate 2: Status is approved
         l2_approved = bool(claim.status in ("Approved for Payment", "Queued in Batch"))
-        # Gate 3: Check Penny Drop status from Supplier Bank Account
+        # Gate 3: Strict NPCI Penny Drop Security Gate (never bypass LOCKED_PENNY_DROP_MISMATCH)
+        has_locked_row = False
+        if has_items:
+            has_locked_row = any(
+                getattr(r, "penny_drop_status", "") == "LOCKED_PENNY_DROP_MISMATCH"
+                for r in claim.items
+            )
         ba_status = frappe.db.get_value(
             "Bank Account",
             {"party_type": "Supplier", "party": claim.vendor, "is_default": 1},
             "penny_drop_status"
-        ) or "UNVERIFIED"
-        penny_drop_clean = bool(ba_status in ("VERIFIED", "MANUALLY_OVERRIDDEN") or (account_no and ifsc))
+        )
+        if not ba_status:
+            ba_status = frappe.db.get_value(
+                "Bank Account",
+                {"party_type": "Supplier", "party": claim.vendor},
+                "penny_drop_status"
+            )
+        if has_locked_row or ba_status == "LOCKED_PENNY_DROP_MISMATCH":
+            penny_drop_clean = False
+        elif ba_status:
+            penny_drop_clean = bool(ba_status in ("VERIFIED", "MANUALLY_OVERRIDDEN"))
+        else:
+            penny_drop_clean = bool(account_no and ifsc)
 
     elif source_doctype == "Employee Reimbursement Claim":
         beneficiary_type = "Employee"
@@ -138,7 +155,7 @@ def create_payment_instruction_from_claim(
         payable_amt = float(claim.requested_advance_amount or 0.0)
 
         l1_verified = bool(claim.purpose and claim.event)
-        l2_approved = bool(claim.status in ("Approved for Advance", "Queued in Batch"))
+        l2_approved = bool(claim.status in ("Approved for Advance", "Approved for Payment", "Queued in Batch"))
         penny_drop_clean = bool(account_no and ifsc)
 
     elif source_doctype == "Event Settlement":
@@ -158,7 +175,7 @@ def create_payment_instruction_from_claim(
             ifsc = (emp.ifsc_code or "").strip()
 
         l1_verified = bool(claim.settlement_type == "PAYABLE_TO_SPOC")
-        l2_approved = bool(claim.status in ("Settled", "Under Accounts Review"))
+        l2_approved = bool(claim.status in ("Approved for Payment", "Settled"))
         penny_drop_clean = bool(account_no and ifsc)
 
     # 2. Evaluate Hard Gate Status
