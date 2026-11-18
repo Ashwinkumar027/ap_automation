@@ -298,15 +298,15 @@ def get_event_advance_ui_context(advance_name: str) -> Dict[str, Any]:
     """
     if not advance_name or not frappe.db.exists("Event Advance Request", advance_name):
         return {}
-    from ap_automation.services.vendor_and_event_permission_service import _is_event_advance_matrix_approver
-    if (
-        not _is_event_advance_matrix_approver(frappe.session.user)
-        and not frappe.has_permission("Event Advance Request", "read", advance_name)
-    ):
-        frappe.throw("You are not permitted to view this Event Advance Request.", exc=frappe.PermissionError)
-
     doc = frappe.get_doc("Event Advance Request", advance_name)
     user = frappe.session.user
+    from ap_automation.services.vendor_and_event_permission_service import _is_event_advance_matrix_approver
+    if (
+        user not in (getattr(doc, "owner", None), getattr(doc, "spoc", None))
+        and not _is_event_advance_matrix_approver(user)
+        and not frappe.has_permission("Event Advance Request", "read", doc=doc)
+    ):
+        frappe.throw("You are not permitted to view this Event Advance Request.", exc=frappe.PermissionError)
     user_roles = set(frappe.get_roles(user))
     is_sys = user == "Administrator" or "System Manager" in user_roles
 

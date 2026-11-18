@@ -92,26 +92,41 @@ _resolve_email_address.cache_clear = lambda: None
 
 
 def _get_system_manager_emails() -> List[str]:
-    """Fetches active System Managers as fallback recipients."""
-    managers = frappe.get_all("Has Role", filters={"role": "System Manager", "parenttype": "User"}, pluck="parent")
+    """Fetches active enabled System Managers as fallback recipients."""
+    managers = frappe.db.sql(
+        """
+        SELECT DISTINCT hr.parent
+        FROM `tabHas Role` hr
+        JOIN `tabUser` u ON u.name = hr.parent
+        WHERE hr.role = 'System Manager' AND hr.parenttype = 'User'
+          AND u.enabled = 1 AND u.name NOT IN ('Administrator', 'Guest')
+        """,
+        pluck=True,
+    ) or []
     emails = []
     for u in managers:
-        if u != "Administrator":
-            resolved = _resolve_email_address(u)
-            if resolved:
-                emails.append(resolved)
+        resolved = _resolve_email_address(u)
+        if resolved:
+            emails.append(resolved)
     return list(dict.fromkeys(emails))
 
 
 def _get_role_recipients(role_names: List[str]) -> List[str]:
-    """Fetches all active users holding specified roles with fallback to System Managers."""
+    """Fetches all active enabled users holding specified roles with fallback to System Managers."""
     if not role_names:
         return []
-    users = frappe.get_all(
-        "Has Role",
-        filters={"role": ["in", role_names], "parenttype": "User"},
-        pluck="parent"
-    )
+    placeholders = ", ".join(["%s"] * len(role_names))
+    users = frappe.db.sql(
+        f"""
+        SELECT DISTINCT hr.parent
+        FROM `tabHas Role` hr
+        JOIN `tabUser` u ON u.name = hr.parent
+        WHERE hr.role IN ({placeholders}) AND hr.parenttype = 'User'
+          AND u.enabled = 1 AND u.name NOT IN ('Administrator', 'Guest')
+        """,
+        tuple(role_names),
+        pluck=True,
+    ) or []
     emails = []
     for u in users:
         resolved = _resolve_email_address(u)

@@ -23,9 +23,9 @@
   "sb_signoffs",
   "accounts_director",
   "accounts_director_sign_date",
-  "cb_dir",
   "payment_release_notified",
   "payment_release_notified_on",
+  "cb_dir",
   "payment_release_maker",
   "payment_releaser",
   "payment_reference",
@@ -139,10 +139,6 @@
    "read_only": 1
   },
   {
-   "fieldname": "cb_dir",
-   "fieldtype": "Column Break"
-  },
-  {
    "default": "0",
    "fieldname": "payment_release_notified",
    "fieldtype": "Check",
@@ -154,6 +150,10 @@
    "fieldtype": "Datetime",
    "label": "Payment Release Notified Timestamp",
    "read_only": 1
+  },
+  {
+   "fieldname": "cb_dir",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "payment_release_maker",
@@ -183,7 +183,7 @@
  ],
  "grid_page_length": 50,
  "links": [],
- "modified": "2026-11-05 18:40:00.000000",
+ "modified": "2026-11-18 15:50:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Weekly Vendor Payment Batch",

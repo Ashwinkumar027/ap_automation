@@ -119,7 +119,7 @@ def has_admin_weekly_vendor_permission(doc, user: Optional[str] = None, ptype: s
     if not doc or isinstance(doc, str):
         return None
 
-    if is_accounts_user(user):
+    if is_vendor_team_or_accounts_user(user):
         return True
 
     if getattr(doc, "owner", None) == user or getattr(doc, "prepared_by", None) == user:
@@ -136,6 +136,39 @@ def has_admin_weekly_vendor_permission(doc, user: Optional[str] = None, ptype: s
     ]:
         if getattr(doc, approver_field, None) == user:
             return True
+
+    return False
+
+
+def get_ap_purchase_order_permission_query_conditions(user: Optional[str] = None) -> str:
+    """
+    Accounts, Admin, and Procurement teams see ALL AP Purchase Orders.
+    Regular employees see ONLY Purchase Orders they created or where they are the SPOC.
+    """
+    if not user:
+        user = frappe.session.user
+
+    if is_vendor_team_or_accounts_user(user):
+        return ""
+
+    escaped_user = frappe.db.escape(user)
+    return f"""(
+        `tabAP Purchase Order`.`owner` = {escaped_user}
+        OR `tabAP Purchase Order`.`spoc_email` = {escaped_user}
+    )"""
+
+
+def has_ap_purchase_order_permission(doc, user: Optional[str] = None, ptype: str = "read") -> Optional[bool]:
+    if not user:
+        user = frappe.session.user
+    if not doc or isinstance(doc, str):
+        return None
+
+    if is_vendor_team_or_accounts_user(user):
+        return True
+
+    if getattr(doc, "owner", None) == user or getattr(doc, "spoc_email", None) == user:
+        return True
 
     return False
 

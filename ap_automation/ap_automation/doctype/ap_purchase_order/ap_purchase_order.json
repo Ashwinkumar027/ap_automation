@@ -624,7 +624,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-06 22:30:00.000000",
+ "modified": "2026-11-18 15:40:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "AP Purchase Order",
@@ -642,17 +642,6 @@
    "share": 1,
    "write": 1,
    "delete": 1
-  },
-  {
-   "create": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "All",
-   "share": 1,
-   "write": 1
   },
   {
    "role": "AP Director",
@@ -692,8 +681,29 @@
   {
    "role": "Admin L1 Approver",
    "read": 1,
-   "write": 0,
-   "create": 0,
+   "write": 1,
+   "create": 1,
+   "delete": 0
+  },
+  {
+   "role": "Admin L2 Approver",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0
+  },
+  {
+   "role": "Receptionist",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0
+  },
+  {
+   "role": "Purchase User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
    "delete": 0
   },
   {

@@ -21,11 +21,11 @@
   "sb_admin_audit",
   "admin_l1_approver",
   "admin_l1_date",
-  "cb_admin_audit",
   "admin_l2_approver",
   "admin_l2_date",
   "accounts_reviewer",
   "accounts_date",
+  "cb_admin_audit",
   "director_approver",
   "director_date",
   "disbursement_utr",
@@ -148,10 +148,6 @@
    "read_only": 1
   },
   {
-   "fieldname": "cb_admin_audit",
-   "fieldtype": "Column Break"
-  },
-  {
    "fieldname": "admin_l2_approver",
    "fieldtype": "Link",
    "label": "Admin L2 Approver",
@@ -176,6 +172,10 @@
    "fieldtype": "Datetime",
    "label": "Accounts Verification Timestamp",
    "read_only": 1
+  },
+  {
+   "fieldname": "cb_admin_audit",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "director_approver",
@@ -337,7 +337,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 0,
  "links": [],
- "modified": "2026-10-12 16:40:00.000000",
+ "modified": "2026-11-18 15:50:00.000000",
  "modified_by": "Administrator",
  "module": "AP Automation",
  "name": "Admin Weekly Vendor Claim",

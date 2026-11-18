@@ -429,6 +429,35 @@ function setup_settlement_workflow_actions(frm) {
                     });
                 }).addClass('btn-primary');
             }
+
+            if (is_maker || is_acct_dir) {
+                frm.add_custom_button(__('Return to SPOC'), function() {
+                    frappe.prompt([
+                        {
+                            fieldname: 'reason',
+                            fieldtype: 'Small Text',
+                            label: __('Return / Discrepancy Reason'),
+                            reqd: 1
+                        }
+                    ], function(vals) {
+                        frappe.call({
+                            method: 'ap_automation.ap_automation.doctype.event_settlement.event_settlement.reject_or_return_event_settlement',
+                            args: {
+                                settlement_name: frm.doc.name,
+                                reason: vals.reason
+                            },
+                            freeze: true,
+                            freeze_message: __('Returning Event Settlement to SPOC...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'SUCCESS') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'orange' });
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }, __('Return Event Settlement to SPOC'), __('Confirm Return'));
+                }).addClass('btn-danger');
+            }
         } else if (frm.doc.status === 'Approved for Payment' && frm.doc.settlement_type === 'PAYABLE_TO_SPOC' && is_finance_viewer) {
             frm.page.set_indicator(__('Approved for Payment'), 'blue');
 
@@ -448,7 +477,7 @@ function setup_settlement_workflow_actions(frm) {
                     });
                 }).addClass('btn-success disabled');
             } else if (user_roles.includes('Accounts Director') || is_sys_mgr) {
-                frm.add_custom_button(__('📤 Payment Release'), function() {
+                frm.add_custom_button(__('Payment Release'), function() {
                     frappe.confirm(
                         __('Confirm that the IDFC Disbursal Excel has been uploaded to the IDFC Netbanking portal.<br><br>This will notify the Payment Releaser (Checker) to release SPOC reimbursement.'),
                         function() {

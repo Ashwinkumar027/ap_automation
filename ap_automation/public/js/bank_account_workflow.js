@@ -54,7 +54,7 @@ function render_bank_account_approval_actions(frm) {
             ], function(values) {
                 frappe.call({
                     method: 'ap_automation.services.bank_account_workflow_service.approve_bank_account_by_assistant_manager',
-                    args: { bank_account_name: frm.doc.name, remarks: values.remarks },
+                    args: { bank_account_name: frm.doc.name, comments: values.remarks },
                     freeze: true,
                     freeze_message: __('Forwarding to Admin Manager...'),
                     callback: function(r) {
@@ -73,7 +73,7 @@ function render_bank_account_approval_actions(frm) {
             ], function(values) {
                 frappe.call({
                     method: 'ap_automation.services.bank_account_workflow_service.reject_bank_account',
-                    args: { bank_account_name: frm.doc.name, rejection_reason: values.reason },
+                    args: { bank_account_name: frm.doc.name, reason: values.reason },
                     freeze: true,
                     freeze_message: __('Rejecting Bank Account...'),
                     callback: function(r) {
@@ -95,7 +95,7 @@ function render_bank_account_approval_actions(frm) {
             ], function(values) {
                 frappe.call({
                     method: 'ap_automation.services.bank_account_workflow_service.approve_bank_account_by_admin_manager',
-                    args: { bank_account_name: frm.doc.name, remarks: values.remarks },
+                    args: { bank_account_name: frm.doc.name, comments: values.remarks },
                     freeze: true,
                     freeze_message: __('Forwarding to Accounts...'),
                     callback: function(r) {
@@ -114,7 +114,7 @@ function render_bank_account_approval_actions(frm) {
             ], function(values) {
                 frappe.call({
                     method: 'ap_automation.services.bank_account_workflow_service.reject_bank_account',
-                    args: { bank_account_name: frm.doc.name, rejection_reason: values.reason },
+                    args: { bank_account_name: frm.doc.name, reason: values.reason },
                     freeze: true,
                     freeze_message: __('Rejecting Bank Account...'),
                     callback: function(r) {
@@ -136,7 +136,7 @@ function render_bank_account_approval_actions(frm) {
             ], function(values) {
                 frappe.call({
                     method: 'ap_automation.services.bank_account_workflow_service.verify_and_activate_bank_account',
-                    args: { bank_account_name: frm.doc.name, verification_notes: values.remarks },
+                    args: { bank_account_name: frm.doc.name, comments: values.remarks },
                     freeze: true,
                     freeze_message: __('Activating Bank Account...'),
                     callback: function(r) {
@@ -155,7 +155,7 @@ function render_bank_account_approval_actions(frm) {
             ], function(values) {
                 frappe.call({
                     method: 'ap_automation.services.bank_account_workflow_service.reject_bank_account',
-                    args: { bank_account_name: frm.doc.name, rejection_reason: values.reason },
+                    args: { bank_account_name: frm.doc.name, reason: values.reason },
                     freeze: true,
                     freeze_message: __('Rejecting Bank Account...'),
                     callback: function(r) {

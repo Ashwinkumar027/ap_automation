@@ -59,6 +59,28 @@ def _resolve_email(user_or_email: Optional[str]) -> Optional[str]:
     return None
 
 
+def _get_enabled_role_users(roles: List[str]) -> List[str]:
+    """Returns enabled User IDs holding any of the given roles (excludes Administrator/Guest/disabled users)."""
+    if not roles:
+        return []
+    placeholders = ", ".join(["%s"] * len(roles))
+    rows = frappe.db.sql(
+        f"""
+        SELECT DISTINCT hr.parent
+        FROM `tabHas Role` hr
+        JOIN `tabUser` u ON u.name = hr.parent
+        WHERE hr.parenttype = 'User'
+          AND hr.role IN ({placeholders})
+          AND u.enabled = 1
+          AND u.name NOT IN ('Administrator', 'Guest')
+        ORDER BY hr.parent ASC
+        """,
+        tuple(roles),
+        pluck=True,
+    )
+    return list(rows or [])
+
+
 def _get_matrix_or_role_approvers(
     company: str,
     document_lane: str,
@@ -115,16 +137,12 @@ def _get_matrix_or_role_approvers(
                 if lvl.level_number == level_number and lvl.designated_approver:
                     recipients.append(lvl.designated_approver)
 
-    # 2. Fallback to Role-Based Lookup
+    # 2. Fallback to Role-Based Lookup (strictly enabled users only)
     if not recipients and fallback_roles:
         roles_to_query = list(fallback_roles)
         if "Admin L1 Approver" in roles_to_query and "Admin Manager" not in roles_to_query:
             roles_to_query.append("Admin Manager")
-        role_users = frappe.get_all(
-            "Has Role",
-            filters={"role": ["in", roles_to_query], "parenttype": "User"},
-            pluck="parent"
-        )
+        role_users = _get_enabled_role_users(roles_to_query)
         recipients.extend(role_users)
 
     return list(dict.fromkeys([r for r in recipients if r]))
@@ -688,6 +706,16 @@ def notify_payment_releaser_on_idfc_upload(
 
     releaser = designated_releaser or matrix_checker
     accounts_director = designated_accounts_director or matrix_ad
+
+    if not releaser:
+        fallback_releasers = _get_enabled_role_users(["Payment Releaser", "AP Director", "Accounts Director"])
+        if fallback_releasers:
+            releaser = fallback_releasers[0]
+
+    if not accounts_director:
+        fallback_ads = _get_enabled_role_users(["Accounts Director", "Accounts Manager"])
+        if fallback_ads:
+            accounts_director = fallback_ads[0]
 
     if not releaser:
         frappe.throw(frappe._("No active Director / Payment Releaser designated in AP Approval Matrix for company '{0}'.").format(company))
@@ -2153,7 +2181,7 @@ def notify_vendor_claim_accounts_l1_verified(claim_name: str) -> None:
     company = getattr(doc, "company", "Company")
     vendor = getattr(doc, "vendor_name", None) or getattr(doc, "vendor", "Vendor")
     amount = float(getattr(doc, "net_payable_amount", 0.0) or 0.0)
-    tally_ref = getattr(doc, "tally_reference", "POSTED")
+    tally_ref = getattr(doc, "tally_reference", None) or "POSTED"
     doc_url = _get_form_url("Vendor Invoice Claim", claim_name)
 
     recipients = _get_matrix_or_role_approvers(
@@ -2163,7 +2191,8 @@ def notify_vendor_claim_accounts_l1_verified(claim_name: str) -> None:
         fallback_roles=["Accounts Manager", "Accounts Director"],
         stage_keyword="Accounts L2"
     )
-    subject = f"[Tally #{tally_ref}] [Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)}) Awaiting L2 Clearance"
+    tally_tag = f"[Tally #{tally_ref}]" if tally_ref and tally_ref != "POSTED" else "[Accounts L1 Verified]"
+    subject = f"{tally_tag} [Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)}) Awaiting L2 Clearance"
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; border: 1px solid #bbf7d0; border-radius: 10px; padding: 24px; background: #ffffff;">
         <div style="border-bottom: 2px solid #16a34a; padding-bottom: 12px; margin-bottom: 16px;">
@@ -2450,17 +2479,24 @@ def send_pending_vendor_claim_reminders() -> Dict[str, Any]:
 # LANE 3B: ADMIN WEEKLY VENDOR CLAIM NOTIFICATION ENGINE (1-TO-1 MATRIX ROUTED)
 # -------------------------------------------------------------------------------------------------
 
-def _get_admin_weekly_matrix_approver(company: str, level_number: int, amount: float = 0.0) -> List[str]:
+def _get_admin_weekly_matrix_approver(company: str, level_number: int, amount: float = 0.0, designated_user: Optional[str] = None) -> List[str]:
     """
     Finds the exact 1-to-1 designated user from AP Approval Matrix for lane 'Admin Weekly Vendor Claim'.
-    Enforces HRMS Leave Delegation so if designated approver is on leave, their delegate is alerted.
-    Falls back to specific role holders only if matrix is unconfigured.
+    Prefers explicit doc.designated_approver when already resolved, then checks AP Approval Matrix
+    (with HRMS Leave Delegation), and falls back to enabled role holders only if matrix is unconfigured.
     """
+    if designated_user:
+        em = _resolve_email(designated_user)
+        if em:
+            return [em]
+
     try:
         from ap_automation.services.approval_service import get_applicable_matrix, get_current_level_rule
         from ap_automation.services.security import resolve_acting_approver
 
         matrix = get_applicable_matrix("Admin Weekly Vendor Claim", company, amount)
+        if not matrix:
+            matrix = get_applicable_matrix("AP Vendor Invoice", company, amount)
         if matrix:
             rule = get_current_level_rule(matrix, level_number)
             if rule and rule.designated_approver:
@@ -2469,19 +2505,21 @@ def _get_admin_weekly_matrix_approver(company: str, level_number: int, amount: f
                 recipients = [primary_user]
                 if acting_user and acting_user != primary_user:
                     recipients.append(acting_user)
-                return [_resolve_email(u) for u in recipients if _resolve_email(u)]
+                resolved = [_resolve_email(u) for u in recipients if _resolve_email(u)]
+                if resolved:
+                    return resolved
     except Exception as e:
         frappe.log_error(title="Failed to resolve admin weekly matrix approver", message=str(e))
 
-    # Graceful fallback by level
+    # Graceful fallback by level (strictly enabled users)
     role_map = {
-        1: "Admin L1 Approver",
-        2: "Admin L2 Approver",
-        3: "Accounts L1 Auditor",
-        4: "Accounts Director"
+        1: ["Admin L1 Approver", "Admin Manager"],
+        2: ["Admin L2 Approver", "Admin Manager"],
+        3: ["Accounts L1 Auditor"],
+        4: ["Accounts Director", "Accounts Manager"],
     }
-    fallback_role = role_map.get(level_number, "Accounts User")
-    users = frappe.db.get_values("Has Role", {"role": fallback_role, "parenttype": "User"}, "parent", pluck=True) or []
+    fallback_roles = role_map.get(level_number, ["Accounts User"])
+    users = _get_enabled_role_users(fallback_roles)
     return [_resolve_email(u) for u in users if _resolve_email(u)]
 
 
@@ -2495,7 +2533,9 @@ def notify_admin_weekly_submitted(docname: str) -> None:
     amt_str = fmt_money(amount)
     doc_url = _get_form_url("Admin Weekly Vendor Claim", docname)
 
-    recipients = _get_admin_weekly_matrix_approver(company, level_number=1, amount=amount)
+    recipients = _get_admin_weekly_matrix_approver(
+        company, level_number=1, amount=amount, designated_user=getattr(doc, "designated_approver", None)
+    )
     if not recipients:
         return
 
@@ -2544,7 +2584,9 @@ def notify_admin_weekly_admin_l1_approved(docname: str) -> None:
     amt_str = fmt_money(amount)
     doc_url = _get_form_url("Admin Weekly Vendor Claim", docname)
 
-    recipients = _get_admin_weekly_matrix_approver(company, level_number=2, amount=amount)
+    recipients = _get_admin_weekly_matrix_approver(
+        company, level_number=2, amount=amount, designated_user=getattr(doc, "designated_approver", None)
+    )
     if not recipients:
         return
 
@@ -2590,7 +2632,9 @@ def notify_admin_weekly_admin_l2_approved(docname: str) -> None:
     amt_str = fmt_money(amount)
     doc_url = _get_form_url("Admin Weekly Vendor Claim", docname)
 
-    recipients = _get_admin_weekly_matrix_approver(company, level_number=3, amount=amount)
+    recipients = _get_admin_weekly_matrix_approver(
+        company, level_number=3, amount=amount, designated_user=getattr(doc, "designated_approver", None)
+    )
     if not recipients:
         return
 
@@ -2637,7 +2681,9 @@ def notify_admin_weekly_accounts_l1_approved(docname: str) -> None:
     amt_str = fmt_money(amount)
     doc_url = _get_form_url("Admin Weekly Vendor Claim", docname)
 
-    recipients = _get_admin_weekly_matrix_approver(company, level_number=4, amount=amount)
+    recipients = _get_admin_weekly_matrix_approver(
+        company, level_number=4, amount=amount, designated_user=getattr(doc, "designated_approver", None)
+    )
     if not recipients:
         return
 
@@ -2688,11 +2734,24 @@ def notify_admin_weekly_accounts_l2_approved(docname: str) -> None:
     if doc.prepared_by and _resolve_email(doc.prepared_by):
         recipients.append(_resolve_email(doc.prepared_by))
 
-    releasers = frappe.db.get_values("Has Role", {"role": ["in", ["Payment Releaser", "Accounts Manager"]], "parenttype": "User"}, "parent", pluck=True) or []
-    for r in releasers:
-        em = _resolve_email(r)
-        if em and em not in recipients:
-            recipients.append(em)
+    try:
+        from ap_automation.services.approval_service import get_matrix_designated_payment_releaser_and_accounts_director
+        matrix_checker, matrix_ad = get_matrix_designated_payment_releaser_and_accounts_director(
+            company=company, doctype="Admin Weekly Vendor Claim", amount=amount
+        )
+        for u in (matrix_checker, matrix_ad):
+            em = _resolve_email(u)
+            if em and em not in recipients:
+                recipients.append(em)
+    except Exception:
+        pass
+
+    if not recipients:
+        releasers = _get_enabled_role_users(["Payment Releaser", "Accounts Manager"])
+        for r in releasers:
+            em = _resolve_email(r)
+            if em and em not in recipients:
+                recipients.append(em)
 
     if not recipients:
         return
@@ -2944,12 +3003,32 @@ def notify_po_stage_transition(po_name: str, from_stage: str, to_stage: str, app
             recipients.append(resolved)
 
     if not recipients:
-        # Fallback to signatory or default
-        sig = _resolve_email(getattr(po, "authorised_signatory", None))
-        if sig:
+        sig_val = getattr(po, "authorised_signatory", None)
+        sig = _resolve_email(sig_val)
+        if not sig and sig_val:
+            matched_user = frappe.db.get_value("User", {"full_name": sig_val, "enabled": 1}, "name")
+            sig = _resolve_email(matched_user)
+        if sig and ("Director" in (to_stage or "") or "HoD" in (to_stage or "")):
             recipients.append(sig)
-        else:
-            recipients.append("admin@example.com")
+
+    if not recipients:
+        stage_role_map = {
+            "Pending Assistant Admin Manager": ["Assistant Admin Manager", "Admin L1 Approver", "Admin Manager"],
+            "Pending Admin Manager": ["Admin Manager", "Admin L2 Approver"],
+            "Pending Manager Review": ["Admin Manager", "Admin L2 Approver", "Accounts Manager"],
+            "Pending Director Approval": ["AP Director", "Accounts Director"],
+            "Pending HoD Approval": ["AP Director", "Accounts Director", "Admin L2 Approver"],
+        }
+        target_roles = stage_role_map.get(to_stage, ["Admin L1 Approver", "Admin L2 Approver", "AP Director"])
+        for u in _get_enabled_role_users(target_roles):
+            em = _resolve_email(u)
+            if em and em not in recipients:
+                recipients.append(em)
+
+    if not recipients:
+        spoc_fallback = _resolve_email(po.spoc_email) or _resolve_email(po.owner)
+        if spoc_fallback:
+            recipients.append(spoc_fallback)
 
     cc = []
     spoc_em = _resolve_email(po.spoc_email) or _resolve_email(po.owner)
@@ -3144,7 +3223,20 @@ def notify_bank_account_stage_transition(ba_name: str, from_stage: str, to_stage
 
     ba = frappe.get_doc("Bank Account", ba_name)
     supplier_name = ba.party or ba.account_name or "Vendor"
-    recipients = ["admin@example.com"]
+    stage_role_map = {
+        "Pending Assistant Admin Manager": ["Assistant Admin Manager", "Admin L1 Approver", "Admin Manager"],
+        "Pending Admin Manager": ["Admin Manager", "Admin L2 Approver", "AP Director"],
+        "Pending Accounts Verification": ["Accounts L1 Auditor", "Accounts Manager", "Accounts Director"],
+    }
+    target_roles = stage_role_map.get(to_stage, ["Accounts L1 Auditor", "Accounts Manager"])
+    recipients = [
+        em for em in (_resolve_email(u) for u in _get_enabled_role_users(target_roles))
+        if em
+    ]
+    if not recipients:
+        sub_em = _resolve_email(getattr(ba, "submitted_by", None)) or _resolve_email(ba.owner)
+        if sub_em:
+            recipients.append(sub_em)
 
     base_url = frappe.utils.get_url()
     desk_url = f"{base_url}/desk/bank-account/{ba.name}"
@@ -3195,7 +3287,10 @@ def notify_bank_account_activated(ba_name: str) -> None:
     if sub_em:
         recipients.append(sub_em)
     if not recipients:
-        recipients.append("admin@example.com")
+        for u in _get_enabled_role_users(["Accounts Manager", "Admin Manager"]):
+            em = _resolve_email(u)
+            if em and em not in recipients:
+                recipients.append(em)
 
     base_url = frappe.utils.get_url()
     desk_url = f"{base_url}/desk/bank-account/{ba.name}"
@@ -3243,7 +3338,10 @@ def notify_bank_account_rejected(ba_name: str, reason: str) -> None:
     if sub_em:
         recipients.append(sub_em)
     if not recipients:
-        recipients.append("admin@example.com")
+        for u in _get_enabled_role_users(["Accounts Manager", "Admin Manager"]):
+            em = _resolve_email(u)
+            if em and em not in recipients:
+                recipients.append(em)
 
     base_url = frappe.utils.get_url()
     desk_url = f"{base_url}/desk/bank-account/{ba.name}"

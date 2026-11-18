@@ -1256,7 +1256,9 @@ const REQUIRED_GRID_COLUMNS = [
     { fieldname: 'bank_ifsc_code', columns: 2 },
     { fieldname: 'penny_drop_status', columns: 2 },
     { fieldname: 'bank_proof_attachment', columns: 2 },
-    { fieldname: 'remarks', columns: 2 }
+    { fieldname: 'remarks', columns: 2 },
+    { fieldname: 'is_urgent', columns: 1 },
+    { fieldname: 'urgency_reason', columns: 2 }
 ];
 
 function enforce_default_grid_columns(frm) {
@@ -1351,7 +1353,9 @@ const ADMIN_VENDOR_COL_WIDTHS = {
     bank_ifsc_code: 120,
     penny_drop_status: 130,
     bank_proof_attachment: 145,
-    remarks: 175
+    remarks: 175,
+    is_urgent: 90,
+    urgency_reason: 165
 };
 
 function apply_admin_vendor_styles() {

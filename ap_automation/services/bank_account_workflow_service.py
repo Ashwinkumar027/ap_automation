@@ -196,11 +196,27 @@ def verify_and_activate_bank_account(bank_account_name: str, comments: Optional[
 @frappe.whitelist()
 def reject_bank_account(bank_account_name: str, reason: str) -> Dict[str, Any]:
     """
-    Allows any reviewer or Accounts to reject bank account with specific reason.
+    Allows authorized reviewers or Accounts to reject bank account with specific reason.
     Transitions status to 'Rejected'.
     """
     if not bank_account_name or not frappe.db.exists("Bank Account", bank_account_name):
         frappe.throw(_(f"Bank Account '{bank_account_name}' not found."))
+
+    roles = get_current_user_roles()
+    allowed_reject_roles = {
+        "Assistant Admin Manager",
+        "Admin L1 Approver",
+        "Admin Manager",
+        "Admin L2 Approver",
+        "AP Director",
+        "Accounts User",
+        "Accounts Manager",
+        "Accounts Director",
+        "Accounts L1 Auditor",
+        "Payment Releaser",
+    }
+    if not (is_system_manager() or any(r in allowed_reject_roles for r in roles)):
+        frappe.throw(_("Access Denied: Only authorized Admin reviewers or Accounts team members can reject bank accounts."))
 
     if not reason or len(reason.strip()) < 10:
         frappe.throw(_("A specific rejection reason (minimum 10 characters) is required."))
