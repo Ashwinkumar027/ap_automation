@@ -109,13 +109,13 @@
   {
    "fieldname": "sb_route",
    "fieldtype": "Section Break",
-   "label": "Intake Route & Entity"
+   "label": "Claim Details"
   },
   {
    "fieldname": "company",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Billed Company Entity",
+   "label": "Company",
    "options": "Company",
    "reqd": 1
   },
@@ -123,14 +123,14 @@
    "fieldname": "event",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Linked Event Master (Stream A)",
+   "label": "Event Name (Only if for an Event)",
    "options": "Event Master",
    "hidden": 0
   },
   {
    "fieldname": "email_approval_attachment",
    "fieldtype": "Attach",
-   "label": "Internal Email Approval PDF / Screenshot (Optional)",
+   "label": "Manager Approval Email (Optional)",
    "hidden": 0,
    "reqd": 0
   },
@@ -151,14 +151,14 @@
   {
    "fieldname": "total_lines",
    "fieldtype": "Int",
-   "label": "Total Bills Count",
+   "label": "Number of Bills",
    "read_only": 1
   },
   {
    "fieldname": "vendor_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Vendor / Supplier Legal Name",
+   "label": "Vendor Name",
    "read_only": 1,
    "reqd": 0,
    "hidden": 0
@@ -166,25 +166,25 @@
   {
    "fieldname": "sb_items",
    "fieldtype": "Section Break",
-   "label": "Itemized Vendor Invoices / Bills (Multi-Row Table)"
+   "label": "Vendor Bills List"
   },
   {
    "fieldname": "items",
    "fieldtype": "Table",
-   "label": "Vendor Invoices Table",
+   "label": "Bills",
    "options": "Vendor Invoice Item"
   },
   {
    "fieldname": "sb_invoice",
    "fieldtype": "Section Break",
-   "label": "Consolidated Financial Summary (Read-Only Totals)",
+   "label": "Payment Summary (Auto-Calculated)",
    "hidden": 0
   },
   {
    "fieldname": "base_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total Taxable Base (INR)",
+   "label": "Total Amount Before GST (INR)",
    "reqd": 0,
    "read_only": 1,
    "hidden": 0
@@ -193,7 +193,7 @@
    "fieldname": "total_invoice_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total Gross Invoice (INR)",
+   "label": "Total Bill Amount with GST (INR)",
    "read_only": 1,
    "reqd": 0,
    "hidden": 0
@@ -229,7 +229,7 @@
   {
    "fieldname": "gst_amount",
    "fieldtype": "Currency",
-   "label": "Total Calculated GST (INR)",
+   "label": "Total GST Tax (INR)",
    "read_only": 1,
    "reqd": 0,
    "hidden": 0
@@ -242,7 +242,7 @@
    "fieldname": "tds_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total TDS Deducted (INR)",
+   "label": "Less: TDS Tax Deducted (INR)",
    "read_only": 1,
    "reqd": 0,
    "hidden": 0
@@ -251,7 +251,7 @@
    "default": "0",
    "fieldname": "advance_deducted",
    "fieldtype": "Currency",
-   "label": "Total Prior Advances Adjusted (INR)",
+   "label": "Less: Advance Already Paid (INR)",
    "read_only": 1,
    "reqd": 0,
    "hidden": 0
@@ -260,8 +260,8 @@
    "default": "0",
    "fieldname": "retention_hold_amount",
    "fieldtype": "Currency",
-   "label": "Total Retention Hold (INR)",
-   "description": "Retention amount withheld until final project completion or snag-list handover",
+   "label": "Less: Amount Held Back (INR)",
+   "description": "Optional: Money kept on hold until work quality or warranty is checked.",
    "read_only": 1,
    "reqd": 0,
    "hidden": 0
@@ -270,7 +270,7 @@
    "fieldname": "net_payable_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Grand Total Net Payable (INR)",
+   "label": "Final Amount to Pay Vendor (INR)",
    "read_only": 1,
    "reqd": 0,
    "hidden": 0
@@ -278,7 +278,7 @@
   {
    "fieldname": "sec_urgency",
    "fieldtype": "Section Break",
-   "label": "Priority & Urgency Classification (Optional)",
+   "label": "Urgent Payment (Optional)",
    "collapsible": 1
   },
   {
@@ -286,13 +286,13 @@
    "fieldname": "is_urgent",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Urgent Payment Request"
+   "label": "Mark as Urgent"
   },
   {
    "depends_on": "eval:doc.is_urgent==1",
    "fieldname": "urgency_reason",
    "fieldtype": "Small Text",
-   "label": "Reason for Urgency",
+   "label": "Why Is This Urgent?",
    "description": "Mention clear operational justification why this bill requires priority processing."
   },
   {
@@ -311,44 +311,46 @@
   {
    "fieldname": "sec_milestones",
    "fieldtype": "Section Break",
-   "label": "Milestone Advances & Retention Hold Reconciliation (Optional)",
-   "collapsible": 1
+   "label": "Already Paid Advances & Hold Amount (Optional)",
+   "collapsible": 1,
+   "description": "Use only if an advance was paid earlier or part of the money is kept on hold."
   },
   {
    "fieldname": "milestone_payments",
    "fieldtype": "Table",
-   "label": "Mapped Prior Advances & Part Payments",
+   "label": "Advances Already Paid Earlier",
    "options": "Vendor Milestone Payment Item"
   },
   {
    "default": "0",
    "fieldname": "total_prior_payments_adjusted",
    "fieldtype": "Currency",
-   "label": "Total Prior Advances Adjusted (INR)",
+   "label": "Total Advance Deducted (INR)",
    "read_only": 1
   },
   {
    "fieldname": "retention_hold_reason",
    "fieldtype": "Small Text",
-   "label": "Retention Hold Reason"
+   "label": "Why Amount Is Held Back"
   },
   {
    "default": "0",
    "fieldname": "gst_released_separately",
    "fieldtype": "Check",
-   "label": "GST Released Separately"
+   "label": "Hold GST Until Vendor Files Return",
+   "description": "Tick only if GST will be paid after vendor uploads bill on GST portal."
   },
   {
    "default": "0",
    "fieldname": "gst_withheld_amount",
    "fieldtype": "Currency",
-   "label": "GST Withheld Amount (INR)"
+   "label": "GST Amount Held Back (INR)"
   },
   {
    "collapsible": 1,
    "fieldname": "sb_event_variance",
    "fieldtype": "Section Break",
-   "label": "Event Cost Comparison & Scope Justification (Stream A Only)",
+   "label": "Event Budget Comparison (Only for Events)",
    "depends_on": "eval:Boolean(doc.event)"
   },
   {
@@ -413,7 +415,7 @@
   {
    "fieldname": "sb_governance",
    "fieldtype": "Section Break",
-   "label": "Approval Workflow & Audit Trail",
+   "label": "Approval Status & History",
    "collapsible": 1
   },
   {
@@ -464,7 +466,7 @@
   },
   {
    "fieldtype": "Section Break",
-   "label": "Multi-Tier Business Approvals (Manager -> HoD -> Director)",
+   "label": "Manager & Director Approvals",
    "fieldname": "sb_business_approval",
    "collapsible": 1
   },
@@ -524,7 +526,7 @@
   },
   {
    "fieldtype": "Section Break",
-   "label": "Accounts Signoff & Tally Reference",
+   "label": "Accounts Check & Tally Entry",
    "fieldname": "sb_accounts_tally",
    "collapsible": 1
   },
@@ -560,7 +562,7 @@
   },
   {
    "fieldtype": "Data",
-   "label": "Tally Voucher Reference #",
+   "label": "Tally Entry Number",
    "fieldname": "tally_reference"
   },
   {
