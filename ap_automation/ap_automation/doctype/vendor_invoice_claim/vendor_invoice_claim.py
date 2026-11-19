@@ -798,6 +798,28 @@ class VendorInvoiceClaim(APDocument):
                 tot_ret += retention
                 tot_net += net_pay
 
+            # Milestone advances reconciliation across all items
+            milestone_sum = 0.0
+            if self.get("milestone_payments") and len(self.get("milestone_payments")) > 0:
+                milestone_sum = sum(flt(getattr(m, "adjusted_amount", None) or getattr(m, "disbursed_amount", 0.0) or 0.0) for m in self.get("milestone_payments"))
+
+            if milestone_sum > 0:
+                tot_adv = milestone_sum
+                if len(self.items) == 1 and getattr(self.items[0], "line_status", "Pending") != "Disputed / Discrepancy":
+                    r0 = self.items[0]
+                    r0.advance_deducted = milestone_sum
+                    r0.amount = round(max(float(r0.total_invoice_amount or 0.0) - float(r0.tds_amount or 0.0) - milestone_sum - float(r0.retention_hold_amount or 0.0), 0.0), 2)
+
+            claim_ret = float(getattr(self, "retention_hold_amount", 0.0) or 0.0)
+            if claim_ret > 0 and tot_ret == 0.0:
+                tot_ret = claim_ret
+                if len(self.items) == 1 and getattr(self.items[0], "line_status", "Pending") != "Disputed / Discrepancy":
+                    r0 = self.items[0]
+                    r0.retention_hold_amount = claim_ret
+                    r0.amount = round(max(float(r0.total_invoice_amount or 0.0) - float(r0.tds_amount or 0.0) - float(r0.advance_deducted or 0.0) - claim_ret, 0.0), 2)
+
+            tot_net = round(max(tot_bill - tot_tds - tot_adv - tot_ret, 0.0), 2)
+
             self.total_lines = len(self.items)
             self.base_amount = round(tot_base, 2)
             self.gst_amount = round(tot_gst, 2)

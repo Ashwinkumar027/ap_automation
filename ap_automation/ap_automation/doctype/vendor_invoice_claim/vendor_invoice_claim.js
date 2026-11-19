@@ -1884,6 +1884,11 @@ function render_vendor_invoice_dashboard(frm) {
 // FINANCIAL CALCULATIONS & FORMATTING
 // --------------------------------------------------------------------------------------
 function calculate_vendor_totals(frm) {
+    let milestone_sum = 0.0;
+    (frm.doc.milestone_payments || []).forEach(m => {
+        milestone_sum += flt(m.adjusted_amount || m.disbursed_amount || 0);
+    });
+
     if (frm.doc.items && frm.doc.items.length > 0) {
         let tot_base = 0.0, tot_gst = 0.0, tot_cgst = 0.0, tot_sgst = 0.0, tot_igst = 0.0;
         let tot_bill = 0.0, tot_tds = 0.0, tot_adv = 0.0, tot_ret = 0.0, tot_net = 0.0;
@@ -1905,6 +1910,31 @@ function calculate_vendor_totals(frm) {
             tot_ret += flt(row.retention_hold_amount);
             tot_net += flt(row.amount);
         });
+
+        // Synchronize milestone advances entered in Already Paid Advances table
+        if (milestone_sum > 0) {
+            tot_adv = milestone_sum;
+            if (frm.doc.items.length === 1 && frm.doc.items[0].line_status !== "Disputed / Discrepancy") {
+                let r0 = frm.doc.items[0];
+                r0.advance_deducted = milestone_sum;
+                r0.amount = round_currency(Math.max(flt(r0.total_invoice_amount) - flt(r0.tds_amount) - milestone_sum - flt(r0.retention_hold_amount), 0.0));
+                frm.refresh_field("items");
+            }
+        }
+
+        // Synchronize claim-level retention hold if set
+        let claim_ret = flt(frm.doc.retention_hold_amount);
+        if (claim_ret > 0 && tot_ret === 0) {
+            tot_ret = claim_ret;
+            if (frm.doc.items.length === 1 && frm.doc.items[0].line_status !== "Disputed / Discrepancy") {
+                let r0 = frm.doc.items[0];
+                r0.retention_hold_amount = claim_ret;
+                r0.amount = round_currency(Math.max(flt(r0.total_invoice_amount) - flt(r0.tds_amount) - flt(r0.advance_deducted) - claim_ret, 0.0));
+                frm.refresh_field("items");
+            }
+        }
+
+        tot_net = round_currency(Math.max(tot_bill - tot_tds - tot_adv - tot_ret, 0.0));
 
         frm.set_value("total_lines", frm.doc.items.length);
         frm.set_value("base_amount", round_currency(tot_base));
@@ -2336,6 +2366,9 @@ frappe.ui.form.on("Vendor Invoice Item", {
 });
 
 frappe.ui.form.on("Vendor Milestone Payment Item", {
+    milestone_payments_add: function(frm) {
+        calculate_vendor_totals(frm);
+    },
     disbursed_amount: function(frm, cdt, cdn) {
         let row = locals[cdt][cdn];
         if (!row.adjusted_amount) {
