@@ -1642,10 +1642,20 @@ function render_vendor_invoice_dashboard(frm) {
     }).join('');
 
     // 2. Bank Security Badge
-    let pd_status = (frm._bank_account_doc && frm._bank_account_doc.penny_drop_status) || frm.doc.bank_name;
+    let has_bank = Boolean(
+        (frm.doc.bank_account_number && frm.doc.bank_ifsc_code) ||
+        (frm._bank_account_doc && frm._bank_account_doc.bank_account_number)
+    );
+    let pd_status = (frm._bank_account_doc && frm._bank_account_doc.penny_drop_status) || frm.doc.penny_drop_status;
     let bank_shield_html = "";
 
-    if (pd_status === "LOCKED_PENNY_DROP_MISMATCH") {
+    if (!has_bank) {
+        bank_shield_html = `
+            <div style="display: inline-flex; align-items: center; gap: 6px; background: #fee2e2; border: 1px solid #ef4444; border-radius: 6px; padding: 4px 10px; color: #b91c1c; font-size: 12px; font-weight: 700;">
+                <span> Bank Account Missing in Master</span>
+            </div>
+        `;
+    } else if (pd_status === "LOCKED_PENNY_DROP_MISMATCH") {
         bank_shield_html = `
             <div style="display: inline-flex; align-items: center; gap: 8px; background: #fee2e2; border: 1px solid #ef4444; border-radius: 6px; padding: 4px 10px; color: #b91c1c; font-size: 12px; font-weight: 700;">
                 <span> NPCI Penny Drop Lockout</span>
