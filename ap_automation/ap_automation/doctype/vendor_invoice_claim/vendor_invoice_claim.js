@@ -210,6 +210,22 @@ frappe.ui.form.on("Vendor Invoice Claim", {
             frm.enable_save();
         }
 
+        // Reviewer In-Line Edit Mode: Accounts L1 and Accounts Director can edit lines during review
+        let is_accounts_reviewer = ["Pending Accounts Review", "Pending Accounts L2 Approval"].includes(status) &&
+            (frappe.user.has_role(["Accounts L1 Auditor", "Accounts User", "Accounts Manager", "Accounts Director", "AP Director", "System Manager"]) || is_admin);
+
+        if (is_accounts_reviewer) {
+            frm.set_df_property("items", "read_only", 0);
+            frm.enable_save();
+            if (frm.page && frm.page.btn_primary) {
+                frm.page.set_primary_action(__('Save Changes'), () => {
+                    calculate_vendor_totals(frm);
+                    frm.save();
+                });
+                frm.page.btn_primary.show().removeClass('hide');
+            }
+        }
+
         if (status === "Draft" || status === "Disputed") {
             if (!frm.is_new()) {
                 frm.add_custom_button(__('Submit for Approval'), function() {
@@ -540,10 +556,14 @@ function render_vendor_claim_approval_buttons(frm) {
                     });
                 }, __('Manager Approval'), __('Approve & Advance'));
             }).addClass('btn-primary').css({ 'background-color': '#059669', 'border-color': '#047857', 'color': '#fff' });
+
+            frm.add_custom_button(__('✕ Return / Reject Claim'), function() {
+                open_vendor_dispute_modal(frm);
+            }).addClass('btn-danger').css({ 'background-color': '#dc2626', 'border-color': '#b91c1c', 'color': '#fff' });
         }
     }
 
-// Stage 3: Pending Director Approval
+    // Stage 3: Pending Director Approval
     else if (status === "Pending Director Approval") {
         let is_dir = (frappe.user.has_role(["AP Director", "Accounts Director"]) && !is_owner) || frappe.session.user === "Administrator";
         if (is_dir) {
@@ -565,6 +585,10 @@ function render_vendor_claim_approval_buttons(frm) {
                     });
                 }, __('Executive Director Approval'), __('Sanction & Advance to Accounts'));
             }).addClass('btn-primary').css({ 'background-color': '#7c3aed', 'border-color': '#6d28d9', 'color': '#fff' });
+
+            frm.add_custom_button(__('✕ Return / Reject Claim'), function() {
+                open_vendor_dispute_modal(frm);
+            }).addClass('btn-danger').css({ 'background-color': '#dc2626', 'border-color': '#b91c1c', 'color': '#fff' });
         }
     }
 
@@ -605,6 +629,10 @@ function render_vendor_claim_approval_buttons(frm) {
                     });
                 }, __('Accounts L1 Audit & Tally Posting'), __('Verify & Advance to L2'));
             }).addClass('btn-primary').css({ 'background-color': '#2563eb', 'border-color': '#1d4ed8', 'color': '#fff' });
+
+            frm.add_custom_button(__('✕ Return / Reject Claim'), function() {
+                open_vendor_dispute_modal(frm);
+            }).addClass('btn-danger').css({ 'background-color': '#dc2626', 'border-color': '#b91c1c', 'color': '#fff' });
         }
     }
 
@@ -631,6 +659,10 @@ function render_vendor_claim_approval_buttons(frm) {
                     }
                 );
             }).addClass('btn-primary').css({ 'background-color': '#059669', 'border-color': '#047857', 'color': '#fff' });
+
+            frm.add_custom_button(__('✕ Return / Reject Claim'), function() {
+                open_vendor_dispute_modal(frm);
+            }).addClass('btn-danger').css({ 'background-color': '#dc2626', 'border-color': '#b91c1c', 'color': '#fff' });
         }
     }
 
@@ -1064,13 +1096,15 @@ function open_vendor_dispute_modal(frm) {
                 options: [
                     '3-Way Match Price Variance (Exceeds Policy)',
                     '3-Way Match Quantity Mismatch',
-                    'Missing or Illegible Tax Invoice Proof',
+                    'Incorrect Advance Amount / Over-Limit',
+                    'Missing or Illegible Proforma / Invoice Proof',
                     'Missing Manager Email Approval (Non-PO)',
                     'Vendor Bank Account Mismatch / Lockout',
                     'Missing Goods Receipt (GRN)',
-                    'Duplicate Invoice Suspected',
-                    'Incorrect GST Rate / Tax Calculation',
-                    'Other Statutory / Policy Violation'
+                    'Duplicate Invoice or Advance Suspected',
+                    'Incorrect GST Rate or TDS Section',
+                    'Contract / PO Scope Discrepancy',
+                    'Other Commercial Discrepancy'
                 ].join('\n'),
                 default: '3-Way Match Price Variance (Exceeds Policy)',
                 reqd: 1

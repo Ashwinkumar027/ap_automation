@@ -781,6 +781,93 @@ class TestVendorInvoiceMultiRow(unittest.TestCase):
             sub_no_copy.insert(ignore_permissions=True)
         self.assertIn("Upload PO / Email Copy attachment is strictly mandatory", str(ctx.exception))
 
+    def test_13_create_po_advance_claim_1click_and_accounts_verification_and_rejection(self):
+        """1-Click PO Advance creation, reviewer rejection, and Accounts L1/L2 approval verification."""
+        from ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim import (
+            create_po_advance_claim,
+            reject_or_return_vendor_claim,
+            verify_vendor_claim_by_accounts_l1,
+            approve_vendor_claim_by_accounts_l2,
+        )
+
+        # 1. Create an Active AP Purchase Order with advance amount
+        po = frappe.new_doc("AP Purchase Order")
+        po.company_entity = self.company
+        po.vendor = self.vendors[0]
+        po.vendor_email = "vendor@example.com"
+        po.spoc_name = "SPOC User"
+        po.spoc_department = "Administration"
+        po.spoc_email = "spoc@quanticus.com"
+        po.spoc_mobile = "+91 9876543210"
+        po.status = "Active PO"
+        po.procurement_type = "Single / Sole Source Vendor (Direct Procurement)"
+        po.sole_source_justification = "Sole authorized technical consultant"
+        po.single_quotation_attachment = "/files/quotation.pdf"
+        po.advance_percentage = "25%"
+        po.advance_amount = 25000.0
+        po.grand_total = 100000.0
+        po.append("items", {
+            "item_name": "Consulting Services",
+            "qty": 1,
+            "rate": 100000.0,
+            "gst_rate": "18%",
+        })
+        po.insert(ignore_permissions=True)
+
+        # 2. Call 1-Click PO Advance API
+        p_num = f"PI-ADV-{frappe.generate_hash(length=5)}"
+        res = create_po_advance_claim(
+            po_name=po.name,
+            advance_amount=25000.0,
+            proforma_number=p_num,
+            proforma_date=nowdate(),
+            proforma_attachment="/files/proforma.pdf",
+            remarks="Contractual 25% advance"
+        )
+        self.assertEqual(res["status"], "success")
+        claim_name = res["claim_name"]
+
+        # Verify claim properties
+        adv_claim = frappe.get_doc("Vendor Invoice Claim", claim_name)
+        self.assertEqual(adv_claim.status, "Pending Accounts Review")
+        self.assertEqual(len(adv_claim.items), 1)
+        self.assertEqual(adv_claim.items[0].bill_payment_type, "Advance / Part Payment")
+        self.assertEqual(flt(adv_claim.items[0].base_amount), 25000.0)
+        self.assertEqual(flt(adv_claim.items[0].advance_deducted), 0.0)
+        self.assertEqual(adv_claim.items[0].invoice_number, p_num)
+
+        # 3. Test Rejection / Return with reason and remarks
+        rej_res = reject_or_return_vendor_claim(
+            docname=claim_name,
+            reason_code="Incorrect Advance Amount / Over-Limit",
+            remarks="Advance calculation exceeds revised milestone agreement"
+        )
+        self.assertEqual(rej_res["status"], "Disputed")
+        adv_claim.reload()
+        self.assertEqual(adv_claim.status, "Disputed")
+        self.assertIn("REJECTED", [t.action for t in adv_claim.approval_trail])
+
+        # 4. Submitter fixes and routes back to Accounts Review
+        adv_claim.status = "Pending Accounts Review"
+        adv_claim.save(ignore_permissions=True)
+
+        # 5. Accounts L1 Verification with Tally entry
+        tally_ref = f"TALLY-ADV-{frappe.generate_hash(length=4)}"
+        l1_res = verify_vendor_claim_by_accounts_l1(
+            docname=claim_name,
+            tally_reference=tally_ref,
+            remarks="Advance verified against signed PO"
+        )
+        self.assertEqual(l1_res["status"], "Pending Accounts L2 Approval")
+        adv_claim.reload()
+        self.assertEqual(adv_claim.status, "Pending Accounts L2 Approval")
+        self.assertEqual(adv_claim.tally_reference, tally_ref.upper())
+
+        # 6. Accounts Director (L2) Final Sign-off
+        l2_res = approve_vendor_claim_by_accounts_l2(docname=claim_name, remarks="Authorized by Director")
+        adv_claim.reload()
+        self.assertEqual(adv_claim.status, "Approved for Payment")
+
 
 def run_tests():
     suite = unittest.TestLoader().loadTestsFromTestCase(TestVendorInvoiceMultiRow)
