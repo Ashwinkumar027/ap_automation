@@ -929,12 +929,18 @@ def get_active_expense_types(module_scope="All"):
         # Event Expense Item.expense_category is a strict Select field validated against these exact options.
         return [
             "Venue & Stage",
+            "Productions",
+            "Hi-Tec",
+            "Promoters",
+            "Per Diem",
             "Travel & Flights",
             "Local Conveyance",
             "Food & Catering",
             "Marketing & Collateral",
             "Stationery & Props",
+            "Miscellaneous",
             "Incidentals",
+            "Spot Booking (Income)",
         ]
 
     if module_scope and module_scope != "All":
@@ -1175,11 +1181,18 @@ def seed_expense_types():
 
         # Events
         {"type_name": "Venue & Stage", "module_scope": "Events", "sort_order": 210},
+        {"type_name": "Productions", "module_scope": "Events", "sort_order": 212},
+        {"type_name": "Hi-Tec", "module_scope": "Events", "sort_order": 214},
+        {"type_name": "Promoters", "module_scope": "Events", "sort_order": 216},
+        {"type_name": "Per Diem", "module_scope": "Events", "sort_order": 218},
         {"type_name": "Travel & Flights", "module_scope": "Events", "sort_order": 220},
+        {"type_name": "Local Conveyance", "module_scope": "Events", "sort_order": 225},
         {"type_name": "Food & Catering", "module_scope": "Events", "sort_order": 230},
         {"type_name": "Marketing & Collateral", "module_scope": "Events", "sort_order": 240},
         {"type_name": "Stationery & Props", "module_scope": "Events", "sort_order": 250},
+        {"type_name": "Miscellaneous", "module_scope": "Events", "sort_order": 255},
         {"type_name": "Incidentals", "module_scope": "Events", "sort_order": 260},
+        {"type_name": "Spot Booking (Income)", "module_scope": "Events", "sort_order": 270},
 
         # General / Reimbursements / Invoices
         {"type_name": "Food & Meals", "module_scope": "Employee Reimbursements", "sort_order": 310},

@@ -612,6 +612,12 @@ class TestEventModuleParity(unittest.TestCase):
         self.assertEqual(ev_types, allowed_select)
         self.assertNotIn("Tea & Refreshments", ev_types)
         self.assertIn("Venue & Stage", ev_types)
+        self.assertIn("Productions", ev_types)
+        self.assertIn("Hi-Tec", ev_types)
+        self.assertIn("Promoters", ev_types)
+        self.assertIn("Per Diem", ev_types)
+        self.assertIn("Miscellaneous", ev_types)
+        self.assertIn("Spot Booking (Income)", ev_types)
         self.assertIn("Local Conveyance", ev_types)
 
         # Ensure non-Event Petty Cash fallback/scope stays completely intact
@@ -1175,6 +1181,120 @@ class TestEventModuleParity(unittest.TestCase):
         finally:
             frappe.set_user(prev_u)
             frappe.db.set_value("AP Approval Matrix", mat.name, "is_active", 0)
+
+    def test_15_event_spot_booking_income_and_new_categories(self):
+        """Verifies new expense categories (Productions, Hi-Tec, Promoters, Per Diem, Miscellaneous)
+        and Spot Booking (Income) handling: zero tax/TDS, no receipt requirement, and accurate net deduction."""
+        from unittest.mock import patch
+        from ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim import submit_event_expense_claim
+
+        ev = frappe.get_doc({
+            "doctype": "Event Master",
+            "event_name": f"Income & Categories Test {frappe.generate_hash(length=4)}",
+            "company": self.company,
+            "status": "In Progress",
+            "event_spoc": self.spoc_user,
+            "allocated_budget": 100000.0,
+            "start_date": frappe.utils.nowdate(),
+            "end_date": frappe.utils.nowdate(),
+        }).insert(ignore_permissions=True)
+
+        prev_u = frappe.session.user
+        try:
+            frappe.set_user(self.spoc_user)
+
+            # Create claim with 5 new expense categories and 1 Spot Booking (Income) item
+            claim = frappe.get_doc({
+                "doctype": "Event Expense Claim",
+                "event": ev.name,
+                "company": self.company,
+                "spoc": self.spoc_user,
+                "posting_date": frappe.utils.nowdate(),
+                "is_final_settlement": 1,
+                "expense_items": [
+                    {
+                        "expense_category": "Productions",
+                        "particulars": "Stage Setup & Production Trussing",
+                        "bill_date": frappe.utils.nowdate(),
+                        "base_amount": 10000.0,
+                        "tax_type": "No GST / Exempt",
+                        "gst_rate": "0%",
+                        "receipt_attachment": self.receipt_url,
+                    },
+                    {
+                        "expense_category": "Hi-Tec",
+                        "particulars": "PA Audio & LED Wall Rental",
+                        "bill_date": frappe.utils.nowdate(),
+                        "base_amount": 5000.0,
+                        "tax_type": "No GST / Exempt",
+                        "gst_rate": "0%",
+                        "receipt_attachment": self.receipt_url,
+                    },
+                    {
+                        "expense_category": "Promoters",
+                        "particulars": "4 Crowd Promoters Stalls",
+                        "bill_date": frappe.utils.nowdate(),
+                        "base_amount": 4000.0,
+                        "tax_type": "No GST / Exempt",
+                        "gst_rate": "0%",
+                        "receipt_attachment": self.receipt_url,
+                    },
+                    {
+                        "expense_category": "Per Diem",
+                        "particulars": "Ground Crew Daily Per Diem Allowances",
+                        "bill_date": frappe.utils.nowdate(),
+                        "base_amount": 2000.0,
+                        "tax_type": "No GST / Exempt",
+                        "gst_rate": "0%",
+                        "receipt_attachment": self.receipt_url,
+                    },
+                    {
+                        "expense_category": "Miscellaneous",
+                        "particulars": "Emergency Tape, Zip-ties, Batteries",
+                        "bill_date": frappe.utils.nowdate(),
+                        "base_amount": 1000.0,
+                        "tax_type": "No GST / Exempt",
+                        "gst_rate": "0%",
+                        "receipt_attachment": self.receipt_url,
+                    },
+                    {
+                        "expense_category": "Spot Booking (Income)",
+                        "particulars": "On-Ground Delegate Cash Registrations",
+                        "bill_date": frappe.utils.nowdate(),
+                        "base_amount": 6000.0,
+                        # No receipt attachment provided -- must NOT raise error
+                    },
+                ],
+            })
+            claim.insert(ignore_permissions=True)
+
+            # Verify statutory & income normalization
+            inc_row = [r for r in claim.expense_items if r.expense_category == "Spot Booking (Income)"][0]
+            self.assertEqual(float(inc_row.income_amount), 6000.0)
+            self.assertEqual(float(inc_row.expense_amount), 0.0)
+            self.assertEqual(float(inc_row.base_amount), 0.0)
+            self.assertEqual(inc_row.tax_type, "No GST / Exempt")
+            self.assertEqual(float(inc_row.gst_amount), 0.0)
+            self.assertEqual(float(inc_row.tds_amount), 0.0)
+
+            # Total spends: 10000 + 5000 + 4000 + 2000 + 1000 = 22000
+            # Total income: 6000
+            # Total claim amount: 22000 - 6000 = 16000
+            self.assertEqual(float(claim.total_expenses), 22000.0)
+            self.assertEqual(float(claim.total_income), 6000.0)
+            self.assertEqual(float(claim.total_claim_amount), 16000.0)
+
+            # Submit claim successfully without receipt error on income row
+            with patch("frappe.sendmail"):
+                submit_event_expense_claim(claim.name)
+
+            claim.reload()
+            self.assertEqual(claim.status, "Submitted")
+            self.assertEqual(claim.docstatus, 1)
+            self.assertEqual(float(claim.total_claim_amount), 16000.0)
+
+        finally:
+            frappe.set_user(prev_u)
 
 
 if __name__ == "__main__":

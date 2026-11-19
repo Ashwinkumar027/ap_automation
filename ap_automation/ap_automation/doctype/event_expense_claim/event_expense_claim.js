@@ -248,12 +248,18 @@ frappe.ui.form.on("Event Expense Claim", {
         const event_categories = [
             '',
             'Venue & Stage',
+            'Productions',
+            'Hi-Tec',
+            'Promoters',
+            'Per Diem',
             'Travel & Flights',
             'Local Conveyance',
             'Food & Catering',
             'Marketing & Collateral',
             'Stationery & Props',
-            'Incidentals'
+            'Miscellaneous',
+            'Incidentals',
+            'Spot Booking (Income)'
         ];
         if (frm.fields_dict && frm.fields_dict.expense_items && frm.fields_dict.expense_items.grid) {
             const grid = frm.fields_dict.expense_items.grid;
@@ -602,7 +608,8 @@ function validate_claim_before_submit(frm) {
             });
             return false;
         }
-        if (!row.receipt_attachment) {
+        const is_income = row.expense_category === 'Spot Booking (Income)' || flt(row.income_amount) > 0;
+        if (!is_income && !row.receipt_attachment) {
             frappe.msgprint({
                 title: __('Missing Receipt Proof'),
                 indicator: 'red',
@@ -746,7 +753,8 @@ function render_unified_claim_banner(frm, recon) {
     let missing_receipts = 0;
     if (!is_zero_refund) {
         (frm.doc.expense_items || []).forEach(row => {
-            if (!row.receipt_attachment) missing_receipts++;
+            const is_inc = row.expense_category === 'Spot Booking (Income)' || parseFloat(row.income_amount || 0) > 0;
+            if (!is_inc && !row.receipt_attachment) missing_receipts++;
         });
     }
 
@@ -772,8 +780,8 @@ function render_unified_claim_banner(frm, recon) {
         budget_pill_html = `
             <div style="margin-top: 8px; padding: 6px 10px; border-radius: 6px; background: ${is_over ? '#fef2f2' : '#f0fdf4'}; border: 1px solid ${is_over ? '#fecaca' : '#bbf7d0'}; color: ${is_over ? '#991b1b' : '#166534'}; font-size: 11px; font-weight: 700;">
                 ${is_over
-                    ? `⚠️ Budget Reminder (Not Blocked): Event Budget ${format_curr(alloc)} &bull; Total Committed ${format_curr(committed)} &bull; Over Budget by ${format_curr(Math.abs(rem))}`
-                    : `📊 Budget Snapshot: Event Budget ${format_curr(alloc)} &bull; Total Committed ${format_curr(committed)} &bull; Remaining ${format_curr(rem)}`}
+                    ? `[Over Budget Alert] Event Budget ${format_curr(alloc)} &bull; Total Committed ${format_curr(committed)} &bull; Over Budget by ${format_curr(Math.abs(rem))}`
+                    : `[Budget Snapshot] Event Budget ${format_curr(alloc)} &bull; Total Committed ${format_curr(committed)} &bull; Remaining ${format_curr(rem)}`}
             </div>
         `;
     }
@@ -798,14 +806,14 @@ function render_unified_claim_banner(frm, recon) {
         metric_val = format_curr(refund);
     } else if (s_type === 'ZERO_BALANCE_BALANCED') {
         bg = '#ecfdf5'; border = '#a7f3d0'; text = '#047857'; badge_bg = '#d1fae5';
-        verdict_title = 'BALANCED SETTLEMENT (₹ 0.00 DIFFERENCE)';
+        verdict_title = 'BALANCED SETTLEMENT (INR 0.00 DIFFERENCE)';
         verdict_desc = `Total Bills (${format_curr(cum_spends)}) match Disbursed Cash Advance (${format_curr(adv)}). Closes immediately after Accounts L1 verification.`;
         metric_label = 'NET DIFFERENCE';
         metric_val = format_curr(0);
     }
 
     const blocking_html = (recon && recon.blocking_open_claims && recon.blocking_open_claims.length)
-        ? `<div style="margin-top: 8px; padding: 6px 10px; border-radius: 6px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; font-size: 11px; font-weight: 700;">⚠️ Other open claim(s) still in review on this Event: ${recon.blocking_open_claims.join(', ')}. Complete or return them before closing Event.</div>`
+        ? `<div style="margin-top: 8px; padding: 6px 10px; border-radius: 6px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; font-size: 11px; font-weight: 700;">[Notice] Other open claim(s) still in review on this Event: ${recon.blocking_open_claims.join(', ')}. Complete or return them before closing Event.</div>`
         : '';
 
     const banner_html = `
@@ -829,15 +837,15 @@ function render_unified_claim_banner(frm, recon) {
                         ${verdict_desc}
                     </div>
                     <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 11px; font-weight: 700; color: #475569;">
-                        ${(flt(frm.doc.total_income) > 0) ? `<span>📥 Total Income: ${format_curr(frm.doc.total_income)}</span><span>|</span>` : ''}
-                        ${(flt(frm.doc.total_expenses) > 0) ? `<span>📤 Total Expenses: ${format_curr(frm.doc.total_expenses)}</span><span>|</span>` : ''}
-                        <span>💵 Cash Advance: ${format_curr(adv)}</span>
+                        ${(flt(frm.doc.total_income) > 0) ? `<span>Total Income: ${format_curr(frm.doc.total_income)}</span><span>|</span>` : ''}
+                        ${(flt(frm.doc.total_expenses) > 0) ? `<span>Total Expenses: ${format_curr(frm.doc.total_expenses)}</span><span>|</span>` : ''}
+                        <span>Cash Advance: ${format_curr(adv)}</span>
                         <span>|</span>
-                        <span>🧾 Prior Bills: ${format_curr(prior)}</span>
+                        <span>Prior Bills: ${format_curr(prior)}</span>
                         <span>|</span>
-                        <span>📝 This Claim Net: ${format_curr(local_total)}</span>
-                        ${(!is_zero_refund && items_count > 0 && tot_base > 0) ? `<span>|</span><span>🏷️ Base ${format_curr(tot_base)} + GST ${format_curr(tot_gst)} - TDS ${format_curr(tot_tds)}</span>` : ''}
-                        ${(!is_zero_refund && items_count > 0) ? `<span>|</span><span style="color: ${missing_receipts > 0 ? '#b91c1c' : '#047857'};">${missing_receipts > 0 ? `⚠️ ${missing_receipts}/${items_count} missing receipts` : `✅ ${items_count} receipts attached`}</span>` : ''}
+                        <span>This Claim Net: ${format_curr(local_total)}</span>
+                        ${(!is_zero_refund && items_count > 0 && tot_base > 0) ? `<span>|</span><span>Base ${format_curr(tot_base)} + GST ${format_curr(tot_gst)} - TDS ${format_curr(tot_tds)}</span>` : ''}
+                        ${(!is_zero_refund && items_count > 0) ? `<span>|</span><span style="color: ${missing_receipts > 0 ? '#b91c1c' : '#047857'};">${missing_receipts > 0 ? `${missing_receipts}/${items_count} missing receipts` : `${items_count} receipts attached`}</span>` : ''}
                     </div>
                     ${budget_pill_html}
                     ${blocking_html}
@@ -893,9 +901,20 @@ function calculate_event_row_statutory(frm, cdt, cdn, sync_recon = true) {
         row.particulars = row.vendor_name;
     }
 
-    const inc_val = flt(row.income_amount);
+    let inc_val = flt(row.income_amount);
     let exp_val = flt(row.expense_amount);
     let base = flt(row.base_amount);
+
+    if (row.expense_category === 'Spot Booking (Income)') {
+        if (inc_val <= 0 && (exp_val > 0 || base > 0)) {
+            inc_val = exp_val > 0 ? exp_val : base;
+            row.income_amount = inc_val;
+        }
+        row.expense_amount = 0.0;
+        row.base_amount = 0.0;
+        exp_val = 0.0;
+        base = 0.0;
+    }
 
     if (exp_val > 0 && base <= 0) {
         base = exp_val;
@@ -988,7 +1007,9 @@ function calculate_all_event_rows(frm, sync_recon = true) {
         frm.doc.total_igst_amount = Math.round(tot_igst * 100) / 100;
         frm.doc.total_gst_amount = Math.round(tot_gst * 100) / 100;
         frm.doc.total_tds_amount = Math.round(tot_tds * 100) / 100;
-        frm.doc.total_claim_amount = Math.round((tot_net > 0 ? tot_net : tot_expenses) * 100) / 100;
+        const gross_net = tot_net > 0 ? tot_net : tot_expenses;
+        const net_claim = tot_income > 0 ? Math.max(gross_net - tot_income, 0.0) : gross_net;
+        frm.doc.total_claim_amount = Math.round(net_claim * 100) / 100;
         frm.doc.total_amount = frm.doc.total_claim_amount;
         ['total_income', 'total_expenses', 'total_base_amount', 'total_cgst_amount', 'total_sgst_amount', 'total_igst_amount', 'total_gst_amount', 'total_tds_amount', 'total_claim_amount'].forEach(fn => frm.refresh_field(fn));
     }
@@ -1415,6 +1436,30 @@ function open_event_row_receipts_modal(frm, row_idx) {
 }
 
 frappe.ui.form.on("Event Expense Item", {
+    expense_category: function(frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        if (row.expense_category === 'Spot Booking (Income)') {
+            if (!row.particulars) {
+                frappe.model.set_value(cdt, cdn, 'particulars', 'Spot Booking / On-Ground Registration Collection');
+            }
+            frappe.model.set_value(cdt, cdn, 'tax_type', 'No GST / Exempt');
+            frappe.model.set_value(cdt, cdn, 'gst_rate', '0%');
+            frappe.model.set_value(cdt, cdn, 'tds_section', 'None / Exempt');
+            frappe.model.set_value(cdt, cdn, 'expense_amount', 0.0);
+            frappe.model.set_value(cdt, cdn, 'base_amount', 0.0);
+            if (flt(row.income_amount) <= 0 && flt(row.base_amount) > 0) {
+                frappe.model.set_value(cdt, cdn, 'income_amount', flt(row.base_amount));
+            }
+        } else {
+            if (flt(row.income_amount) > 0 && flt(row.expense_amount) <= 0) {
+                frappe.model.set_value(cdt, cdn, 'expense_amount', flt(row.income_amount));
+                frappe.model.set_value(cdt, cdn, 'base_amount', flt(row.income_amount));
+                frappe.model.set_value(cdt, cdn, 'income_amount', 0.0);
+            }
+        }
+        calculate_event_row_statutory(frm, cdt, cdn);
+        setTimeout(() => bind_event_grid_uploaders(frm), 150);
+    },
     particulars: function(frm, cdt, cdn) {
         const row = locals[cdt][cdn];
         if (row.particulars && !row.vendor_name) {

@@ -60,7 +60,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Expense Category",
-   "options": "Venue & Stage\nTravel & Flights\nLocal Conveyance\nFood & Catering\nMarketing & Collateral\nStationery & Props\nIncidentals",
+   "options": "Venue & Stage\nProductions\nHi-Tec\nPromoters\nPer Diem\nTravel & Flights\nLocal Conveyance\nFood & Catering\nMarketing & Collateral\nStationery & Props\nMiscellaneous\nIncidentals\nSpot Booking (Income)",
    "reqd": 1
   },
   {

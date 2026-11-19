@@ -91,6 +91,16 @@ def _compute_event_row_statutory(row) -> None:
     exp_val = round(flt(getattr(row, "expense_amount", 0.0)), 2)
     base = round(flt(getattr(row, "base_amount", 0.0)), 2)
 
+    # Spot Booking (Income) handling: Always route to income_amount
+    if getattr(row, "expense_category", None) == "Spot Booking (Income)":
+        if inc_val <= 0 and (exp_val > 0 or base > 0):
+            inc_val = exp_val or base
+            row.income_amount = inc_val
+        row.expense_amount = 0.0
+        row.base_amount = 0.0
+        exp_val = 0.0
+        base = 0.0
+
     # Sync expense_amount <-> base_amount
     if exp_val > 0 and base <= 0:
         base = exp_val
@@ -217,7 +227,8 @@ class EventExpenseClaim(APDocument):
         self.total_igst_amount = round(tot_igst, 2)
         self.total_gst_amount = round(tot_gst, 2)
         self.total_tds_amount = round(tot_tds, 2)
-        self.total_claim_amount = round(tot_net if tot_net > 0 else tot_expenses, 2)
+        gross_net = tot_net if tot_net > 0 else tot_expenses
+        self.total_claim_amount = round(max(gross_net - tot_income, 0.0) if tot_income > 0 else gross_net, 2)
         self.total_amount = self.total_claim_amount
 
     def validate(self):
@@ -260,14 +271,15 @@ class EventExpenseClaim(APDocument):
             # Validate mandatory attachments & expense categories per line item
             for idx, row in enumerate(self.expense_items, start=1):
                 inc_val = flt(getattr(row, "income_amount", 0.0))
+                is_income = inc_val > 0 or getattr(row, "expense_category", None) == "Spot Booking (Income)"
                 has_attachment = bool(getattr(row, "receipt_attachment", None) or getattr(row, "attachments", None))
-                if inc_val <= 0 and not has_attachment:
+                if not is_income and not has_attachment:
                     raise APValidationError(
                         f"Row #{idx}: Proof of spend (receipt/invoice attachment) is mandatory."
                     )
                 if not getattr(row, "expense_category", None):
-                    if inc_val > 0:
-                        row.expense_category = "Incidentals"
+                    if is_income:
+                        row.expense_category = "Spot Booking (Income)"
                     else:
                         raise APValidationError(
                             f"Row #{idx}: Expense Category is mandatory."
@@ -695,13 +707,13 @@ def verify_event_expense_claim(claim_name: str, remarks: Optional[str] = None, v
     if not is_final or s_type == "INTERMEDIATE_CLAIM":
         target_status = "Accounts Verified"
         level_label = "Accounts Ground Bill Verification (Intermediate Claim)"
-        comment_html = f"✅ <b>Accounts Verified (Intermediate Claim):</b> Verified by {user}. Remaining advance / variance will reconcile on Final Claim. {clean_remarks}"
+        comment_html = f"<b>Accounts Verified (Intermediate Claim):</b> Verified by {user}. Remaining advance / variance will reconcile on Final Claim. {clean_remarks}"
         resp_msg = f"Event Expense Claim #{claim_name} verified by Accounts! (Event stays open for remaining claims.)"
     elif s_type == "PAYABLE_TO_SPOC":
         target_status = "Under Accounts Director Review"
         level_label = "Accounts L1 Ground Bill & Delta Verification"
         comment_html = (
-            f"✅ <b>Accounts L1 Verified & Forwarded to Accounts Director:</b> Verified by {user}. "
+            f"<b>Accounts L1 Verified & Forwarded to Accounts Director:</b> Verified by {user}. "
             f"Net Reimbursement Due to SPOC: <b>₹ {recon['net_payable_to_spoc']:,.2f}</b>. {clean_remarks}"
         )
         resp_msg = f"Verified by Accounts L1! Forwarded to Accounts Director for ₹ {recon['net_payable_to_spoc']:,.2f} SPOC payout sign-off."
@@ -716,13 +728,13 @@ def verify_event_expense_claim(claim_name: str, remarks: Optional[str] = None, v
         updates["refund_received_reference"] = utr
         updates["refund_date"] = getattr(doc, "refund_date", None) or frappe.utils.nowdate()
         level_label = "Accounts L1 Refund Verification & Event Closure"
-        comment_html = f"✅ <b>Bills Verified & Refund Confirmed ({utr}):</b> Verified by {user}. Event settled & closed. {clean_remarks}"
+        comment_html = f"<b>Bills Verified & Refund Confirmed ({utr}):</b> Verified by {user}. Event settled & closed. {clean_remarks}"
         resp_msg = f"Bills & Bank Refund UTR ({utr}) verified! Event #{doc.event} settled and closed."
         event_closed = True
     else:  # ZERO_BALANCE_BALANCED
         target_status = "Settled"
         level_label = "Accounts L1 Verification & Balanced Closure"
-        comment_html = f"✅ <b>Accounts Verified & Balanced (₹ 0.00 Variance):</b> Verified by {user}. Event settled & closed. {clean_remarks}"
+        comment_html = f"<b>Accounts Verified & Balanced (₹ 0.00 Variance):</b> Verified by {user}. Event settled & closed. {clean_remarks}"
         resp_msg = f"All bills balanced ₹ 0.00 against disbursed advance! Event #{doc.event} settled and closed."
         event_closed = True
 
