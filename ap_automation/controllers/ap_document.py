@@ -64,7 +64,8 @@ class APDocument(Document):
         if old_status in self.LOCKED_STATUSES and self.status in self.LOCKED_STATUSES:
             self._check_tamper_attempt()
 
-        # PRD Stage 3 & Requirement 5: Amounts strictly read-only for approvers
+        # PRD Stage 3 & Requirement 5: Amounts strictly read-only for business approvers (Manager / HoD / Director).
+        # Accounts L1 and Accounts Director have authorized audit editing rights during Accounts Review stages.
         approval_statuses = (
             "Pending Manager Approval",
             "Pending HoD Approval",
@@ -73,7 +74,22 @@ class APDocument(Document):
             "Pending Accounts L2 Approval"
         )
         if old_status in approval_statuses and self.status in approval_statuses:
-            self._check_approval_amounts_tamper()
+            user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+            user_roles = frappe.get_roles(user) if user else []
+            is_accounts_authority = (
+                user == "Administrator"
+                or "System Manager" in user_roles
+                or "Accounts L1 Auditor" in user_roles
+                or "Accounts User" in user_roles
+                or "Accounts Director" in user_roles
+                or "AP Director" in user_roles
+            )
+            accounts_stages = ("Pending Accounts Review", "Pending Accounts L2 Approval")
+            if old_status in accounts_stages and self.status in accounts_stages and is_accounts_authority:
+                # Authorized Accounts reviewer editing line items / TDS / amounts
+                pass
+            else:
+                self._check_approval_amounts_tamper()
 
     def _check_approval_amounts_tamper(self):
         """Strictly blocks modification of financial amounts by approvers per PRD Stage 3."""

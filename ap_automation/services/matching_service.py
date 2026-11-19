@@ -16,6 +16,18 @@ MAX_PRICE_TOLERANCE_PERCENT = 2.00
 MAX_PRICE_TOLERANCE_INR = 500.00
 
 
+def _set_variance_details(claim_doc, new_details: str):
+    """Safely updates match_variance_details while preserving forensic dispute notices."""
+    curr = getattr(claim_doc, "match_variance_details", "") or ""
+    if getattr(claim_doc, "status", None) == "Disputed" or "Disputed by" in curr:
+        if "Disputed by" in curr:
+            claim_doc.match_variance_details = curr
+        else:
+            claim_doc.match_variance_details = f"{new_details}\n{curr}".strip()
+    else:
+        claim_doc.match_variance_details = new_details
+
+
 def execute_3way_matching(claim_doc) -> Dict[str, Any]:
     """
     Executes automated 3-way matching across PO, GRN (Purchase Receipt / Service Sign-off), and Vendor Invoice Claim.
@@ -31,7 +43,7 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
 
         if not po_rows and not ext_po_rows:
             claim_doc.match_status = "Not Applicable (Non-PO)"
-            claim_doc.match_variance_details = f"Itemized claim with {len(items)} bills without Purchase Orders; verified via managerial approval."
+            _set_variance_details(claim_doc, f"Itemized claim with {len(items)} bills without Purchase Orders; verified via managerial approval.")
             return {"status": "not_applicable"}
 
         matched_pos = []
@@ -48,13 +60,13 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
             parts.append(f"External / Email PO(s) verified via uploaded copy: {', '.join(sorted(set(ext_refs)))}")
 
         claim_doc.match_status = "2-Way Match Passed (PO Linked)"
-        claim_doc.match_variance_details = f"PO reconciliation passed across itemized rows — {'; '.join(parts)}."
+        _set_variance_details(claim_doc, f"PO reconciliation passed across itemized rows — {'; '.join(parts)}.")
         return {"status": "passed"}
 
     route = getattr(claim_doc, "invoice_type", "Without PO (Direct Tax Invoice)")
     if route == "Without PO (Direct Tax Invoice)":
         claim_doc.match_status = "Not Applicable (Non-PO)"
-        claim_doc.match_variance_details = "Direct tax invoice without Purchase Order; verified via managerial email approval."
+        _set_variance_details(claim_doc, "Direct tax invoice without Purchase Order; verified via managerial email approval.")
         return {"status": "not_applicable"}
 
     po_name = getattr(claim_doc, "purchase_order", None)
@@ -83,7 +95,7 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
         allowed_po_statuses = ("Approved / Issued", "Signed by Vendor", "Issued", "Approved", "Completed", "Pending HoD Approval", "Draft")
         if getattr(ap_po, "status", None) and ap_po.status not in allowed_po_statuses:
             claim_doc.match_status = "2-Way Match Passed (PO Linked)"
-            claim_doc.match_variance_details = f"Linked to AP Purchase Order #{po_name} (PO Status: {ap_po.status})." 
+            _set_variance_details(claim_doc, f"Linked to AP Purchase Order #{po_name} (PO Status: {ap_po.status}).") 
 
         po_contracted_total = float(getattr(ap_po, "net_taxable_value", 0.0) or getattr(ap_po, "grand_total", 0.0) or getattr(ap_po, "net_total", 0.0) or 0.0)
         po_advance_amount = float(getattr(ap_po, "advance_amount", 0.0) or 0.0)
@@ -157,7 +169,8 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
     if cumulative_billed > allowed_max_base:
         variance = round(cumulative_billed - po_contracted_total, 2)
         claim_doc.match_status = "Price Mismatch Flagged"
-        claim_doc.match_variance_details = (
+        _set_variance_details(
+            claim_doc,
             f"Price Variance Alert: Cumulative billed amount exceeds PO contracted value! PO Over-Invoicing Alert: Cumulative billed amount (Prior INR {prior_invoiced:,.2f} + Current INR {billed_base:,.2f} = INR {cumulative_billed:,.2f}) "
             f"exceeds contracted PO value (INR {po_contracted_total:,.2f}) by INR {variance:,.2f} beyond allowable tolerance (INR {tolerance:,.2f}). "
             "Requires Accounts review or PO amendment."
@@ -171,7 +184,8 @@ def execute_3way_matching(claim_doc) -> Dict[str, Any]:
     # 4. 3-Way Match Passed (or 2-Way PO Reconciled)
     recon_source = f"PO #{po_name}" + (f" and GRN #{pr_name}" if pr_name else " (Direct PO Reconciled)")
     claim_doc.match_status = "3-Way Match Passed" if pr_name else "2-Way Match Passed (PO Reconciled)"
-    claim_doc.match_variance_details = (
+    _set_variance_details(
+        claim_doc,
         f"Match Passed: Invoice base amount (INR {billed_base:,.2f}) is fully reconciled "
         f"against {recon_source} (Contracted Value: INR {po_contracted_total:,.2f})."
     )

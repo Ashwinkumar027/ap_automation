@@ -15,6 +15,7 @@ Enforces:
 """
 from typing import Dict, Any, List, Optional, Union, Tuple
 import frappe
+from frappe import _
 from frappe.utils import now_datetime, flt, nowdate
 from ap_automation.controllers.ap_document import APDocument
 from ap_automation.exceptions import APValidationError, APSecurityError
