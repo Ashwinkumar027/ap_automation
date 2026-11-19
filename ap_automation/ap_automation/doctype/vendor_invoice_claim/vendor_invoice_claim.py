@@ -1336,11 +1336,22 @@ def dispute_vendor_claim(docname: str, reason_code: str, remarks: str):
     doc = frappe.get_doc("Vendor Invoice Claim", docname)
     user = frappe.session.user if frappe.session else "System"
     now_str = frappe.utils.now()
+    now_ts = frappe.utils.now_datetime()
 
     dispute_msg = f"[{now_str}] Disputed by {user} | Reason: {reason_code} | Remarks: {remarks.strip()}"
     old_variance = doc.match_variance_details or ""
     doc.match_variance_details = f"{dispute_msg}\n{old_variance}".strip()
     doc.status = "Disputed"
+    doc.workflow_state = f"Returned / Disputed: {reason_code}"
+    
+    doc.append("approval_trail", {
+        "level_number": 0,
+        "level_name": f"Disputed / Returned: {reason_code}",
+        "action_taken_by": user,
+        "action": "REJECTED",
+        "action_timestamp": now_ts,
+        "remarks": f"[{reason_code}] {remarks.strip()}"
+    })
     doc.save(ignore_permissions=True)
 
     # Log forensic Error Log in Frappe DB
@@ -1359,6 +1370,151 @@ def dispute_vendor_claim(docname: str, reason_code: str, remarks: str):
         "status": "Disputed",
         "message": f"Claim '{docname}' has been successfully placed in Disputed status.",
         "dispute_log": dispute_msg
+    }
+
+
+@frappe.whitelist()
+def reject_or_return_vendor_claim(docname: str, reason_code: str, remarks: str) -> Dict[str, Any]:
+    """
+    Whitelisted alias for dispute_vendor_claim.
+    Allows reviewers at any stage (Manager, Director, Accounts L1, Accounts Director)
+    to return or reject a claim with mandatory reason and remarks.
+    """
+    return dispute_vendor_claim(docname, reason_code, remarks)
+
+
+@frappe.whitelist()
+def create_po_advance_claim(
+    po_name: str,
+    advance_amount: float,
+    proforma_number: str,
+    proforma_date: str,
+    proforma_attachment: str,
+    remarks: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Whitelisted 1-Click API: Creates an advance claim directly from an Active AP Purchase Order.
+    Auto-binds vendor details, sets Bill Type = 'Advance / Part Payment',
+    pulls verified bank account, and routes to 'Pending Accounts Review' for L1 verification.
+    """
+    if not po_name or not frappe.db.exists("AP Purchase Order", po_name):
+        frappe.throw(_(f"AP Purchase Order '{po_name}' not found."))
+
+    po = frappe.get_doc("AP Purchase Order", po_name)
+    if po.status != "Active PO":
+        frappe.throw(_(f"Purchase Order '{po_name}' must be in 'Active PO' status to request advance. Current status: '{po.status}'."))
+
+    adv_val = flt(advance_amount)
+    if adv_val <= 0:
+        frappe.throw(_("Advance Amount must be greater than 0.00."))
+
+    po_val = flt(po.grand_total) or flt(po.net_taxable_value) or 0.0
+    if po_val > 0 and adv_val > po_val:
+        frappe.throw(_(f"Advance Amount (INR {adv_val:,.2f}) cannot exceed total contracted PO value (INR {po_val:,.2f})."))
+
+    if not proforma_number or not str(proforma_number).strip():
+        frappe.throw(_("Vendor Proforma Invoice / Demand Reference Number is required."))
+    if not proforma_attachment:
+        frappe.throw(_("Vendor Proforma Invoice / Quotation attachment is required."))
+
+    user = frappe.session.user if getattr(frappe, "session", None) else "Administrator"
+    now_ts = frappe.utils.now_datetime()
+
+    # Determine GST and Tax Type from PO
+    comp_state = (po.company_gstin or "")[:2].strip()
+    vendor_state = (po.vendor_gstin or "")[:2].strip()
+    is_intra = (not comp_state or not vendor_state or comp_state == vendor_state)
+    tax_type = "Intra-State (CGST + SGST)" if is_intra else "Inter-State (IGST)"
+    gst_rate = "18%"
+
+    # Create new Vendor Invoice Claim
+    vic = frappe.new_doc("Vendor Invoice Claim")
+    vic.company = po.company_entity
+    vic.vendor = po.vendor
+    vic.vendor_name = po.vendor_name
+    vic.vendor_gstin = po.vendor_gstin
+    vic.purchase_order = po.name
+    vic.status = "Pending Accounts Review"
+    vic.workflow_state = "Awaiting Accounts L1 Review"
+
+    # Add child item
+    item_row = vic.append("items", {})
+    item_row.vendor = po.vendor
+    item_row.vendor_name = po.vendor_name
+    item_row.vendor_gstin = po.vendor_gstin
+    item_row.company = po.company_entity
+    item_row.bill_payment_type = "Advance / Part Payment"
+    item_row.po_type = "With PO"
+    item_row.purchase_order = po.name
+    item_row.invoice_number = str(proforma_number).strip()
+    item_row.invoice_date = proforma_date or frappe.utils.nowdate()
+    item_row.receipt_attachment = proforma_attachment
+    item_row.base_amount = adv_val
+    item_row.tax_type = tax_type
+    item_row.gst_rate = gst_rate
+    item_row.advance_deducted = 0.0
+    item_row.remarks = remarks or f"PO Advance payment against PO #{po.name} ({po.advance_percentage or 'Direct'})"
+
+    # Fetch and populate verified vendor bank account
+    bank_info = vic._fetch_supplier_bank_account(po.vendor)
+    if bank_info:
+        item_row.bank_beneficiary_name = po.vendor_name
+        item_row.bank_account_number = bank_info.get("bank_account_no", "")
+        item_row.bank_ifsc_code = bank_info.get("ifsc_code", "")
+        item_row.penny_drop_status = bank_info.get("penny_drop_status", "VERIFIED")
+        item_row.bank_proof_attachment = bank_info.get("bank_proof_attachment", "")
+
+    # Calculate financial totals on parent and row
+    gst_pct = 18.0
+    gst_val = round(adv_val * (gst_pct / 100.0), 2)
+    item_row.gst_amount = gst_val
+    if is_intra:
+        item_row.cgst_amount = round(gst_val / 2.0, 2)
+        item_row.sgst_amount = round(gst_val / 2.0, 2)
+        item_row.igst_amount = 0.0
+    else:
+        item_row.cgst_amount = 0.0
+        item_row.sgst_amount = 0.0
+        item_row.igst_amount = gst_val
+    item_row.total_invoice_amount = round(adv_val + gst_val, 2)
+    item_row.amount = round(adv_val + gst_val, 2)
+
+    vic.base_amount = adv_val
+    vic.gst_amount = gst_val
+    vic.total_invoice_amount = round(adv_val + gst_val, 2)
+    vic.net_payable_amount = round(adv_val + gst_val, 2)
+    vic.advance_deducted = 0.0
+
+    # Append approval trail
+    vic.append("approval_trail", {
+        "level_number": 1,
+        "level_name": "Stage 1: PO Advance Requested (1-Click)",
+        "action_taken_by": user,
+        "action": "VERIFIED",
+        "action_timestamp": now_ts,
+        "remarks": f"Advance requested against PO #{po.name} (Amount: INR {adv_val:,.2f}) | Ref: {proforma_number}"
+    })
+
+    vic.flags.ignore_permissions = True
+    vic.insert()
+
+    vic.add_comment(
+        "Comment",
+        text=f"⚡ <b>1-Click PO Advance Created:</b> Requested by {user} for PO #{po.name}. Amount: ₹ {adv_val:,.2f}. Routed directly to Accounts L1 for audit and Tally entry."
+    )
+
+    # Dispatch notification to Accounts L1
+    try:
+        from ap_automation.services.notification_service import notify_vendor_claim_director_approved
+        notify_vendor_claim_director_approved(vic.name)
+    except Exception as e:
+        frappe.log_error(f"PO Advance claim notification error: {e}")
+
+    return {
+        "status": "success",
+        "claim_name": vic.name,
+        "advance_amount": adv_val,
+        "message": f"PO Advance claim #{vic.name} created successfully! Routed for Accounts L1 review."
     }
 
 

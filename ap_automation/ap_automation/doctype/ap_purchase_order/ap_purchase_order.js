@@ -279,6 +279,25 @@ function update_dynamic_commercial_pills(frm) {
     $(frm.wrapper).find(".ap-po-dashboard").closest(".form-message").remove();
     $(frm.wrapper).find(".ap-po-dashboard").remove();
     frm.dashboard.set_headline(dashboard_html, "white", true);
+
+    if (frm.doc.status === "Active PO" && adv > 0 && !frm.is_new()) {
+        frappe.db.get_value("Vendor Invoice Item", {
+            purchase_order: frm.doc.name,
+            bill_payment_type: "Advance / Part Payment"
+        }, ["parent", "line_status"], function(res) {
+            if (res && res.parent) {
+                frappe.db.get_value("Vendor Invoice Claim", res.parent, ["status", "utr"], function(cres) {
+                    if (cres) {
+                        let st = cres.status || "Pending";
+                        let utr_info = cres.utr ? ` &bull; UTR: <code>${cres.utr}</code>` : "";
+                        let adv_pill = `<div style="font-size: 11px; margin-top: 6px; padding: 3px 8px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; color: #92400e; font-weight: 700;">Claim #${res.parent} (${st})${utr_info}</div>`;
+                        $(frm.wrapper).find('.ap-po-adv-claim-pill').remove();
+                        $(frm.wrapper).find('.ap-po-dashboard').children().eq(1).append(`<div class="ap-po-adv-claim-pill">${adv_pill}</div>`);
+                    }
+                });
+            }
+        });
+    }
 }
 
 function render_custom_po_actions(frm) {
@@ -473,8 +492,19 @@ function render_custom_po_actions(frm) {
         }
     }
 
-    // 6. Active PO Actions: Revise PO
+    // 6. Active PO Actions: Request Advance & Revise PO
     if (frm.doc.status === 'Active PO') {
+        if (flt(frm.doc.advance_amount) > 0) {
+            frm.add_custom_button(__('⚡ Request PO Advance'), function() {
+                open_po_advance_request_dialog(frm);
+            }).addClass('btn-primary').css({
+                'background-color': '#b45309',
+                'border-color': '#92400e',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
+        }
+
         frm.add_custom_button(__('Revise Purchase Order'), function() {
             frappe.prompt([
                 { fieldname: 'reason', fieldtype: 'Small Text', label: __('Revision Reason / Scope Expansion Details'), reqd: 1 }
@@ -558,6 +588,105 @@ function render_custom_po_actions(frm) {
             window.open(frm.doc.vendor_sign_url, '_blank');
         }, __('Actions'));
     }
+}
+
+function open_po_advance_request_dialog(frm) {
+    const adv_amt = flt(frm.doc.advance_amount) || 0.0;
+    const po_val = flt(frm.doc.grand_total) || flt(frm.doc.net_taxable_value) || 0.0;
+    
+    let d = new frappe.ui.Dialog({
+        title: __('⚡ Request Purchase Order Advance Payment'),
+        fields: [
+            {
+                fieldname: 'sec_info',
+                fieldtype: 'HTML',
+                options: `
+                    <div style="background: #fefce8; border: 1px solid #fef08a; border-left: 4px solid #eab308; padding: 12px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 13px; color: #854d0e;">
+                        <b>PO Advance Disbursement:</b> Requesting advance payment for <b>${frappe.utils.escape_html(frm.doc.vendor_name || frm.doc.vendor)}</b> against Purchase Order <b>#${frm.doc.name}</b> (Total Value: <b>₹ ${format_currency(po_val)}</b>).
+                    </div>
+                `
+            },
+            {
+                fieldname: 'advance_amount',
+                fieldtype: 'Currency',
+                label: __('Advance Amount to Pay (INR)'),
+                reqd: 1,
+                default: adv_amt,
+                description: __('Defaults to the PO contracted advance value. Can be adjusted for partial advance.')
+            },
+            {
+                fieldname: 'proforma_number',
+                fieldtype: 'Data',
+                label: __('Vendor Proforma Invoice / Demand Ref #'),
+                reqd: 1,
+                description: __('Enter the vendor\'s Proforma Invoice number or advance payment request reference.')
+            },
+            {
+                fieldname: 'proforma_date',
+                fieldtype: 'Date',
+                label: __('Proforma Date'),
+                reqd: 1,
+                default: frappe.datetime.get_today()
+            },
+            {
+                fieldname: 'proforma_attachment',
+                fieldtype: 'Attach',
+                label: __('Attach Proforma Invoice / Quotation Copy (PDF / Photo)'),
+                reqd: 1
+            },
+            {
+                fieldname: 'remarks',
+                fieldtype: 'Small Text',
+                label: __('Advance Remarks / Milestone Notes (Optional)'),
+                default: `Advance payment requested against ${frm.doc.advance_percentage || 'agreed'} PO terms.`
+            }
+        ],
+        primary_action_label: __('Submit Advance Request'),
+        primary_action: function(values) {
+            if (flt(values.advance_amount) <= 0) {
+                frappe.msgprint(__('Advance Amount must be greater than 0.00.'));
+                return;
+            }
+            if (flt(values.advance_amount) > po_val && po_val > 0) {
+                frappe.msgprint(__('Advance Amount cannot exceed the total PO value (₹ {0}).', [format_currency(po_val)]));
+                return;
+            }
+            if (!values.proforma_number || !values.proforma_number.trim()) {
+                frappe.msgprint(__('Vendor Proforma Invoice / Demand Ref # is mandatory.'));
+                return;
+            }
+            if (!values.proforma_attachment) {
+                frappe.msgprint(__('Please upload the vendor\'s Proforma Invoice or quote copy.'));
+                return;
+            }
+
+            d.hide();
+            frappe.call({
+                method: 'ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.create_po_advance_claim',
+                args: {
+                    po_name: frm.doc.name,
+                    advance_amount: values.advance_amount,
+                    proforma_number: values.proforma_number.trim(),
+                    proforma_date: values.proforma_date,
+                    proforma_attachment: values.proforma_attachment,
+                    remarks: values.remarks || ''
+                },
+                freeze: true,
+                freeze_message: __('Creating and Submitting Advance Claim for Accounts Review...'),
+                callback: function(r) {
+                    if (r && r.message && r.message.status === 'success') {
+                        frappe.show_alert({
+                            message: __('Advance Claim #{0} created successfully! Routed for Accounts L1 review.', [r.message.claim_name]),
+                            indicator: 'green'
+                        }, 7);
+                        frm.reload_doc();
+                    }
+                }
+            });
+        }
+    });
+
+    d.show();
 }
 
 // Global realtime listener for instant desk notification when vendor signs
