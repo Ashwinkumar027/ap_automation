@@ -1592,26 +1592,44 @@ function render_vendor_invoice_dashboard(frm) {
         `;
     }
 
-    // 1. Streamlined Corporate Stepper (Intake -> Manager -> Director -> Accounts L1 -> Accounts L2 -> Payment)
-    let stages = [
-        { label: "1. Intake", key: "Draft" },
-        { label: "2. Manager", key: "Pending Manager Approval" },
-        { label: "3. Director", key: "Pending Director Approval" },
-        { label: "4. Accounts L1 (Tally)", key: "Pending Accounts Review" },
-        { label: "5. Accounts L2", key: "Pending Accounts L2 Approval" },
-        { label: "6. Payment", key: "Paid" }
-    ];
+    let is_advance_claim = (frm.doc.items || []).some(r => r.bill_payment_type === "Advance / Part Payment") ||
+                           frm.doc.bill_payment_type === "Advance / Part Payment";
 
+    // 1. Streamlined Corporate Stepper
+    let stages = [];
     let current_status = frm.doc.status || "Draft";
     let active_idx = 0;
-    if (current_status === "Draft") active_idx = 0;
-    else if (current_status === "Pending Manager Approval") active_idx = 1;
-    else if (current_status === "Pending Director Approval") active_idx = 2;
-    else if (current_status === "Pending Accounts Review") active_idx = 3;
-    else if (current_status === "Pending Accounts L2 Approval") active_idx = 4;
-    else if (current_status === "Approved for Payment" || current_status === "Queued in Batch") active_idx = 4;
-    else if (current_status === "Paid") active_idx = 5;
-    else if (current_status === "Disputed") active_idx = 1;
+
+    if (is_advance_claim) {
+        stages = [
+            { label: "1. PO Advance Requested", key: "Draft" },
+            { label: "2. Accounts L1 Audit", key: "Pending Accounts Review" },
+            { label: "3. Accounts Director", key: "Pending Accounts L2 Approval" },
+            { label: "4. Disbursed (Paid)", key: "Paid" }
+        ];
+        if (current_status === "Draft") active_idx = 0;
+        else if (current_status === "Pending Accounts Review") active_idx = 1;
+        else if (current_status === "Pending Accounts L2 Approval" || current_status === "Approved for Payment" || current_status === "Queued in Batch") active_idx = 2;
+        else if (current_status === "Paid") active_idx = 3;
+        else if (current_status === "Disputed") active_idx = 1;
+    } else {
+        stages = [
+            { label: "1. Intake", key: "Draft" },
+            { label: "2. Manager", key: "Pending Manager Approval" },
+            { label: "3. Director", key: "Pending Director Approval" },
+            { label: "4. Accounts L1 (Tally)", key: "Pending Accounts Review" },
+            { label: "5. Accounts L2", key: "Pending Accounts L2 Approval" },
+            { label: "6. Payment", key: "Paid" }
+        ];
+        if (current_status === "Draft") active_idx = 0;
+        else if (current_status === "Pending Manager Approval") active_idx = 1;
+        else if (current_status === "Pending Director Approval") active_idx = 2;
+        else if (current_status === "Pending Accounts Review") active_idx = 3;
+        else if (current_status === "Pending Accounts L2 Approval") active_idx = 4;
+        else if (current_status === "Approved for Payment" || current_status === "Queued in Batch") active_idx = 4;
+        else if (current_status === "Paid") active_idx = 5;
+        else if (current_status === "Disputed") active_idx = 1;
+    }
 
     let stepper_html = stages.map((st, i) => {
         let is_completed = i < active_idx;

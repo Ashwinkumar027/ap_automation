@@ -798,6 +798,30 @@ class VendorInvoiceClaim(APDocument):
                 tot_ret += retention
                 tot_net += net_pay
 
+            # Server-Side Zero-Touch Auto-Reconciliation of Unadjusted Prior Advances
+            is_advance_claim = any(getattr(r, "bill_payment_type", None) == "Advance / Part Payment" for r in self.items)
+            if not is_advance_claim and (not self.get("milestone_payments") or len(self.get("milestone_payments")) == 0):
+                linked_pos = []
+                for row in self.items:
+                    po_ref = getattr(row, "purchase_order", None)
+                    if po_ref and po_ref not in linked_pos:
+                        linked_pos.append(po_ref)
+                if getattr(self, "purchase_order", None) and self.purchase_order not in linked_pos:
+                    linked_pos.append(self.purchase_order)
+
+                for po_name in linked_pos:
+                    prior_advances = fetch_po_milestones(po_name, exclude_claim=self.name)
+                    if prior_advances:
+                        for m in prior_advances:
+                            self.append("milestone_payments", {
+                                "milestone_type": m.get("milestone_type", "PO Advance Payment"),
+                                "payment_reference": m.get("payment_reference", ""),
+                                "payment_date": m.get("payment_date", ""),
+                                "disbursed_amount": flt(m.get("disbursed_amount", 0.0)),
+                                "adjusted_amount": flt(m.get("adjusted_amount", 0.0)),
+                                "remarks": m.get("remarks", f"Auto-reconciled advance from PO #{po_name}")
+                            })
+
             # Milestone advances reconciliation across all items
             milestone_sum = 0.0
             if self.get("milestone_payments") and len(self.get("milestone_payments")) > 0:
@@ -805,10 +829,15 @@ class VendorInvoiceClaim(APDocument):
 
             if milestone_sum > 0:
                 tot_adv = milestone_sum
-                if len(self.items) == 1 and getattr(self.items[0], "line_status", "Pending") != "Disputed / Discrepancy":
-                    r0 = self.items[0]
-                    r0.advance_deducted = milestone_sum
-                    r0.amount = round(max(float(r0.total_invoice_amount or 0.0) - float(r0.tds_amount or 0.0) - milestone_sum - float(r0.retention_hold_amount or 0.0), 0.0), 2)
+                rem_adv = milestone_sum
+                for r in self.items:
+                    if getattr(r, "line_status", "Pending") == "Disputed / Discrepancy":
+                        continue
+                    row_gross = float(r.total_invoice_amount or 0.0) - float(r.tds_amount or 0.0) - float(r.retention_hold_amount or 0.0)
+                    row_adj = min(rem_adv, max(row_gross, 0.0))
+                    r.advance_deducted = round(row_adj, 2)
+                    r.amount = round(max(row_gross - row_adj, 0.0), 2)
+                    rem_adv = max(round(rem_adv - row_adj, 2), 0.0)
 
             claim_ret = float(getattr(self, "retention_hold_amount", 0.0) or 0.0)
             if claim_ret > 0 and tot_ret == 0.0:
@@ -864,6 +893,21 @@ class VendorInvoiceClaim(APDocument):
 
         gst = round(base * (rate_val / 100.0), 2)
         total = round(base + gst, 2)
+
+        # Auto-reconcile unadjusted prior advances from linked PO if milestone_payments is empty
+        if getattr(self, "purchase_order", None) and getattr(self, "bill_payment_type", "Final / Regular Bill") != "Advance / Part Payment":
+            if not self.get("milestone_payments") or len(self.get("milestone_payments")) == 0:
+                prior_advances = fetch_po_milestones(self.purchase_order, exclude_claim=self.name)
+                if prior_advances:
+                    for m in prior_advances:
+                        self.append("milestone_payments", {
+                            "milestone_type": m.get("milestone_type", "PO Advance Payment"),
+                            "payment_reference": m.get("payment_reference", ""),
+                            "payment_date": m.get("payment_date", ""),
+                            "disbursed_amount": flt(m.get("disbursed_amount", 0.0)),
+                            "adjusted_amount": flt(m.get("adjusted_amount", 0.0)),
+                            "remarks": m.get("remarks", f"Auto-reconciled advance from PO #{self.purchase_order}")
+                        })
 
         # Milestone advances reconciliation
         if self.get("milestone_payments") and len(self.get("milestone_payments")) > 0:
@@ -1523,7 +1567,7 @@ def create_po_advance_claim(
 
     vic.add_comment(
         "Comment",
-        text=f"⚡ <b>1-Click PO Advance Created:</b> Requested by {user} for PO #{po.name}. Amount: ₹ {adv_val:,.2f}. Routed directly to Accounts L1 for audit and Tally entry."
+        text=f"<b>1-Click PO Advance Created:</b> Requested by {user} for PO #{po.name}. Amount: INR {adv_val:,.2f}. Routed directly to Accounts L1 for audit and Tally entry."
     )
 
     # Dispatch notification to Accounts L1
@@ -2078,11 +2122,15 @@ def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[st
     now_ts = frappe.utils.now_datetime()
 
     # Update status directly in database to avoid triggering tamper alert on locked status transition
-    frappe.db.set_value("Vendor Invoice Claim", docname, {
+    update_vals = {
         "status": "Paid",
         "workflow_state": "Disbursed via Corporate Bank Transfer",
         "payment_releaser": user
-    })
+    }
+    if frappe.db.has_column("Vendor Invoice Claim", "utr"):
+        update_vals["utr"] = clean_utr
+
+    frappe.db.set_value("Vendor Invoice Claim", docname, update_vals)
 
     # Record in AP Approval Trail
     trail_entry = frappe.get_doc({
@@ -2101,7 +2149,7 @@ def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[st
 
     _sync_event_master_if_linked(getattr(doc, "event", None))
 
-    doc.add_comment("Comment", text=f"💳 <b>Payment Disbursed:</b> Bank UTR: <code>{clean_utr}</code> by {user}")
+    doc.add_comment("Comment", text=f"<b>Payment Disbursed:</b> Bank UTR: <code>{clean_utr}</code> by {user}")
     frappe.db.commit()
 
     return {
