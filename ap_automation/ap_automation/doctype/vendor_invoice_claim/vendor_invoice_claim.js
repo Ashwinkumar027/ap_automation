@@ -210,6 +210,8 @@ frappe.ui.form.on("Vendor Invoice Claim", {
             frm.enable_save();
         }
 
+        let is_admin = frappe.session.user === "Administrator" || frappe.user.has_role("System Manager");
+
         // Reviewer In-Line Edit Mode: Accounts L1 and Accounts Director can edit lines during review
         let is_accounts_reviewer = ["Pending Accounts Review", "Pending Accounts L2 Approval"].includes(status) &&
             (frappe.user.has_role(["Accounts L1 Auditor", "Accounts User", "Accounts Manager", "Accounts Director", "AP Director", "System Manager"]) || is_admin);
@@ -2014,7 +2016,7 @@ function calculate_vendor_totals(frm) {
             tds_rate = 10.0;
         }
     }
-    let milestone_sum = 0.0;
+    milestone_sum = 0.0;
     (frm.doc.milestone_payments || []).forEach(row => {
         milestone_sum += flt(row.adjusted_amount || row.disbursed_amount || 0);
     });
