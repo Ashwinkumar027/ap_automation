@@ -250,7 +250,10 @@ function update_dynamic_commercial_pills(frm) {
         </div>
 
         <div style="flex: 1; min-width: 200px; background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-            <div style="font-size: 11px; color: #64748b; font-weight: 700; text-transform: uppercase;">Advance Payable Now</div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-size: 11px; color: #64748b; font-weight: 700; text-transform: uppercase;">Advance Payable Now</div>
+                ${frm.doc.status === "Active PO" ? `<button type="button" class="btn btn-xs ap-card-request-adv-btn" style="background-color: #b45309; color: #ffffff; border: none; border-radius: 4px; font-weight: 700; padding: 2px 8px; font-size: 10px; cursor: pointer;">Request Advance</button>` : ''}
+            </div>
             <div style="font-size: 20px; font-weight: 800; color: #b45309; margin: 4px 0;">₹ ${format_currency(adv)}</div>
             <div style="font-size: 11px; color: #475569;">Rate: ${frm.doc.advance_percentage || '0%'}</div>
         </div>
@@ -279,6 +282,10 @@ function update_dynamic_commercial_pills(frm) {
     $(frm.wrapper).find(".ap-po-dashboard").closest(".form-message").remove();
     $(frm.wrapper).find(".ap-po-dashboard").remove();
     frm.dashboard.set_headline(dashboard_html, "white", true);
+    $(frm.wrapper).off("click", ".ap-card-request-adv-btn").on("click", ".ap-card-request-adv-btn", function(e) {
+        e.preventDefault();
+        open_po_advance_request_dialog(frm);
+    });
 
     if (frm.doc.status === "Active PO" && adv > 0 && !frm.is_new()) {
         frappe.db.get_value("Vendor Invoice Item", {
@@ -494,16 +501,18 @@ function render_custom_po_actions(frm) {
 
     // 6. Active PO Actions: Request Advance & Revise PO
     if (frm.doc.status === 'Active PO') {
-        if (flt(frm.doc.advance_amount) > 0) {
-            frm.add_custom_button(__('⚡ Request PO Advance'), function() {
-                open_po_advance_request_dialog(frm);
-            }).addClass('btn-primary').css({
-                'background-color': '#b45309',
-                'border-color': '#92400e',
-                'color': '#ffffff',
-                'font-weight': '700'
-            });
-        }
+        frm.add_custom_button(__('Request PO Advance'), function() {
+            open_po_advance_request_dialog(frm);
+        }).addClass('btn-primary').css({
+            'background-color': '#b45309',
+            'border-color': '#92400e',
+            'color': '#ffffff',
+            'font-weight': '700'
+        });
+
+        frm.add_custom_button(__('Request PO Advance'), function() {
+            open_po_advance_request_dialog(frm);
+        }, __('Actions'));
 
         frm.add_custom_button(__('Revise Purchase Order'), function() {
             frappe.prompt([
@@ -595,7 +604,7 @@ function open_po_advance_request_dialog(frm) {
     const po_val = flt(frm.doc.grand_total) || flt(frm.doc.net_taxable_value) || 0.0;
     
     let d = new frappe.ui.Dialog({
-        title: __('⚡ Request Purchase Order Advance Payment'),
+        title: __('Request Purchase Order Advance Payment'),
         fields: [
             {
                 fieldname: 'sec_info',
@@ -611,8 +620,8 @@ function open_po_advance_request_dialog(frm) {
                 fieldtype: 'Currency',
                 label: __('Advance Amount to Pay (INR)'),
                 reqd: 1,
-                default: adv_amt,
-                description: __('Defaults to the PO contracted advance value. Can be adjusted for partial advance.')
+                default: adv_amt > 0 ? adv_amt : '',
+                description: __('Enter the advance or milestone amount to disburse (Max: PO Total Value).')
             },
             {
                 fieldname: 'proforma_number',
