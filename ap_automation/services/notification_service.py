@@ -785,9 +785,18 @@ def notify_payment_releaser_on_idfc_upload(
     </div>
     """
 
-    # Strictly build CC list: Accounts Director from AP Matrix + Maker (uploaded_by)
-    cc_list = []
-    if accounts_director and accounts_director != releaser:
+    # Strictly build CC list: All matrix approvers + Accounts Director + Maker (uploaded_by)
+    from ap_automation.services.approval_service import get_all_matrix_approvers
+
+    matrix_approvers = get_all_matrix_approvers(
+        company=company,
+        doctype=voucher_doctype,
+        amount=amount,
+        exclude_users=[releaser]
+    )
+
+    cc_list = list(matrix_approvers)
+    if accounts_director and accounts_director != releaser and accounts_director not in cc_list:
         cc_list.append(accounts_director)
     if uploaded_by and uploaded_by != releaser and uploaded_by not in cc_list:
         cc_list.append(uploaded_by)
