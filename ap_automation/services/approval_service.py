@@ -8,6 +8,12 @@ from ap_automation.exceptions import APValidationError, APSecurityError
 from ap_automation.services.security import resolve_acting_approver
 
 
+RELEASER_TERMS = [
+    "payment release", "payment releser", "releaser", "releser", "release", "reles",
+    "disbursal", "disburse", "payout", "bank", "2fa", "checker", "otp"
+]
+
+
 def get_applicable_matrix(doctype: str, company: str, amount: float) -> Optional[Any]:
     """
     Finds the active policy matrix matching company, lane, and amount in O(1) time.
@@ -78,12 +84,14 @@ def get_matrix_designated_payment_releaser_and_accounts_director(
             if not approver or not frappe.db.exists("User", approver):
                 continue
 
-            # Supervisor: Accounts Director / Accounts L2 / Accounts Head
+            # Supervisor: Accounts Director / Accounts L2 / Accounts Head / Director Sanction
             if not accounts_director and any(term in lvl_name for term in ["accounts director", "accounts l2", "accounts head"]):
                 accounts_director = approver
+            elif not accounts_director and ("director" in lvl_name or "business head" in lvl_name) and not any(term in lvl_name for term in RELEASER_TERMS):
+                accounts_director = approver
 
-            # Explicit Payment Releaser / 2FA
-            if not checker and any(term in lvl_name for term in ["payment release", "releaser", "2fa", "bank disbursal"]):
+            # Explicit Payment Releaser / 2FA / Payout Checker
+            if not checker and any(term in lvl_name for term in RELEASER_TERMS):
                 checker = approver
 
             # General Director fallback (excluding Accounts Director)
@@ -232,7 +240,7 @@ def get_dynamic_payment_releaser_for_company(company: str, doctype: str = "Petty
     if matrix:
         for row in getattr(matrix, "approval_levels", []):
             lvl_name = (row.level_name or "").lower()
-            if any(term in lvl_name for term in ["payment release", "releaser", "disbursal", "bank", "2fa"]):
+            if any(term in lvl_name for term in RELEASER_TERMS):
                 if row.designated_approver and frappe.db.get_value("User", row.designated_approver, "enabled"):
                     return row.designated_approver
 
@@ -247,7 +255,7 @@ def get_dynamic_payment_releaser_for_company(company: str, doctype: str = "Petty
             m_doc = frappe.get_doc("AP Approval Matrix", om["name"])
             for row in getattr(m_doc, "approval_levels", []):
                 lvl_name = (row.level_name or "").lower()
-                if any(term in lvl_name for term in ["payment release", "releaser", "2fa"]):
+                if any(term in lvl_name for term in RELEASER_TERMS):
                     if row.designated_approver and frappe.db.get_value("User", row.designated_approver, "enabled"):
                         return row.designated_approver
         except Exception:
@@ -272,3 +280,46 @@ def get_dynamic_payment_releaser_for_company(company: str, doctype: str = "Petty
 
     return None
 
+
+
+
+def get_all_matrix_approvers(
+    company: str,
+    doctype: Optional[str] = None,
+    amount: float = 0.0,
+    exclude_users: Optional[List[str]] = None
+) -> List[str]:
+    """
+    Retrieves all unique designated approvers across all levels of the active AP Approval Matrix
+    for the given company and document lane, preserving hierarchy order.
+    Excludes any users specified in exclude_users (e.g. designated Payment Releaser in TO).
+    """
+    if not company:
+        return []
+
+    exclude = set(exclude_users or [])
+    approvers: List[str] = []
+
+    # Get primary applicable matrix
+    matrix = None
+    if doctype:
+        matrix = get_applicable_matrix(doctype, company, amount)
+    if not matrix:
+        matrices = frappe.get_all(
+            "AP Approval Matrix",
+            filters={"company": company, "is_active": 1},
+            fields=["name"],
+            order_by="creation desc",
+            limit=1
+        )
+        if matrices:
+            matrix = frappe.get_doc("AP Approval Matrix", matrices[0]["name"])
+
+    if matrix:
+        for row in getattr(matrix, "approval_levels", []):
+            approver = row.designated_approver
+            if approver and approver not in exclude and approver not in approvers:
+                if frappe.db.get_value("User", approver, "enabled"):
+                    approvers.append(approver)
+
+    return approvers

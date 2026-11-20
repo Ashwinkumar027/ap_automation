@@ -320,7 +320,7 @@ def get_event_advance_ui_context(advance_name: str) -> Dict[str, Any]:
         user, doc, ["accounts director", "accounts l2"], 3, ["Accounts Director", "Accounts Manager"]
     )
     can_rel, rel_user = _is_user_authorized_for_stage(
-        user, doc, ["payment release", "releaser", "2fa", "bank disbursal"], 4, ["Payment Releaser", "AP Director", "Accounts Director", "Accounts Manager"]
+        user, doc, ["payment release", "payment releser", "releaser", "releser", "release", "reles", "2fa", "bank disbursal", "payout"], 4, ["Payment Releaser", "AP Director", "Accounts Director", "Accounts Manager"]
     )
     from ap_automation.services.approval_service import is_user_authorized_approver
 
@@ -729,7 +729,7 @@ def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dic
     authorized, designated = _is_user_authorized_for_stage(
         user=user,
         doc=doc,
-        stage_keywords=["payment release", "releaser", "2fa", "bank disbursal"],
+        stage_keywords=["payment release", "payment releser", "releaser", "releser", "release", "reles", "2fa", "bank disbursal", "payout"],
         fallback_level=4,
         fallback_roles=["Payment Releaser", "AP Director", "Accounts Director", "Accounts Manager"],
     )
