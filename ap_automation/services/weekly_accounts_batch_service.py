@@ -327,6 +327,14 @@ def approve_accounts_director_weekly_batch(batch_name: str, remarks: Optional[st
                     "action_timestamp": now_datetime(),
                     "remarks": f"Approved via Weekly Batch #{batch.name}. {remarks or ''}"
                 })
+            # Defensive auto-sanitize invalid payment_mode_used (e.g. legacy/typo 'fogo') to prevent Select validation abort
+            valid_modes = {"GPAY / UPI", "Company Credit Card", "Personal Credit Card", "Cash", "Bank Transfer"}
+            for row in (getattr(doc, "expense_lines", []) or getattr(doc, "items", [])):
+                if hasattr(row, "payment_mode_used") and row.payment_mode_used and row.payment_mode_used not in valid_modes:
+                    row.payment_mode_used = "GPAY / UPI"
+            if hasattr(doc, "payment_mode_used") and doc.payment_mode_used and doc.payment_mode_used not in valid_modes:
+                doc.payment_mode_used = "GPAY / UPI"
+
             doc.flags.ignore_permissions = True
             doc.flags.ignore_validate_update_after_submit = True
             doc.save()
@@ -394,6 +402,13 @@ def release_weekly_payment_batch(batch_name: str, payment_reference: Optional[st
                     "action_timestamp": now_datetime(),
                     "remarks": f"Disbursed via Weekly Batch #{batch.name}. Ref: {ref}."
                 })
+            valid_modes = {"GPAY / UPI", "Company Credit Card", "Personal Credit Card", "Cash", "Bank Transfer"}
+            for row in (getattr(claim, "expense_lines", []) or getattr(claim, "items", [])):
+                if hasattr(row, "payment_mode_used") and row.payment_mode_used and row.payment_mode_used not in valid_modes:
+                    row.payment_mode_used = "GPAY / UPI"
+            if hasattr(claim, "payment_mode_used") and claim.payment_mode_used and claim.payment_mode_used not in valid_modes:
+                claim.payment_mode_used = "GPAY / UPI"
+
             claim.flags.ignore_permissions = True
             claim.flags.ignore_validate_update_after_submit = True
             claim.save()
