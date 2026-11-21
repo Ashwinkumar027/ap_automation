@@ -75,6 +75,15 @@ class EmployeeReimbursementClaim(APDocument):
         self.bind_and_lock_hrms_profile()
         self.validate_salary_bank_account()
         self.validate_category_and_pre_approvals()
+
+        # Sanitize payment_mode_used against Select options
+        valid_modes = {"GPAY / UPI", "Company Credit Card", "Personal Credit Card", "Cash", "Bank Transfer"}
+        for row in getattr(self, "expense_lines", []):
+            if hasattr(row, "payment_mode_used") and row.payment_mode_used and row.payment_mode_used not in valid_modes:
+                row.payment_mode_used = "GPAY / UPI"
+        if hasattr(self, "payment_mode_used") and self.payment_mode_used and self.payment_mode_used not in valid_modes:
+            self.payment_mode_used = "GPAY / UPI"
+
         self.validate_expense_lines()
         self.calculate_settlement_totals()
         self.auto_link_and_unlock_receipt_files()
