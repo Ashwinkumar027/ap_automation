@@ -342,11 +342,9 @@ def approve_accounts_director_weekly_batch(batch_name: str, remarks: Optional[st
     batch.save(ignore_permissions=True)
     frappe.db.commit()
 
-    # Notify Payment Releaser (Level 6)
-    try:
-        notif.notify_releaser_on_weekly_batch_approved(batch.name)
-    except Exception as e:
-        frappe.log_error(f"Failed to notify Payment Releaser for batch {batch.name}: {str(e)}", "AP Batch Error")
+    # Strict Maker-Checker Governance Protocol:
+    # Payment Releaser is strictly NOT notified on Director Sign-Off.
+    # Releaser is notified only after the Accounts Maker uploads the IDFC disbursal Excel to the IDFC Netbanking Corporate Portal and clicks 'Payment Release'.
 
     return {
         "status": "SUCCESS",

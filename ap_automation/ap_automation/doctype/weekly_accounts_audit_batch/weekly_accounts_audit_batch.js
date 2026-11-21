@@ -436,7 +436,7 @@ function setup_batch_action_buttons(frm) {
                         remarks: values.remarks
                     },
                     freeze: true,
-                    freeze_message: __('Authorizing Batch and Notifying Payment Releaser...'),
+                    freeze_message: __('Authorizing Batch for Payment...'),
                     callback: function(r) {
                         if (r.message && r.message.status === 'SUCCESS') {
                             frappe.show_alert({
