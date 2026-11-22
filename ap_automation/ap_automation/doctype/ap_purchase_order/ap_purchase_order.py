@@ -68,6 +68,48 @@ COMPANY_ADDRESS_REGISTRY = {
 }
 
 
+@frappe.whitelist()
+def get_user_department_details(user_id: str) -> Dict[str, Any]:
+    """Auto-fetches department and employee contact details for a given User ID."""
+    if not user_id:
+        return {}
+
+    emp = frappe.db.get_value(
+        "Employee",
+        {"user_id": user_id, "status": "Active"},
+        ["department", "cell_number", "employee_name"],
+        as_dict=True
+    )
+    if not emp:
+        emp = frappe.db.get_value(
+            "Employee",
+            {"user_id": user_id},
+            ["department", "cell_number", "employee_name"],
+            as_dict=True
+        ) or frappe.db.get_value(
+            "Employee",
+            {"company_email": user_id},
+            ["department", "cell_number", "employee_name"],
+            as_dict=True
+        ) or frappe.db.get_value(
+            "Employee",
+            {"personal_email": user_id},
+            ["department", "cell_number", "employee_name"],
+            as_dict=True
+        )
+
+    dept = emp.get("department") if emp else None
+    mobile = emp.get("cell_number") if emp else None
+
+    if not dept and frappe.db.has_column("User", "department"):
+        dept = frappe.db.get_value("User", user_id, "department")
+
+    return {
+        "department": dept or "",
+        "mobile": mobile or ""
+    }
+
+
 def resolve_po_workflow_policy(company: str, department: Optional[str] = None):
     """
     100% Dynamic: Queries AP Approval Matrix for company & department.
@@ -174,13 +216,20 @@ class APPurchaseOrder(Document):
     def fetch_spoc_details(self):
         """Pulls SPOC details if user link is provided."""
         spoc_user = getattr(self, "spoc_user", None)
-        if spoc_user and (not getattr(self, "spoc_name", None) or not getattr(self, "spoc_email", None)):
+        if spoc_user:
             usr = frappe.db.get_value("User", spoc_user, ["full_name", "email", "mobile_no"], as_dict=True)
             if usr:
-                self.spoc_name = usr.full_name
-                self.spoc_email = usr.email
+                if not getattr(self, "spoc_name", None) and usr.full_name:
+                    self.spoc_name = usr.full_name
+                if not getattr(self, "spoc_email", None) and usr.email:
+                    self.spoc_email = usr.email
                 if not getattr(self, "spoc_mobile", None) and usr.mobile_no:
                     self.spoc_mobile = usr.mobile_no
+
+            if not getattr(self, "spoc_department", None):
+                dept_info = get_user_department_details(spoc_user)
+                if dept_info.get("department"):
+                    self.spoc_department = dept_info["department"]
 
     def calculate_line_items_and_taxes(self):
         """Calculates line item subtotals and dynamic location-based GST (IGST vs CGST/SGST)."""

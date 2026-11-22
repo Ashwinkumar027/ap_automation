@@ -2,6 +2,12 @@
 // For license information, please see license.txt
 
 frappe.ui.form.on('AP Purchase Order', {
+    onload: function(frm) {
+        if (frm.is_new() && !frm.doc.spoc_user && frappe.session.user && frappe.session.user !== 'Guest') {
+            frm.set_value('spoc_user', frappe.session.user);
+        }
+    },
+
     refresh: function(frm) {
         if (frm.doc.docstatus === 0) {
             frm.enable_save();
@@ -29,6 +35,9 @@ frappe.ui.form.on('AP Purchase Order', {
         render_custom_po_actions(frm);
         update_dynamic_commercial_pills(frm);
         setup_dynamic_signatory_options(frm);
+        if (frm.is_new() && frm.doc.spoc_user && !frm.doc.spoc_department) {
+            frm.trigger('spoc_user');
+        }
     },
 
     company_entity: function(frm) {
@@ -103,9 +112,24 @@ frappe.ui.form.on('AP Purchase Order', {
         if (frm.doc.spoc_user) {
             frappe.db.get_value('User', frm.doc.spoc_user, ['full_name', 'email', 'mobile_no'], function(r) {
                 if (r) {
-                    frm.set_value('spoc_name', r.full_name);
-                    frm.set_value('spoc_email', r.email);
-                    if (r.mobile_no) frm.set_value('spoc_mobile', r.mobile_no);
+                    if (r.full_name) frm.set_value('spoc_name', r.full_name);
+                    if (r.email) frm.set_value('spoc_email', r.email);
+                    if (r.mobile_no && !frm.doc.spoc_mobile) frm.set_value('spoc_mobile', r.mobile_no);
+                }
+            });
+
+            frappe.call({
+                method: 'ap_automation.ap_automation.doctype.ap_purchase_order.ap_purchase_order.get_user_department_details',
+                args: { user_id: frm.doc.spoc_user },
+                callback: function(r) {
+                    if (r && r.message) {
+                        if (r.message.department && !frm.doc.spoc_department) {
+                            frm.set_value('spoc_department', r.message.department);
+                        }
+                        if (r.message.mobile && !frm.doc.spoc_mobile) {
+                            frm.set_value('spoc_mobile', r.message.mobile);
+                        }
+                    }
                 }
             });
         }
