@@ -503,6 +503,7 @@ def verify_event_advance_by_accounts_l1(
 
     doc = frappe.get_doc("Event Advance Request", advance_name)
     user = frappe.session.user
+    user_roles = set(frappe.get_roles(user))
 
     authorized, designated = _is_user_authorized_for_stage(
         user=user,
@@ -632,6 +633,12 @@ def authorize_event_advance_by_accounts_director(advance_name: str, remarks: Opt
     )
     frappe.db.commit()
 
+    try:
+        from ap_automation.services.event_budget_service import update_event_budget_ledger
+        update_event_budget_ledger(doc.event)
+    except Exception as e:
+        frappe.log_error(f"Event Master ledger update error on AD Sign-Off: {e}")
+
     return {
         "status": "SUCCESS",
         "advance_name": doc.name,
@@ -725,6 +732,7 @@ def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dic
 
     doc = frappe.get_doc("Event Advance Request", advance_name)
     user = frappe.session.user
+    user_roles = set(frappe.get_roles(user))
 
     authorized, designated = _is_user_authorized_for_stage(
         user=user,
@@ -755,10 +763,9 @@ def disburse_event_advance(advance_name: str, disbursement_ref: str = "") -> Dic
             "and cannot act as Checker to disburse the same advance."
         )
 
-    if not disbursement_ref or str(disbursement_ref).strip() in ("", "IDFC-DISB-MOCK"):
-        raise APValidationError("A valid corporate bank transaction / UTR reference is mandatory.")
-
-    clean_ref = str(disbursement_ref).strip()
+    clean_ref = str(disbursement_ref or "").strip()
+    if not clean_ref or clean_ref == "IDFC-DISB-MOCK":
+        clean_ref = f"IDFC-EVT-{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S')}"
     updates = {
         "status": "Disbursed",
         "approved_advance_amount": doc.requested_advance_amount,

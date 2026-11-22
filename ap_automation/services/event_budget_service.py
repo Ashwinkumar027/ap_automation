@@ -80,7 +80,7 @@ def update_event_budget_ledger(event_name: str) -> Dict[str, Any]:
         "Event Advance Request",
         filters={
             "event": event_name,
-            "status": ["in", ["Disbursed", "Disbursed via IDFC", "Paid"]],
+            "status": ["in", ["Approved for Payment", "Disbursed", "Disbursed via IDFC", "Paid"]],
             "docstatus": ["!=", 2]
         },
         fields=["requested_advance_amount", "approved_advance_amount", "total_cash_imprest_amount", "total_direct_vendor_amount"]
@@ -212,7 +212,7 @@ def get_event_budget_snapshot(
 
     pending_filters: Dict[str, Any] = {
         "event": event_name,
-        "status": ["in", ["Pending Director Approval", "Pending Accounts L1 Review", "Pending Accounts Director Approval", "Approved for Payment"]],
+        "status": ["in", ["Draft", "Pending Director Approval", "Pending Accounts L1 Review", "Pending Accounts Director Approval"]],
         "docstatus": ["!=", 2],
     }
     if exclude_advance_name and not str(exclude_advance_name).startswith("new-event-advance-request"):

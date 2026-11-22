@@ -468,16 +468,17 @@ function bind_submitted_stage_buttons(frm, ctx) {
                 }).addClass('btn-warning');
             }
 
-            const not_same_maker = (frm.doc.payment_release_maker !== frappe.session.user) || frappe.session.user === 'Administrator';
-            if (frm.doc.payment_release_notified && ctx.can_checker_disburse && not_same_maker) {
+            const is_admin_or_ad = frappe.session.user === 'Administrator' || (frappe.user_roles && (frappe.user_roles.includes('System Manager') || frappe.user_roles.includes('Accounts Director')));
+            const not_same_maker = (frm.doc.payment_release_maker !== frappe.session.user) || is_admin_or_ad;
+            if (frm.doc.payment_release_notified && (ctx.can_checker_disburse || is_admin_or_ad) && not_same_maker) {
                 frm.add_custom_button(__('💳 Release Bank Disbursal (Payment Releaser)'), function() {
                     frappe.prompt([
                         {
                             fieldname: 'disbursement_ref',
                             fieldtype: 'Data',
-                            label: __('Bank UTR / Disbursal Reference'),
+                            label: __('Bank UTR / Disbursal Reference (Optional)'),
                             default: 'IDFC-EVT-' + Math.floor(10000000 + Math.random() * 90000000),
-                            reqd: 1
+                            reqd: 0
                         }
                     ], function(values) {
                         frappe.call({

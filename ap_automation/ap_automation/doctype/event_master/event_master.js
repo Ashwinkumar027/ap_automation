@@ -100,7 +100,7 @@ function render_event_master_dashboard(frm) {
         active_step_idx = 3;
     } else if (current_status === "In Progress" || spoc_actuals > 0) {
         active_step_idx = 2;
-    } else if (current_status === "Advance Disbursed" || parseFloat(frm.doc.disbursed_advance || 0) > 0) {
+    } else if (current_status === "Advance Disbursed" || current_status === "Ground Spends Active" || parseFloat(frm.doc.disbursed_advance || 0) > 0 || parseFloat(frm.doc.direct_finance_spends || 0) > 0) {
         active_step_idx = 1;
     } else if (current_status === "Event Created" || current_status === "Budget Approved" || current_status === "Planning") {
         active_step_idx = 0;
