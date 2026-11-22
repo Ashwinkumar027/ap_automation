@@ -1457,7 +1457,8 @@ def create_po_advance_claim(
     proforma_number: str,
     proforma_date: str,
     proforma_attachment: str,
-    remarks: Optional[str] = None
+    remarks: Optional[str] = None,
+    gst_rate: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Whitelisted 1-Click API: Creates an advance claim directly from an Active AP Purchase Order.
@@ -1492,7 +1493,22 @@ def create_po_advance_claim(
     vendor_state = (po.vendor_gstin or "")[:2].strip()
     is_intra = (not comp_state or not vendor_state or comp_state == vendor_state)
     tax_type = "Intra-State (CGST + SGST)" if is_intra else "Inter-State (IGST)"
-    gst_rate = "18%"
+
+    # Resolve GST Rate: user choice -> PO line items -> default 0%
+    if not gst_rate:
+        po_item_gst = None
+        for it in po.get("items", []):
+            if it.get("gst_rate"):
+                po_item_gst = it.get("gst_rate")
+                break
+        gst_rate = po_item_gst or "0%"
+
+    clean_gst = str(gst_rate).replace("%", "").strip()
+    try:
+        gst_pct = float(clean_gst)
+    except (ValueError, TypeError):
+        gst_pct = 0.0
+    gst_rate_str = f"{int(gst_pct)}%" if gst_pct == int(gst_pct) else f"{gst_pct}%"
 
     # Create new Vendor Invoice Claim
     vic = frappe.new_doc("Vendor Invoice Claim")
@@ -1518,7 +1534,7 @@ def create_po_advance_claim(
     item_row.receipt_attachment = proforma_attachment
     item_row.base_amount = adv_val
     item_row.tax_type = tax_type
-    item_row.gst_rate = gst_rate
+    item_row.gst_rate = gst_rate_str
     item_row.advance_deducted = 0.0
     item_row.remarks = remarks or f"PO Advance payment against PO #{po.name} ({po.advance_percentage or 'Direct'})"
 
@@ -1532,7 +1548,6 @@ def create_po_advance_claim(
         item_row.bank_proof_attachment = bank_info.get("bank_proof_attachment", "")
 
     # Calculate financial totals on parent and row
-    gst_pct = 18.0
     gst_val = round(adv_val * (gst_pct / 100.0), 2)
     item_row.gst_amount = gst_val
     if is_intra:
