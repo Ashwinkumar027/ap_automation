@@ -2236,7 +2236,7 @@ def notify_vendor_claim_accounts_l1_verified(claim_name: str) -> None:
 
 
 def notify_vendor_claim_accounts_l2_approved(claim_name: str) -> None:
-    """Triggered after Accounts L2 clearance. Alerts Payment Releaser and Submitter (Approved for Payment)."""
+    """Triggered after Accounts L2 clearance. Alerts Submitter (Approved for Payment)."""
     if not frappe.db.exists("Vendor Invoice Claim", claim_name):
         return
     doc = frappe.get_doc("Vendor Invoice Claim", claim_name)
@@ -2245,15 +2245,14 @@ def notify_vendor_claim_accounts_l2_approved(claim_name: str) -> None:
     amount = float(getattr(doc, "net_payable_amount", 0.0) or 0.0)
     doc_url = _get_form_url("Vendor Invoice Claim", claim_name)
 
-    recipients = _get_matrix_or_role_approvers(
-        company=company,
-        document_lane="AP Vendor Invoice",
-        level_number=6,
-        fallback_roles=["Payment Releaser"],
-        stage_keyword="Payment"
-    )
-    if doc.owner and doc.owner not in recipients:
-        recipients.append(doc.owner)
+    # Maker-Checker Protocol: Payment Releasers are strictly NOT notified here.
+    # Only the Submitter / SPOC is notified that their claim has been approved.
+    # Payment Releasers are notified ONLY when Maker uploads the bank file and clicks 'Payment Release'.
+    recipients = []
+    if doc.owner and _resolve_email(doc.owner):
+        recipients.append(_resolve_email(doc.owner))
+    if not recipients:
+        return
 
     subject = f"✅ [Approved for Payment] [Invoice #{claim_name}] {company} - {vendor} (₹ {fmt_money(amount)})"
     html = f"""
@@ -2730,7 +2729,7 @@ def notify_admin_weekly_accounts_l1_approved(docname: str) -> None:
 
 
 def notify_admin_weekly_accounts_l2_approved(docname: str) -> None:
-    """Triggered when Accounts L2 sanctions payout. Alerts Submitter & Payment Releasers."""
+    """Triggered when Accounts L2 sanctions payout. Alerts Submitter."""
     if not frappe.db.exists("Admin Weekly Vendor Claim", docname):
         return
     doc = frappe.get_doc("Admin Weekly Vendor Claim", docname)
@@ -2739,28 +2738,16 @@ def notify_admin_weekly_accounts_l2_approved(docname: str) -> None:
     amt_str = fmt_money(amount)
     doc_url = _get_form_url("Admin Weekly Vendor Claim", docname)
 
+    # Maker-Checker Protocol: Payment Releasers are strictly NOT notified here.
+    # Only the Preparer / Submitter is notified that their claim has been approved.
+    # Payment Releasers are notified ONLY when Maker uploads the bank file and clicks 'Payment Release'.
     recipients = []
     if doc.prepared_by and _resolve_email(doc.prepared_by):
         recipients.append(_resolve_email(doc.prepared_by))
-
-    try:
-        from ap_automation.services.approval_service import get_matrix_designated_payment_releaser_and_accounts_director
-        matrix_checker, matrix_ad = get_matrix_designated_payment_releaser_and_accounts_director(
-            company=company, doctype="Admin Weekly Vendor Claim", amount=amount
-        )
-        for u in (matrix_checker, matrix_ad):
-            em = _resolve_email(u)
-            if em and em not in recipients:
-                recipients.append(em)
-    except Exception:
-        pass
-
-    if not recipients:
-        releasers = _get_enabled_role_users(["Payment Releaser", "Accounts Manager"])
-        for r in releasers:
-            em = _resolve_email(r)
-            if em and em not in recipients:
-                recipients.append(em)
+    if getattr(doc, "owner", None) and _resolve_email(doc.owner):
+        em_owner = _resolve_email(doc.owner)
+        if em_owner and em_owner not in recipients:
+            recipients.append(em_owner)
 
     if not recipients:
         return
