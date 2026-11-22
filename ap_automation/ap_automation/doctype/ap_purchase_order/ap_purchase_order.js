@@ -33,6 +33,22 @@ frappe.ui.form.on('AP Purchase Order', {
 
         render_entity_letterhead_banner(frm);
         render_custom_po_actions(frm);
+        if (!frm.is_new()) {
+            frappe.db.get_list('Vendor Invoice Claim Item', {
+                filters: { purchase_order: frm.doc.name, bill_payment_type: 'Advance / Part Payment' },
+                fields: ['parent'],
+                distinct: 1
+            }, function(res) {
+                if (res && res.length > 0) {
+                    let adv_claims = [...new Set(res.map(x => x.parent))];
+                    adv_claims.forEach(cname => {
+                        frm.add_custom_button(__('View Advance: {0}', [cname]), function() {
+                            frappe.set_route('Form', 'Vendor Invoice Claim', cname);
+                        }, __('Linked Advance Claims'));
+                    });
+                }
+            });
+        }
         update_dynamic_commercial_pills(frm);
         setup_dynamic_signatory_options(frm);
         if (frm.is_new() && frm.doc.spoc_user && !frm.doc.spoc_department) {
@@ -648,6 +664,15 @@ function open_po_advance_request_dialog(frm) {
                 description: __('Enter the advance or milestone amount to disburse (Max: PO Total Value).')
             },
             {
+                fieldname: 'gst_rate',
+                fieldtype: 'Select',
+                label: __('GST Rate on Advance'),
+                options: ['0%', '5%', '12%', '18%', '28%'],
+                default: (frm.doc.items && frm.doc.items.length > 0 && frm.doc.items[0].gst_rate) ? frm.doc.items[0].gst_rate : '0%',
+                reqd: 1,
+                description: __('Select GST rate for this advance (defaulted from PO item).')
+            },
+            {
                 fieldname: 'proforma_number',
                 fieldtype: 'Data',
                 label: __('Vendor Proforma Invoice / Demand Ref #'),
@@ -699,6 +724,7 @@ function open_po_advance_request_dialog(frm) {
                 args: {
                     po_name: frm.doc.name,
                     advance_amount: values.advance_amount,
+                    gst_rate: values.gst_rate || '0%',
                     proforma_number: values.proforma_number.trim(),
                     proforma_date: values.proforma_date,
                     proforma_attachment: values.proforma_attachment,
@@ -708,11 +734,12 @@ function open_po_advance_request_dialog(frm) {
                 freeze_message: __('Creating and Submitting Advance Claim for Accounts Review...'),
                 callback: function(r) {
                     if (r && r.message && r.message.status === 'success') {
+                        let cname = r.message.claim_name;
                         frappe.show_alert({
-                            message: __('Advance Claim #{0} created successfully! Routed for Accounts L1 review.', [r.message.claim_name]),
+                            message: __('Advance Claim #{0} created successfully! Directing to claim...', [cname]),
                             indicator: 'green'
-                        }, 7);
-                        frm.reload_doc();
+                        }, 5);
+                        frappe.set_route('Form', 'Vendor Invoice Claim', cname);
                     }
                 }
             });
