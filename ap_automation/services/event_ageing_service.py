@@ -20,6 +20,10 @@ def check_unsettled_event_advances(mock_today: Optional[str] = None) -> Dict[str
     today = datetime.datetime.strptime(today_str, "%Y-%m-%d").date()
 
     # Pre-fetch all open events with spoc_actual_spends directly to avoid loop queries
+    event_fields = ["name", "event_name", "company", "event_spoc", "end_date", "disbursed_advance", "spoc_actual_spends"]
+    if frappe.db.has_column("Event Master", "ageing_status"):
+        event_fields.append("ageing_status")
+
     open_events = frappe.get_all(
         "Event Master",
         filters={
@@ -27,7 +31,7 @@ def check_unsettled_event_advances(mock_today: Optional[str] = None) -> Dict[str
             "disbursed_advance": [">", 0],
             "end_date": ["<", today_str]
         },
-        fields=["name", "event_name", "company", "event_spoc", "end_date", "disbursed_advance", "spoc_actual_spends", "ageing_status"]
+        fields=event_fields
     )
 
     if not open_events:
@@ -84,10 +88,13 @@ def check_unsettled_event_advances(mock_today: Optional[str] = None) -> Dict[str
             continue
 
         if days_overdue >= 14:
-            frappe.db.set_value("Event Master", ev.name, {
-                "ageing_status": "OVERDUE_14_DAYS_PAYROLL_ALERT",
-                "payroll_deduction_flagged": 1 if unaccounted > 0 else 0
-            })
+            update_vals = {}
+            if frappe.db.has_column("Event Master", "ageing_status"):
+                update_vals["ageing_status"] = "OVERDUE_14_DAYS_PAYROLL_ALERT"
+            if frappe.db.has_column("Event Master", "payroll_deduction_flagged"):
+                update_vals["payroll_deduction_flagged"] = 1 if unaccounted > 0 else 0
+            if update_vals:
+                frappe.db.set_value("Event Master", ev.name, update_vals)
             escalations_14_days.append({
                 "event": ev.name,
                 "spoc": ev.event_spoc,
@@ -101,9 +108,10 @@ def check_unsettled_event_advances(mock_today: Optional[str] = None) -> Dict[str
             except Exception as e:
                 frappe.log_error(f"Event 14-day ageing alert failed for {ev.name}: {e}")
         elif days_overdue >= 7:
-            frappe.db.set_value("Event Master", ev.name, {
-                "ageing_status": "OVERDUE_7_DAYS_REMINDER"
-            })
+            if frappe.db.has_column("Event Master", "ageing_status"):
+                frappe.db.set_value("Event Master", ev.name, {
+                    "ageing_status": "OVERDUE_7_DAYS_REMINDER"
+                })
             escalations_7_days.append({
                 "event": ev.name,
                 "spoc": ev.event_spoc,

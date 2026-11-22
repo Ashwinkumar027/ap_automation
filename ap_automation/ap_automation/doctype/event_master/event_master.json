@@ -166,6 +166,21 @@
    "label": "Status",
    "options": "Event Created\nPlanning\nBudget Approved\nAdvance Disbursed\nIn Progress\nSettlement Pending\nClosed\nCancelled",
    "read_only": 1
+  },
+  {
+   "default": "CURRENT",
+   "fieldname": "ageing_status",
+   "fieldtype": "Select",
+   "label": "Settlement Ageing Status",
+   "options": "CURRENT\nOVERDUE_7_DAYS_REMINDER\nOVERDUE_14_DAYS_PAYROLL_ALERT\nSETTLED",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "payroll_deduction_flagged",
+   "fieldtype": "Check",
+   "label": "Payroll Deduction Flagged",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
