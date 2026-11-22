@@ -122,11 +122,12 @@ def validate_event_settlement(settlement_doc) -> None:
 def _close_event_master_on_settlement(voucher_doc) -> None:
     """Marks linked Event Master as formally Closed, resets ageing flags, and dispatches closure notice."""
     if getattr(voucher_doc, "event", None):
-        frappe.db.set_value("Event Master", voucher_doc.event, {
-            "status": "Closed",
-            "ageing_status": "CURRENT",
-            "payroll_deduction_flagged": 0,
-        }, update_modified=True)
+        update_vals = {"status": "Closed"}
+        if frappe.db.has_column("Event Master", "ageing_status"):
+            update_vals["ageing_status"] = "CURRENT"
+        if frappe.db.has_column("Event Master", "payroll_deduction_flagged"):
+            update_vals["payroll_deduction_flagged"] = 0
+        frappe.db.set_value("Event Master", voucher_doc.event, update_vals, update_modified=True)
     frappe.db.commit()
 
     try:
@@ -437,10 +438,12 @@ def audit_and_settle_refund(settlement_name: str, verified_utr: Optional[str] = 
         "refund_date": frappe.utils.nowdate()
     }, update_modified=True)
 
-    frappe.db.set_value("Event Master", doc.event, {
-        "status": "Closed",
-        "ageing_status": "CURRENT"
-    }, update_modified=True)
+    event_update_vals = {"status": "Closed"}
+    if frappe.db.has_column("Event Master", "ageing_status"):
+        event_update_vals["ageing_status"] = "CURRENT"
+    if frappe.db.has_column("Event Master", "payroll_deduction_flagged"):
+        event_update_vals["payroll_deduction_flagged"] = 0
+    frappe.db.set_value("Event Master", doc.event, event_update_vals, update_modified=True)
     frappe.db.commit()
 
     try:
