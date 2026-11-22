@@ -2998,6 +2998,33 @@ def notify_po_stage_transition(po_name: str, from_stage: str, to_stage: str, app
         if resolved:
             recipients.append(resolved)
 
+    # 1. Dynamic AP Approval Matrix resolution
+    if not recipients:
+        from ap_automation.ap_automation.doctype.ap_purchase_order.ap_purchase_order import resolve_po_workflow_policy
+        policy = resolve_po_workflow_policy(po.company_entity, po.spoc_department)
+        if policy and policy.get("approval_levels"):
+            levels = policy.get("approval_levels")
+            target_level = None
+            to_lower = (to_stage or "").lower()
+            if "assistant" in to_lower:
+                target_level = levels[0]
+            elif "manager" in to_lower:
+                target_level = levels[1] if len(levels) > 1 else levels[0]
+            elif "hod" in to_lower or "director" in to_lower:
+                target_level = levels[2] if len(levels) > 2 else (levels[1] if len(levels) > 1 else levels[0])
+
+            if target_level:
+                if target_level.designated_approver:
+                    em = _resolve_email(target_level.designated_approver)
+                    if em and em not in recipients:
+                        recipients.append(em)
+                elif target_level.approver_role:
+                    for u in _get_matrix_or_role_recipients(po.company_entity, target_level.level_number, [target_level.approver_role]):
+                        em = _resolve_email(u)
+                        if em and em not in recipients:
+                            recipients.append(em)
+
+    # 2. HoD / Director fallback
     if not recipients:
         sig_val = getattr(po, "authorised_signatory", None)
         sig = _resolve_email(sig_val)
@@ -3007,16 +3034,23 @@ def notify_po_stage_transition(po_name: str, from_stage: str, to_stage: str, app
         if sig and ("Director" in (to_stage or "") or "HoD" in (to_stage or "")):
             recipients.append(sig)
 
+    # 3. Scoped role fallback (company restricted)
     if not recipients:
         stage_role_map = {
-            "Pending Assistant Admin Manager": ["Assistant Admin Manager", "Admin L1 Approver", "Admin Manager"],
+            "Pending Assistant Admin Manager": ["Assistant Admin Manager", "Admin L1 Approver"],
+            "Pending Assistant Manager Review": ["Assistant Admin Manager", "Admin L1 Approver", "Assistant Manager"],
+            "Pending Admin Manager Review": ["Admin Manager", "Admin L2 Approver"],
             "Pending Admin Manager": ["Admin Manager", "Admin L2 Approver"],
             "Pending Manager Review": ["Admin Manager", "Admin L2 Approver", "Accounts Manager"],
             "Pending Director Approval": ["AP Director", "Accounts Director"],
             "Pending HoD Approval": ["AP Director", "Accounts Director", "Admin L2 Approver"],
         }
         target_roles = stage_role_map.get(to_stage, ["Admin L1 Approver", "Admin L2 Approver", "AP Director"])
-        for u in _get_enabled_role_users(target_roles):
+        comp_users = frappe.db.get_all("Employee", filters={"company": po.company_entity, "status": "Active"}, pluck="user_id")
+        comp_users = [u for u in comp_users if u]
+        role_users = _get_enabled_role_users(target_roles)
+        matched_comp_users = [u for u in role_users if u in comp_users] if comp_users else []
+        for u in (matched_comp_users or role_users):
             em = _resolve_email(u)
             if em and em not in recipients:
                 recipients.append(em)

@@ -397,7 +397,10 @@ class APPurchaseOrder(Document):
 
         try:
             from ap_automation.services.notification_service import notify_po_stage_transition
-            notify_po_stage_transition(self.name, "Draft", self.status)
+            approver = None
+            if policy and policy.get("approval_levels"):
+                approver = policy.approval_levels[0].designated_approver
+            notify_po_stage_transition(self.name, "Draft", self.status, approver_user=approver)
         except Exception as e:
             frappe.log_error(f"Error dispatching PO submission notification: {e}")
 
@@ -409,11 +412,12 @@ class APPurchaseOrder(Document):
         return self.submit_po()
 
     @frappe.whitelist()
-    def review_by_assistant_manager(self, comments: Optional[str] = None):
+    def review_by_assistant_manager(self, comments: Optional[str] = None, remarks: Optional[str] = None, **kwargs):
         """Assistant Manager reviews PO and forwards to Department / Admin Manager."""
         if self.status != "Pending Assistant Manager Review":
             frappe.throw(_(f"PO must be in 'Pending Assistant Manager Review'. Current status: '{self.status}'."))
 
+        comments = comments or remarks or ""
         self.assistant_manager_reviewer = frappe.session.user
         self.assistant_manager_reviewed_on = now_datetime()
         
@@ -435,18 +439,23 @@ class APPurchaseOrder(Document):
 
         try:
             from ap_automation.services.notification_service import notify_po_stage_transition
-            notify_po_stage_transition(self.name, "Pending Assistant Manager Review", self.status)
+            approver = None
+            policy = resolve_po_workflow_policy(self.company_entity, self.spoc_department)
+            if policy and policy.get("approval_levels") and len(policy.approval_levels) > 1:
+                approver = policy.approval_levels[1].designated_approver
+            notify_po_stage_transition(self.name, "Pending Assistant Manager Review", self.status, approver_user=approver)
         except Exception as e:
             frappe.log_error(f"PO Assistant Manager review notification error: {e}")
 
         return {"status": "success", "message": f"Purchase Order #{self.name} forwarded to Manager.", "po_status": self.status}
 
     @frappe.whitelist()
-    def review_by_manager(self, comments: Optional[str] = None):
+    def review_by_manager(self, comments: Optional[str] = None, remarks: Optional[str] = None, **kwargs):
         """Department / Admin Manager reviews PO and forwards for Director Final Sanction."""
         if self.status not in ("Pending Admin Manager Review", "Pending Manager Review", "Pending Assistant Manager Review"):
             frappe.throw(_(f"PO cannot be reviewed by Manager in '{self.status}' status."))
 
+        comments = comments or remarks or ""
         self.manager_reviewer = frappe.session.user
         self.manager_reviewed_on = now_datetime()
         self.status = "Pending HoD Approval"
@@ -461,14 +470,16 @@ class APPurchaseOrder(Document):
 
         try:
             from ap_automation.services.notification_service import notify_po_stage_transition
-            notify_po_stage_transition(self.name, "Pending Manager Review", "Pending HoD Approval")
+            approver = getattr(self, "authorised_signatory", None)
+            notify_po_stage_transition(self.name, "Pending Manager Review", "Pending HoD Approval", approver_user=approver)
         except Exception as e:
             frappe.log_error(f"PO Manager review notification error: {e}")
 
         return {"status": "success", "message": f"Purchase Order #{self.name} forwarded for Director Approval.", "po_status": self.status}
 
     @frappe.whitelist()
-    def return_po(self, remarks: str = "Commercial discrepancy"):
+    def return_po(self, remarks: str = "Commercial discrepancy", comments: Optional[str] = None, **kwargs):
+        remarks = remarks or comments or "Commercial discrepancy" 
         """Returns PO to Draft for corrections."""
         if not remarks or len(remarks.strip()) < 5:
             frappe.throw(_("Return remarks are required."))
@@ -498,7 +509,8 @@ class APPurchaseOrder(Document):
         return self.return_po(remarks)
 
     @frappe.whitelist()
-    def cancel_po(self, reason: str):
+    def cancel_po(self, reason: str = "", remarks: Optional[str] = None, **kwargs):
+        reason = reason or remarks or "" 
         """Cancels an existing PO with mandatory remarks."""
         if not reason or len(reason.strip()) < 10:
             frappe.throw(_("A cancellation reason (minimum 10 characters) is mandatory."))
@@ -707,21 +719,21 @@ def reject_by_hod(po_name: str, remarks: str = "Commercial discrepancy"):
 
 
 @frappe.whitelist()
-def review_by_assistant_manager(po_name: str, comments: Optional[str] = None):
+def review_by_assistant_manager(po_name: str, comments: Optional[str] = None, remarks: Optional[str] = None, **kwargs):
     doc = frappe.get_doc("AP Purchase Order", po_name)
-    return doc.review_by_assistant_manager(comments)
+    return doc.review_by_assistant_manager(comments=comments, remarks=remarks, **kwargs)
 
 
 @frappe.whitelist()
-def review_by_manager(po_name: str, comments: Optional[str] = None):
+def review_by_manager(po_name: str, comments: Optional[str] = None, remarks: Optional[str] = None, **kwargs):
     doc = frappe.get_doc("AP Purchase Order", po_name)
-    return doc.review_by_manager(comments)
+    return doc.review_by_manager(comments=comments, remarks=remarks, **kwargs)
 
 
 @frappe.whitelist()
-def cancel_po(po_name: str, reason: str):
+def cancel_po(po_name: str, reason: str = "", remarks: Optional[str] = None, **kwargs):
     doc = frappe.get_doc("AP Purchase Order", po_name)
-    return doc.cancel_po(reason)
+    return doc.cancel_po(reason=reason, remarks=remarks, **kwargs)
 
 
 @frappe.whitelist()
