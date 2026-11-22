@@ -559,7 +559,7 @@ function render_vendor_claim_approval_buttons(frm) {
                 }, __('Manager Approval'), __('Approve & Advance'));
             }).addClass('btn-primary').css({ 'background-color': '#059669', 'border-color': '#047857', 'color': '#fff' });
 
-            frm.add_custom_button(__('✕ Return / Reject Claim'), function() {
+            frm.add_custom_button(__('Return / Reject Claim'), function() {
                 open_vendor_dispute_modal(frm);
             }).addClass('btn-danger').css({ 'background-color': '#dc2626', 'border-color': '#b91c1c', 'color': '#fff' });
         }
@@ -588,7 +588,7 @@ function render_vendor_claim_approval_buttons(frm) {
                 }, __('Executive Director Approval'), __('Sanction & Advance to Accounts'));
             }).addClass('btn-primary').css({ 'background-color': '#7c3aed', 'border-color': '#6d28d9', 'color': '#fff' });
 
-            frm.add_custom_button(__('✕ Return / Reject Claim'), function() {
+            frm.add_custom_button(__('Return / Reject Claim'), function() {
                 open_vendor_dispute_modal(frm);
             }).addClass('btn-danger').css({ 'background-color': '#dc2626', 'border-color': '#b91c1c', 'color': '#fff' });
         }
@@ -632,7 +632,7 @@ function render_vendor_claim_approval_buttons(frm) {
                 }, __('Accounts L1 Audit & Tally Posting'), __('Verify & Advance to L2'));
             }).addClass('btn-primary').css({ 'background-color': '#2563eb', 'border-color': '#1d4ed8', 'color': '#fff' });
 
-            frm.add_custom_button(__('✕ Return / Reject Claim'), function() {
+            frm.add_custom_button(__('Return / Reject Claim'), function() {
                 open_vendor_dispute_modal(frm);
             }).addClass('btn-danger').css({ 'background-color': '#dc2626', 'border-color': '#b91c1c', 'color': '#fff' });
         }
@@ -662,7 +662,7 @@ function render_vendor_claim_approval_buttons(frm) {
                 );
             }).addClass('btn-primary').css({ 'background-color': '#059669', 'border-color': '#047857', 'color': '#fff' });
 
-            frm.add_custom_button(__('✕ Return / Reject Claim'), function() {
+            frm.add_custom_button(__('Return / Reject Claim'), function() {
                 open_vendor_dispute_modal(frm);
             }).addClass('btn-danger').css({ 'background-color': '#dc2626', 'border-color': '#b91c1c', 'color': '#fff' });
         }

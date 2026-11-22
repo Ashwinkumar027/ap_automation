@@ -598,30 +598,37 @@ def notify_accounts_l2_on_accounts_l1_audited(docname: str) -> None:
 
 
 def notify_releaser_on_accounts_l2_sanctioned(docname: str) -> None:
-    """10. Step 7: Accounts L2 authorizes -> Notifies Payment Releaser / Cashier."""
+    """10. Step 7: Accounts L2 authorizes -> Notifies Employee that claim is approved for payment."""
     doc = frappe.get_doc("Employee Reimbursement Claim", docname)
-    releasers = _get_matrix_or_role_recipients(doc.company, 6, ["Payment Releaser"])
+    # Maker-Checker Protocol: Payment Releasers are strictly NOT notified here.
+    # Only the Employee is notified that their claim has been sanctioned.
+    # Payment Releasers are notified ONLY when Maker uploads the bank file and clicks 'Payment Release'.
+    emp_email = _resolve_email_address(doc.employee)
+    if not emp_email and doc.owner:
+        emp_email = _resolve_email_address(doc.owner)
+    if not emp_email:
+        return
 
     doc_url = _get_form_url("Employee Reimbursement Claim", docname)
     sanctioned = flt(doc.sanctioned_amount or doc.total_claim_amount)
-    subject = f"Re: [Claim #{doc.name}] {doc.employee_name} - {doc.claim_category or 'Expense'} (₹ {_safe_fmt_money(sanctioned)}) - Ready for Payment"
+    subject = f"Re: [Claim #{doc.name}] {doc.employee_name} - {doc.claim_category or 'Expense'} (₹ {_safe_fmt_money(sanctioned)}) - Approved for Payment"
     body = _build_html_template(
-        title="Payment Release Ready",
-        subtitle="Stage 7 &bull; Treasury & Disbursal",
-        greeting_name="Payment Releaser / Cashier",
+        title="Claim Approved for Payment",
+        subtitle="Stage 7 &bull; Final Clearance",
+        greeting_name=doc.employee_name,
         main_message=(
-            f"Claim <b>#{doc.name}</b> for <b>{doc.employee_name}</b> is fully sanctioned. "
-            f"Please disburse payment to beneficiary account."
+            f"Your claim <b>#{doc.name}</b> has been approved by Accounts Director / L2. "
+            f"It is now queued for corporate banking payment release."
         ),
-        metric_label_1="Disbursal Amount",
+        metric_label_1="Approved Amount",
         metric_val_1=f"₹ {_safe_fmt_money(sanctioned)}",
         metric_label_2="Beneficiary Account",
         metric_val_2=f"{doc.employee_name} &bull; {doc.bank_name} ({doc.bank_account_number})",
         doc_url=doc_url,
-        button_text="Disburse & Mark Paid",
+        button_text="View Claim in Desk",
         badge_color="#16a34a"
     )
-    _dispatch_reimbursement_email(releasers, subject, body, "Employee Reimbursement Claim", docname)
+    _dispatch_reimbursement_email([emp_email], subject, body, "Employee Reimbursement Claim", docname)
 
 
 def notify_employee_on_payment_released(docname: str, payment_reference: str) -> None:
