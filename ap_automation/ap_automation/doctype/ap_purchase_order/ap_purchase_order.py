@@ -331,8 +331,9 @@ class APPurchaseOrder(Document):
             if "assistant" in lvl_name:
                 target_status = "Pending Assistant Manager Review"
                 next_approver_desc = first_level.level_name
-            elif "manager" in lvl_name:
-                target_status = "Pending Admin Manager Review" if "admin" in lvl_name else "Pending Manager Review"
+            elif "manager" in lvl_name or "l1" in lvl_name or "admin" in lvl_name or len(levels) > 1:
+                dept_str = (getattr(self, "spoc_department", "") or "").lower() + " " + lvl_name
+                target_status = "Pending Admin Manager Review" if "admin" in dept_str else "Pending Manager Review"
                 next_approver_desc = first_level.level_name
 
         self.status = target_status
