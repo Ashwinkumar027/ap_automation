@@ -33,24 +33,9 @@ frappe.ui.form.on('AP Purchase Order', {
 
         render_entity_letterhead_banner(frm);
         render_custom_po_actions(frm);
-        if (!frm.is_new()) {
-            frappe.db.get_list('Vendor Invoice Claim Item', {
-                filters: { purchase_order: frm.doc.name, bill_payment_type: 'Advance / Part Payment' },
-                fields: ['parent'],
-                distinct: 1
-            }, function(res) {
-                if (res && res.length > 0) {
-                    let adv_claims = [...new Set(res.map(x => x.parent))];
-                    adv_claims.forEach(cname => {
-                        frm.add_custom_button(__('View Advance: {0}', [cname]), function() {
-                            frappe.set_route('Form', 'Vendor Invoice Claim', cname);
-                        }, __('Linked Advance Claims'));
-                    });
-                }
-            });
-        }
         update_dynamic_commercial_pills(frm);
         setup_dynamic_signatory_options(frm);
+        load_po_advance_summary(frm);
         if (frm.is_new() && frm.doc.spoc_user && !frm.doc.spoc_department) {
             frm.trigger('spoc_user');
         }
@@ -327,24 +312,7 @@ function update_dynamic_commercial_pills(frm) {
         open_po_advance_request_dialog(frm);
     });
 
-    if (frm.doc.status === "Active PO" && adv > 0 && !frm.is_new()) {
-        frappe.db.get_value("Vendor Invoice Item", {
-            purchase_order: frm.doc.name,
-            bill_payment_type: "Advance / Part Payment"
-        }, ["parent", "line_status"], function(res) {
-            if (res && res.parent) {
-                frappe.db.get_value("Vendor Invoice Claim", res.parent, ["status", "utr"], function(cres) {
-                    if (cres) {
-                        let st = cres.status || "Pending";
-                        let utr_info = cres.utr ? ` &bull; UTR: <code>${cres.utr}</code>` : "";
-                        let adv_pill = `<div style="font-size: 11px; margin-top: 6px; padding: 3px 8px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; color: #92400e; font-weight: 700;">Claim #${res.parent} (${st})${utr_info}</div>`;
-                        $(frm.wrapper).find('.ap-po-adv-claim-pill').remove();
-                        $(frm.wrapper).find('.ap-po-dashboard').children().eq(1).append(`<div class="ap-po-adv-claim-pill">${adv_pill}</div>`);
-                    }
-                });
-            }
-        });
-    }
+// Advance pill is updated cleanly via load_po_advance_summary
 }
 
 function render_custom_po_actions(frm) {
@@ -759,6 +727,35 @@ if (frappe.realtime) {
                 indicator: 'green'
             }, 10);
             cur_frm.reload_doc();
+        }
+    });
+}
+
+
+function load_po_advance_summary(frm) {
+    if (frm.is_new() || !frm.doc.name) return;
+
+    frappe.call({
+        method: 'ap_automation.ap_automation.doctype.ap_purchase_order.ap_purchase_order.get_po_advance_summary',
+        args: { po_name: frm.doc.name },
+        callback: function(r) {
+            let claims = r.message || [];
+            if (claims && claims.length > 0) {
+                claims.forEach(function(c) {
+                    frm.add_custom_button(__('View Advance: {0}', [c.name]), function() {
+                        frappe.set_route('Form', 'Vendor Invoice Claim', c.name);
+                    }, __('Linked Advance Claims'));
+                });
+
+                if (frm.doc.status === "Active PO") {
+                    let latest = claims[0];
+                    let st = latest.status || "Pending";
+                    let utr_info = latest.utr ? ` &bull; UTR: <code>${frappe.utils.escape_html(latest.utr)}</code>` : "";
+                    let adv_pill = `<div style="font-size: 11px; margin-top: 6px; padding: 3px 8px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; color: #92400e; font-weight: 700;">Claim #${latest.name} (${st})${utr_info}</div>`;
+                    $(frm.wrapper).find('.ap-po-adv-claim-pill').remove();
+                    $(frm.wrapper).find('.ap-po-dashboard').children().eq(1).append(`<div class="ap-po-adv-claim-pill">${adv_pill}</div>`);
+                }
+            }
         }
     });
 }
