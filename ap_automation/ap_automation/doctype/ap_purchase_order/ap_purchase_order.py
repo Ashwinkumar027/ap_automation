@@ -748,9 +748,12 @@ def get_po_advance_summary(po_name: str) -> list[dict]:
     if not po_name:
         return []
 
+    has_utr = frappe.db.has_column("Vendor Invoice Claim", "utr")
+    utr_col = ", vic.utr" if has_utr else ""
+
     claims = frappe.db.sql(
-        """
-        SELECT DISTINCT vii.parent AS name, vic.status, vic.utr
+        f"""
+        SELECT DISTINCT vii.parent AS name, vic.status{utr_col}
         FROM `tabVendor Invoice Item` vii
         INNER JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
         WHERE vii.purchase_order = %(po)s
