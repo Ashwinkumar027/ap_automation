@@ -740,3 +740,25 @@ def cancel_po(po_name: str, reason: str = "", remarks: Optional[str] = None, **k
 def revise_po(po_name: str, reason: str):
     doc = frappe.get_doc("AP Purchase Order", po_name)
     return doc.revise_po(reason)
+
+
+@frappe.whitelist()
+def get_po_advance_summary(po_name: str) -> list[dict]:
+    """Returns linked advance claims for the given PO without client-side permission issues."""
+    if not po_name:
+        return []
+
+    claims = frappe.db.sql(
+        """
+        SELECT DISTINCT vii.parent AS name, vic.status, vic.utr
+        FROM `tabVendor Invoice Item` vii
+        INNER JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
+        WHERE vii.purchase_order = %(po)s
+          AND vii.bill_payment_type = 'Advance / Part Payment'
+          AND vic.docstatus < 2
+        ORDER BY vic.creation DESC
+        """,
+        {"po": po_name},
+        as_dict=True,
+    )
+    return claims or []
