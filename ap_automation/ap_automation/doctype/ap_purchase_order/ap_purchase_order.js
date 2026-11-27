@@ -354,98 +354,117 @@ function render_custom_po_actions(frm) {
 
     // 3. Stage 1: Pending Assistant Manager Review (Admin Dept)
     if (frm.doc.status === 'Pending Assistant Manager Review') {
-        frm.add_custom_button(__('Recommend and Forward to Manager'), function() {
-            frappe.prompt([
-                { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Review Remarks'), reqd: 1 }
-            ], function(values) {
-                frappe.call({
-                    method: 'review_by_assistant_manager',
-                    doc: frm.doc,
-                    args: { remarks: values.remarks },
-                    freeze: true,
-                    freeze_message: __('Forwarding PO to Manager...'),
-                    callback: function(r) {
-                        if (!r.exc) {
-                            frappe.show_alert({ message: __('Purchase Order reviewed and forwarded to Manager.'), indicator: 'green' });
-                            frm.reload_doc();
-                        }
-                    }
-                });
-            }, __('Assistant Manager Review'), __('Forward to Manager'));
-        }).addClass('btn-primary');
+        let current_user = frappe.session.user;
+        let is_admin = frappe.user.has_role('System Manager') || current_user === 'Administrator';
+        let is_l1 = frappe.user.has_role('Admin L1 Approver') || is_admin;
 
-        frm.add_custom_button(__('Return to Requester'), function() {
-            frappe.prompt([
-                { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Return Reason / Discrepancy Remarks'), reqd: 1 }
-            ], function(values) {
-                frappe.call({
-                    method: 'return_po',
-                    doc: frm.doc,
-                    args: { remarks: values.remarks },
-                    freeze: true,
-                    freeze_message: __('Returning PO to Draft...'),
-                    callback: function(r) {
-                        if (!r.exc) {
-                            frappe.show_alert({ message: __('Purchase Order returned to Draft.'), indicator: 'orange' });
-                            frm.reload_doc();
+        if (is_l1) {
+            frm.add_custom_button(__('Approve and Sign PO'), function() {
+                frappe.prompt([
+                    { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Approval Remarks / Notes'), reqd: 0 }
+                ], function(values) {
+                    frappe.call({
+                        method: 'review_by_assistant_manager',
+                        doc: frm.doc,
+                        args: { remarks: values.remarks },
+                        freeze: true,
+                        freeze_message: __('Digitally Signing and Activating PO...'),
+                        callback: function(r) {
+                            if (!r.exc) {
+                                frappe.show_alert({
+                                    message: __('Purchase Order approved and digitally signed. Status transitioned to Active PO.'),
+                                    indicator: 'green'
+                                }, 6);
+                                frm.reload_doc();
+                            }
                         }
-                    }
-                });
-            }, __('Return Purchase Order'), __('Return to Draft'));
-        }).addClass('btn-danger');
+                    });
+                }, __('Assistant Manager Approval & Digital Seal'), __('Approve & Sign'));
+            }).addClass('btn-success').css({
+                'background-color': '#16a34a',
+                'border-color': '#15803d',
+                'color': '#ffffff',
+                'font-weight': '700'
+            });
+
+            frm.add_custom_button(__('Return to Requester'), function() {
+                frappe.prompt([
+                    { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Return Reason / Discrepancy Remarks'), reqd: 1 }
+                ], function(values) {
+                    frappe.call({
+                        method: 'return_po',
+                        doc: frm.doc,
+                        args: { remarks: values.remarks },
+                        freeze: true,
+                        freeze_message: __('Returning PO to Draft...'),
+                        callback: function(r) {
+                            if (!r.exc) {
+                                frappe.show_alert({ message: __('Purchase Order returned to Draft.'), indicator: 'orange' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Return Purchase Order'), __('Return to Draft'));
+            }).addClass('btn-danger');
+        }
     }
 
     // 4. Stage 2: Pending Manager Review (Admin Manager or Department Manager)
     if (frm.doc.status === 'Pending Manager Review' || frm.doc.status === 'Pending Admin Manager Review') {
-        frm.add_custom_button(__('Approve and Forward to Director'), function() {
-            frappe.prompt([
-                { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Manager Review Remarks'), reqd: 1 }
-            ], function(values) {
-                frappe.call({
-                    method: 'review_by_manager',
-                    doc: frm.doc,
-                    args: { remarks: values.remarks },
-                    freeze: true,
-                    freeze_message: __('Forwarding PO to Director...'),
-                    callback: function(r) {
-                        if (!r.exc) {
-                            frappe.show_alert({ message: __('Purchase Order approved and forwarded to Director.'), indicator: 'green' });
-                            frm.reload_doc();
-                        }
-                    }
-                });
-            }, __('Manager Approval Review'), __('Forward to Director'));
-        }).addClass('btn-primary');
+        let current_user = frappe.session.user;
+        let is_admin = frappe.user.has_role('System Manager') || current_user === 'Administrator';
+        let is_manager = frappe.user.has_role('Admin L2 Approver') || frappe.user.has_role('Admin Manager') || frappe.user.has_role('Department Manager');
 
-        frm.add_custom_button(__('Return PO'), function() {
-            frappe.prompt([
-                { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Return Reason / Discrepancy Remarks'), reqd: 1 }
-            ], function(values) {
-                frappe.call({
-                    method: 'return_po',
-                    doc: frm.doc,
-                    args: { remarks: values.remarks },
-                    freeze: true,
-                    freeze_message: __('Returning PO...'),
-                    callback: function(r) {
-                        if (!r.exc) {
-                            frappe.show_alert({ message: __('Purchase Order returned.'), indicator: 'orange' });
-                            frm.reload_doc();
+        if (is_admin || is_manager) {
+            frm.add_custom_button(__('Approve and Forward to Director'), function() {
+                frappe.prompt([
+                    { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Manager Review Remarks'), reqd: 1 }
+                ], function(values) {
+                    frappe.call({
+                        method: 'review_by_manager',
+                        doc: frm.doc,
+                        args: { remarks: values.remarks },
+                        freeze: true,
+                        freeze_message: __('Forwarding PO to Director...'),
+                        callback: function(r) {
+                            if (!r.exc) {
+                                frappe.show_alert({ message: __('Purchase Order approved and forwarded to Director.'), indicator: 'green' });
+                                frm.reload_doc();
+                            }
                         }
-                    }
-                });
-            }, __('Return Purchase Order'), __('Return PO'));
-        }).addClass('btn-danger');
+                    });
+                }, __('Manager Approval Review'), __('Forward to Director'));
+            }).addClass('btn-primary');
+
+            frm.add_custom_button(__('Return PO'), function() {
+                frappe.prompt([
+                    { fieldname: 'remarks', fieldtype: 'Small Text', label: __('Return Reason / Discrepancy Remarks'), reqd: 1 }
+                ], function(values) {
+                    frappe.call({
+                        method: 'return_po',
+                        doc: frm.doc,
+                        args: { remarks: values.remarks },
+                        freeze: true,
+                        freeze_message: __('Returning PO...'),
+                        callback: function(r) {
+                            if (!r.exc) {
+                                frappe.show_alert({ message: __('Purchase Order returned.'), indicator: 'orange' });
+                                frm.reload_doc();
+                            }
+                        }
+                    });
+                }, __('Return Purchase Order'), __('Return PO'));
+            }).addClass('btn-danger');
+        }
     }
 
     // 5. Stage 3: Pending HoD / Director Approval
     if (frm.doc.status === 'Pending HoD Approval') {
         let current_user = frappe.session.user;
-        let is_signatory = (frm.doc.authorised_signatory && frm.doc.authorised_signatory === current_user);
         let is_admin = frappe.user.has_role('System Manager') || current_user === 'Administrator';
         let is_director = frappe.user.has_role('AP Director') || frappe.user.has_role('Director') || frappe.user.has_role('Accounts Director');
 
-        if (is_signatory || is_admin || is_director) {
+        if (is_admin || is_director) {
             // Approve & Sign Button
             frm.add_custom_button(__('Approve and Sign PO'), function() {
                 let current_sig = frm.doc.signatory_name || 'Director';
@@ -507,8 +526,35 @@ function render_custom_po_actions(frm) {
         }
     }
 
-    // 6. Active PO Actions: Request Advance & Revise PO
+    // 6. Active PO Actions: Create Vendor Invoice, Request Advance & Revise PO
     if (frm.doc.status === 'Active PO') {
+        frm.add_custom_button(__('Create Vendor Invoice'), function() {
+            frappe.confirm(
+                `Create a new <strong>Vendor Invoice Claim</strong> against PO <strong>#${frm.doc.name}</strong>?<br><small style="color: #64748b;">This will copy vendor details, line items, and auto-apply prior advance deductions.</small>`,
+                function() {
+                    frappe.call({
+                        method: 'ap_automation.ap_automation.doctype.vendor_invoice_claim.vendor_invoice_claim.create_po_vendor_invoice_claim',
+                        args: { po_name: frm.doc.name },
+                        freeze: true,
+                        freeze_message: __('Generating Pre-populated Vendor Invoice Claim...'),
+                        callback: function(r) {
+                            if (r.message && r.message.claim_name) {
+                                frappe.show_alert({
+                                    message: __('Draft Invoice Claim created: ' + r.message.claim_name),
+                                    indicator: 'green'
+                                }, 5);
+                                frappe.set_route('Form', 'Vendor Invoice Claim', r.message.claim_name);
+                            }
+                        }
+                    });
+                }
+            );
+        }).addClass('btn-primary').css({
+            'background-color': '#1e3a8a',
+            'border-color': '#1d4ed8',
+            'color': '#ffffff',
+            'font-weight': '700'
+        });
         frm.add_custom_button(__('Request PO Advance'), function() {
             open_po_advance_request_dialog(frm);
         }).addClass('btn-primary').css({
@@ -739,21 +785,44 @@ function load_po_advance_summary(frm) {
         method: 'ap_automation.ap_automation.doctype.ap_purchase_order.ap_purchase_order.get_po_advance_summary',
         args: { po_name: frm.doc.name },
         callback: function(r) {
-            let claims = r.message || [];
+            let res = r.message || {};
+            let claims = Array.isArray(res) ? res : (res.claims || []);
+            let total_disbursed = res.total_advance_disbursed !== undefined ? flt(res.total_advance_disbursed) : null;
+            let balance_due = res.balance_due !== undefined ? flt(res.balance_due) : null;
+
             if (claims && claims.length > 0) {
                 claims.forEach(function(c) {
                     frm.add_custom_button(__('View Advance: {0}', [c.name]), function() {
                         frappe.set_route('Form', 'Vendor Invoice Claim', c.name);
                     }, __('Linked Advance Claims'));
                 });
+            }
 
-                if (frm.doc.status === "Active PO") {
+            if (frm.doc.status === "Active PO") {
+                let dashboard = $(frm.wrapper).find('.ap-po-dashboard');
+                if (dashboard.length > 0 && total_disbursed !== null) {
+                    // Update Advance card (Card 2)
+                    let card2 = dashboard.children().eq(1);
+                    card2.find('div:first > div:first').text('Advance Paid to Date');
+                    card2.find('div:nth-child(2)').text(`₹ ${format_currency(total_disbursed)}`);
+                    let dis_label = total_disbursed > 0 ? 'Disbursed' : 'No Advances Paid';
+                    card2.find('div:nth-child(3)').text(`Rate: ${frm.doc.advance_percentage || '0%'} | ${dis_label}`);
+
+                    // Update Balance card (Card 3)
+                    let card3 = dashboard.children().eq(2);
+                    card3.find('div:first').text('Outstanding Balance');
+                    card3.find('div:nth-child(2)').text(`₹ ${format_currency(balance_due)}`);
+                    card3.find('div:nth-child(3)').text(`Net remaining after advances`);
+                }
+
+                if (claims && claims.length > 0) {
                     let latest = claims[0];
                     let st = latest.status || "Pending";
                     let utr_info = latest.utr ? ` &bull; UTR: <code>${frappe.utils.escape_html(latest.utr)}</code>` : "";
-                    let adv_pill = `<div style="font-size: 11px; margin-top: 6px; padding: 3px 8px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; color: #92400e; font-weight: 700;">Claim #${latest.name} (${st})${utr_info}</div>`;
+                    let amt_info = latest.amount ? ` &bull; ₹ ${format_currency(latest.amount)}` : "";
+                    let adv_pill = `<div style="font-size: 11px; margin-top: 6px; padding: 3px 8px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; color: #92400e; font-weight: 700;">Claim #${latest.name} (${st})${amt_info}${utr_info}</div>`;
                     $(frm.wrapper).find('.ap-po-adv-claim-pill').remove();
-                    $(frm.wrapper).find('.ap-po-dashboard').children().eq(1).append(`<div class="ap-po-adv-claim-pill">${adv_pill}</div>`);
+                    dashboard.children().eq(1).append(`<div class="ap-po-adv-claim-pill">${adv_pill}</div>`);
                 }
             }
         }
