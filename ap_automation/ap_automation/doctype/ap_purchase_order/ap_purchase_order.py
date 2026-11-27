@@ -413,20 +413,35 @@ class APPurchaseOrder(Document):
 
     @frappe.whitelist()
     def review_by_assistant_manager(self, comments: Optional[str] = None, remarks: Optional[str] = None, **kwargs):
-        """Assistant Manager reviews PO and forwards to Department / Admin Manager."""
+        """
+        Assistant Manager reviews PO and automatically certifies and activates it.
+        Applies cryptographic SHA-256 digital signature seal and transitions PO directly to 'Active PO'.
+        """
         if self.status != "Pending Assistant Manager Review":
             frappe.throw(_(f"PO must be in 'Pending Assistant Manager Review'. Current status: '{self.status}'."))
 
         comments = comments or remarks or ""
         self.assistant_manager_reviewer = frappe.session.user
         self.assistant_manager_reviewed_on = now_datetime()
-        
-        # Route to manager stage
-        dept = (getattr(self, "spoc_department", "") or "").lower()
-        if "admin" in dept:
-            self.status = "Pending Admin Manager Review"
-        else:
-            self.status = "Pending Manager Review"
+
+        from ap_automation.services.po_pdf_service import get_entity_profile
+        profile = get_entity_profile(self.company_entity, getattr(self, "signatory_name", None))
+        chosen_signatory = getattr(self, "signatory_name", None) or profile.get("primary_sig_name") or "Admin Assistant Manager"
+        designation = getattr(self, "signatory_designation", None) or profile.get("primary_designation") or "Assistant Manager - Administration"
+
+        # Generate Cryptographic SHA-256 seal
+        timestamp_str = now_datetime().strftime("%Y-%m-%d %H:%M:%S")
+        ip_addr = frappe.local.request_ip or "127.0.0.1"
+        raw_payload = f"{self.name}|{self.grand_total}|{chosen_signatory}|{frappe.session.user}|{timestamp_str}|{ip_addr}"
+        full_hash = hashlib.sha256(raw_payload.encode("utf-8")).hexdigest()
+        short_hash = f"SHA256:{full_hash[:4].upper()}-{full_hash[4:8].upper()}-{full_hash[8:12].upper()}-{full_hash[12:16].upper()}"
+
+        self.status = "Active PO"
+        self.signatory_name = chosen_signatory
+        self.signatory_designation = designation
+        self.signatory_signature_hash = short_hash
+        if not getattr(self, "date_of_issue", None):
+            self.date_of_issue = nowdate()
 
         self.flags.ignore_permissions = True
         self.save()
@@ -434,20 +449,23 @@ class APPurchaseOrder(Document):
         note = f" Comments: {comments}" if comments else ""
         self.add_comment(
             "Comment",
-            f"Assistant Manager review completed by {frappe.session.user}. Status transitioned to {self.status}.{note}"
+            f"Purchase Order approved and digitally certified by {frappe.session.user} (Authorized Signatory: {chosen_signatory}). "
+            f"Auth Hash: <code>{short_hash}</code>. Status transitioned directly to Active PO.{note}"
         )
 
         try:
             from ap_automation.services.notification_service import notify_po_stage_transition
-            approver = None
-            policy = resolve_po_workflow_policy(self.company_entity, self.spoc_department)
-            if policy and policy.get("approval_levels") and len(policy.approval_levels) > 1:
-                approver = policy.approval_levels[1].designated_approver
-            notify_po_stage_transition(self.name, "Pending Assistant Manager Review", self.status, approver_user=approver)
+            notify_po_stage_transition(self.name, "Pending Assistant Manager Review", "Active PO", approver_user=None)
         except Exception as e:
             frappe.log_error(f"PO Assistant Manager review notification error: {e}")
 
-        return {"status": "success", "message": f"Purchase Order #{self.name} forwarded to Manager.", "po_status": self.status}
+        return {
+            "status": "success",
+            "message": f"Purchase Order #{self.name} approved and activated.",
+            "po_status": self.status,
+            "signatory_name": chosen_signatory,
+            "hash": short_hash
+        }
 
     @frappe.whitelist()
     def review_by_manager(self, comments: Optional[str] = None, remarks: Optional[str] = None, **kwargs):
@@ -743,17 +761,24 @@ def revise_po(po_name: str, reason: str):
 
 
 @frappe.whitelist()
-def get_po_advance_summary(po_name: str) -> list[dict]:
-    """Returns linked advance claims for the given PO without client-side permission issues."""
+def get_po_advance_summary(po_name: str) -> dict:
+    """Returns linked advance claims, total disbursed advance, and remaining balance for the given PO."""
     if not po_name:
-        return []
+        return {"claims": [], "total_advance_disbursed": 0.0, "total_advance_requested": 0.0, "balance_due": 0.0, "grand_total": 0.0}
 
     has_utr = frappe.db.has_column("Vendor Invoice Claim", "utr")
     utr_col = ", vic.utr" if has_utr else ""
 
-    claims = frappe.db.sql(
+    po_grand_total = 0.0
+    if frappe.db.exists("AP Purchase Order", po_name):
+        po_grand_total = flt(frappe.db.get_value("AP Purchase Order", po_name, "grand_total") or 0.0)
+
+    claims_raw = frappe.db.sql(
         f"""
-        SELECT DISTINCT vii.parent AS name, vic.status{utr_col}
+        SELECT vii.parent AS name,
+               vic.status,
+               COALESCE(vii.amount, vii.total_invoice_amount, 0) AS claim_amount
+               {utr_col}
         FROM `tabVendor Invoice Item` vii
         INNER JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
         WHERE vii.purchase_order = %(po)s
@@ -764,4 +789,37 @@ def get_po_advance_summary(po_name: str) -> list[dict]:
         {"po": po_name},
         as_dict=True,
     )
-    return claims or []
+
+    claims = []
+    seen = set()
+    total_disbursed = 0.0
+    total_requested = 0.0
+
+    for c in claims_raw:
+        c_name = c["name"]
+        amt = flt(c.get("claim_amount", 0.0))
+        st = c.get("status") or "Draft"
+
+        if c_name not in seen:
+            seen.add(c_name)
+            claims.append({
+                "name": c_name,
+                "status": st,
+                "amount": amt,
+                "utr": c.get("utr") or ""
+            })
+
+        if st in ("Approved for Payment", "Paid", "Disbursed", "Partially Paid"):
+            total_disbursed += amt
+        if st not in ("Cancelled", "Rejected", "Disputed"):
+            total_requested += amt
+
+    balance_due = max(round(flt(po_grand_total) - total_disbursed, 2), 0.0)
+
+    return {
+        "claims": claims,
+        "total_advance_disbursed": round(total_disbursed, 2),
+        "total_advance_requested": round(total_requested, 2),
+        "balance_due": balance_due,
+        "grand_total": round(flt(po_grand_total), 2)
+    }

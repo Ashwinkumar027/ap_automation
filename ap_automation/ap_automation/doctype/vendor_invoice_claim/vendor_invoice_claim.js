@@ -340,8 +340,9 @@ frappe.ui.form.on("Vendor Invoice Claim", {
                         if (po.base_amount && (!frm.doc.base_amount || frm.doc.base_amount === 0)) {
                             frm.set_value("base_amount", po.base_amount);
                         }
-                        if (po.advance_amount && (!frm.doc.advance_deducted || frm.doc.advance_deducted === 0)) {
-                            frm.set_value("advance_deducted", po.advance_amount);
+                        let adv_val = flt(po.unadjusted_advance_total) > 0 ? flt(po.unadjusted_advance_total) : flt(po.advance_amount);
+                        if (adv_val > 0 && (!frm.doc.advance_deducted || frm.doc.advance_deducted === 0)) {
+                            frm.set_value("advance_deducted", adv_val);
                         }
                         calculate_vendor_totals(frm);
 
@@ -1934,12 +1935,24 @@ function calculate_vendor_totals(frm) {
         // Synchronize milestone advances entered in Already Paid Advances table
         if (milestone_sum > 0) {
             tot_adv = milestone_sum;
-            if (frm.doc.items.length === 1 && frm.doc.items[0].line_status !== "Disputed / Discrepancy") {
-                let r0 = frm.doc.items[0];
-                r0.advance_deducted = milestone_sum;
-                r0.amount = round_currency(Math.max(flt(r0.total_invoice_amount) - flt(r0.tds_amount) - milestone_sum - flt(r0.retention_hold_amount), 0.0));
+            let rem_adv = milestone_sum;
+            let items_changed = false;
+            frm.doc.items.forEach(r => {
+                if (r.line_status === "Disputed / Discrepancy") return;
+                let row_gross = flt(r.total_invoice_amount) - flt(r.tds_amount) - flt(r.retention_hold_amount);
+                let row_adj = Math.min(rem_adv, Math.max(row_gross, 0.0));
+                if (flt(r.advance_deducted) !== row_adj) {
+                    r.advance_deducted = round_currency(row_adj);
+                    r.amount = round_currency(Math.max(row_gross - row_adj, 0.0));
+                    items_changed = true;
+                }
+                rem_adv = Math.max(round_currency(rem_adv - row_adj), 0.0);
+            });
+            if (items_changed) {
                 frm.refresh_field("items");
             }
+        } else if (flt(frm.doc.advance_deducted) > 0 && tot_adv === 0) {
+            tot_adv = flt(frm.doc.advance_deducted);
         }
 
         // Synchronize claim-level retention hold if set

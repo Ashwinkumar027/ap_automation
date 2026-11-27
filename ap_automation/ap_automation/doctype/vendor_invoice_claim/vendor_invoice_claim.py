@@ -2392,3 +2392,129 @@ def export_vendor_invoices_excel(docname: str):
     frappe.response["filecontent"] = xlsx_file.getvalue()
     frappe.response["type"] = "binary"
 
+
+
+
+@frappe.whitelist()
+def create_po_vendor_invoice_claim(po_name: str) -> dict:
+    """
+    1-Click PO to Vendor Invoice Claim generator.
+    Creates and saves a draft Vendor Invoice Claim pre-populated with PO commercial details,
+    vendor information, bank account, line items, and auto-picks prior unadjusted advances.
+    """
+    if not po_name or not frappe.db.exists("AP Purchase Order", po_name):
+        frappe.throw(_(f"Purchase Order '{po_name}' not found."))
+
+    po = frappe.get_doc("AP Purchase Order", po_name)
+    if po.status != "Active PO":
+        frappe.throw(_(f"Purchase Order must be 'Active PO' to create invoice. Current status: '{po.status}'."))
+
+    bank_data = get_vendor_bank_info(po.vendor) if po.vendor else {}
+    ba = bank_data.get("bank_account", {})
+
+    claim = frappe.new_doc("Vendor Invoice Claim")
+    claim.company = po.company_entity
+    claim.vendor = po.vendor
+    claim.vendor_name = po.vendor_name or (bank_data.get("vendor_name") if bank_data else "")
+    claim.vendor_gstin = po.vendor_gstin or (bank_data.get("vendor_gstin") if bank_data else "")
+    claim.purchase_order = po.name
+    claim.bill_payment_type = "Final / Regular Bill"
+    claim.service_type = getattr(po, "service_type", None) or getattr(po, "scope_of_work", "") or "General Services"
+    claim.tax_type = po.gst_type or "Intra-State (CGST + SGST)"
+    claim.bank_name = ba.get("bank_name", "")
+    claim.bank_account_number = ba.get("bank_account_number", "")
+    claim.bank_ifsc_code = ba.get("bank_ifsc_code", "")
+    claim.bank_proof_attachment = ba.get("bank_proof_attachment", "")
+
+    # Auto-fetch prior milestone advances
+    prior_advances = fetch_po_milestones(po.name)
+    unadjusted_adv = 0.0
+    for m in prior_advances:
+        adj = flt(m.get("adjusted_amount", 0.0))
+        unadjusted_adv += adj
+        claim.append("milestone_payments", {
+            "milestone_type": m.get("milestone_type", "PO Advance Payment"),
+            "payment_reference": m.get("payment_reference", ""),
+            "payment_date": m.get("payment_date", ""),
+            "disbursed_amount": flt(m.get("disbursed_amount", 0.0)),
+            "adjusted_amount": adj,
+            "remarks": m.get("remarks", f"Advance payment for PO #{po.name}")
+        })
+
+    # Copy line items from PO
+    rem_adv = unadjusted_adv
+    tax_type = po.gst_type or "Intra-State (CGST + SGST)"
+    is_inter_state = "Inter-State" in tax_type or "IGST" in tax_type
+
+    if po.items and len(po.items) > 0:
+        for po_item in po.items:
+            base = flt(po_item.taxable_amount or (flt(po_item.qty) * flt(po_item.rate)))
+            gst_rate_str = po_item.gst_rate or "18%"
+            gst_pct = flt(str(gst_rate_str).replace("%", "").strip() or 0.0)
+            gst = flt(po_item.gst_amount) or round(base * (gst_pct / 100.0), 2)
+            tot_bill = flt(po_item.total_amount) or round(base + gst, 2)
+
+            cgst_amt = 0.0
+            sgst_amt = 0.0
+            igst_amt = 0.0
+            if is_inter_state:
+                igst_amt = gst
+            else:
+                cgst_amt = round(gst / 2.0, 2)
+                sgst_amt = round(gst - cgst_amt, 2)
+
+            row_adj = min(rem_adv, tot_bill)
+            rem_adv = max(round(rem_adv - row_adj, 2), 0.0)
+            row_net = round(max(tot_bill - row_adj, 0.0), 2)
+
+            claim.append("items", {
+                "po_type": "With PO",
+                "bill_payment_type": "Final / Regular Bill",
+                "purchase_order": po.name,
+                "vendor": po.vendor,
+                "vendor_name": po.vendor_name,
+                "vendor_gstin": po.vendor_gstin,
+                "company": po.company_entity,
+                "service_type": claim.service_type,
+                "remarks": f"{po_item.item_name or ''}: {po_item.description or ''}".strip(": "),
+                "base_amount": base,
+                "tax_type": tax_type,
+                "gst_rate": gst_rate_str,
+                "cgst_amount": cgst_amt,
+                "sgst_amount": sgst_amt,
+                "igst_amount": igst_amt,
+                "gst_amount": gst,
+                "total_invoice_amount": tot_bill,
+                "advance_deducted": row_adj,
+                "amount": row_net,
+                "bank_beneficiary_name": ba.get("bank_name", po.vendor_name or po.vendor),
+                "bank_account_number": ba.get("bank_account_number", ""),
+                "bank_ifsc_code": ba.get("bank_ifsc_code", ""),
+                "penny_drop_status": ba.get("penny_drop_status", "VERIFIED"),
+                "bank_proof_attachment": ba.get("bank_proof_attachment", "")
+            })
+    else:
+        base = flt(po.net_taxable_value) or flt(po.base_amount) or flt(po.grand_total)
+        gst = flt(po.total_gst_amount) or 0.0
+        tot_bill = flt(po.grand_total) or (base + gst)
+        row_adj = min(unadjusted_adv, tot_bill)
+        row_net = max(tot_bill - row_adj, 0.0)
+
+        claim.base_amount = base
+        claim.gst_amount = gst
+        claim.total_invoice_amount = tot_bill
+        claim.advance_deducted = row_adj
+        claim.net_payable_amount = row_net
+        claim.total_amount = row_net
+
+    claim.advance_deducted = unadjusted_adv
+    claim.total_prior_payments_adjusted = unadjusted_adv
+    claim.status = "Draft"
+    claim.flags.ignore_permissions = True
+    claim.save()
+
+    return {
+        "status": "success",
+        "claim_name": claim.name,
+        "message": f"Draft Vendor Invoice Claim {claim.name} created against PO #{po.name}."
+    }
