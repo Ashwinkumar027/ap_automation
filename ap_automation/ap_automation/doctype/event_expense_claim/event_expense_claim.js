@@ -68,8 +68,8 @@ frappe.ui.form.on("Event Expense Claim", {
                 window.APReceiptGallery.addPrintDownloadButtons(
                     frm,
                     'Event Expense Claim Report',
-                    __('📄 Download Claim & Settlement PDF'),
-                    __('🖨️ View Print Format')
+                    __(' Download Claim & Settlement PDF'),
+                    __('️ View Print Format')
                 );
                 window.APReceiptGallery.addExcelExportButton(frm);
                 if (!is_zero_refund && (frm.doc.expense_items || []).length > 0) {
@@ -83,7 +83,7 @@ frappe.ui.form.on("Event Expense Claim", {
                         frm,
                         ['Approved for Payment', 'Settled'],
                         {
-                            label: __('📑 Tally Settlement XML'),
+                            label: __(' Tally Settlement XML'),
                             voucher_mode: 'settlement',
                             filename: `Tally_Settlement_${frm.doc.name}.xml`
                         }
@@ -112,7 +112,7 @@ frappe.ui.form.on("Event Expense Claim", {
         if (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft') {
 
             if (frm.doc.event && !is_zero_refund) {
-                frm.add_custom_button(__('📋 Populate from Imprest Proposal'), function() {
+                frm.add_custom_button(__(' Populate from Imprest Proposal'), function() {
                     frappe.call({
                         method: 'ap_automation.ap_automation.doctype.event_expense_claim.event_expense_claim.populate_from_imprest_proposal',
                         args: { event_name: frm.doc.event },
@@ -151,7 +151,7 @@ frappe.ui.form.on("Event Expense Claim", {
 
             const submit_btn_label = is_zero_refund
                 ? __('↩️ Submit Full Advance Refund')
-                : __('🚀 Submit Expense & Settlement');
+                : __(' Submit Expense & Settlement');
 
             frm.add_custom_button(submit_btn_label, function() {
                 if (!validate_claim_before_submit(frm)) return;
@@ -222,7 +222,7 @@ frappe.ui.form.on("Event Expense Claim", {
                 frm.page.set_primary_action(__('Save'), () => frm.save());
             }
             const is_ad_origin = frm.doc.return_origin_stage === 'Under Accounts Director Review';
-            const btn_label = is_ad_origin ? __('🚀 Fast-Track Resubmit to Accounts Director') : __('🚀 Resubmit Corrected Claim');
+            const btn_label = is_ad_origin ? __(' Fast-Track Resubmit to Accounts Director') : __(' Resubmit Corrected Claim');
             frm.add_custom_button(btn_label, function() {
                 if (!validate_claim_before_submit(frm)) return;
                 const do_resubmit = () => {
@@ -446,7 +446,7 @@ function bind_submitted_claim_buttons(frm, ctx, recon) {
         }).addClass('btn-primary'));
 
         if (!is_zero_refund && (frm.doc.expense_items || []).length > 0) {
-            add_stage_btn(frm.add_custom_button(__('🏷️ Review / Edit GST & TDS'), function() {
+            add_stage_btn(frm.add_custom_button(__('️ Review / Edit GST & TDS'), function() {
                 open_event_claim_tax_review_dialog(frm);
             }).addClass('btn-default'));
         }
@@ -492,7 +492,7 @@ function bind_submitted_claim_buttons(frm, ctx, recon) {
 
     // STAGE 4: IDFC EXCEL EXPORT + MAKER PAYMENT RELEASE + CHECKER EXECUTE PAYOUT
     if (status === 'Approved for Payment' && frm.doc.settlement_type === 'PAYABLE_TO_SPOC' && ctx.is_finance_viewer) {
-        add_stage_btn(frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
+        add_stage_btn(frm.add_custom_button(__('️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
             const url = `/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_event_expense_claim_excel?claim_name=${encodeURIComponent(frm.doc.name)}`;
             window.open(url, '_blank');
             frappe.show_alert({ message: __('IDFC SPOC Net Reimbursement Excel (.xlsx) downloaded.'), indicator: 'blue' });
@@ -508,7 +508,7 @@ function bind_submitted_claim_buttons(frm, ctx, recon) {
                 });
             }).addClass('btn-success disabled'));
         } else if (ctx.can_maker_release) {
-            add_stage_btn(frm.add_custom_button(__('📤 Payment Release'), function() {
+            add_stage_btn(frm.add_custom_button(__(' Payment Release'), function() {
                 frappe.confirm(
                     __('Confirm the IDFC Disbursal Excel (.xlsx) has been uploaded to IDFC Netbanking.<br><br>This notifies the designated <b>Payment Releaser (Checker)</b> to release the net SPOC reimbursement.'),
                     function() {
@@ -531,7 +531,7 @@ function bind_submitted_claim_buttons(frm, ctx, recon) {
 
         const not_same_maker = (frm.doc.payment_release_maker !== frappe.session.user) || frappe.session.user === 'Administrator';
         if (frm.doc.payment_release_notified && ctx.can_checker_disburse && not_same_maker) {
-            add_stage_btn(frm.add_custom_button(__('💳 Execute SPOC Reimbursement'), function() {
+            add_stage_btn(frm.add_custom_button(__(' Execute SPOC Reimbursement'), function() {
                 frappe.prompt([
                     {
                         fieldname: 'payment_ref',
@@ -563,7 +563,7 @@ function bind_submitted_claim_buttons(frm, ctx, recon) {
 
     // STAGE 5: SETTLED & CLOSED -> Keep IDFC Export accessible for audit
     if (status === 'Settled' && frm.doc.settlement_type === 'PAYABLE_TO_SPOC' && ctx.is_finance_viewer) {
-        add_stage_btn(frm.add_custom_button(__('🏛️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
+        add_stage_btn(frm.add_custom_button(__('️ IDFC Bank Disbursal Excel (.xlsx)'), function() {
             const url = `/api/method/ap_automation.services.idfc_bank_excel_generator.download_idfc_event_expense_claim_excel?claim_name=${encodeURIComponent(frm.doc.name)}`;
             window.open(url, '_blank');
         }).addClass('btn-info'));
@@ -707,6 +707,8 @@ function render_unified_claim_banner(frm, recon) {
     const local_total = compute_local_items_total(frm);
 
     const adv = recon ? parseFloat(recon.disbursed_advance || 0) : parseFloat(frm.doc.disbursed_advance || 0);
+    const tot_app_adv = recon && recon.total_approved_advance ? parseFloat(recon.total_approved_advance) : adv;
+    const dir_adv = recon && recon.total_direct_vendor_advance ? parseFloat(recon.total_direct_vendor_advance) : 0;
     const prior = recon ? parseFloat(recon.prior_verified_claims || 0) : parseFloat(frm.doc.prior_verified_claims || 0);
     const cum_spends = recon ? parseFloat(recon.cumulative_spoc_spends || 0) : (prior + local_total);
     const payable = recon ? parseFloat(recon.net_payable_to_spoc || 0) : parseFloat(frm.doc.net_payable_to_spoc || 0);
@@ -847,7 +849,10 @@ function render_unified_claim_banner(frm, recon) {
                     <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 11px; font-weight: 700; color: #475569;">
                         ${(flt(frm.doc.total_income) > 0) ? `<span>Total Income: ${format_curr(frm.doc.total_income)}</span><span>|</span>` : ''}
                         ${(flt(frm.doc.total_expenses) > 0) ? `<span>Total Expenses: ${format_curr(frm.doc.total_expenses)}</span><span>|</span>` : ''}
-                        <span style="background: #ffffff; padding: 2px 6px; border-radius: 4px; border: 1px solid #cbd5e1; color: #1e40af;">Total Advance Disbursed: <b>${format_curr(adv)}</b></span>
+                        ${dir_adv > 0
+                            ? `<span style="background: #ffffff; padding: 2px 6px; border-radius: 4px; border: 1px solid #cbd5e1; color: #1e40af;" title="Includes Direct Vendor Payments">Total Advance: <b>${format_curr(tot_app_adv)}</b> (Vendor: ${format_curr(dir_adv)} | Cash: ${format_curr(adv)})</span>`
+                            : `<span style="background: #ffffff; padding: 2px 6px; border-radius: 4px; border: 1px solid #cbd5e1; color: #1e40af;">Cash Advance Disbursed: <b>${format_curr(adv)}</b></span>`
+                        }
                         <span>|</span>
                         <span>Prior Bills: ${format_curr(prior)}</span>
                         <span>|</span>
@@ -1187,7 +1192,7 @@ function bind_event_grid_uploaders(frm) {
                     white-space: nowrap;
                     box-shadow: 0 1px 2px rgba(0,0,0,0.03);
                 " title="Click to inspect all ${count} receipts for this row">
-                    <span style="font-size: 11px;">📎</span>
+                    <span style="font-size: 11px;"></span>
                     <span style="font-size: 11px; font-weight: 700; color: #15803d;">${count} Receipt${count > 1 ? 's' : ''}</span>
                     <span class="ap-row-view-btn" style="
                         display: inline-flex;
@@ -1200,7 +1205,7 @@ function bind_event_grid_uploaders(frm) {
                         color: #15803d;
                         font-size: 11px;
                         margin-left: 2px;
-                    " title="View row bills">👁️</span>
+                    " title="View row bills">️</span>
                     ${is_editable ? `
                     <span class="ap-row-add-btn" style="
                         display: inline-flex;
@@ -1245,7 +1250,7 @@ function bind_event_grid_uploaders(frm) {
                     align-items: center;
                     gap: 4px;
                 ">
-                    <span>📎 Attach Bills</span>
+                    <span> Attach Bills</span>
                 </button>
             `);
             upload_btn.on('click', function (e) {
@@ -1345,17 +1350,17 @@ function open_event_row_receipts_modal(frm, row_idx) {
                             <div style="height: 120px; background: #f8fafc; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 8px; cursor: pointer;" onclick="window.open('${u}', '_blank')">
                                 ${is_img 
                                     ? `<img src="${u}" style="max-height: 100%; max-width: 100%; object-fit: contain;" />` 
-                                    : `<div style="text-align:center; color:#2563eb; font-weight:700; font-size:24px;">📄<div style="font-size:11px; color:#64748b; margin-top:4px;">PDF Document</div></div>`
+                                    : `<div style="text-align:center; color:#2563eb; font-weight:700; font-size:24px;"><div style="font-size:11px; color:#64748b; margin-top:4px;">PDF Document</div></div>`
                                 }
                             </div>
                             <div style="font-size: 11px; font-weight: 700; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 6px;" title="${fn}">
                                 ${fn}
                             </div>
                             <div style="display: flex; gap: 6px; margin-top: auto;">
-                                <a href="${u}" target="_blank" class="btn btn-xs btn-default" style="flex:1; text-align:center; font-size:10.5px; padding:3px 6px;">👁️ View</a>
+                                <a href="${u}" target="_blank" class="btn btn-xs btn-default" style="flex:1; text-align:center; font-size:10.5px; padding:3px 6px;">️ View</a>
                                 <a href="${u}" download="${fn}" class="btn btn-xs btn-default" style="font-size:10.5px; padding:3px 6px;">⬇️</a>
                                 ${is_editable ? `
-                                <button type="button" class="btn btn-xs btn-danger ap-remove-file-btn" data-file-index="${a_idx}" style="font-size:10.5px; padding:3px 6px;">🗑️</button>
+                                <button type="button" class="btn btn-xs btn-danger ap-remove-file-btn" data-file-index="${a_idx}" style="font-size:10.5px; padding:3px 6px;">️</button>
                                 ` : ''}
                             </div>
                         </div>

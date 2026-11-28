@@ -766,60 +766,105 @@ def get_po_advance_summary(po_name: str) -> dict:
     if not po_name:
         return {"claims": [], "total_advance_disbursed": 0.0, "total_advance_requested": 0.0, "balance_due": 0.0, "grand_total": 0.0}
 
+    po_family = [po_name]
+    po_grand_total = 0.0
+    if frappe.db.exists("AP Purchase Order", po_name):
+        po_info = frappe.db.get_value(
+            "AP Purchase Order",
+            po_name,
+            ["grand_total", "net_taxable_value", "original_po", "previous_po_version", "status"],
+            as_dict=True
+        )
+        if isinstance(po_info, dict):
+            po_grand_total = flt(po_info.get("grand_total") or po_info.get("net_taxable_value") or 0.0)
+            orig = po_info.get("original_po")
+            if orig and orig not in po_family:
+                po_family.append(orig)
+            prev_po = po_info.get("previous_po_version")
+            if prev_po and prev_po not in po_family:
+                po_family.append(prev_po)
+        elif po_info is not None:
+            po_grand_total = flt(po_info)
+
+    base_prefix = re.sub(r"-R\d+$", "", po_name)
+    if base_prefix not in po_family:
+        po_family.append(base_prefix)
+
     has_utr = frappe.db.has_column("Vendor Invoice Claim", "utr")
     utr_col = ", vic.utr" if has_utr else ""
 
-    po_grand_total = 0.0
-    if frappe.db.exists("AP Purchase Order", po_name):
-        po_grand_total = flt(frappe.db.get_value("AP Purchase Order", po_name, "grand_total") or 0.0)
-
     claims_raw = frappe.db.sql(
         f"""
-        SELECT vii.parent AS name,
+        SELECT vic.name,
                vic.status,
-               COALESCE(vii.amount, vii.total_invoice_amount, 0) AS claim_amount
+               SUM(COALESCE(vii.amount, vii.total_invoice_amount, 0)) AS claim_amount,
+               vii.bill_payment_type
                {utr_col}
         FROM `tabVendor Invoice Item` vii
         INNER JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
-        WHERE vii.purchase_order = %(po)s
-          AND vii.bill_payment_type = 'Advance / Part Payment'
+        WHERE vii.purchase_order IN %(pos)s
           AND vic.docstatus < 2
+        GROUP BY vic.name, vii.bill_payment_type
         ORDER BY vic.creation DESC
         """,
-        {"po": po_name},
+        {"pos": tuple(po_family)},
         as_dict=True,
     )
 
+    DISBURSED_STATUSES = (
+        "Approved for Payment",
+        "Paid",
+        "Disbursed",
+        "Disbursed via IDFC",
+        "Queued in Batch",
+        "Partially Paid",
+    )
+
     claims = []
-    seen = set()
-    total_disbursed = 0.0
-    total_requested = 0.0
+    seen_adv_claims = set()
+    total_advance_disbursed = 0.0
+    total_advance_requested = 0.0
+    total_final_bills_disbursed = 0.0
 
     for c in claims_raw:
         c_name = c["name"]
         amt = flt(c.get("claim_amount", 0.0))
         st = c.get("status") or "Draft"
+        b_type = c.get("bill_payment_type")
+        is_advance = ("Advance" in str(b_type)) if b_type else True
 
-        if c_name not in seen:
-            seen.add(c_name)
-            claims.append({
-                "name": c_name,
-                "status": st,
-                "amount": amt,
-                "utr": c.get("utr") or ""
-            })
+        if is_advance:
+            if c_name not in seen_adv_claims:
+                seen_adv_claims.add(c_name)
+                claims.append({
+                    "name": c_name,
+                    "status": st,
+                    "amount": amt,
+                    "utr": c.get("utr") or ""
+                })
+                if st in DISBURSED_STATUSES:
+                    total_advance_disbursed += amt
+                if st not in ("Cancelled", "Rejected", "Disputed"):
+                    total_advance_requested += amt
+        else:
+            if st in DISBURSED_STATUSES:
+                total_final_bills_disbursed += amt
 
-        if st in ("Approved for Payment", "Paid", "Disbursed", "Partially Paid"):
-            total_disbursed += amt
-        if st not in ("Cancelled", "Rejected", "Disputed"):
-            total_requested += amt
+    total_all_disbursed = total_advance_disbursed + total_final_bills_disbursed
+    balance_due = max(round(flt(po_grand_total) - total_all_disbursed, 2), 0.0)
 
-    balance_due = max(round(flt(po_grand_total) - total_disbursed, 2), 0.0)
+    # Auto-complete PO if fully settled
+    if po_grand_total > 0 and total_all_disbursed >= po_grand_total and frappe.db.exists("AP Purchase Order", po_name):
+        curr_po_st = frappe.db.get_value("AP Purchase Order", po_name, "status")
+        if curr_po_st == "Active PO":
+            frappe.db.set_value("AP Purchase Order", po_name, "status", "Completed / Invoiced", update_modified=True)
 
     return {
         "claims": claims,
-        "total_advance_disbursed": round(total_disbursed, 2),
-        "total_advance_requested": round(total_requested, 2),
+        "total_advance_disbursed": round(total_advance_disbursed, 2),
+        "total_advance_requested": round(total_advance_requested, 2),
+        "total_final_bills_disbursed": round(total_final_bills_disbursed, 2),
+        "total_all_disbursed": round(total_all_disbursed, 2),
         "balance_due": balance_due,
         "grand_total": round(flt(po_grand_total), 2)
     }

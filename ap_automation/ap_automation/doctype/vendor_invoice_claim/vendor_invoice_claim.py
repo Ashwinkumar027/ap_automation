@@ -14,6 +14,7 @@ Enforces:
 10. Full Audit Error Logging (frappe.log_error) and Interactive Error Dialogs.
 """
 from typing import Dict, Any, List, Optional, Union, Tuple
+import re
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, flt, nowdate
@@ -1029,6 +1030,19 @@ def fetch_po_milestones(po_name: str, exclude_claim: Optional[str] = None) -> Li
     excl = exclude_claim or "NEW"
     had_prior_advance_claims = False
 
+    # Resolve PO family to support PO revisions (e.g. PO-00001-R1 carrying forward PO-00001)
+    po_family = [po_name]
+    if frappe.db.exists("AP Purchase Order", po_name):
+        orig_po = frappe.db.get_value("AP Purchase Order", po_name, "original_po")
+        if orig_po and orig_po not in po_family:
+            po_family.append(orig_po)
+        prev_po = frappe.db.get_value("AP Purchase Order", po_name, "previous_po_version")
+        if prev_po and prev_po not in po_family:
+            po_family.append(prev_po)
+    base_prefix = re.sub(r"-R\d+$", "", po_name)
+    if base_prefix not in po_family:
+        po_family.append(base_prefix)
+
     # 1. Fetch prior 'Advance / Part Payment' rows filed via Vendor Invoice Claim for this PO
     if frappe.db.has_column("Vendor Invoice Item", "bill_payment_type"):
         adv_rows = frappe.db.sql(
@@ -1046,7 +1060,7 @@ def fetch_po_milestones(po_name: str, exclude_claim: Optional[str] = None) -> Li
                 vii.remarks AS row_remarks
             FROM `tabVendor Invoice Item` vii
             JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
-            WHERE vii.purchase_order = %s
+            WHERE vii.purchase_order IN %s
               AND vii.bill_payment_type = 'Advance / Part Payment'
               AND vic.name != %s
               AND vic.docstatus != 2
@@ -1054,7 +1068,7 @@ def fetch_po_milestones(po_name: str, exclude_claim: Optional[str] = None) -> Li
               AND COALESCE(vii.line_status, 'Pending') != 'Disputed / Discrepancy'
             ORDER BY vic.creation ASC, vii.idx ASC
             """,
-            (po_name, excl),
+            (tuple(po_family), excl),
             as_dict=True
         )
 
@@ -1427,7 +1441,7 @@ def dispute_vendor_claim(docname: str, reason_code: str, remarks: str):
         message=f"{dispute_msg}\n\nVendor: {doc.vendor_name}\nAmount: INR {doc.net_payable_amount:,.2f}"
     )
 
-    doc.add_comment("Comment", text=f"🚫 <b>Disputed / Rejected:</b> {reason_code} — {remarks.strip()}")
+    doc.add_comment("Comment", text=f" <b>Disputed / Rejected:</b> {reason_code} — {remarks.strip()}")
     try:
         notify_vendor_claim_disputed(docname, reason_code, remarks.strip())
     except Exception as e:
@@ -1477,8 +1491,6 @@ def create_po_advance_claim(
         frappe.throw(_("Advance Amount must be greater than 0.00."))
 
     po_val = flt(po.grand_total) or flt(po.net_taxable_value) or 0.0
-    if po_val > 0 and adv_val > po_val:
-        frappe.throw(_(f"Advance Amount (INR {adv_val:,.2f}) cannot exceed total contracted PO value (INR {po_val:,.2f})."))
 
     if not proforma_number or not str(proforma_number).strip():
         frappe.throw(_("Vendor Proforma Invoice / Demand Reference Number is required."))
@@ -1509,6 +1521,40 @@ def create_po_advance_claim(
     except (ValueError, TypeError):
         gst_pct = 0.0
     gst_rate_str = f"{int(gst_pct)}%" if gst_pct == int(gst_pct) else f"{gst_pct}%"
+
+    gst_val = round(adv_val * (gst_pct / 100.0), 2)
+    tot_adv_gross = round(adv_val + gst_val, 2)
+
+    # Resolve PO family to support revisions and prevent exceeding PO ceiling
+    po_family = [po.name]
+    if getattr(po, "original_po", None) and po.original_po not in po_family:
+        po_family.append(po.original_po)
+    base_prefix = re.sub(r"-R\d+$", "", po.name)
+    if base_prefix not in po_family:
+        po_family.append(base_prefix)
+
+    adv_sum_res = frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(COALESCE(vii.amount, vii.total_invoice_amount, 0)), 0) AS total_prior
+        FROM `tabVendor Invoice Item` vii
+        JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
+        WHERE vii.purchase_order IN %s
+          AND vii.bill_payment_type = 'Advance / Part Payment'
+          AND vic.docstatus != 2
+          AND vic.status NOT IN ('Cancelled', 'Rejected', 'Disputed')
+        """,
+        (tuple(po_family),),
+        as_dict=True
+    )
+    prior_adv_total = flt(adv_sum_res[0].get("total_prior") if adv_sum_res else 0.0)
+    remaining_advance_capacity = max(round(po_val - prior_adv_total, 2), 0.0)
+
+    if po_val > 0 and (prior_adv_total + tot_adv_gross) > po_val:
+        frappe.throw(
+            _(f"Advance Request Exceeds PO Value: Cumulative advance requests (INR {prior_adv_total + tot_adv_gross:,.2f}) "
+              f"exceed total contracted PO value (INR {po_val:,.2f}). Remaining advance capacity: INR {remaining_advance_capacity:,.2f}."),
+            exc=APValidationError
+        )
 
     # Create new Vendor Invoice Claim
     vic = frappe.new_doc("Vendor Invoice Claim")
@@ -1737,7 +1783,7 @@ def approve_vendor_claim_by_manager(docname: str, remarks: Optional[str] = None)
         doc.save(ignore_permissions=True)
         doc.add_comment(
             "Comment",
-            text=f"👑 <b>Unified Executive Approval:</b> {user} approved as both Reporting Manager & Director. Auto-routed directly to Accounts L1."
+            text=f" <b>Unified Executive Approval:</b> {user} approved as both Reporting Manager & Director. Auto-routed directly to Accounts L1."
         )
         try:
             from ap_automation.services.notification_service import notify_vendor_claim_director_approved
@@ -1984,7 +2030,7 @@ def approve_vendor_claim_by_accounts_l2(docname: str, remarks: Optional[str] = N
     })
     doc.save(ignore_permissions=True)
     _sync_event_master_if_linked(getattr(doc, "event", None))
-    doc.add_comment("Comment", text=f"âœ… <b>Approved by Accounts L2:</b> {user} â€” {remarks or 'Approved for Payment'}")
+    doc.add_comment("Comment", text=f"Approved by Accounts L2: {user} - {remarks or 'Approved for Payment'}")
     try:
         notify_vendor_claim_accounts_l2_approved(docname)
     except Exception as e:
@@ -2073,7 +2119,7 @@ def trigger_vendor_claim_payment_release_notification(docname: str):
     releaser_display = frappe.db.get_value("User", releaser, "full_name") or releaser
     doc.add_comment(
         "Comment",
-        text=f"📤 <b>Payment Release Notified:</b> Uploaded to IDFC by {user}. Dispatched to Payment Releaser (<b>{releaser_display}</b>)."
+        text=f" <b>Payment Release Notified:</b> Uploaded to IDFC by {user}. Dispatched to Payment Releaser (<b>{releaser_display}</b>)."
     )
     frappe.db.commit()
 
@@ -2163,6 +2209,41 @@ def disburse_vendor_claim(docname: str, utr_reference: str, remarks: Optional[st
     trail_entry.insert(ignore_permissions=True)
 
     _sync_event_master_if_linked(getattr(doc, "event", None))
+
+    # Synchronize and auto-complete linked Purchase Order if fully settled
+    po_ref = getattr(doc, "purchase_order", None)
+    if not po_ref and getattr(doc, "items", None):
+        for itm in doc.items:
+            if getattr(itm, "purchase_order", None):
+                po_ref = itm.purchase_order
+                break
+
+    if po_ref and frappe.db.exists("AP Purchase Order", po_ref):
+        po_doc = frappe.get_doc("AP Purchase Order", po_ref)
+        po_tot = flt(po_doc.grand_total) or flt(po_doc.net_taxable_value) or 0.0
+        po_family = [po_ref]
+        if getattr(po_doc, "original_po", None) and po_doc.original_po not in po_family:
+            po_family.append(po_doc.original_po)
+        base_prefix = re.sub(r"-R\d+$", "", po_ref)
+        if base_prefix not in po_family:
+            po_family.append(base_prefix)
+
+        paid_res = frappe.db.sql(
+            """
+            SELECT COALESCE(SUM(COALESCE(vii.amount, vii.total_invoice_amount, 0)), 0) AS total_paid
+            FROM `tabVendor Invoice Item` vii
+            JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
+            WHERE vii.purchase_order IN %s
+              AND vic.docstatus != 2
+              AND vic.status IN ('Paid', 'Disbursed', 'Disbursed via IDFC')
+            """,
+            (tuple(po_family),),
+            as_dict=True
+        )
+        total_settled = flt(paid_res[0].get("total_paid") if paid_res else 0.0)
+        if total_settled >= po_tot and po_tot > 0 and po_doc.status != "Completed / Invoiced":
+            frappe.db.set_value("AP Purchase Order", po_ref, "status", "Completed / Invoiced", update_modified=True)
+            po_doc.add_comment("Comment", f"Purchase Order fully settled (Disbursed: INR {total_settled:,.2f} / PO Total: INR {po_tot:,.2f}) and transitioned to Completed / Invoiced.")
 
     doc.add_comment("Comment", text=f"<b>Payment Disbursed:</b> Bank UTR: <code>{clean_utr}</code> by {user}")
     frappe.db.commit()
@@ -2408,6 +2489,47 @@ def create_po_vendor_invoice_claim(po_name: str) -> dict:
     po = frappe.get_doc("AP Purchase Order", po_name)
     if po.status != "Active PO":
         frappe.throw(_(f"Purchase Order must be 'Active PO' to create invoice. Current status: '{po.status}'."))
+
+    # Check for existing open Draft claim to prevent duplicate drafts
+    existing_draft = frappe.db.get_value(
+        "Vendor Invoice Claim",
+        {"purchase_order": po.name, "docstatus": 0, "status": "Draft"},
+        "name"
+    )
+    if existing_draft:
+        return {
+            "status": "existing_draft",
+            "claim_name": existing_draft,
+            "message": f"An existing Draft Vendor Invoice Claim '{existing_draft}' is already in progress for PO #{po.name}."
+        }
+
+    # Check if PO is already fully billed by non-advance claims
+    po_family = [po.name]
+    if getattr(po, "original_po", None) and po.original_po not in po_family:
+        po_family.append(po.original_po)
+    base_prefix = re.sub(r"-R\d+$", "", po.name)
+    if base_prefix not in po_family:
+        po_family.append(base_prefix)
+
+    billed_res = frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(COALESCE(vii.amount, vii.total_invoice_amount, 0)), 0) AS total_billed
+        FROM `tabVendor Invoice Item` vii
+        JOIN `tabVendor Invoice Claim` vic ON vic.name = vii.parent
+        WHERE vii.purchase_order IN %s
+          AND vii.bill_payment_type != 'Advance / Part Payment'
+          AND vic.docstatus != 2
+          AND vic.status NOT IN ('Cancelled', 'Rejected', 'Disputed')
+        """,
+        (tuple(po_family),),
+        as_dict=True
+    )
+    total_billed = flt(billed_res[0].get("total_billed") if billed_res else 0.0)
+    po_total = flt(po.grand_total) or flt(po.net_taxable_value) or 0.0
+    if po_total > 0 and total_billed >= po_total:
+        frappe.throw(
+            _(f"Purchase Order #{po.name} is already fully invoiced (Total Billed: INR {total_billed:,.2f} / PO Total: INR {po_total:,.2f}). Cannot generate new invoices.")
+        )
 
     bank_data = get_vendor_bank_info(po.vendor) if po.vendor else {}
     ba = bank_data.get("bank_account", {})

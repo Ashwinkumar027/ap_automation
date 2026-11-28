@@ -309,7 +309,7 @@ def _trigger_maker_payment_release(doc, approval_doctype_for_matrix: str = "Even
     releaser_display = frappe.db.get_value("User", releaser, "full_name") or releaser
     doc.add_comment(
         "Comment",
-        f"📤 <b>Payment Release Notified:</b> Uploaded to IDFC by {user}. Alert dispatched to Payment Releaser (<b>{releaser_display}</b>).",
+        f" <b>Payment Release Notified:</b> Uploaded to IDFC by {user}. Alert dispatched to Payment Releaser (<b>{releaser_display}</b>).",
     )
     frappe.db.commit()
 
@@ -365,7 +365,7 @@ def _execute_checker_payout(doc, payable_amount: float, utr_fieldname: str, paym
         "payment_releaser": user,
     }, update_modified=True)
     doc.reload()
-    doc.add_comment("Comment", f"💳 <b>SPOC Reimbursement Executed:</b> Bank UTR <b>{clean_ref}</b> released by {user}. Event Closed.")
+    doc.add_comment("Comment", f" <b>SPOC Reimbursement Executed:</b> Bank UTR <b>{clean_ref}</b> released by {user}. Event Closed.")
     _close_event_master_on_settlement(doc)
 
     return {
@@ -627,6 +627,24 @@ def calculate_event_claim_reconciliation(
     base = calculate_event_settlement_delta(event_name)
     disbursed_adv = round(float(base.get("disbursed_advance") or 0.0), 2)
 
+    adv_records = frappe.get_all(
+        "Event Advance Request",
+        filters={
+            "event": event_name,
+            "status": ["in", ["Approved for Payment", "Disbursed", "Disbursed via IDFC", "Paid"]],
+            "docstatus": ["!=", 2]
+        },
+        fields=["requested_advance_amount", "approved_advance_amount", "total_cash_imprest_amount", "total_direct_vendor_amount"]
+    )
+    total_approved_advance = 0.0
+    total_direct_vendor_advance = 0.0
+    for r in adv_records:
+        dir_amt = float(r.total_direct_vendor_amount or 0.0)
+        cash_amt = float(r.total_cash_imprest_amount or 0.0)
+        req_amt = float(r.approved_advance_amount or r.requested_advance_amount or 0.0)
+        total_approved_advance += req_amt or (dir_amt + cash_amt)
+        total_direct_vendor_advance += dir_amt
+
     all_claims = frappe.get_all(
         "Event Expense Claim",
         filters={"event": event_name, "docstatus": ["!=", 2]},
@@ -709,6 +727,9 @@ def calculate_event_claim_reconciliation(
         "spoc": base.get("spoc"),
         "spoc_name": base.get("spoc_name"),
         "disbursed_advance": disbursed_adv,
+        "cash_imprest_for_ground": disbursed_adv,
+        "total_approved_advance": round(total_approved_advance, 2) or disbursed_adv,
+        "total_direct_vendor_advance": round(total_direct_vendor_advance, 2),
         "prior_verified_claims": prior_verified_claims,
         "current_claim_amount": curr_amt,
         "cumulative_spoc_spends": cumulative_spends,
