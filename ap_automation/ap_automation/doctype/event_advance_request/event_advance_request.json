@@ -10,6 +10,7 @@
   "sb_event",
   "event",
   "company",
+  "allowed_departments",
   "letter_head",
   "spoc",
   "spoc_name",
@@ -73,6 +74,12 @@
    "label": "Company",
    "options": "Company",
    "read_only": 1
+  },
+  {
+   "fieldname": "allowed_departments",
+   "fieldtype": "Table MultiSelect",
+   "label": "Allowed Event Departments",
+   "options": "Event Department Item"
   },
   {
    "fieldname": "letter_head",
@@ -153,7 +160,7 @@
    "fieldname": "requested_advance_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total Imprest Proposal Amount (INR)",
+   "label": "Total Advance Amount (INR)",
    "reqd": 1,
    "read_only": 1
   },

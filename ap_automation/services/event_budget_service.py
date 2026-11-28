@@ -373,6 +373,7 @@ def get_spoc_salary_bank_for_event(event_name: str) -> Dict[str, Any]:
     ev = frappe.get_doc("Event Master", event_name)
     bank_info = fetch_spoc_salary_bank(ev.event_spoc) if ev.event_spoc else {}
     letter_head = frappe.db.get_value("Company", ev.company, "default_letter_head") if ev.company else ""
+    allowed_depts = [d.department for d in ev.get("allowed_departments", []) if getattr(d, "department", None)]
     return {
         "event": ev.name,
         "company": ev.company or "",
@@ -384,4 +385,144 @@ def get_spoc_salary_bank_for_event(event_name: str) -> Dict[str, Any]:
         "bank_name": bank_info.get("bank_name", ""),
         "bank_account_number": bank_info.get("bank_account_no", ""),
         "bank_ifsc_code": bank_info.get("ifsc_code", ""),
+        "allowed_departments": allowed_depts,
     }
+
+
+@frappe.whitelist()
+def get_event_spoc_users(doctype=None, txt="", searchfield="user_id", start=0, page_len=20, filters=None):
+    """
+    Whitelisted query for link fields pointing to User (SPOC) in Event Master / Advance / Claim.
+    Dynamically filters users based on departments passed from the UI (filters['departments'])
+    or configured on the linked Event Master.
+    Does NOT hardcode departments: accepts multiple departments selected in the UI.
+    Fallback: if no departments given, matches departments with 'Event' or 'Corporate Communication'
+    or returns all active employees if none configured.
+    """
+    import json
+
+    departments = []
+    if filters:
+        if isinstance(filters, str):
+            try:
+                filters = json.loads(filters)
+            except Exception:
+                filters = {}
+        if isinstance(filters, dict):
+            raw_depts = filters.get("departments") or filters.get("allowed_departments")
+            if raw_depts:
+                if isinstance(raw_depts, str):
+                    try:
+                        parsed = json.loads(raw_depts)
+                        if isinstance(parsed, list):
+                            raw_depts = parsed
+                        else:
+                            raw_depts = [raw_depts]
+                    except Exception:
+                        raw_depts = [d.strip() for d in raw_depts.split(",") if d.strip()]
+                if isinstance(raw_depts, list):
+                    for d in raw_depts:
+                        if isinstance(d, dict) and d.get("department"):
+                            departments.append(d["department"])
+                        elif isinstance(d, str) and d:
+                            departments.append(d)
+            if not departments and filters.get("event"):
+                event_name = filters.get("event")
+                if frappe.db.exists("Event Master", event_name):
+                    try:
+                        depts = frappe.get_all("Event Department Item", filters={"parent": event_name}, pluck="department")
+                        departments.extend(depts)
+                    except Exception:
+                        pass
+
+    if not departments:
+        found_depts = frappe.db.sql(
+            """
+            SELECT name FROM `tabDepartment`
+            WHERE disabled = 0 AND (
+                name LIKE '%%Event%%' OR department_name LIKE '%%Event%%'
+                OR name LIKE '%%Corporate Communication%%' OR department_name LIKE '%%Corporate Communication%%'
+            )
+            """,
+            as_dict=True
+        )
+        departments = [d["name"] for d in found_depts]
+
+    conditions = ["e.status = 'Active'", "e.user_id IS NOT NULL", "e.user_id != ''"]
+    params = {}
+
+    if departments:
+        conditions.append("e.department IN %(departments)s")
+        params["departments"] = tuple(departments)
+
+    if txt:
+        conditions.append("(e.user_id LIKE %(txt)s OR e.employee_name LIKE %(txt)s OR e.name LIKE %(txt)s)")
+        params["txt"] = f"%{txt}%"
+
+    where_clause = " AND ".join(conditions)
+    query = f"""
+        SELECT e.user_id, CONCAT(e.employee_name, ' (', COALESCE(e.department, 'No Dept'), ')') as description
+        FROM `tabEmployee` e
+        WHERE {where_clause}
+        ORDER BY e.employee_name ASC
+        LIMIT %(start)s, %(page_len)s
+    """
+    params["start"] = int(start or 0)
+    params["page_len"] = int(page_len or 20)
+
+    return frappe.db.sql(query, params, as_list=True)
+
+
+@frappe.whitelist()
+def get_default_event_departments() -> List[str]:
+    """Returns active departments matching Event Management or Corporate Communication for UI pre-population."""
+    depts = frappe.db.sql(
+        """
+        SELECT name FROM `tabDepartment`
+        WHERE disabled = 0 AND (
+            name LIKE '%%Event%%' OR department_name LIKE '%%Event%%'
+            OR name LIKE '%%Corporate Communication%%' OR department_name LIKE '%%Corporate Communication%%'
+        )
+        ORDER BY name ASC
+        """,
+        as_dict=True
+    )
+    return [d["name"] for d in depts]
+
+
+def validate_event_spoc_department(spoc_user: str, allowed_departments: list, doc_type_label: str = "Event Master") -> None:
+    """Server validation ensuring the designated SPOC belongs to one of the allowed departments."""
+    if not spoc_user or not allowed_departments:
+        return
+
+    dept_names = []
+    for d in allowed_departments:
+        if isinstance(d, dict) and d.get("department"):
+            dept_names.append(d["department"])
+        elif isinstance(d, str):
+            dept_names.append(d)
+        elif hasattr(d, "department"):
+            dept_names.append(d.department)
+
+    if not dept_names:
+        return
+
+    emp = (
+        frappe.db.get_value("Employee", {"user_id": spoc_user, "status": "Active"}, ["name", "employee_name", "department"], as_dict=True)
+        or frappe.db.get_value("Employee", {"company_email": spoc_user, "status": "Active"}, ["name", "employee_name", "department"], as_dict=True)
+    )
+    if not emp:
+        return
+
+    emp_dept = emp.get("department") or ""
+    matched = emp_dept in dept_names
+    if not matched:
+        actual_names = frappe.get_all("Department", filters={"name": ["in", dept_names]}, pluck="department_name")
+        emp_dept_name = frappe.db.get_value("Department", emp_dept, "department_name") or emp_dept
+        matched = emp_dept in actual_names or emp_dept_name in actual_names or emp_dept_name in dept_names
+
+    if not matched:
+        raise APValidationError(
+            f"SPOC Department Restriction: Selected user '{spoc_user}' belongs to department '{emp_dept}', "
+            f"which is not among the allowed departments for this {doc_type_label}: {', '.join(dept_names)}."
+        )

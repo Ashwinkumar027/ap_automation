@@ -3,7 +3,12 @@
 // 100% Mobile & Desktop Responsive
 
 frappe.ui.form.on("Event Advance Request", {
+    onload: function(frm) {
+        setup_advance_spoc_query(frm);
+    },
     refresh: function(frm) {
+        setup_advance_spoc_query(frm);
+        setTimeout(() => bind_imprest_grid_uploaders(frm), 250);
         frm.set_df_property('status', 'read_only', 1);
         calculate_imprest_totals(frm);
         set_advance_status_indicator(frm);
@@ -139,7 +144,27 @@ frappe.ui.form.on("Event Advance Request", {
                         });
                         return;
                     }
-                    if (row.payment_mode === 'Direct Vendor Payment') {
+                    const is_upi = row.payment_mode === 'Direct Vendor Payment (UPI)' || !!(row.upi_id && row.upi_id.trim());
+                    if (is_upi) {
+                        const bene = (row.beneficiary_name || '').trim();
+                        const upi = (row.upi_id || '').trim();
+                        if (!bene || !upi) {
+                            frappe.msgprint({
+                                title: __('Missing Vendor UPI Details'),
+                                indicator: 'red',
+                                message: __(`Row #${i + 1}: Beneficiary Name and UPI ID / VPA are mandatory for UPI Payment.`)
+                            });
+                            return;
+                        }
+                        if (!/^[\w.\-_]{2,256}@[\w]{2,64}$/.test(upi)) {
+                            frappe.msgprint({
+                                title: __('Invalid UPI ID / VPA'),
+                                indicator: 'red',
+                                message: __(`Row #${i + 1} (${frappe.utils.escape_html(bene)}): Invalid UPI ID '${frappe.utils.escape_html(upi)}'. Must be in format name@bank (e.g. vendor@okhdfcbank).`)
+                            });
+                            return;
+                        }
+                    } else if (row.payment_mode === 'Direct Vendor Payment') {
                         const bene = (row.beneficiary_name || '').trim();
                         const ac_no = (row.bank_account_number || '').trim();
                         const ifsc = (row.bank_ifsc_code || '').trim().toUpperCase();
@@ -158,6 +183,10 @@ frappe.ui.form.on("Event Advance Request", {
                                 message: __(`Row #${i + 1} (${frappe.utils.escape_html(bene)}): Invalid IFSC Code '${frappe.utils.escape_html(ifsc)}'. Must be 11 characters conforming to NPCI standard (5th char must be 0, e.g., IDFB0040101).`)
                             });
                             return;
+                        }
+                    } else {
+                        if (!row.beneficiary_name) {
+                            frappe.model.set_value(row.doctype, row.name, 'beneficiary_name', frm.doc.spoc_name || frm.doc.spoc || 'Event SPOC');
                         }
                     }
                 }
@@ -642,6 +671,13 @@ function sync_spoc_salary_bank_in_draft(frm, force_event_fields) {
                     frm.set_value(f, d[f]);
                 }
             });
+            if (d.allowed_departments && d.allowed_departments.length && (!frm.doc.allowed_departments || frm.doc.allowed_departments.length === 0)) {
+                d.allowed_departments.forEach(dept => {
+                    frm.add_child('allowed_departments', { department: dept });
+                });
+                frm.refresh_field('allowed_departments');
+                setup_advance_spoc_query(frm);
+            }
             render_advance_event_context(frm);
         }
     });
@@ -738,15 +774,27 @@ function render_advance_event_context(frm, pending_with, ctx) {
 function calculate_imprest_totals(frm) {
     let direct = 0.0;
     let cash = 0.0;
+    let base_sum = 0.0;
+    let gst_sum = 0.0;
 
     (frm.doc.imprest_items || []).forEach(row => {
         let amt = parseFloat(row.amount || 0.0);
-        if (row.payment_mode === "Direct Vendor Payment") {
+        let base = parseFloat(row.base_amount || 0.0);
+        let gst = parseFloat(row.gst_amount || 0.0);
+        base_sum += base;
+        gst_sum += gst;
+
+        const is_direct = ['Direct Vendor Payment', 'Direct Vendor Payment (UPI)'].includes(row.payment_mode);
+        if (is_direct) {
             direct += amt;
         } else {
             cash += amt;
         }
     });
+
+    direct = Math.round(direct * 100) / 100;
+    cash = Math.round(cash * 100) / 100;
+    const total = Math.round((direct + cash) * 100) / 100;
 
     if (frm.doc.docstatus === 0) {
         if (frm.fields_dict.total_direct_vendor_amount && flt(frm.doc.total_direct_vendor_amount) !== direct) {
@@ -755,35 +803,348 @@ function calculate_imprest_totals(frm) {
         if (frm.fields_dict.total_cash_imprest_amount && flt(frm.doc.total_cash_imprest_amount) !== cash) {
             frm.set_value('total_cash_imprest_amount', cash);
         }
-        if (frm.fields_dict.requested_advance_amount && flt(frm.doc.requested_advance_amount) !== (direct + cash)) {
-            frm.set_value('requested_advance_amount', direct + cash);
+        if (frm.fields_dict.requested_advance_amount && flt(frm.doc.requested_advance_amount) !== total) {
+            frm.set_value('requested_advance_amount', total);
         }
-        if (frm.fields_dict.total_amount && flt(frm.doc.total_amount) !== (direct + cash)) {
-            frm.set_value('total_amount', direct + cash);
+        if (frm.fields_dict.total_amount && flt(frm.doc.total_amount) !== total) {
+            frm.set_value('total_amount', total);
         }
     }
 }
 
-// Child Table Calculations
+function setup_advance_spoc_query(frm) {
+    frm.set_query('spoc', function() {
+        const depts = (frm.doc.allowed_departments || []).map(d => d.department).filter(Boolean);
+        return {
+            query: 'ap_automation.services.event_budget_service.get_event_spoc_users',
+            filters: {
+                departments: depts,
+                event: frm.doc.event
+            }
+        };
+    });
+}
+
+frappe.ui.form.on("Event Department Item", {
+    department: function(frm) {
+        setup_advance_spoc_query(frm);
+    },
+    allowed_departments_remove: function(frm) {
+        setup_advance_spoc_query(frm);
+    }
+});
+
+// Child Table Calculations with automated GST & Beneficiary Defaulting
 frappe.ui.form.on("Event Imprest Item", {
+    base_amount: function(frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        const r = parseFloat((row.gst_rate || '0%').replace('%', '').trim()) || 0;
+        const b = flt(row.base_amount);
+        row.gst_amount = Math.round(b * r) / 100;
+        row.amount = Math.round((b + flt(row.gst_amount)) * 100) / 100;
+        frm.refresh_field('imprest_items');
+        calculate_imprest_totals(frm);
+        render_advance_event_context(frm);
+    },
+
+    gst_rate: function(frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        const r = parseFloat((row.gst_rate || '0%').replace('%', '').trim()) || 0;
+        const b = flt(row.base_amount);
+        row.gst_amount = Math.round(b * r) / 100;
+        row.amount = Math.round((b + flt(row.gst_amount)) * 100) / 100;
+        frm.refresh_field('imprest_items');
+        calculate_imprest_totals(frm);
+        render_advance_event_context(frm);
+    },
+
     amount: function(frm) {
         calculate_imprest_totals(frm);
         render_advance_event_context(frm);
     },
-    payment_mode: function(frm) {
+
+    payment_mode: function(frm, cdt, cdn) {
+        const row = locals[cdt][cdn];
+        const is_petty = ['Petty Cash', 'Cash / Petty Imprest', 'On-Ground Cash Imprest'].includes(row.payment_mode);
+        if (is_petty) {
+            row.beneficiary_name = frm.doc.spoc_name || frm.doc.spoc || 'Event SPOC';
+            row.bank_name = frm.doc.bank_name || '';
+            row.bank_account_number = frm.doc.bank_account_number || '';
+            row.bank_ifsc_code = frm.doc.bank_ifsc_code || '';
+            row.upi_id = '';
+        } else if (row.payment_mode === 'Direct Vendor Payment (UPI)') {
+            if (row.beneficiary_name === (frm.doc.spoc_name || frm.doc.spoc)) {
+                row.beneficiary_name = '';
+            }
+        }
+        frm.refresh_field('imprest_items');
         calculate_imprest_totals(frm);
         render_advance_event_context(frm);
     },
+
     quote_attachment: function(frm) {
         if (window.APReceiptGallery) {
             window.APReceiptGallery.refreshFormButtons(frm);
         }
+        setTimeout(() => bind_imprest_grid_uploaders(frm), 150);
     },
+
     imprest_items_remove: function(frm) {
         calculate_imprest_totals(frm);
         render_advance_event_context(frm);
         if (window.APReceiptGallery) {
             window.APReceiptGallery.refreshFormButtons(frm);
         }
+        setTimeout(() => bind_imprest_grid_uploaders(frm), 150);
     }
 });
+
+// Interactive Multi-Quote Upload & Inspection Modal
+function bind_imprest_grid_uploaders(frm) {
+    if (!frm || !frm.fields_dict['imprest_items'] || !frm.fields_dict['imprest_items'].grid) return;
+    const grid = frm.fields_dict['imprest_items'].grid;
+    const is_editable = (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft');
+
+    $(frm.wrapper).find('.grid-row').each(function(idx) {
+        const row_elem = $(this);
+        const row_data = (grid.grid_rows && grid.grid_rows[idx] && grid.grid_rows[idx].doc) || (frm.doc.imprest_items || [])[idx];
+        if (!row_data) return;
+
+        const cell = row_elem.find('.grid-static-col[data-fieldname="quote_attachment"]');
+        if (!cell.length) return;
+
+        let atts = [];
+        if (row_data.attachments) {
+            try {
+                atts = typeof row_data.attachments === 'string' ? JSON.parse(row_data.attachments) : row_data.attachments;
+            } catch (e) {
+                atts = [];
+            }
+        }
+        if (!Array.isArray(atts)) atts = [];
+        if (atts.length === 0 && row_data.quote_attachment) {
+            atts = [{ file_url: row_data.quote_attachment, file_name: row_data.quote_attachment.split('/').pop().split('?')[0] }];
+        }
+
+        const count = atts.length;
+        const state_key = `${count}_${row_data.name || idx}`;
+        if (cell.attr('data-rendered-state') === state_key && cell.children().length > 0) return;
+        cell.attr('data-rendered-state', state_key);
+        cell.empty();
+
+        if (count > 0) {
+            const badge = $(`
+                <div class="ap-imprest-capsule-badge" style="
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    background: #eff6ff;
+                    border: 1px solid #bfdbfe;
+                    border-radius: 6px;
+                    padding: 2px 8px;
+                    cursor: pointer;
+                    height: 28px;
+                    max-height: 28px;
+                    white-space: nowrap;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+                " title="Click to view/add quotes (${count} attached)">
+                    <span style="font-size: 11px; font-weight: 700; color: #1e40af;">${count} Quote${count > 1 ? 's' : ''}</span>
+                    <span class="ap-row-view-btn" style="
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        padding: 0 4px;
+                        height: 20px;
+                        border-radius: 4px;
+                        background: #dbeafe;
+                        color: #1e40af;
+                        font-size: 10px;
+                        font-weight: 700;
+                        margin-left: 2px;
+                    " title="View Quotes">View</span>
+                </div>
+            `);
+            badge.on('click', function(e) {
+                e.stopPropagation();
+                open_imprest_row_quotes_modal(frm, idx);
+            });
+            cell.append(badge);
+        } else if (is_editable) {
+            const upload_btn = $(`
+                <button type="button" class="btn btn-xs btn-default ap-row-upload-btn" style="
+                    border-radius: 6px;
+                    font-size: 11px;
+                    padding: 3px 8px;
+                    background: #f8fafc;
+                    border: 1px dashed #94a3b8;
+                    color: #475569;
+                    cursor: pointer;
+                ">+ Quotes</button>
+            `);
+            upload_btn.on('click', function(e) {
+                e.stopPropagation();
+                upload_quotes_to_imprest_row(frm, idx);
+            });
+            cell.append(upload_btn);
+        } else {
+            cell.html('<span style="color:#94a3b8; font-size:11px;">No Quote</span>');
+        }
+    });
+}
+
+function upload_quotes_to_imprest_row(frm, row_idx) {
+    const grid = frm.fields_dict['imprest_items'].grid;
+    const row = (grid.grid_rows && grid.grid_rows[row_idx] && grid.grid_rows[row_idx].doc) || (frm.doc.imprest_items || [])[row_idx];
+    if (!row) return;
+
+    let existing_atts = [];
+    if (row.attachments) {
+        try {
+            existing_atts = typeof row.attachments === 'string' ? JSON.parse(row.attachments) : row.attachments;
+        } catch (e) {
+            existing_atts = [];
+        }
+    }
+    if (!Array.isArray(existing_atts)) existing_atts = [];
+    if (existing_atts.length === 0 && row.quote_attachment) {
+        existing_atts.push({
+            file_url: row.quote_attachment,
+            file_name: row.quote_attachment.split('/').pop().split('?')[0]
+        });
+    }
+
+    new frappe.ui.FileUploader({
+        folder: 'Home/Attachments',
+        doctype: frm.doc.doctype,
+        docname: frm.doc.name,
+        allow_multiple: true,
+        on_success: (file_doc) => {
+            const clean_url = file_doc.file_url;
+            const f_name = file_doc.file_name || clean_url.split('/').pop().split('?')[0];
+            const f_size = file_doc.file_size ? `${Math.round(file_doc.file_size / 1024)} KB` : '';
+            existing_atts.push({
+                file_url: clean_url,
+                file_name: f_name,
+                file_size: f_size
+            });
+
+            frappe.model.set_value(row.doctype, row.name, 'attachments', JSON.stringify(existing_atts));
+            frappe.model.set_value(row.doctype, row.name, 'attachments_count', existing_atts.length);
+            if (!row.quote_attachment) {
+                frappe.model.set_value(row.doctype, row.name, 'quote_attachment', clean_url);
+            }
+            frm.refresh_field('imprest_items');
+            setTimeout(() => bind_imprest_grid_uploaders(frm), 150);
+        }
+    });
+}
+
+function open_imprest_row_quotes_modal(frm, row_idx) {
+    const grid = frm.fields_dict['imprest_items'].grid;
+    const row = (grid.grid_rows && grid.grid_rows[row_idx] && grid.grid_rows[row_idx].doc) || (frm.doc.imprest_items || [])[row_idx];
+    if (!row) return;
+
+    let atts = [];
+    if (row.attachments) {
+        try {
+            atts = typeof row.attachments === 'string' ? JSON.parse(row.attachments) : row.attachments;
+        } catch (e) {
+            atts = [];
+        }
+    }
+    if (!Array.isArray(atts)) atts = [];
+    if (atts.length === 0 && row.quote_attachment) {
+        atts.push({ file_url: row.quote_attachment, file_name: row.quote_attachment.split('/').pop().split('?')[0] });
+    }
+
+    const title_str = row.particulars || row.beneficiary_name || `Row #${row_idx + 1}`;
+    const is_editable = (frm.doc.docstatus === 0 && (frm.doc.status || 'Draft') === 'Draft');
+
+    const render_cards_html = () => {
+        if (atts.length === 0) {
+            return `<div style="text-align:center; padding:30px; color:#64748b; font-size:13px;">No quotes attached to this item yet.</div>`;
+        }
+        return `
+            <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; margin-top: 12px; max-height: 460px; overflow-y: auto; padding: 4px;">
+                ${atts.map((att, a_idx) => {
+                    const u = att.file_url || att.url || '';
+                    const fn = att.file_name || u.split('/').pop().split('?')[0];
+                    const ext = (fn.lastIndexOf('.') !== -1 ? fn.substring(fn.lastIndexOf('.')).toLowerCase() : '');
+                    const is_img = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext);
+                    return `
+                        <div class="ap-row-quote-card" style="border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; padding: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); display: flex; flex-direction: column;">
+                            <div style="height: 120px; background: #f8fafc; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 8px; cursor: pointer;" onclick="window.open('${u}', '_blank')">
+                                ${is_img 
+                                    ? `<img src="${u}" style="max-height: 100%; max-width: 100%; object-fit: contain;" />` 
+                                    : `<div style="text-align:center; color:#2563eb; font-weight:700; font-size:18px;">[PDF]<div style="font-size:11px; color:#64748b; margin-top:4px;">Document</div></div>`
+                                }
+                            </div>
+                            <div style="font-size: 11px; font-weight: 600; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px;" title="${frappe.utils.escape_html(fn)}">
+                                ${frappe.utils.escape_html(fn)}
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 6px; border-top: 1px solid #f1f5f9;">
+                                <a href="${u}" target="_blank" style="font-size: 11px; color: #2563eb; text-decoration: none; font-weight: 600;">Open ↗</a>
+                                ${is_editable ? `
+                                    <button type="button" class="btn btn-xs btn-danger ap-del-quote-btn" data-idx="${a_idx}" style="font-size: 10px; padding: 2px 6px;">Delete</button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    };
+
+    const d = new frappe.ui.Dialog({
+        title: __('Attached Quotes & Estimates — {0}', [title_str]),
+        fields: [
+            {
+                fieldname: 'cards_area',
+                fieldtype: 'HTML'
+            }
+        ],
+        size: 'large'
+    });
+
+    if (is_editable) {
+        d.set_primary_action(__('Upload More Quotes'), function() {
+            new frappe.ui.FileUploader({
+                folder: 'Home/Attachments',
+                doctype: frm.doc.doctype,
+                docname: frm.doc.name,
+                allow_multiple: true,
+                on_success: (file_doc) => {
+                    const clean_url = file_doc.file_url;
+                    const f_name = file_doc.file_name || clean_url.split('/').pop().split('?')[0];
+                    const f_size = file_doc.file_size ? `${Math.round(file_doc.file_size / 1024)} KB` : '';
+                    atts.push({ file_url: clean_url, file_name: f_name, file_size: f_size });
+
+                    frappe.model.set_value(row.doctype, row.name, 'attachments', JSON.stringify(atts));
+                    frappe.model.set_value(row.doctype, row.name, 'attachments_count', atts.length);
+                    if (!row.quote_attachment) {
+                        frappe.model.set_value(row.doctype, row.name, 'quote_attachment', clean_url);
+                    }
+                    frm.refresh_field('imprest_items');
+                    setTimeout(() => bind_imprest_grid_uploaders(frm), 150);
+                    d.fields_dict.cards_area.$wrapper.html(render_cards_html());
+                }
+            });
+        });
+    }
+
+    d.show();
+    d.fields_dict.cards_area.$wrapper.html(render_cards_html());
+
+    d.fields_dict.cards_area.$wrapper.on('click', '.ap-del-quote-btn', function() {
+        const del_idx = parseInt($(this).attr('data-idx'));
+        if (!isNaN(del_idx)) {
+            atts.splice(del_idx, 1);
+            frappe.model.set_value(row.doctype, row.name, 'attachments', JSON.stringify(atts));
+            frappe.model.set_value(row.doctype, row.name, 'attachments_count', atts.length);
+            frappe.model.set_value(row.doctype, row.name, 'quote_attachment', atts.length > 0 ? atts[0].file_url : '');
+            frm.refresh_field('imprest_items');
+            setTimeout(() => bind_imprest_grid_uploaders(frm), 150);
+            d.fields_dict.cards_area.$wrapper.html(render_cards_html());
+        }
+    });
+}

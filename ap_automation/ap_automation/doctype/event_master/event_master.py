@@ -5,12 +5,21 @@ from typing import Any, Dict, Optional
 import frappe
 from frappe.model.document import Document
 from ap_automation.exceptions import APValidationError, APSecurityError
-from ap_automation.services.event_budget_service import enforce_event_status_tamper_lock
+from ap_automation.services.event_budget_service import (
+    enforce_event_status_tamper_lock,
+    validate_event_spoc_department,
+)
 
 
 class EventMaster(Document):
     def validate(self):
         """Lifecycle validation hook: computes committed spend and remaining budget."""
+        if self.event_spoc and self.get("allowed_departments"):
+            validate_event_spoc_department(self.event_spoc, self.get("allowed_departments"), doc_type_label="Event Master")
+
+        if self.event_spoc and not self.spoc_name:
+            self.spoc_name = frappe.db.get_value("User", self.event_spoc, "full_name") or self.event_spoc
+
         direct = float(self.direct_finance_spends or 0.0)
         disbursed = float(self.disbursed_advance or 0.0)
         spoc_actual = float(self.spoc_actual_spends or 0.0)
