@@ -76,9 +76,10 @@
    "columns": 2,
    "fieldname": "vendor",
    "fieldtype": "Link",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Registered Supplier (Optional)",
-   "options": "Supplier"
+   "options": "Supplier",
+   "hidden": 1
   },
   {
    "columns": 2,

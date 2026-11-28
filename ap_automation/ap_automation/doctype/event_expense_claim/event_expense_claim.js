@@ -22,6 +22,14 @@ frappe.ui.form.on("Event Expense Claim", {
         frm.set_df_property('is_final_settlement', 'read_only', is_zero_refund ? 1 : 0);
 
         set_expense_claim_indicator(frm);
+        frm.set_query('spoc', function() {
+            return {
+                query: 'ap_automation.services.event_budget_service.get_event_spoc_users',
+                filters: {
+                    event: frm.doc.event
+                }
+            };
+        });
         frm.set_query('service_type', 'expense_items', function() {
             return { filters: { is_active: 1 } };
         });
@@ -839,7 +847,7 @@ function render_unified_claim_banner(frm, recon) {
                     <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 11px; font-weight: 700; color: #475569;">
                         ${(flt(frm.doc.total_income) > 0) ? `<span>Total Income: ${format_curr(frm.doc.total_income)}</span><span>|</span>` : ''}
                         ${(flt(frm.doc.total_expenses) > 0) ? `<span>Total Expenses: ${format_curr(frm.doc.total_expenses)}</span><span>|</span>` : ''}
-                        <span>Cash Advance: ${format_curr(adv)}</span>
+                        <span style="background: #ffffff; padding: 2px 6px; border-radius: 4px; border: 1px solid #cbd5e1; color: #1e40af;">Total Advance Disbursed: <b>${format_curr(adv)}</b></span>
                         <span>|</span>
                         <span>Prior Bills: ${format_curr(prior)}</span>
                         <span>|</span>

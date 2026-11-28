@@ -10,6 +10,7 @@
   "sb_basic",
   "event_name",
   "company",
+  "allowed_departments",
   "event_spoc",
   "spoc_name",
   "cb_dates",
@@ -49,6 +50,12 @@
    "label": "Company Entity",
    "options": "Company",
    "reqd": 1
+  },
+  {
+   "fieldname": "allowed_departments",
+   "fieldtype": "Table MultiSelect",
+   "label": "Allowed Event Departments",
+   "options": "Event Department Item"
   },
   {
    "fieldname": "event_spoc",

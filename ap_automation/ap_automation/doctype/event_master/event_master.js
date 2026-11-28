@@ -3,7 +3,26 @@
 // 100% Mobile & Desktop Responsive
 
 frappe.ui.form.on("Event Master", {
+    onload: function(frm) {
+        setup_event_spoc_query(frm);
+        if (frm.is_new() && (!frm.doc.allowed_departments || frm.doc.allowed_departments.length === 0)) {
+            frappe.call({
+                method: 'ap_automation.services.event_budget_service.get_default_event_departments',
+                callback: function(r) {
+                    if (r && r.message && r.message.length && frm.is_new() && (!frm.doc.allowed_departments || frm.doc.allowed_departments.length === 0)) {
+                        r.message.forEach(dept => {
+                            frm.add_child('allowed_departments', { department: dept });
+                        });
+                        frm.refresh_field('allowed_departments');
+                        setup_event_spoc_query(frm);
+                    }
+                }
+            });
+        }
+    },
+
     refresh: function(frm) {
+        setup_event_spoc_query(frm);
         if (frm.doc.docstatus === 0) {
             frm.enable_save();
             if (frm.page.btn_primary) {
@@ -33,8 +52,39 @@ frappe.ui.form.on("Event Master", {
         setup_event_master_actions(frm);
     },
 
+    event_spoc: function(frm) {
+        if (frm.doc.event_spoc) {
+            frappe.db.get_value('User', frm.doc.event_spoc, 'full_name', function(r) {
+                if (r && r.full_name) {
+                    frm.set_value('spoc_name', r.full_name);
+                }
+            });
+        }
+    },
+
     allocated_budget: function(frm) {
         render_event_master_dashboard(frm);
+    }
+});
+
+function setup_event_spoc_query(frm) {
+    frm.set_query('event_spoc', function() {
+        const depts = (frm.doc.allowed_departments || []).map(d => d.department).filter(Boolean);
+        return {
+            query: 'ap_automation.services.event_budget_service.get_event_spoc_users',
+            filters: {
+                departments: depts
+            }
+        };
+    });
+}
+
+frappe.ui.form.on("Event Department Item", {
+    department: function(frm) {
+        setup_event_spoc_query(frm);
+    },
+    allowed_departments_remove: function(frm) {
+        setup_event_spoc_query(frm);
     }
 });
 

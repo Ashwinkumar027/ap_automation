@@ -21,6 +21,14 @@ frappe.ui.form.on("Event Settlement", {
     },
 
     refresh: function(frm) {
+        frm.set_query('spoc', function() {
+            return {
+                query: 'ap_automation.services.event_budget_service.get_event_spoc_users',
+                filters: {
+                    event: frm.doc.event
+                }
+            };
+        });
         frm.set_df_property('status', 'read_only', 1);
         set_settlement_status_indicator(frm);
         render_settlement_verdict_card(frm);

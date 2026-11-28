@@ -126,6 +126,10 @@ class EventAdvanceRequest(APDocument):
         if not getattr(self, "letter_head", None) and self.company:
             self.letter_head = frappe.db.get_value("Company", self.company, "default_letter_head")
 
+        if self.spoc and self.get("allowed_departments"):
+            from ap_automation.services.event_budget_service import validate_event_spoc_department
+            validate_event_spoc_department(self.spoc, self.get("allowed_departments"), doc_type_label="Event Advance Request")
+
         # Process itemized imprest rows
         items = getattr(self, "imprest_items", []) or []
         req_amt = float(getattr(self, "requested_advance_amount", 0.0) or 0.0)
@@ -134,6 +138,9 @@ class EventAdvanceRequest(APDocument):
                 "particulars": getattr(self, "purpose", None) or "Event Operations Advance",
                 "payment_mode": "Cash / Petty Imprest",
                 "beneficiary_name": getattr(self, "spoc_name", None) or getattr(self, "spoc", None) or "Event SPOC",
+                "base_amount": req_amt,
+                "gst_rate": "0%",
+                "gst_amount": 0.0,
                 "amount": req_amt,
             })
             items = self.imprest_items
@@ -143,35 +150,69 @@ class EventAdvanceRequest(APDocument):
 
         if items:
             for idx, row in enumerate(items, start=1):
+                base_amt = float(getattr(row, "base_amount", 0.0) or 0.0)
                 amt = float(getattr(row, "amount", 0.0) or 0.0)
+                gst_rate_str = getattr(row, "gst_rate", "0%") or "0%"
+                try:
+                    gst_rate_num = float(str(gst_rate_str).replace("%", "").strip() or 0.0)
+                except Exception:
+                    gst_rate_num = 0.0
+
+                if base_amt > 0:
+                    gst_amt = round(base_amt * gst_rate_num / 100.0, 2)
+                    total_row_amt = round(base_amt + gst_amt, 2)
+                    row.gst_amount = gst_amt
+                    row.amount = total_row_amt
+                    amt = total_row_amt
+                elif amt > 0:
+                    row.base_amount = amt
+                    row.gst_amount = 0.0
+
                 if amt <= 0:
                     raise APValidationError(f"Row #{idx}: Amount must be strictly greater than 0.")
+
                 mode = getattr(row, "payment_mode", "Cash / Petty Imprest")
-                if mode == "Direct Vendor Payment":
+                if mode in ("Petty Cash", "Cash / Petty Imprest", "On-Ground Cash Imprest"):
+                    cash_total += amt
+                    if not getattr(row, "beneficiary_name", None):
+                        row.beneficiary_name = getattr(self, "spoc_name", None) or getattr(self, "spoc", None) or "Event SPOC"
+                    if not getattr(row, "bank_account_number", None) and getattr(self, "bank_account_number", None):
+                        row.bank_name = getattr(self, "bank_name", None)
+                        row.bank_account_number = getattr(self, "bank_account_number", None)
+                        row.bank_ifsc_code = getattr(self, "bank_ifsc_code", None)
+                else:
                     direct_total += amt
                     curr_status = getattr(self, "status", None) or "Draft"
                     is_submitting = getattr(self, "docstatus", 0) == 1 or curr_status not in ("Draft", "Not Saved")
                     if is_submitting:
                         bene = (getattr(row, "beneficiary_name", "") or "").strip()
+                        upi_id = (getattr(row, "upi_id", "") or "").strip()
                         ac_no = (getattr(row, "bank_account_number", "") or "").strip()
                         ifsc = (getattr(row, "bank_ifsc_code", "") or "").strip()
                         if not bene:
                             raise APValidationError(f"Row #{idx}: Beneficiary / Vendor Name is mandatory for Direct Vendor Payment.")
-                        if not ac_no or not ifsc:
-                            raise APValidationError(
-                                f"Row #{idx}: Bank Account Number and IFSC Code are mandatory for Direct Vendor Payment ('{bene or 'Vendor'}')."
-                            )
-                        from ap_automation.integrations.idfc import validate_account_number, validate_ifsc_code
-                        if not validate_account_number(ac_no):
-                            raise APValidationError(
-                                f"Row #{idx} ({bene}): Invalid Vendor Bank Account Number '{ac_no}'. Must be 9 to 18 numeric digits."
-                            )
-                        if not validate_ifsc_code(ifsc):
-                            raise APValidationError(
-                                f"Row #{idx} ({bene}): Invalid Vendor IFSC Code '{ifsc}'. Must be 11 characters conforming to NPCI standard (e.g., IDFB0040101)."
-                            )
-                else:
-                    cash_total += amt
+
+                        is_upi = mode == "Direct Vendor Payment (UPI)" or bool(upi_id)
+                        if is_upi:
+                            if not upi_id:
+                                raise APValidationError(f"Row #{idx} ({bene}): Vendor UPI ID / VPA is mandatory for UPI payment mode.")
+                            import re
+                            if not re.match(r"^[\w.\-_]{2,256}@[\w]{2,64}$", upi_id):
+                                raise APValidationError(f"Row #{idx} ({bene}): Invalid UPI ID / VPA '{upi_id}'. Format should be name@bank (e.g. vendor@okhdfcbank).")
+                        else:
+                            if not ac_no or not ifsc:
+                                raise APValidationError(
+                                    f"Row #{idx}: Bank Account Number and IFSC Code (or UPI ID) are mandatory for Direct Vendor Payment ('{bene or 'Vendor'}')."
+                                )
+                            from ap_automation.integrations.idfc import validate_account_number, validate_ifsc_code
+                            if not validate_account_number(ac_no):
+                                raise APValidationError(
+                                    f"Row #{idx} ({bene}): Invalid Vendor Bank Account Number '{ac_no}'. Must be 9 to 18 numeric digits."
+                                )
+                            if not validate_ifsc_code(ifsc):
+                                raise APValidationError(
+                                    f"Row #{idx} ({bene}): Invalid Vendor IFSC Code '{ifsc}'. Must be 11 characters conforming to NPCI standard (e.g., IDFB0040101)."
+                                )
 
             self.total_direct_vendor_amount = round(direct_total, 2)
             self.total_cash_imprest_amount = round(cash_total, 2)

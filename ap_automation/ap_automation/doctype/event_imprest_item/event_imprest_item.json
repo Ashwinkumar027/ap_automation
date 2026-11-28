@@ -7,14 +7,20 @@
  "engine": "InnoDB",
  "field_order": [
   "particulars",
+  "base_amount",
+  "gst_rate",
+  "gst_amount",
   "amount",
   "payment_mode",
+  "upi_id",
   "beneficiary_name",
   "bank_name",
   "bank_account_number",
   "bank_ifsc_code",
   "remarks",
-  "quote_attachment"
+  "quote_attachment",
+  "attachments",
+  "attachments_count"
  ],
  "fields": [
   {
@@ -26,10 +32,36 @@
    "columns": 2
   },
   {
+   "columns": 1,
+   "fieldname": "base_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Base / Quote Amount (INR)",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "default": "0%",
+   "fieldname": "gst_rate",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "GST %",
+   "options": "0%\n5%\n12%\n18%\n28%"
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "gst_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "GST Amount (INR)",
+   "read_only": 1
+  },
+  {
    "fieldname": "amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Amount (INR)",
+   "label": "Total Amount (Incl. GST)",
    "reqd": 1,
    "columns": 1
   },
@@ -39,9 +71,16 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Payment Mode",
-   "options": "Direct Vendor Payment\nOn-Ground Cash Imprest\nCash / Petty Imprest",
+   "options": "Direct Vendor Payment\nDirect Vendor Payment (UPI)\nOn-Ground Cash Imprest\nPetty Cash\nCash / Petty Imprest",
    "reqd": 1,
    "columns": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "upi_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vendor UPI ID / VPA"
   },
   {
    "fieldname": "beneficiary_name",
@@ -85,6 +124,19 @@
    "label": "Quote / Estimate / Bill",
    "in_list_view": 1,
    "columns": 1
+  },
+  {
+   "fieldname": "attachments",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "Attachments JSON"
+  },
+  {
+   "default": "0",
+   "fieldname": "attachments_count",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Quotes Count"
   }
  ],
  "istable": 1,

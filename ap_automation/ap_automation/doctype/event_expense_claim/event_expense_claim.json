@@ -217,7 +217,7 @@
   {
    "fieldname": "disbursed_advance",
    "fieldtype": "Currency",
-   "label": "Total Cash Advance Disbursed (INR)",
+   "label": "Total Advance Disbursed (INR)",
    "read_only": 1
   },
   {
