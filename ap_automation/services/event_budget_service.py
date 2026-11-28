@@ -290,16 +290,23 @@ def validate_advance_request(advance_doc) -> None:
     if hasattr(advance_doc, "budget_warning_note"):
         advance_doc.budget_warning_note = warning_text
 
-    bank_info = fetch_spoc_salary_bank(advance_doc.spoc)
-    if not bank_info or not bank_info.get("bank_account_no"):
-        raise APValidationError(
-            f"HRMS Bank Account Missing: Event SPOC '{advance_doc.spoc}' does not have an active "
-            "salary bank account configured in HRMS Employee profile. Manual account typing is prohibited."
-        )
-
-    advance_doc.bank_name = bank_info.get("bank_name", "")
-    advance_doc.bank_account_number = bank_info.get("bank_account_no", "")
-    advance_doc.bank_ifsc_code = bank_info.get("ifsc_code", "")
+    cash_total = float(getattr(advance_doc, "total_cash_imprest_amount", 0.0) or 0.0)
+    # Enforce SPOC salary bank details only if cash imprest is requested
+    if cash_total > 0:
+        bank_info = fetch_spoc_salary_bank(advance_doc.spoc)
+        if not bank_info or not bank_info.get("bank_account_no"):
+            raise APValidationError(
+                f"HRMS Bank Account Missing: Event SPOC '{advance_doc.spoc}' does not have an active "
+                "salary bank account configured in HRMS Employee profile for cash imprest disbursement. "
+                "Manual account typing is prohibited."
+            )
+        advance_doc.bank_name = bank_info.get("bank_name", "")
+        advance_doc.bank_account_number = bank_info.get("bank_account_no", "")
+        advance_doc.bank_ifsc_code = bank_info.get("ifsc_code", "")
+    else:
+        advance_doc.bank_name = ""
+        advance_doc.bank_account_number = ""
+        advance_doc.bank_ifsc_code = ""
 
 
 def fetch_spoc_salary_bank(user_email: str) -> Dict[str, Any]:
@@ -451,9 +458,29 @@ def get_event_spoc_users(doctype=None, txt="", searchfield="user_id", start=0, p
     conditions = ["e.status = 'Active'", "e.user_id IS NOT NULL", "e.user_id != ''"]
     params = {}
 
+    expanded_depts = set(departments)
     if departments:
+        try:
+            dept_info = frappe.db.sql(
+                """
+                SELECT name, department_name
+                FROM `tabDepartment`
+                WHERE name IN %(depts)s OR department_name IN %(depts)s
+                """,
+                {"depts": tuple(departments)},
+                as_dict=True
+            )
+            for d in dept_info:
+                if d.get("name"):
+                    expanded_depts.add(d["name"])
+                if d.get("department_name"):
+                    expanded_depts.add(d["department_name"])
+        except Exception:
+            pass
+
+    if expanded_depts:
         conditions.append("e.department IN %(departments)s")
-        params["departments"] = tuple(departments)
+        params["departments"] = tuple(expanded_depts)
 
     if txt:
         conditions.append("(e.user_id LIKE %(txt)s OR e.employee_name LIKE %(txt)s OR e.name LIKE %(txt)s)")
@@ -515,11 +542,32 @@ def validate_event_spoc_department(spoc_user: str, allowed_departments: list, do
         return
 
     emp_dept = emp.get("department") or ""
-    matched = emp_dept in dept_names
-    if not matched:
-        actual_names = frappe.get_all("Department", filters={"name": ["in", dept_names]}, pluck="department_name")
-        emp_dept_name = frappe.db.get_value("Department", emp_dept, "department_name") or emp_dept
-        matched = emp_dept in actual_names or emp_dept_name in actual_names or emp_dept_name in dept_names
+    all_allowed = set(dept_names)
+    try:
+        dept_records = frappe.get_all("Department", filters={"name": ["in", dept_names]}, fields=["name", "department_name"])
+        for dr in dept_records:
+            if dr.get("name"):
+                all_allowed.add(dr["name"])
+            if dr.get("department_name"):
+                all_allowed.add(dr["department_name"])
+        dept_records_rev = frappe.get_all("Department", filters={"department_name": ["in", dept_names]}, fields=["name", "department_name"])
+        for dr in dept_records_rev:
+            if dr.get("name"):
+                all_allowed.add(dr["name"])
+            if dr.get("department_name"):
+                all_allowed.add(dr["department_name"])
+    except Exception:
+        pass
+
+    raw_dept_name = frappe.db.get_value("Department", emp_dept, "department_name")
+    if isinstance(raw_dept_name, dict):
+        emp_dept_name = str(raw_dept_name.get("department_name") or emp_dept)
+    elif isinstance(raw_dept_name, str):
+        emp_dept_name = raw_dept_name
+    else:
+        emp_dept_name = str(emp_dept)
+
+    matched = (emp_dept in all_allowed) or (emp_dept_name in all_allowed)
 
     if not matched:
         raise APValidationError(

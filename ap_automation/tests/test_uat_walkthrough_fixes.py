@@ -95,6 +95,8 @@ class TestUATWalkthroughFixes(unittest.TestCase):
         po.vendor_gstin = "27AAAC1234A1Z5"
         po.service_type = "SaaS / Cloud Subscription"
         po.gst_type = "Intra-State (CGST + SGST)"
+        frappe.db.get_value.return_value = None
+        frappe.db.sql.return_value = []
         po.items = [
             MagicMock(
                 item_name="License Fee",

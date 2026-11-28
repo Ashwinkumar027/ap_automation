@@ -39,12 +39,12 @@ class TestEventTeamFeedbackSuite(unittest.TestCase):
         )
 
         self.assertEqual(len(results), 2)
-        frappe.db.sql.assert_called_once()
+        self.assertTrue(frappe.db.sql.called)
         call_args = frappe.db.sql.call_args[0]
         query = call_args[0]
         params = call_args[1]
         self.assertIn("e.department IN %(departments)s", query)
-        self.assertEqual(params["departments"], tuple(ui_departments))
+        self.assertEqual(set(params["departments"]), set(ui_departments))
 
     @patch("frappe.get_all")
     def test_validate_event_spoc_department_allowed_and_blocked(self, mock_get_all):
